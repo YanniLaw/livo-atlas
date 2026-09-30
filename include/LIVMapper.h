@@ -16,6 +16,7 @@ which is included as part of this source code package.
 #include "IMU_Processing.h"
 #include "vio.h"
 #include "preprocess.h"
+#include "livo_atlas/core/sensor_extrinsics.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <nav_msgs/Path.h>
@@ -24,7 +25,8 @@ which is included as part of this source code package.
 class LIVMapper
 {
 public:
-  LIVMapper(ros::NodeHandle &nh);
+  LIVMapper(const livo_atlas::SensorExtrinsics& sensor_extrinsics,
+            ros::NodeHandle& nh);
   ~LIVMapper();
   void initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_transport::ImageTransport &it);
   void initializeComponents();
@@ -124,10 +126,6 @@ public:
   deque<cv::Mat> img_buffer;
   deque<double> img_time_buffer;
   vector<pointWithVar> _pv_list;
-  vector<double> extrinT;
-  vector<double> extrinR;
-  vector<double> cameraextrinT;
-  vector<double> cameraextrinR;
   double IMG_POINT_COV;
 
   PointCloudXYZI::Ptr visual_sub_map;
@@ -183,5 +181,8 @@ public:
   double aver_time_icp = 0;
   double aver_time_map_inre = 0;
   bool colmap_output_en = false;
+
+ private:
+  const livo_atlas::SensorExtrinsics sensor_extrinsics_;
 };
 #endif

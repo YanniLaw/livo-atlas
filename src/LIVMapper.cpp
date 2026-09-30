@@ -12,15 +12,12 @@ which is included as part of this source code package.
 
 #include "LIVMapper.h"
 
-LIVMapper::LIVMapper(ros::NodeHandle &nh)
+LIVMapper::LIVMapper(
+    const livo_atlas::SensorExtrinsics& sensor_extrinsics,
+    ros::NodeHandle& nh)
     : extT(0, 0, 0),
-      extR(M3D::Identity())
-{
-  extrinT.assign(3, 0.0);
-  extrinR.assign(9, 0.0);
-  cameraextrinT.assign(3, 0.0);
-  cameraextrinR.assign(9, 0.0);
-
+      extR(M3D::Identity()),
+      sensor_extrinsics_(sensor_extrinsics) {
   p_pre.reset(new Preprocess());
   p_imu.reset(new ImuProcess());
 
@@ -101,10 +98,6 @@ void LIVMapper::readParameters(ros::NodeHandle &nh)
 
   nh.param<bool>("pcd_save/colmap_output_en", colmap_output_en, false);
   nh.param<double>("pcd_save/filter_size_pcd", filter_size_pcd, 0.5);
-  nh.param<vector<double>>("extrin_calib/extrinsic_T", extrinT, vector<double>());
-  nh.param<vector<double>>("extrin_calib/extrinsic_R", extrinR, vector<double>());
-  nh.param<vector<double>>("extrin_calib/Pcl", cameraextrinT, vector<double>());
-  nh.param<vector<double>>("extrin_calib/Rcl", cameraextrinR, vector<double>());
   nh.param<double>("debug/plot_time", plot_time, -10);
   nh.param<int>("debug/frame_cnt", frame_cnt, 6);
 
@@ -119,11 +112,11 @@ void LIVMapper::readParameters(ros::NodeHandle &nh)
 void LIVMapper::initializeComponents() 
 {
   downSizeFilterSurf.setLeafSize(filter_size_surf_min, filter_size_surf_min, filter_size_surf_min);
-  extT << VEC_FROM_ARRAY(extrinT);
-  extR << MAT_FROM_ARRAY(extrinR);
+  extT = sensor_extrinsics_.lidar_to_imu_transform.translation();
+  extR = sensor_extrinsics_.lidar_to_imu_transform.linear();
 
-  voxelmap_manager->extT_ << VEC_FROM_ARRAY(extrinT);
-  voxelmap_manager->extR_ << MAT_FROM_ARRAY(extrinR);
+  voxelmap_manager->extT_ = extT;
+  voxelmap_manager->extR_ = extR;
 
   if (!vk::camera_loader::loadFromRosNs("laserMapping", vio_manager->cam)) throw std::runtime_error("Camera model not correctly specified.");
 
@@ -131,7 +124,9 @@ void LIVMapper::initializeComponents()
   vio_manager->patch_size = patch_size;
   vio_manager->outlier_threshold = outlier_threshold;
   vio_manager->setImuToLidarExtrinsic(extT, extR);
-  vio_manager->setLidarToCameraExtrinsic(cameraextrinR, cameraextrinT);
+  vio_manager->setLidarToCameraExtrinsic(
+      sensor_extrinsics_.lidar_to_camera_transform.linear(),
+      sensor_extrinsics_.lidar_to_camera_transform.translation());
   vio_manager->state = &_state;
   vio_manager->state_propagat = &state_propagat;
   vio_manager->max_iterations = max_iterations;
