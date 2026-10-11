@@ -1,0 +1,12 @@
+ocam model
+3
+0 1 0
+inverse polynomial
+3
+0 1 0
+center
+240 320
+affine
+1 0 0
+image size
+480 640

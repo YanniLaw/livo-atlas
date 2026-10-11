@@ -46,8 +46,6 @@ void VIOManager::initializeVIO()
   fy = cam->fy();
   cx = cam->cx();
   cy = cam->cy();
-  image_resize_factor = cam->scale();
-
   printf("intrinsic: %.6lf, %.6lf, %.6lf, %.6lf\n", fx, fy, cx, cy);
 
   width = cam->width();
@@ -127,7 +125,7 @@ void VIOManager::initializeVIO()
 
   if(colmap_output_en)
   {
-    pinhole_cam = dynamic_cast<vk::PinholeCamera*>(cam);
+    pinhole_cam = dynamic_cast<vk::PinholeCamera*>(cam.get());
     fout_colmap.open(DEBUG_FILE_DIR("Colmap/sparse/0/images.txt"), ios::out);
     fout_colmap << "# Image list with two lines of data per image:\n";
     fout_colmap << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
@@ -1796,7 +1794,7 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
 
   if (img.channels() == 3) cv::cvtColor(img, img, CV_BGR2GRAY);
 
-  new_frame_.reset(new Frame(cam, img));
+  new_frame_.reset(new Frame(cam.get(), img));
   updateFrameState(*state);
   
   resetGrid();

@@ -11,7 +11,8 @@ namespace livo_atlas {
 
 // Load and validate the four required legacy extrinsic parameters. On failure,
 // output is left unchanged and error identifies the invalid parameter.
-bool LoadSensorExtrinsics(const ros::NodeHandle& nh, SensorExtrinsics* output,
+bool LoadSensorExtrinsics(const ::ros::NodeHandle& nh,
+                          SensorExtrinsics* output,
                           std::string* error);
 
 }  // namespace livo_atlas

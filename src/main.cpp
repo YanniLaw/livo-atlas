@@ -4,6 +4,7 @@
 #include <ros/ros.h>
 
 #include "LIVMapper.h"
+#include "livo_atlas/ros/camera_config.h"
 #include "livo_atlas/ros/sensor_extrinsics.h"
 
 int main(int argc, char** argv) {
@@ -17,8 +18,15 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  livo_atlas::CameraConfig camera_config;
+  if (!livo_atlas::ros::LoadCameraConfig(
+          nh, "laserMapping", &camera_config, &error)) {
+    ROS_ERROR_STREAM("Invalid camera config: " << error);
+    return 1;
+  }
+
   image_transport::ImageTransport it(nh);
-  LIVMapper mapper(sensor_extrinsics, nh);
+  LIVMapper mapper(sensor_extrinsics, camera_config, nh);
   mapper.initializeSubscribersAndPublishers(nh, it);
   mapper.run();
   return 0;

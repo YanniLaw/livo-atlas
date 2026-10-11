@@ -13,6 +13,8 @@ which is included as part of this source code package.
 #ifndef VIO_H_
 #define VIO_H_
 
+#include <memory>
+
 #include "voxel_map.h"
 #include "feature.h"
 #include <opencv2/imgproc/imgproc_c.h>
@@ -84,8 +86,8 @@ class VIOManager
 {
 public:
   int grid_size;
-  vk::AbstractCamera *cam;
-  vk::PinholeCamera *pinhole_cam;
+  std::unique_ptr<vk::AbstractCamera> cam;
+  vk::PinholeCamera* pinhole_cam = nullptr;  // Borrowed from cam.
   StatesGroup *state;
   StatesGroup *state_propagat;
   M3D Rli, Rci, Rcl, Rcw, Jdphi_dR, Jdp_dt, Jdp_dR;

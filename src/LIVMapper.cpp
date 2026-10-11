@@ -12,12 +12,17 @@ which is included as part of this source code package.
 
 #include "LIVMapper.h"
 
+#include <stdexcept>
+
+#include "livo_atlas/ros/camera_config.h"
+
 LIVMapper::LIVMapper(
     const livo_atlas::SensorExtrinsics& sensor_extrinsics,
-    ros::NodeHandle& nh)
+    const livo_atlas::CameraConfig& camera_config, ros::NodeHandle& nh)
     : extT(0, 0, 0),
       extR(M3D::Identity()),
-      sensor_extrinsics_(sensor_extrinsics) {
+      sensor_extrinsics_(sensor_extrinsics),
+      camera_config_(camera_config) {
   p_pre.reset(new Preprocess());
   p_imu.reset(new ImuProcess());
 
@@ -35,6 +40,10 @@ LIVMapper::LIVMapper(
   pcl_wait_save_intensity.reset(new PointCloudXYZI());
   voxelmap_manager.reset(new VoxelMapManager(voxel_config, voxel_map));
   vio_manager.reset(new VIOManager());
+  vio_manager->cam = livo_atlas::ros::MakeVikitCameraModel(camera_config_);
+  if (!vio_manager->cam) {
+    throw std::runtime_error("Camera model not correctly specified.");
+  }
   root_dir = ROOT_DIR;
   initializeFiles();
   initializeComponents();
@@ -118,8 +127,8 @@ void LIVMapper::initializeComponents()
   voxelmap_manager->extT_ = extT;
   voxelmap_manager->extR_ = extR;
 
-  if (!vk::camera_loader::loadFromRosNs("laserMapping", vio_manager->cam)) throw std::runtime_error("Camera model not correctly specified.");
-
+  vio_manager->image_resize_factor =
+      livo_atlas::CameraImageResizeScale(camera_config_);
   vio_manager->grid_size = grid_size;
   vio_manager->patch_size = patch_size;
   vio_manager->outlier_threshold = outlier_threshold;

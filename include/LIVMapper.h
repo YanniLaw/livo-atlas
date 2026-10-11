@@ -16,16 +16,17 @@ which is included as part of this source code package.
 #include "IMU_Processing.h"
 #include "vio.h"
 #include "preprocess.h"
+#include "livo_atlas/core/camera_config.h"
 #include "livo_atlas/core/sensor_extrinsics.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <nav_msgs/Path.h>
-#include <vikit/camera_loader.h>
 
 class LIVMapper
 {
 public:
   LIVMapper(const livo_atlas::SensorExtrinsics& sensor_extrinsics,
+            const livo_atlas::CameraConfig& camera_config,
             ros::NodeHandle& nh);
   ~LIVMapper();
   void initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_transport::ImageTransport &it);
@@ -184,5 +185,6 @@ public:
 
  private:
   const livo_atlas::SensorExtrinsics sensor_extrinsics_;
+  const livo_atlas::CameraConfig camera_config_;
 };
 #endif

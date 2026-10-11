@@ -123,7 +123,22 @@ add_library(vio src/vio.cpp src/frame.cpp src/visual_point.cpp)
 add_library(lio src/voxel_map.cpp)
 add_library(pre src/preprocess.cpp)
 add_library(imu_proc src/IMU_Processing.cpp)
-add_library(laser_mapping src/LIVMapper.cpp src/ros/sensor_extrinsics.cpp)
+add_library(laser_mapping
+  src/LIVMapper.cpp
+  src/ros/camera_config.cpp
+  src/ros/sensor_extrinsics.cpp
+)
+
+# vikit_common builds Eigen-aligned camera classes with -march=native. Keep
+# their allocation and destruction ABI consistent in the camera factory while
+# leaving the rest of this target compatible with the system PCL build.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
+  set_source_files_properties(src/ros/camera_config.cpp
+    PROPERTIES COMPILE_OPTIONS "-march=native")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(arm|ARM|aarch64|AARCH64)")
+  set_source_files_properties(src/ros/camera_config.cpp
+    PROPERTIES COMPILE_OPTIONS "-march=armv8-a")
+endif()
 
 # Add the main executable
 add_executable(fastlivo_mapping src/main.cpp)
@@ -145,4 +160,22 @@ target_link_libraries(fastlivo_mapping
 # Link mimalloc if found
 if(mimalloc_FOUND)
   target_link_libraries(fastlivo_mapping mimalloc)
+endif()
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(core_types_test tests/core_types_test.cc)
+  catkin_add_gtest(camera_config_test
+    tests/camera_config_test.cc
+    src/ros/camera_config.cpp
+  )
+  if(TARGET camera_config_test)
+    target_link_libraries(camera_config_test
+      ${catkin_LIBRARIES}
+      ${OpenCV_LIBRARIES}
+    )
+    target_compile_definitions(camera_config_test PRIVATE
+      LIVO_ATLAS_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data\"
+    )
+  endif()
+  catkin_add_gtest(sensor_extrinsics_test tests/sensor_extrinsics_test.cc)
 endif()
