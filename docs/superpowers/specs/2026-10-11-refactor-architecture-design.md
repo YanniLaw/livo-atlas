@@ -46,42 +46,65 @@
 
 ```text
 include/livo_atlas/
-  core/          # 状态、测量数据、同步与 Frontend 的公开接口
+  core/          # 数学类型、状态及坐标约定
+  sensor/        # 内部测量数据、预处理与同步接口
+  frontend/      # 前端配置、调用接口与结果快照
+  mapping/       # 局部地图及后续关键帧/子地图数据
   camera/        # 相机模型、内参及投影
-  io/            # 前端结果的文件输出接口
+  io/            # 通用数据读取与结果导出接口
 src/
-  core/          # IMU、预处理、LIO、VIO、地图与调度
+  sensor/        # 测量校验、预处理与同步
+  frontend/      # IMU 传播、LIO/VIO 更新与运行调度
+  mapping/       # 局部体素地图、视觉地图及后续快照存储
   camera/        # 相机模型实现
-  io/            # 轨迹、图像和地图导出
   ros1/          # Noetic 节点、配置加载、消息转换和发布
   ros2/          # Humble 节点、配置加载、消息转换和发布
+  io/            # 数据读取、轨迹/地图/重建导出
 cmake/           # 共用核心与 ROS1/ROS2 构建入口
+config/
+launch/
 tests/
 tools/
 docs/
 ```
 
+`livo_atlas_core` 是共享算法库的构建目标，由 `sensor`、`frontend`、`mapping` 和 `camera` 等模块组成。
+目录按职责划分，不要求每个目录都建立一个独立库或抽象基类。
+`include/livo_atlas/core` 只承载数学与状态等基础类型，不集中放置全部算法。
+P1-01 从这些基础头开始迁移；其他目录在迁移相应职责时再建立。
+
 ```mermaid
-flowchart LR
-  R1[ROS1 Noetic 适配器] --> F[Frontend：同步与估计调度]
-  R2[ROS2 Humble 适配器] --> F
-  Replay[离线测量回放] --> F
-  F --> IMU[IMU 初始化与传播]
-  F --> LIO[LIO 与体素地图]
-  F --> VIO[VIO 与视觉地图]
-  VIO --> Camera[相机模型]
-  F --> Result[前端结果快照]
+flowchart TD
+  R1[ROS1 Noetic 接入] --> Convert1[ROS1 消息转换]
+  R2[ROS2 Humble 接入] --> Convert2[ROS2 消息转换]
+  Replay[离线数据读取] --> ConvertOffline[按输入格式转换]
+  Convert1 --> Data[工程内部传感器数据]
+  Convert2 --> Data
+  ConvertOffline --> Data
+  Data --> Sync[同步与调度]
+  Sync --> F[FAST-LIVO2 前端：IMU / LIO / VIO / 局部地图]
+  F --> Result[估计结果与关键帧快照]
   Result --> Pub[ROS 发布]
-  Result --> Export[文件导出]
-  Result --> Future[后续关键帧与子地图处理]
+  Result --> Export[轨迹 / 地图 / COLMAP / 3DGS 导出]
+  Result --> Store[关键帧与子地图存储]
+  Store --> Export
+  Store -.-> Backend[后续 GTSAM 后端]
+  Backend -. 优化位姿与版本 .-> Store
 ```
+
+图表示完整目标数据流，虚线表示未来后端接入；对应组件的实际完成状态以阶段记录为准。
+连续轨迹可直接从估计结果导出，重建数据导出使用关键帧、标定与选定版本的位姿。
+存储保留前端原始快照与后端优化位姿之间的关联；后端回写新的位姿版本，不覆盖前端原始快照。
 
 依赖方向为适配器 → 核心。核心可以使用 STL、Eigen、OpenCV、PCL，以及经确认仍需要的 Sophus；对 PCL/OpenCV 的继续瘦身按平台需求另行评估。
 P3 完成前，相机模块可以临时封装 vikit，但不能据此宣称整个前端已实现无 ROS 构建。
 最终 `livo_atlas_core` 不链接 catkin、ament、roscpp、rclcpp、tf、cv_bridge 或 vikit。
 
 ROS 层处理订阅、消息字段、图像编码、参数读取、TF、发布频率与退出信号。
+ROS1 和 ROS2 各自转换到相同的内部数据契约，转换代码分别位于 `ros1` 和 `ros2`，不让共用转换模块同时依赖两套 ROS。
+离线读取按文件格式完成转换；读取 ROS bag 所需的中间件依赖只属于读取工具，不进入算法库。
 核心负责测量排序、同步窗口、状态更新和地图生命周期。
+`sensor` 实现同步规则，`frontend` 持有并驱动同步器与估计器，`mapping` 管理局部地图；三个模块保持单一状态更新顺序。
 I/O 层接收已完成的结果，控制文件路径与保存策略；算法不再依赖 `ROOT_DIR` 写入源码树。
 
 ## 5. 数据与数值契约
