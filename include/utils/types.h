@@ -1,9 +1,13 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <vector>
+
 #include <Eigen/Eigen>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+
+#include "livo_atlas/core/math_types.h"
 
 typedef pcl::PointXYZINormal PointType;
 typedef pcl::PointXYZRGB PointTypeRGB;
@@ -13,12 +17,12 @@ typedef std::vector<PointType, Eigen::aligned_allocator<PointType>> PointVector;
 typedef pcl::PointCloud<PointTypeRGB> PointCloudXYZRGB;
 typedef pcl::PointCloud<PointTypeRGBA> PointCloudXYZRGBA;
 
-typedef Eigen::Vector2f V2F;
-typedef Eigen::Vector2d V2D;
-typedef Eigen::Vector3d V3D;
-typedef Eigen::Matrix3d M3D;
-typedef Eigen::Vector3f V3F;
-typedef Eigen::Matrix3f M3F;
+using V2F = livo_atlas::Vector2f;
+using V2D = livo_atlas::Vector2d;
+using V3D = livo_atlas::Vector3d;
+using M3D = livo_atlas::Matrix3d;
+using V3F = livo_atlas::Vector3f;
+using M3F = livo_atlas::Matrix3f;
 
 #define MD(a, b) Eigen::Matrix<double, (a), (b)>
 #define VD(a) Eigen::Matrix<double, (a), 1>
