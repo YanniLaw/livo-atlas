@@ -145,4 +145,10 @@ if(CATKIN_ENABLE_TESTING)
   if(TARGET pcl_memory_compatibility_test)
     target_link_libraries(pcl_memory_compatibility_test ${PCL_LIBRARIES})
   endif()
+  catkin_add_gtest(vio_reference_patch_test
+    tests/vio_reference_patch_test.cc tests/core/test_main.cc)
+  if(TARGET vio_reference_patch_test)
+    target_link_libraries(vio_reference_patch_test vio lio ${catkin_LIBRARIES}
+      ${OpenCV_LIBRARIES} ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+  endif()
 endif()

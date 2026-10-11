@@ -1051,7 +1051,7 @@ void VIOManager::updateReferencePatch(const unordered_map<VOXEL_LOCATION, VoxelO
       double cos_angle = pf.dot(norm_vec);
       // if(fabs(cos_angle) < 0.86) continue; // 20 degree
 
-      float ref_mean;
+      float ref_mean = ref_patch_temp->mean_;
       if (abs(ref_patch_temp->mean_) < 1e-6)
       {
         float ref_sum = std::accumulate(patch_temp, patch_temp + patch_size_total, 0.0);
@@ -1064,7 +1064,7 @@ void VIOManager::updateReferencePatch(const unordered_map<VOXEL_LOCATION, VoxelO
         if ((*itm)->id_ == ref_patch_temp->id_) continue;
         float *patch_cache = (*itm)->patch_;
 
-        float other_mean;
+        float other_mean = (*itm)->mean_;
         if (abs((*itm)->mean_) < 1e-6)
         {
           float other_sum = std::accumulate(patch_cache, patch_cache + patch_size_total, 0.0);
