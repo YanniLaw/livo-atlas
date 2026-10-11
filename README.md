@@ -1,5 +1,7 @@
 # FAST-LIVO2
 
+本工程以 `livo-atlas` 为包目录开展重构。[重构文档](docs/README.md)包含目标架构、阶段验收、跨电脑验证步骤及 C++ 编码约定。
+
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 
 ### 📢 News
