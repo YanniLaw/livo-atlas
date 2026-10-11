@@ -17,24 +17,18 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g")
 # Detect CPU architecture
 message(STATUS "Current CPU architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 
-# Specific settings for Release build
+# Keep the compiler's default instruction set when linking precompiled PCL and
+# vikit libraries. Native ISA flags can change Eigen's allocation convention and
+# make a cloud allocated inside PCL unsafe to release in this package.
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch64|ARM|AARCH64)")
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-    # 64-bit ARM optimizations (e.g., RK3588 and Jetson Orin NX)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -mcpu=native -mtune=native -ffast-math")
-    message(STATUS "Using 64-bit ARM optimizations: -O3 -mcpu=native -mtune=native -ffast-math")
-  else()
-    # 32-bit ARM optimizations with NEON support
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -mcpu=native -mtune=native -mfpu=neon -ffast-math")
-    message(STATUS "Using 32-bit ARM optimizations: -O3 -mcpu=native -mtune=native -mfpu=neon -ffast-math")
-  endif()
   add_definitions(-DARM_ARCH)
 else()
-  # x86-64 (Intel/AMD) optimizations
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native -mtune=native -funroll-loops") #-flto
-  message(STATUS "Using general x86 optimizations: -O3 -march=native -mtune=native -funroll-loops") 
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -funroll-loops")
   add_definitions(-DX86_ARCH)
 endif()
+message(STATUS "Using the compiler's default CPU instruction set")
 
 # Define project root directory
 add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
@@ -144,4 +138,11 @@ target_link_libraries(fastlivo_mapping
 # Link mimalloc if found
 if(mimalloc_FOUND)
   target_link_libraries(fastlivo_mapping mimalloc)
+endif()
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(pcl_memory_compatibility_test tests/pcl_memory_compatibility_test.cc)
+  if(TARGET pcl_memory_compatibility_test)
+    target_link_libraries(pcl_memory_compatibility_test ${PCL_LIBRARIES})
+  endif()
 endif()

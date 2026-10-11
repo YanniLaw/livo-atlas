@@ -47,6 +47,8 @@
 
   <test_depend>rostest</test_depend>
   <test_depend>rosbag</test_depend>
+  <test_depend>python3-numpy</test_depend>
+  <test_depend>python3-psutil</test_depend>
 
   <export>
   </export>
