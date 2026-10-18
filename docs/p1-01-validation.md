@@ -1,7 +1,7 @@
 # P1-01 数学与状态隔离实测记录
 
 2026-10-11 开始实施，2026-10-18 接续验证。范围为 [P1-01 计划](superpowers/plans/2026-10-11-p1-01-core-state.md)。验证目录沿用初始日期。
-数学/状态实现、直接测试、完整配对、短回放重复性及默认模式检查已通过；最终独立审阅待完成。
+P1-01 已完成。数学/状态隔离、直接测试、完整配对、短回放重复性、默认模式及独立审阅问题闭环均已通过。
 
 ## 实施范围
 
@@ -11,6 +11,7 @@
 - 旧字段与 `resetpose` 保留兼容；新增代码采用 Google C++ 命名和布局。
 
 数值调查发现原版 VIO 的缓存均值未初始化和粗层图像采样越界，分别提交为 `b222e2d`、`59a8af5`。参考与候选应用同样的修复；数学/状态迁移不改标定、同步或状态公式。
+最终审阅在 `0bfb12a` 补上正偶数窗口启动约束。合法默认配置的采样、状态代码保持不变，完整配对测量仍对应审阅版本 `4af32de`；最新代码另有直接回归和默认 45 秒验证。
 完整前端库、ROS 测量去耦、Humble、vikit 替换、GTSAM 与 3DGS 属于后续阶段。
 
 ## 环境和证据
@@ -26,8 +27,10 @@
 | `ws/`、`short_a/`、`short_b/`、`full/` | 首轮迁移的冻结源码、构建及回放 |
 | `serial/` | 修复 VIO 前的单线程配对结果 |
 | `vio_mean_fix/archive_before_bounds/` | 仅修复均值时的源码、二进制和测试快照 |
-| `vio_mean_fix/p0_ws/`、`p1_ws/` | 应用两项修复后的原数学/状态参考与核心候选 |
+| `vio_mean_fix/archive_before_review/` | 完整配对实际使用的审阅版本源码、二进制及测试快照 |
+| `vio_mean_fix/p0_ws/`、`p1_ws/` | 本机参考与最终候选构建目录 |
 | `vio_mean_fix/bounds_fix/` | 新配对回放、运行条件、二进制摘要及比较报告 |
+| `final-review/` | 审阅、配置用例红/绿证据、最新二进制和默认 45 秒回放 |
 | `numerical-diagnostic/` | 冻结旧/新数学与状态的 20,000 组直接对照 |
 | `vio-reference-tests/` | 缓存均值用例的红/绿证据 |
 | `vio_mean_fix/sampling-diagnostic/` | 实际越界诊断与采样用例红/绿证据 |
@@ -45,17 +48,18 @@
 | 状态测试红阶段 | 依赖配置成功，因缺少 `state.h` 编译失败 | `P1-01-state-red.log` |
 | 独立数学/状态用例 | 14 个通过：float/double 数学 8 个、状态 6 个 | `core-tests.log` |
 | 核心头独立包含 | 三个翻译单元通过；无 ROS/PCL/vikit、native 或 fast-math 路径/参数 | `core-compile-commands.json` |
-| 候选 Noetic 节点和用例 | 节点构建成功，23 个 C++ 用例通过 | `vio_mean_fix/bounds-p1-build.log`、`vio_mean_fix/bounds-p1-tests.log`、`vio_mean_fix/p1_ws/build/test_results/` |
+| 候选 Noetic 节点和用例 | 最终节点构建成功，24 个 C++ 用例通过 | `final-review/green-build-tests.log`、`vio_mean_fix/p1_ws/build/test_results/` |
 | 旧数学/状态参考 | 节点构建成功，7 个 C++ 用例通过 | `vio_mean_fix/bounds-p0-build-tests.log`、`vio_mean_fix/p0_ws/build/test_results/` |
-| 原算法编译条件 | 8 个 `.cpp` 字节相同；编译命令替换工作区路径后相同 | `vio_mean_fix/bounds_fix/algorithm-build-settings-identical.json` |
+| 完整配对时的算法编译条件 | 8 个 `.cpp` 字节相同；编译命令替换工作区路径后相同 | `vio_mean_fix/bounds_fix/algorithm-build-settings-identical.json` |
 | Python 工具用例 | 10 个通过 | `vio_mean_fix/python-tests.log` |
 | Google 布局 | 人工检查；本机没有 clang-format | `.clang-format` 使用 Google / C++17，另执行 `git diff --check` |
 
-最终整套验证日志为 `final-suite.log`，汇总为 `acceptance.json`：23 个 C++ 用例、10 个 Python 用例、4 组零差异比较均通过；18 份正常退出记录的源码与二进制摘要已核对。
-18 份记录包含调查期间数值比较失败的历史运行，只表示运行完整、输入与摘要有效；数值验收结论来自最新 4 组配对。
+最终整套验证日志为 `final-suite.log`，汇总为 `acceptance.json`：24 个 C++ 用例、10 个 Python 用例、4 组零差异比较均通过；19 份正常退出记录的源码与二进制摘要已核对。
+19 份记录包含调查期间数值比较失败的历史运行，只表示运行完整、输入与摘要有效；数值验收结论来自最新 4 组配对。
+汇总还逐字核对最终生产源码与审阅版本的差异：只增加初始化尺寸校验、异常头和空指针初始化，其他生产源码、合法窗口的采样和状态表达式均相同。
 
-23 个 C++ 用例为核心 14 个、旧入口兼容 2 个、PCL 内存兼容 1 个、缓存均值 2 个、采样边界 4 个。
-本机 `catkin_test_results` 显示 46，因为该版本累计 XML 的 suite 总数与子项；实际独立用例数按五个 XML 根节点计数。
+24 个 C++ 用例为核心 14 个、旧入口兼容 2 个、PCL 内存兼容 1 个、缓存均值 2 个、采样与配置 5 个。
+本机 `catkin_test_results` 显示 48，因为该版本累计 XML 的 suite 总数与子项；实际独立用例数按五个 XML 根节点计数。
 P0 参考的 7 个用例为 PCL 1 个和 VIO 6 个，不含新核心测试。
 
 ## 数值差异调查
@@ -97,7 +101,14 @@ P0 参考的 7 个用例为 PCL 1 个和 VIO 6 个，不含新核心测试。
 
 当前代码的默认并行 45 秒回放也正常退出，输出 446 个位姿；输入 IMU 9113、点云 450、图像 450 匹配，状态文本全部有限。
 节点日志的 `OMP_THREAD_LIMIT` 为 `4294967295`，没有采用单线程运行限制。此检查覆盖原问题区间，验证正常运行，不作并行零差异声明。
-证据为 `vio_mean_fix/bounds_fix/default_45/summary.json` 和 `mapping.log`。
+审阅版本证据为 `vio_mean_fix/bounds_fix/default_45/summary.json` 和 `mapping.log`。
+启动约束修复后的最新代码也完成相同 45 秒检查，正常退出且输入匹配，另有 446 个位姿，见 `final-review/default_45/summary.json`。
+
+## 独立审阅闭环
+
+独立只读审阅发现 1 项 Important、0 项 Critical、0 项 Minor：奇数窗口仍可能越界。
+配置用例先失败后通过，启动约束已独立提交为 `0bfb12a`；最新完整测试与默认片段验证通过后关闭审阅。
+未重复派发审阅。原报告、完整配对时的 23 用例测试/汇总和最新 24 用例结果分别保留，避免混用不同二进制的测量结论。
 
 ## 结论边界
 

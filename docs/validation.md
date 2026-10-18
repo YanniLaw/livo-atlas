@@ -9,6 +9,7 @@
 独立数学/状态测试只需要 CMake、C++17、Eigen 和 Google Test，不需要加载 ROS 环境。
 验证脚本使用系统 Python3 的 `rosbag`、`rospy`、`numpy`、`psutil` 及 ROS 标准消息模块。
 先使用与原工程兼容的依赖版本；本工程当前使用 `<sophus/se3.h>` 和 `libSophus.so`，不能未经构建验证直接替换成不同接口的 Sophus。
+`vio/patch_size` 必须为正偶数，默认值为 8；初始化会拒绝奇数或非正值，匹配整个 patch 布局的尺寸约定。
 如果 Python 导入失败，先补齐对应系统/ROS 依赖，再运行验证。
 
 ```bash
@@ -183,8 +184,9 @@ P1-01 验证发现，P0 修复后同一个二进制的两次默认并行完整�
 这是额外的验证运行条件，算法源码与默认运行配置保持原样。
 
 原版还存在 [缓存均值未初始化](vio-cached-mean-fix.md) 和 [粗层图像采样越界](vio-sampling-bounds-fix.md) 两项问题；只控制 OpenMP 或只修复均值仍不足以建立可靠的精确参考。
+最终审阅又补上正偶数窗口的启动约束，避免不受布局支持的奇数窗口进入处理。
 修复后的默认并行短回放也出现重复性差异。因此短片段和完整记录都需要统一运行条件。
-下面从 P0 构建修复提交建立参考，只应用这两项修复的算法补丁；候选也包含同样的修复。
+下面从 P0 构建修复提交建立参考，依次应用两项修复及启动约束；候选包含同样的代码。
 先完成候选的构建与测试，再构建参考，随后依次回放。保留默认模式和修复前失败结果，不复用其他电脑的二进制。
 
 ```bash
@@ -202,6 +204,11 @@ git -C "$PACKAGE_ROOT" show --format= \
   > "$RUN_ROOT/sampling-bounds-fix.patch"
 (cd "$REFERENCE_WS/src/livo-atlas" &&
   patch -p1 < "$RUN_ROOT/sampling-bounds-fix.patch")
+git -C "$PACKAGE_ROOT" show --format= \
+  0bfb12a4974c7de54afd091f80d4a452f06c8dd0 -- src/vio.cpp \
+  > "$RUN_ROOT/patch-dimensions-fix.patch"
+(cd "$REFERENCE_WS/src/livo-atlas" &&
+  patch -p1 < "$RUN_ROOT/patch-dimensions-fix.patch")
 ln -s "$WS_ROOT/src/rpg_vikit" "$REFERENCE_WS/src/rpg_vikit"
 ln -s /opt/ros/noetic/share/catkin/cmake/toplevel.cmake \
   "$REFERENCE_WS/src/CMakeLists.txt"
