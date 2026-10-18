@@ -95,6 +95,7 @@ TEST(MeasurementConversionsTest, InvalidImageLeavesOutputUnchanged) {
   message.height = 1;
   message.step = 3;
   message.encoding = "invalid";
+  message.data = {1, 2, 3};  // Valid size, so the encoding is what fails.
   EXPECT_FALSE(ConvertImage(message, 0, &result).empty());
   message.encoding = "bgr8";
   message.data = {1, 2};

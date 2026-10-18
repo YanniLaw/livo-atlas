@@ -1,17 +1,44 @@
 # P1-03：内部测量与 ROS1 转换
 
-本阶段正在实施，最终验收结果在完成回放和审阅后补充。
+实现与本机验证已完成，独立审阅尚未结束。
 参考提交为 `10e9222b122c16a4ecb36a2b19e30d113ed78d25`，执行计划见
 [P1-03 计划](superpowers/plans/2026-10-18-p1-03-measurements.md)。
 仅修改 livo-atlas；vikit 仍为 `6c886c8e5d83997806e00294826d528cea3581dd`。
 
 ## 已取得的证据
 
-当前 67 项 C++、10 项 Python、40 项真实启动检查全部通过。
+68 项 C++、10 项 Python、40 项真实启动检查全部通过。
 独立入口通过 28 项数学/状态/标定测试、8 项预处理测试，以及 9 个公共头的独立包含检查。
-30 秒配对回放均输出 296 个轨迹点；传感器时间、输入/更新数量、轨迹和状态日志导出值零差异。
-初次完整配对回放均为 1351 个轨迹点，输入/更新计数、传感器时间、轨迹及状态日志导出值零差异；默认并行 45 秒得到 446 点并正常退出。
-检查还发现旧 `last_prop_end_time` 未初始化。本阶段将单独复现和修复，并重新回放最终候选；独立审阅尚未完成。
+修复后的 30 秒配对回放均输出 296 个轨迹点；传感器时间、输入/更新数量、轨迹和状态日志导出值零差异。
+初始化修复后的最终完整配对回放均为 1351 个轨迹点，输入/更新计数、传感器时间、轨迹及状态日志导出值零差异；最终默认并行 45 秒得到 446 点并正常退出。
+独立审阅尚未完成，不据此宣称整个前端已经隔离 ROS。
+
+| 最终记录 | 轨迹点 | 结果 |
+| --- | ---: | --- |
+| reference_short / candidate_short | 296 / 296 | 同时间戳轨迹及状态日志零差异。 |
+| reference_full / candidate_full | 1351 / 1351 | 完整输入及 LIO/VIO 更新数量相同；导出值零差异。 |
+| candidate_default_45 | 446 | 默认并行运行、有限输出、正常退出；不用于逐值确定性结论。 |
+
+完整输入为 27447 IMU、1355 点云、1355 图像；完整更新为 1351 LIO、1350 VIO。
+短段 mat_pre 为 597×19、mat_out 为 591×20；完整对应为 2707×19、2701×20，全部有限且逐元素相等。
+以上均指现有文件的导出精度，不等同于未导出的完整内部浮点状态逐位相等。
+没有做轨迹对齐、时间裁剪或阈值放宽。
+
+最终五份记录由两份未改变的参考与三次修复后重新采集的候选组成。
+源/程序/本地库校验见 `runtime-artifacts.json` 和各 summary，运行环境由本机重新采集到 `environment.json`。
+`build-settings-comparison.json` 证明四个 LIO/VIO 源文件未变、六个估计源文件的编译参数归一化后相同；没有引入 native 或 fast-math。
+`verify.sh` 的结果保存在 `final-suite.log`、`acceptance.json`；旧版结果另行归档。
+
+## IMU 传播时间初始化
+
+主迁移提交为 `35d24b1`，独立初始化修复为 `0c59666`。
+新增测试 `FirstPropagationDoesNotDependOnPreviousStorageBytes` 在填充为 0x7f 的对齐存储上构造真实 ImuProcess，先初始化原始加速度，再输入时间 0、0.2 秒及 yaw 角速度 0、2 rad/s。
+旧代码读取未初始化的传播终点，跳过了传播，得到 yaw=0；期望为平均角速度 1 rad/s × 0.2 秒 = 0.2 rad。
+在构造及 Reset 时显式清零后，测试通过，全部 C++ 测试从 67 增至 68 项。
+
+这一修复定义原先不确定的初值，不改采样积分、时间修正或去畸变公式。
+更改首帧传播的时间起点属于后续同步迁移时的独立数值决策；本阶段不借初始化修复重写它。
+首次候选的源码、可执行文件、8 个本地动态库、测试、启动结果与三次候选回放，均保存在证据目录的 `before-imu-initialization/`，没有用最终版本覆盖旧结果。
 
 ## 数据边界
 
@@ -56,7 +83,7 @@ nice -n 10 cmake --build validation/p103-sensor -- -j1
 (cd validation/p103-sensor && ctest --output-on-failure)
 ```
 
-Noetic 主工程仍使用 catkin，新增 `measurement_conversions_test`、`sensor_preprocess_test` 和 IMU 现状特征测试。按[通用验证说明](validation.md)配置依赖后，以 `nice -n 10`、`-j1` 构建 `fastlivo_mapping` 和 `run_tests`；运行 `catkin_test_results` 并查看每个 GTest XML 的 tests/failures/errors，避免 catkin 汇总重复计数。Python 测试命令：
+Noetic 主工程仍使用 catkin，新增 `measurement_conversions_test`、`sensor_preprocess_test` 和 `imu_measurement_test`。按[通用验证说明](validation.md)配置依赖后，以 `nice -n 10`、`-j1` 构建 `fastlivo_mapping` 和 `run_tests`；运行 `catkin_test_results` 并查看每个 GTest XML 的 tests/failures/errors，避免 catkin 汇总重复计数。独立副本的实际构建命令另保存在证据目录 `build_commands.sh`，显式指定 `CATKIN_DEVEL_PREFIX`。Python 测试命令：
 
 ```bash
 cd src/livo-atlas

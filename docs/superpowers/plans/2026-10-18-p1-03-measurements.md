@@ -100,17 +100,19 @@
 
   去掉公共头中的 ROS IMU 和 TF 包含；需要 TF 的 voxel_map 显式包含。保持原 IMU 标量运算顺序，时间访问替换为 timestamp。ROS 时间偏移和驱动补偿仍在 ROS1 回调按原 fromSec/toSec 顺序执行。图像转换失败在回调报告并正常释放锁。
 
+  实施补充：旧 `last_prop_end_time` 未初始化。用填充为 0x7f 的对齐存储构造真实 ImuProcess，输入 0 和 0.2 秒的两条 IMU（角速度 0、2 rad/s），旧代码输出 yaw=0，期望 0.2 rad。单独修复为构造/Reset 时清零，不改首次传播的其他公式。保留首次候选的源码、库与三次回放，最终候选重新执行短段、完整和默认并行回放；参考源码与运行库验证摘要后复用其已完成的两次回放。
+
 - [x] **Step 3: 全部测试和真实启动检查**
 
   Run: 独立核心及 sensor 测试、全部 catkin 测试、全部 Python 测试；对候选执行现有 40 项 `tools/check_calibration_startup.py`。
   Expected: 全部通过；参数行为不变；输入算法接口中没有 ROS 消息。编译器参数保持原基准指令集，不引入 native/fast-math。
 
-- [ ] **Step 4: 配对短段、完整 bag 和默认并行回放**
+- [x] **Step 4: 配对短段、完整 bag 和默认并行回放**
 
   用 git archive 从参考提交建立 reference_ws，候选建立独立 candidate_ws，不复用其他路径的 CMake 缓存。两者依次构建、依次回放。统一 `OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE`，各运行 30 秒、0.5 倍；通过后各运行 136 秒覆盖完整 bag。候选另运行默认并行 45 秒。
   Expected: 短段 296、完整 1351、默认 446 个轨迹点；完整输入 27447 IMU、1355 点云、1355 图像；输入计数、传感器时间和 LIO/VIO 更新计数相同；轨迹及 mat_pre/mat_out 的导出数值零差异，所有运行正常退出。保存源、bag、可执行文件和全部本地运行库摘要，不做对齐/裁剪/放宽容差。
 
-- [ ] **Step 5: 文档与提交**
+- [x] **Step 5: 文档与提交**
 
   在 `docs/p1-03-validation.md` 记录实际命令、结果、证据路径、原各型号时间语义以及仍然存在的 ROS/日志/同步依赖。更新 docs/README 和计划完成状态。
   Commit: `refactor: feed plain measurements to the frontend`。
