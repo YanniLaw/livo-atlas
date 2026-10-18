@@ -40,6 +40,7 @@ def cases():
     add('integer_intrinsics', {'laserMapping/cam_fx': 1293,
                               'laserMapping/cam_fy': 1293,
                               'laserMapping/scale': 1})
+    add('grid_tail_inside_border', {'vio/grid_size': 150})
     add('missing_rotation', remove=('extrin_calib/extrinsic_R',),
         error='extrin_calib/extrinsic_R')
     add('short_rotation', {'extrin_calib/extrinsic_R': [1, 0, 0]},
@@ -75,6 +76,8 @@ def cases():
     add('incompatible_grid', {'laserMapping/cam_height': 16}, error='grid')
     add('zero_grid_rows', {'vio/grid_n_height': 0}, error='grid')
     add('grid_larger_than_image', {'vio/grid_size': 10000}, error='grid')
+    add('truncated_grid_rows', {'vio/grid_size': 300}, error='grid')
+    add('truncated_grid_columns', {'vio/grid_n_height': 2}, error='grid')
     add('odd_patch', {'vio/patch_size': 7}, error='patch_size')
     add('patch_overflow', {'vio/patch_size': 100000}, error='patch_size')
     add('zero_pyramid', {'vio/patch_pyrimid_level': 0}, error='patch_pyrimid_level')

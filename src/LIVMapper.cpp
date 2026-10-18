@@ -160,6 +160,12 @@ void LIVMapper::ValidateImageParameters() const {
   if ((patch_size / 2 + 1) > kMaxIndex / scale || width > kMaxIndex / scale) {
     throw std::invalid_argument("vio/patch_pyrimid_level exceeds image index bounds");
   }
+  // Preserve VIO's floor grid counts. Truncated tails must be excluded by its
+  // image border, so every accepted pixel has an allocated row and column.
+  const std::int64_t border = (patch_size / 2 + 1) * (scale / 2);
+  if (width % cell_size > border || height % cell_size > border) {
+    throw std::invalid_argument("VIO grid does not cover the accepted image area");
+  }
   if (colmap_output_en && camera.model != "Pinhole") {
     throw std::invalid_argument("pcd_save/colmap_output_en requires a Pinhole camera");
   }
