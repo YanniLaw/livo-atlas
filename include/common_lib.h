@@ -21,14 +21,16 @@ which is included as part of this source code package.
 #include <sophus/se3.h>
 #include <tf/transform_broadcaster.h>
 
+#include "livo_atlas/core/state.h"
+
 using namespace std;
 using namespace Eigen;
 using namespace Sophus;
 
 #define print_line std::cout << __FILE__ << ", " << __LINE__ << std::endl;
-#define G_m_s2 (9.81)   // Gravaty const in GuangDong/China
-#define DIM_STATE (19)  // Dimension of states (Let Dim(SO(3)) = 3)
-#define INIT_COV (0.01)
+#define G_m_s2 (livo_atlas::kGravityMetersPerSecondSquared)
+#define DIM_STATE (livo_atlas::kStateDimension)
+#define INIT_COV (livo_atlas::kInitialCovariance)
 #define SIZE_LARGE (500)
 #define SIZE_SMALL (100)
 #define VEC_FROM_ARRAY(v) v[0], v[1], v[2]
@@ -123,104 +125,7 @@ typedef struct pointWithVar
 } pointWithVar;
 
 
-struct StatesGroup
-{
-  StatesGroup()
-  {
-    this->rot_end = M3D::Identity();
-    this->pos_end = V3D::Zero();
-    this->vel_end = V3D::Zero();
-    this->bias_g = V3D::Zero();
-    this->bias_a = V3D::Zero();
-    this->gravity = V3D::Zero();
-    this->inv_expo_time = 1.0;
-    this->cov = MD(DIM_STATE, DIM_STATE)::Identity() * INIT_COV;
-    this->cov(6, 6) = 0.00001;
-    this->cov.block<9, 9>(10, 10) = MD(9, 9)::Identity() * 0.00001;
-  };
-
-  StatesGroup(const StatesGroup &b)
-  {
-    this->rot_end = b.rot_end;
-    this->pos_end = b.pos_end;
-    this->vel_end = b.vel_end;
-    this->bias_g = b.bias_g;
-    this->bias_a = b.bias_a;
-    this->gravity = b.gravity;
-    this->inv_expo_time = b.inv_expo_time;
-    this->cov = b.cov;
-  };
-
-  StatesGroup &operator=(const StatesGroup &b)
-  {
-    this->rot_end = b.rot_end;
-    this->pos_end = b.pos_end;
-    this->vel_end = b.vel_end;
-    this->bias_g = b.bias_g;
-    this->bias_a = b.bias_a;
-    this->gravity = b.gravity;
-    this->inv_expo_time = b.inv_expo_time;
-    this->cov = b.cov;
-    return *this;
-  };
-
-  StatesGroup operator+(const Matrix<double, DIM_STATE, 1> &state_add)
-  {
-    StatesGroup a;
-    a.rot_end = this->rot_end * Exp(state_add(0, 0), state_add(1, 0), state_add(2, 0));
-    a.pos_end = this->pos_end + state_add.block<3, 1>(3, 0);
-    a.inv_expo_time = this->inv_expo_time + state_add(6, 0);
-    a.vel_end = this->vel_end + state_add.block<3, 1>(7, 0);
-    a.bias_g = this->bias_g + state_add.block<3, 1>(10, 0);
-    a.bias_a = this->bias_a + state_add.block<3, 1>(13, 0);
-    a.gravity = this->gravity + state_add.block<3, 1>(16, 0);
-
-    a.cov = this->cov;
-    return a;
-  };
-
-  StatesGroup &operator+=(const Matrix<double, DIM_STATE, 1> &state_add)
-  {
-    this->rot_end = this->rot_end * Exp(state_add(0, 0), state_add(1, 0), state_add(2, 0));
-    this->pos_end += state_add.block<3, 1>(3, 0);
-    this->inv_expo_time += state_add(6, 0);
-    this->vel_end += state_add.block<3, 1>(7, 0);
-    this->bias_g += state_add.block<3, 1>(10, 0);
-    this->bias_a += state_add.block<3, 1>(13, 0);
-    this->gravity += state_add.block<3, 1>(16, 0);
-    return *this;
-  };
-
-  Matrix<double, DIM_STATE, 1> operator-(const StatesGroup &b)
-  {
-    Matrix<double, DIM_STATE, 1> a;
-    M3D rotd(b.rot_end.transpose() * this->rot_end);
-    a.block<3, 1>(0, 0) = Log(rotd);
-    a.block<3, 1>(3, 0) = this->pos_end - b.pos_end;
-    a(6, 0) = this->inv_expo_time - b.inv_expo_time;
-    a.block<3, 1>(7, 0) = this->vel_end - b.vel_end;
-    a.block<3, 1>(10, 0) = this->bias_g - b.bias_g;
-    a.block<3, 1>(13, 0) = this->bias_a - b.bias_a;
-    a.block<3, 1>(16, 0) = this->gravity - b.gravity;
-    return a;
-  };
-
-  void resetpose()
-  {
-    this->rot_end = M3D::Identity();
-    this->pos_end = V3D::Zero();
-    this->vel_end = V3D::Zero();
-  }
-
-  M3D rot_end;                              // the estimated attitude (rotation matrix) at the end lidar point
-  V3D pos_end;                              // the estimated position at the end lidar point (world frame)
-  V3D vel_end;                              // the estimated velocity at the end lidar point (world frame)
-  double inv_expo_time;                     // the estimated inverse exposure time (no scale)
-  V3D bias_g;                               // gyroscope bias
-  V3D bias_a;                               // accelerator bias
-  V3D gravity;                              // the estimated gravity acceleration
-  Matrix<double, DIM_STATE, DIM_STATE> cov; // states covariance
-};
+using StatesGroup = livo_atlas::State;
 
 template <typename T>
 auto set_pose6d(const double t, const Matrix<T, 3, 1> &a, const Matrix<T, 3, 1> &g, const Matrix<T, 3, 1> &v, const Matrix<T, 3, 1> &p,

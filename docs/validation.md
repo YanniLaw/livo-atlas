@@ -5,7 +5,8 @@
 
 ## 1. 准备环境和记录版本
 
-需要已可用的 Noetic、C++17 编译器、CMake、Eigen、PCL、OpenCV、Sophus 和现有 vikit。
+需要已可用的 Noetic、C++17 编译器、CMake、Eigen、Google Test、PCL、OpenCV、Sophus 和现有 vikit。
+独立数学/状态测试只需要 CMake、C++17、Eigen 和 Google Test，不需要加载 ROS 环境。
 验证脚本使用系统 Python3 的 `rosbag`、`rospy`、`numpy`、`psutil` 及 ROS 标准消息模块。
 先使用与原工程兼容的依赖版本；本工程当前使用 `<sophus/se3.h>` 和 `libSophus.so`，不能未经构建验证直接替换成不同接口的 Sophus。
 如果 Python 导入失败，先补齐对应系统/ROS 依赖，再运行验证。
@@ -46,7 +47,7 @@ import shutil
 import sys
 
 shutil.copytree(sys.argv[1], sys.argv[2],
-                ignore=shutil.ignore_patterns('.git', 'build', 'devel', 'install', '__pycache__'))
+                ignore=shutil.ignore_patterns('.git', '.superpowers', 'build', 'devel', 'install', '__pycache__'))
 PY
 ln -s "$WS_ROOT/src/rpg_vikit" "$RUN_ROOT/ws/src/rpg_vikit"
 ln -s /opt/ros/noetic/share/catkin/cmake/toplevel.cmake "$RUN_ROOT/ws/src/CMakeLists.txt"
@@ -59,6 +60,23 @@ ln -s /opt/ros/noetic/share/catkin/cmake/toplevel.cmake "$RUN_ROOT/ws/src/CMakeL
 
 默认单线程构建，确认机器资源足够后再调整并行度。回放与大规模编译依次执行。
 
+先独立编译数学与状态头，避免 catkin 的全局包含路径掩盖核心依赖。
+下面的 `core_header_checks` 为每个核心头生成并编译一个只包含该头的源文件；用例使用同一份实现。
+
+```bash
+cmake -S "$PACKAGE_ROOT/tests/core" -B "$RUN_ROOT/core-build" \
+  -DCMAKE_BUILD_TYPE=Release > "$RUN_ROOT/core-configure.log" 2>&1
+nice -n 10 cmake --build "$RUN_ROOT/core-build" -- -j1 \
+  > "$RUN_ROOT/core-build.log" 2>&1
+(cd "$RUN_ROOT/core-build" && ctest --output-on-failure)
+```
+
+检查 `core-build/compile_commands.json` 中头文件检查的命令：只应有工程 include 和 Eigen 路径，不能出现 ROS、PCL 或 vikit 路径。
+这里的独立构建范围是三个核心头；完整前端仍通过下方 catkin 构建。
+头文件检查直接读取 Eigen target 的包含路径，兼容独立入口声明的 CMake 3.10 下限；
+object library 的链接支持在 [CMake 3.12](https://cmake.org/cmake/help/v3.12/release/3.12.html#commands) 才加入。
+本文命令使用 Noetic 自带的 CMake 3.16，未单独实测旧版工具链。
+
 ```bash
 cmake -S "$RUN_ROOT/ws/src" -B "$RUN_ROOT/ws/build" \
   -DCATKIN_DEVEL_PREFIX="$RUN_ROOT/ws/devel" \
@@ -67,7 +85,9 @@ cmake -S "$RUN_ROOT/ws/src" -B "$RUN_ROOT/ws/build" \
   > "$RUN_ROOT/configure.log" 2>&1
 
 nice -n 10 cmake --build "$RUN_ROOT/ws/build" \
-  --target fastlivo_mapping pcl_memory_compatibility_test -- -j1 \
+  --target fastlivo_mapping pcl_memory_compatibility_test \
+    core_math_state_test legacy_core_compatibility_test \
+    vio_reference_patch_test vio_sampling_test -- -j1 \
   > "$RUN_ROOT/build.log" 2>&1
 
 cmake --build "$RUN_ROOT/ws/build" --target run_tests -- -j1 \
@@ -81,6 +101,9 @@ cd "$WS_ROOT"
 
 依次检查每条命令的退出码，构建或测试失败时停止回放并保留日志。
 PCL 内存用例实际调用系统 `VoxelGrid` 分配点云并释放它，可捕获 native 编译引起的分配约定不兼容。
+核心用例覆盖数学分支与 19 维状态行为，兼容用例检查旧名称是否转发到同一个实现。
+VIO 回归用例调用真实参考 patch 评分，验证新计算和已缓存的均值产生相同的正确评分。
+采样用例调用真实 VIO 更新，覆盖粗层边界、安全细层和全部测量无效时的协方差。
 Python 用例校验轨迹比较的位移、旋转、四元数符号和时间序列检查。
 
 ## 4. 回放短片段和完整 bag
@@ -148,6 +171,111 @@ Python 用例校验轨迹比较的位移、旋转、四元数符号和时间序�
 状态日志不包含重力和完整协方差；这些量在后续结构迁移中通过直接状态测试或额外诊断记录验证。
 原版崩溃可能丢失最后一项缓冲的打印计时表，打印表格数量不能直接当作真实更新次数。
 本验证没有真值轨迹，不报告 ATE/RPE。计时和 RSS 受机器负载、编译参数及分配器影响，实时验收另做 1 倍回放和积压检查。
+
+### 建立受控的数值参考
+
+P1-01 验证发现，P0 修复后同一个二进制的两次默认并行完整回放也有数值差异。
+遇到这种情况，保留默认结果，先检查原参考的重复性；不能直接把差异归因于新代码，也不能通过放宽阈值宣称纯迁移一致。
+
+原 VIO 使用浮点误差的 OpenMP 归约；[OpenMP 规范](https://www.openmp.org/spec-html/5.0/openmpsu107.html)不保证不同并行运行的归约结果逐位一致。
+可对参考与候选统一设置 [OMP_THREAD_LIMIT](https://www.openmp.org/spec-html/5.0/openmpse58.html) 为 1，控制参与 OpenMP 计算的线程数，再做零差异比较。
+仅设置 `OMP_NUM_THREADS` 不适合本工程：现有代码会调用 `omp_set_num_threads`。
+这是额外的验证运行条件，算法源码与默认运行配置保持原样。
+
+原版还存在 [缓存均值未初始化](vio-cached-mean-fix.md) 和 [粗层图像采样越界](vio-sampling-bounds-fix.md) 两项问题；只控制 OpenMP 或只修复均值仍不足以建立可靠的精确参考。
+修复后的默认并行短回放也出现重复性差异。因此短片段和完整记录都需要统一运行条件。
+下面从 P0 构建修复提交建立参考，只应用这两项修复的算法补丁；候选也包含同样的修复。
+先完成候选的构建与测试，再构建参考，随后依次回放。保留默认模式和修复前失败结果，不复用其他电脑的二进制。
+
+```bash
+export REFERENCE_WS="$RUN_ROOT/reference_ws"
+mkdir -p "$REFERENCE_WS/src/livo-atlas"
+git -C "$PACKAGE_ROOT" archive 72f68d897a35993ec230e1dca8d9c7063c5580d7 \
+  | tar -x -C "$REFERENCE_WS/src/livo-atlas"
+git -C "$PACKAGE_ROOT" show --format= \
+  b222e2d0ddf7bfeb250c53fea7df06a276df2963 -- src/vio.cpp \
+  > "$RUN_ROOT/cached-mean-fix.patch"
+(cd "$REFERENCE_WS/src/livo-atlas" &&
+  patch -p1 < "$RUN_ROOT/cached-mean-fix.patch")
+git -C "$PACKAGE_ROOT" show --format= \
+  59a8af52323ff80a27a7cd2322cf588a1672edfa -- src/vio.cpp \
+  > "$RUN_ROOT/sampling-bounds-fix.patch"
+(cd "$REFERENCE_WS/src/livo-atlas" &&
+  patch -p1 < "$RUN_ROOT/sampling-bounds-fix.patch")
+ln -s "$WS_ROOT/src/rpg_vikit" "$REFERENCE_WS/src/rpg_vikit"
+ln -s /opt/ros/noetic/share/catkin/cmake/toplevel.cmake \
+  "$REFERENCE_WS/src/CMakeLists.txt"
+
+cmake -S "$REFERENCE_WS/src" -B "$REFERENCE_WS/build" \
+  -DCATKIN_DEVEL_PREFIX="$REFERENCE_WS/devel" \
+  -DCMAKE_BUILD_TYPE=Release -DCATKIN_ENABLE_TESTING=ON \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  > "$RUN_ROOT/reference-configure.log" 2>&1
+nice -n 10 cmake --build "$REFERENCE_WS/build" \
+  --target fastlivo_mapping -- -j1 > "$RUN_ROOT/reference-build.log" 2>&1
+```
+
+确认参考与候选的八个算法 `.cpp` 文件相同；编译命令在替换工作区路径后相同。
+保存两份源码、补丁、编译日志和本机依赖版本。两份数学/状态头的区别才是本次结构迁移的比较对象。
+
+```bash
+mkdir -p "$RUN_ROOT/serial"
+
+OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE \
+/usr/bin/python3 "$PACKAGE_ROOT/tools/run_baseline.py" \
+  --workspace "$REFERENCE_WS" --bag "$WS_ROOT/Retail_Street.bag" \
+  --output "$RUN_ROOT/serial/p0_short" --duration 30 --rate 0.5 --port 11361
+
+OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE \
+/usr/bin/python3 "$PACKAGE_ROOT/tools/run_baseline.py" \
+  --workspace "$RUN_ROOT/ws" --bag "$WS_ROOT/Retail_Street.bag" \
+  --output "$RUN_ROOT/serial/short_a" --duration 30 --rate 0.5 --port 11362
+
+OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE \
+/usr/bin/python3 "$PACKAGE_ROOT/tools/run_baseline.py" \
+  --workspace "$RUN_ROOT/ws" --bag "$WS_ROOT/Retail_Street.bag" \
+  --output "$RUN_ROOT/serial/short_b" --duration 30 --rate 0.5 --port 11363
+
+OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE \
+/usr/bin/python3 "$PACKAGE_ROOT/tools/run_baseline.py" \
+  --workspace "$REFERENCE_WS" --bag "$WS_ROOT/Retail_Street.bag" \
+  --output "$RUN_ROOT/serial/p0_full" --duration 136 --rate 0.5 --port 11359
+
+OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE \
+/usr/bin/python3 "$PACKAGE_ROOT/tools/run_baseline.py" \
+  --workspace "$RUN_ROOT/ws" --bag "$WS_ROOT/Retail_Street.bag" \
+  --output "$RUN_ROOT/serial/p1_full" --duration 136 --rate 0.5 --port 11360
+
+/usr/bin/python3 "$PACKAGE_ROOT/tools/compare_trajectories.py" \
+  --reference "$RUN_ROOT/serial/p0_full/trajectory.tum" \
+  --candidate "$RUN_ROOT/serial/p1_full/trajectory.tum" \
+  --max-position-m 0 --max-orientation-deg 0 \
+  --output "$RUN_ROOT/serial_full_vs_p0.json"
+```
+
+使用同样的零阈值比较两次候选短回放与参考短回放，以及两次候选短回放之间的重复性。
+检查五份 `mapping.log` 都记录 `OMP_THREAD_LIMIT = '1'`，保存环境设置与参数，并比较 `mat_pre.txt`、`mat_out.txt`：
+
+```bash
+/usr/bin/python3 - "$RUN_ROOT/serial" <<'PY'
+from pathlib import Path
+import sys
+import numpy as np
+
+root = Path(sys.argv[1])
+for reference, candidate in [('p0_short', 'short_a'), ('p0_short', 'short_b'),
+                             ('short_a', 'short_b'), ('p0_full', 'p1_full')]:
+    for filename in ['mat_pre.txt', 'mat_out.txt']:
+        old = np.loadtxt(root / reference / filename, ndmin=2)
+        new = np.loadtxt(root / candidate / filename, ndmin=2)
+        assert np.isfinite(old).all() and np.isfinite(new).all()
+        assert old.shape == new.shape and np.array_equal(old, new), (
+            reference, candidate, filename)
+print('All paired state logs match at the exported precision')
+PY
+```
+
+单线程回归的结论只覆盖该受控运行条件，不证明默认并行运行逐位确定，也不替代默认模式的正常退出和输入检查。
 
 ## 6. 中断与复现崩溃
 

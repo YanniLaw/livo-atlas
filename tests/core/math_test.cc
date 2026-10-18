@@ -58,10 +58,12 @@ TYPED_TEST(So3MathTest, RotatesAroundKnownAxis) {
   Matrix expected;
   expected << std::cos(angle), -std::sin(angle), 0, std::sin(angle),
       std::cos(angle), 0, 0, 0, 1;
-  EXPECT_TRUE(Exp(Vector(0, 0, angle)).isApprox(expected, TestFixture::kTolerance));
+  EXPECT_TRUE(Exp(Vector(0, 0, angle))
+                  .isApprox(expected, TestFixture::kTolerance));
   EXPECT_TRUE(Exp(Vector::UnitZ().eval(), angle)
                   .isApprox(expected, TestFixture::kTolerance));
-  EXPECT_TRUE(Exp(T(0), T(0), angle).isApprox(expected, TestFixture::kTolerance));
+  EXPECT_TRUE(Exp(T(0), T(0), angle)
+                  .isApprox(expected, TestFixture::kTolerance));
 }
 
 TYPED_TEST(So3MathTest, PreservesLogBranches) {

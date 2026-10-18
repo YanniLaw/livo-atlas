@@ -145,6 +145,10 @@ if(CATKIN_ENABLE_TESTING)
   if(TARGET pcl_memory_compatibility_test)
     target_link_libraries(pcl_memory_compatibility_test ${PCL_LIBRARIES})
   endif()
+  catkin_add_gtest(core_math_state_test
+    tests/core/math_test.cc tests/core/state_test.cc tests/core/test_main.cc)
+  catkin_add_gtest(legacy_core_compatibility_test
+    tests/legacy_core_compatibility_test.cc tests/core/test_main.cc)
   catkin_add_gtest(vio_reference_patch_test
     tests/vio_reference_patch_test.cc tests/core/test_main.cc)
   catkin_add_gtest(vio_sampling_test
