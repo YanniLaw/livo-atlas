@@ -20,7 +20,9 @@ which is included as part of this source code package.
 #include "preprocess.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
+#include <livox_ros_driver/CustomMsg.h>
 #include <nav_msgs/Path.h>
+#include <sensor_msgs/PointCloud2.h>
 #include <vikit/abstract_camera.h>
 
 #include "livo_atlas/frontend/calibration.h"

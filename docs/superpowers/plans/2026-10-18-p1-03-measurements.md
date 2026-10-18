@@ -60,32 +60,32 @@
 - Produces: `std::string ros1::ConvertImage(const sensor_msgs::Image&, double time_offset, ImageMeasurement*)`；`std::string ros1::ConvertLivox(const livox_ros_driver::CustomMsg&, LidarScan*)`；`std::string ros1::ConvertPointCloud(const sensor_msgs::PointCloud2&, int lidar_type, double time_offset, LidarScan*)`。空字符串成功；失败不改变输出。
 - Produces: `void Preprocess::Process(const livo_atlas::LidarScan&, PointCloudXYZI* output)`，按 variant 类型调用原 handler；空输入清空输出，输出独立于处理器下一帧的缓存。
 
-- [ ] **Step 1: 写行为测试和最小可编译空实现**
+- [x] **Step 1: 写行为测试和最小可编译空实现**
 
   IMU 使用 sec=17/nsec=123456789，三个非对称角速度及加速度值；额外测试原 ROS 偏移及驱动修正后的消息，逐值验证不归一化。图像用 RGB 像素 `{1,2,3}` 得 BGR `{3,2,1}`、mono8 的复制三通道、非紧密行及消息释放/修改；坏编码和截断数据不改变输出。
   Livox 使用不同 line/tag/offset_time，保留顺序与整数。拒绝 point_num 不一致。为六种 PointCloud2 布局各构造实际消息并解码，覆盖强度的 uint8/float、时间的 float/double/uint32 和 ring 的 uint8/uint16。含组织点云的行填充、字段乱序、空点云及畸形布局。
   预处理固定 blind_sqr=1、point_filter_num=1、feature_enabled=false，使用手算点偏移：Livox 0/4167ns -> 0/0.004167ms；超 1ms 跳变保留补时分支；Ouster t=2500000 -> 2.5ms 并按时间排序；Velodyne time=2500 -> 2.5ms；XT/Pandar/Robosense timestamp 差 0.0025s -> 2.5ms（比较浮点转换后的明确容差）；L515 保留 RGB 到 normal 与零时间。下一次处理不能改变之前输出。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
   单线程构建并运行 `measurement_conversions_test` 和 `sensor_preprocess_test`；空实现应产生可读的数值/内容断言失败，不把编译或链接错误作为 RED。保存日志。
 
-- [ ] **Step 3: 实现普通类型与解码，迁移预处理入口**
+- [x] **Step 3: 实现普通类型与解码，迁移预处理入口**
 
   保留 PCL 点布局、原 cv_bridge 的 `bgr8` 目标编码。解码前校验字段、尺寸、步长、数据范围，拒绝不支持的大端，失败不提交输出。Livox 只保留原算法实际读取字段，不提前计算点内时间。所有原预处理计算与特征提取分支保留；空输入在索引前返回。新 Process 以 std::visit 直接派发，不增加接口基类。
 
-- [ ] **Step 4: 运行 GREEN 及无 ROS 构建**
+- [x] **Step 4: 运行 GREEN 及无 ROS 构建**
 
   Run: 单线程构建和运行所有 catkin C++ 测试以及 `python3 -m unittest discover -s tests -p 'test_*.py' -v`；独立 `cmake -S tests/sensor -B <validation>/sensor-build`，构建后在 build 目录运行 `ctest --output-on-failure`。
   Expected: 全部通过；三个新 sensor 头独立包含、preprocess.cpp 在没有 ROS/vikit 包含或链接目录时可编译运行。数学/标定独立入口仍然通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
   Commit: `refactor: separate sensor measurements and ROS1 decoding`。本任务同时更新 mapper 的两条点云回调调用新入口，保持每个提交可构建；不为过渡保留 ROS 预处理重载。
 
 ### Task 2: 前端 IMU 值接线与完整数值回归
 
-**Files:** 上表 common_lib、IMU、mapper、voxel_map 的显式依赖；阶段验证文档及入口。
+**Files:** 上表 common_lib、IMU、mapper、voxel_map 的显式依赖；`tests/imu_measurement_test.cc`；阶段验证文档及入口。
 
 **Interfaces:**
 - Consumes: Task 1 的四项转换、三种测量和 `Preprocess::Process`，签名不变。

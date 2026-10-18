@@ -121,9 +121,13 @@ add_library(vio src/vio.cpp src/frame.cpp src/visual_point.cpp)
 add_library(lio src/voxel_map.cpp)
 add_library(pre src/preprocess.cpp)
 add_library(imu_proc src/IMU_Processing.cpp)
+add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
+target_link_libraries(livo_atlas_ros1_conversions
+  ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
 add_library(laser_mapping src/LIVMapper.cpp src/camera/vikit_camera_factory.cc
   src/ros1/calibration_reader.cc)
-target_link_libraries(laser_mapping livo_atlas_calibration ${catkin_LIBRARIES})
+target_link_libraries(laser_mapping livo_atlas_calibration
+  livo_atlas_ros1_conversions ${catkin_LIBRARIES})
 
 # Add the main executable
 add_executable(fastlivo_mapping src/main.cpp)
@@ -148,6 +152,18 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(measurement_conversions_test
+    tests/measurement_conversions_test.cc tests/core/test_main.cc)
+  if(TARGET measurement_conversions_test)
+    target_link_libraries(measurement_conversions_test
+      livo_atlas_ros1_conversions)
+  endif()
+  catkin_add_gtest(sensor_preprocess_test
+    tests/sensor/preprocess_test.cc tests/core/test_main.cc)
+  if(TARGET sensor_preprocess_test)
+    target_link_libraries(sensor_preprocess_test pre ${OpenMP_CXX_LIBRARIES}
+      ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+  endif()
   catkin_add_gtest(pcl_memory_compatibility_test tests/pcl_memory_compatibility_test.cc)
   if(TARGET pcl_memory_compatibility_test)
     target_link_libraries(pcl_memory_compatibility_test ${PCL_LIBRARIES})

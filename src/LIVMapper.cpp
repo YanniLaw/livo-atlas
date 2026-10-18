@@ -16,8 +16,11 @@ which is included as part of this source code package.
 #include <limits>
 #include <stdexcept>
 
+#include <pcl_conversions/pcl_conversions.h>
+
 #include "livo_atlas/camera/vikit_camera_factory.h"
 #include "livo_atlas/ros1/calibration_reader.h"
+#include "livo_atlas/ros1/measurement_conversions.h"
 
 LIVMapper::LIVMapper(ros::NodeHandle &nh)
     : extT(0, 0, 0),
@@ -767,10 +770,24 @@ void LIVMapper::standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
     lid_raw_data_buffer.clear();
   }
   // ROS_INFO("get point cloud at time: %.6f", msg->header.stamp.toSec());
-  PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
-  p_pre->process(msg, ptr);
-  lid_raw_data_buffer.push_back(ptr);
-  lid_header_time_buffer.push_back(cur_head_time);
+  livo_atlas::LidarScan scan;
+  const std::string error = livo_atlas::ros1::ConvertPointCloud(
+      *msg, p_pre->lidar_type, lidar_time_offset, &scan);
+  if (!error.empty()) {
+    ROS_ERROR_STREAM(error);
+    mtx_buffer.unlock();
+    return;
+  }
+  livo_atlas::PointCloudMeasurement measurement{
+      scan.timestamp, PointCloudXYZI::Ptr(new PointCloudXYZI())};
+  p_pre->Process(scan, measurement.cloud.get());
+  if (measurement.cloud->empty()) {
+    ROS_ERROR("Received an empty point cloud");
+    mtx_buffer.unlock();
+    return;
+  }
+  lid_raw_data_buffer.push_back(std::move(measurement.cloud));
+  lid_header_time_buffer.push_back(measurement.timestamp);
   last_timestamp_lidar = cur_head_time;
 
   mtx_buffer.unlock();
@@ -781,7 +798,7 @@ void LIVMapper::livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_i
 {
   if (!lidar_en) return;
   mtx_buffer.lock();
-  livox_ros_driver::CustomMsg::Ptr msg(new livox_ros_driver::CustomMsg(*msg_in));
+  const auto& msg = msg_in;
   // if ((abs(msg->header.stamp.toSec() - last_timestamp_lidar) > 0.2 && last_timestamp_lidar > 0) || sync_jump_flag)
   // {
   //   ROS_WARN("lidar jumps %.3f\n", msg->header.stamp.toSec() - last_timestamp_lidar);
@@ -803,17 +820,25 @@ void LIVMapper::livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_i
     lid_raw_data_buffer.clear();
   }
   // ROS_INFO("get point cloud at time: %.6f", msg->header.stamp.toSec());
-  PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
-  p_pre->process(msg, ptr);
+  livo_atlas::LidarScan scan;
+  const std::string error = livo_atlas::ros1::ConvertLivox(*msg, &scan);
+  if (!error.empty()) {
+    ROS_ERROR_STREAM(error);
+    mtx_buffer.unlock();
+    return;
+  }
+  livo_atlas::PointCloudMeasurement measurement{
+      scan.timestamp, PointCloudXYZI::Ptr(new PointCloudXYZI())};
+  p_pre->Process(scan, measurement.cloud.get());
 
-  if (!ptr || ptr->empty()) {
+  if (measurement.cloud->empty()) {
     ROS_ERROR("Received an empty point cloud");
     mtx_buffer.unlock();
     return;
   }
 
-  lid_raw_data_buffer.push_back(ptr);
-  lid_header_time_buffer.push_back(cur_head_time);
+  lid_raw_data_buffer.push_back(std::move(measurement.cloud));
+  lid_header_time_buffer.push_back(measurement.timestamp);
   last_timestamp_lidar = cur_head_time;
 
   mtx_buffer.unlock();

@@ -8,11 +8,12 @@
 #include <pcl/point_types.h>
 
 #include "livo_atlas/core/math_types.h"
+#include "livo_atlas/sensor/point_types.h"
 
-typedef pcl::PointXYZINormal PointType;
+using PointType = livo_atlas::Point;
 typedef pcl::PointXYZRGB PointTypeRGB;
 typedef pcl::PointXYZRGBA PointTypeRGBA;
-typedef pcl::PointCloud<PointType> PointCloudXYZI;
+using PointCloudXYZI = livo_atlas::PointCloud;
 typedef std::vector<PointType, Eigen::aligned_allocator<PointType>> PointVector;
 typedef pcl::PointCloud<PointTypeRGB> PointCloudXYZRGB;
 typedef pcl::PointCloud<PointTypeRGBA> PointCloudXYZRGBA;

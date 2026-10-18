@@ -39,13 +39,13 @@ using namespace Sophus;
 
 enum LID_TYPE
 {
-  AVIA = 1,
-  VELO16 = 2,
-  OUST64 = 3,
-  L515 = 4,
-  XT32 = 5,
-  PANDAR128 = 6,
-  ROBOSENSE = 7
+  AVIA = livo_atlas::kLivox,
+  VELO16 = livo_atlas::kVelodyne,
+  OUST64 = livo_atlas::kOuster,
+  L515 = livo_atlas::kDepthCamera,
+  XT32 = livo_atlas::kXt32,
+  PANDAR128 = livo_atlas::kPandar128,
+  ROBOSENSE = livo_atlas::kRobosense
 };
 enum SLAM_MODE
 {
