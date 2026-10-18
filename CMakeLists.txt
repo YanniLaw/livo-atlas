@@ -152,6 +152,14 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  # Run explicitly with rostest: this exercises real parameters and callbacks.
+  catkin_add_executable_with_gtest(lidar_callback_test
+    tests/lidar_callback_test.cc)
+  if(TARGET lidar_callback_test)
+    target_link_libraries(lidar_callback_test laser_mapping vio lio pre imu_proc
+      ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
+      ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+  endif()
   catkin_add_gtest(imu_measurement_test
     tests/imu_measurement_test.cc tests/core/test_main.cc)
   if(TARGET imu_measurement_test)
@@ -162,7 +170,7 @@ if(CATKIN_ENABLE_TESTING)
     tests/measurement_conversions_test.cc tests/core/test_main.cc)
   if(TARGET measurement_conversions_test)
     target_link_libraries(measurement_conversions_test
-      livo_atlas_ros1_conversions)
+      livo_atlas_ros1_conversions pre ${OpenMP_CXX_LIBRARIES})
   endif()
   catkin_add_gtest(sensor_preprocess_test
     tests/sensor/preprocess_test.cc tests/core/test_main.cc)

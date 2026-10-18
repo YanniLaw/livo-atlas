@@ -26,6 +26,7 @@ which is included as part of this source code package.
 Preprocess::Preprocess() : feature_enabled(0), lidar_type(livo_atlas::kLivox), blind(0.01), point_filter_num(1)
 {
   inf_bound = 10;
+  blind_sqr = blind * blind;
   N_SCANS = 6;
   group_size = 8;
   disA = 0.01;
@@ -67,6 +68,7 @@ void Preprocess::set(bool feat_en, int lid_type, double bld, int pfilt_num)
   feature_enabled = feat_en;
   lidar_type = lid_type;
   blind = bld;
+  blind_sqr = blind * blind;
   point_filter_num = pfilt_num;
 }
 
@@ -255,6 +257,7 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::OusterPoint>& p
     {
       PointCloudXYZI &pl = pl_buff[j];
       int linesize = pl.size();
+      if (linesize < 2) continue;
       vector<orgtype> &types = typess[j];
       types.clear();
       types.resize(linesize);
@@ -369,6 +372,7 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::VelodynePoint>&
 
       if (!given_offset_time)
       {
+        if (layer >= MAX_LINE_NUM) continue;
         double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
         if (is_first[layer])
         {
@@ -433,6 +437,7 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::VelodynePoint>&
       if (!given_offset_time)
       {
         int layer = pl_orig.points[i].ring;
+        if (layer >= MAX_LINE_NUM) continue;
         double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
 
         if (is_first[layer])
@@ -583,6 +588,7 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Xt32Point>& pl_
 
       if (!given_offset_time)
       {
+        if (layer >= MAX_LINE_NUM) continue;
         double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
         if (is_first[layer])
         {
@@ -708,10 +714,11 @@ void Preprocess::give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &t
   }
   uint head = 0;
 
-  while (types[head].range < blind_sqr)
+  while (head < plsize && types[head].range < blind_sqr)
   {
     head++;
   }
+  if (head == plsize) return;
 
   // Surf
   plsize2 = (plsize > group_size) ? (plsize - group_size) : 0;

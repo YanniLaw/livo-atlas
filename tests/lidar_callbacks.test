@@ -1,0 +1,8 @@
+<launch>
+  <rosparam command="load" file="$(find livo_atlas)/config/avia.yaml" />
+  <test test-name="lidar_callback_test" pkg="livo_atlas"
+        type="lidar_callback_test" time-limit="30">
+    <rosparam command="load"
+              file="$(find livo_atlas)/config/camera_pinhole.yaml" />
+  </test>
+</launch>

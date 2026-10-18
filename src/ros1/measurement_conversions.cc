@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <limits>
+#include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include <cv_bridge/cv_bridge.h>
@@ -10,6 +12,20 @@
 
 namespace livo_atlas::ros1 {
 namespace {
+
+template <typename PointType>
+bool IsOptionalField(std::string_view name) {
+  // Match legacy PCL zero defaults, including single-line input without ring.
+  if (name == "ring") return true;
+  if constexpr (std::is_same_v<PointType, VelodynePoint>) {
+    return name == "time";  // Preprocess estimates timing from yaw.
+  } else if constexpr (std::is_same_v<PointType, Xt32Point>) {
+    return name == "timestamp";  // The feature branch has a yaw fallback.
+  } else if constexpr (std::is_same_v<PointType, OusterPoint>) {
+    return name == "reflectivity" || name == "ambient" || name == "range";
+  }
+  return false;
+}
 
 template <typename PointType>
 std::string ValidateCloudLayout(const sensor_msgs::PointCloud2& message) {
@@ -44,14 +60,17 @@ std::string ValidateCloudLayout(const sensor_msgs::PointCloud2& message) {
       matched = &field;
     }
     if (matched == nullptr) {
+      if (IsOptionalField<PointType>(expected.name)) continue;
       return "PointCloud2: missing field " + expected.name;
     }
-    // PCL also permits packed color as uint32, including an rgba field name.
-    const bool packed_color =
-        expected.name == "rgb" &&
-        matched->datatype == sensor_msgs::PointField::UINT32;
-    if ((!packed_color && matched->datatype != expected.datatype) ||
-        matched->count != 1 ||
+    // PCL accepts rgb/FLOAT32, rgb/UINT32 and rgba/UINT32.
+    bool valid_type = matched->datatype == expected.datatype;
+    if (expected.name == "rgb") {
+      valid_type = matched->datatype == sensor_msgs::PointField::UINT32 ||
+                   (matched->name == "rgb" &&
+                    matched->datatype == sensor_msgs::PointField::FLOAT32);
+    }
+    if (!valid_type || matched->count != 1 ||
         std::uint64_t{matched->offset} + pcl::getFieldSize(expected.datatype) >
             message.point_step) {
       return "PointCloud2: invalid type, count or offset for " + expected.name;

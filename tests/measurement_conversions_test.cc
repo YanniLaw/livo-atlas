@@ -2,23 +2,42 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include <pcl_conversions/pcl_conversions.h>
 
+#include "preprocess.h"
+
 namespace livo_atlas::ros1 {
 namespace {
+
+template <typename PointType>
+sensor_msgs::PointCloud2 MakeCloudMessage(
+    const pcl::PointCloud<PointType>& cloud) {
+  sensor_msgs::PointCloud2 message;
+  pcl::toROSMsg(cloud, message);
+  message.header.stamp = ros::Time(17, 123456789);
+  return message;
+}
 
 template <typename PointType>
 sensor_msgs::PointCloud2 MakeCloudMessage(const PointType& point) {
   pcl::PointCloud<PointType> cloud;
   cloud.push_back(point);
-  sensor_msgs::PointCloud2 message;
-  pcl::toROSMsg(cloud, message);
-  message.header.stamp = ros::Time(17, 123456789);
-  return message;
+  return MakeCloudMessage(cloud);
+}
+
+void RemoveField(const std::string& name, sensor_msgs::PointCloud2* message) {
+  auto& fields = message->fields;
+  fields.erase(std::remove_if(fields.begin(), fields.end(),
+                              [&name](const auto& field) {
+                                return field.name == name;
+                              }),
+               fields.end());
 }
 
 TEST(MeasurementConversionsTest, ImuPreservesCorrectedTimeAndRawValues) {
@@ -181,21 +200,134 @@ TEST(MeasurementConversionsTest, OusterPreservesIntegerFields) {
   EXPECT_EQ(decoded.range, 87654321u);
 }
 
+TEST(MeasurementConversionsTest, MissingVelodyneTimeRetainsYawFallback) {
+  pcl::PointCloud<VelodynePoint> points;
+  VelodynePoint point{};
+  point.x = 2;
+  points.push_back(point);
+  point.y = -1;
+  points.push_back(point);
+  auto message = MakeCloudMessage(points);
+  RemoveField("time", &message);
+  LidarScan scan;
+  ASSERT_TRUE(ConvertPointCloud(message, kVelodyne, 0, &scan).empty());
+  Preprocess preprocess;
+  preprocess.set(false, kVelodyne, 1, 1);
+  preprocess.blind_sqr = 1;
+  PointCloud result;
+  preprocess.Process(scan, &result);
+  ASSERT_EQ(result.size(), 1);
+  EXPECT_NEAR(result[0].curvature, 7.358730, 0.00001);
+}
+
+TEST(MeasurementConversionsTest, OusterAcceptsUnusedFieldsAndRingOmitted) {
+  OusterPoint point{};
+  point.x = 2;
+  point.t = 2500000;
+  auto message = MakeCloudMessage(point);
+  for (const auto& name : {"reflectivity", "ambient", "range", "ring"}) {
+    RemoveField(name, &message);
+  }
+  LidarScan scan;
+  ASSERT_TRUE(ConvertPointCloud(message, kOuster, 0, &scan).empty());
+  const auto& decoded = std::get<pcl::PointCloud<OusterPoint>>(scan.points)[0];
+  EXPECT_EQ(decoded.ring, 0);
+  EXPECT_EQ(decoded.reflectivity, 0);
+  EXPECT_EQ(decoded.ambient, 0);
+  EXPECT_EQ(decoded.range, 0);
+  Preprocess preprocess;
+  preprocess.set(false, kOuster, 1, 1);
+  preprocess.blind_sqr = 1;
+  PointCloud result;
+  preprocess.Process(scan, &result);
+  ASSERT_EQ(result.size(), 1);
+  EXPECT_FLOAT_EQ(result[0].curvature, 2.5);
+}
+
+TEST(MeasurementConversionsTest, OptionalRingAndXt32TimestampDefaultToZero) {
+  std::vector<sensor_msgs::PointCloud2> messages = {
+      MakeCloudMessage(VelodynePoint{}), MakeCloudMessage(Xt32Point{}),
+      MakeCloudMessage(Pandar128Point{}), MakeCloudMessage(RobosensePoint{})};
+  const int layouts[] = {kVelodyne, kXt32, kPandar128, kRobosense};
+  for (std::size_t i = 0; i < messages.size(); ++i) {
+    SCOPED_TRACE(layouts[i]);
+    RemoveField("ring", &messages[i]);
+    if (layouts[i] == kXt32) RemoveField("timestamp", &messages[i]);
+    LidarScan scan;
+    ASSERT_TRUE(ConvertPointCloud(messages[i], layouts[i], 0, &scan).empty());
+    std::visit(
+        [](const auto& points) {
+          using Points = std::decay_t<decltype(points)>;
+          if constexpr (
+              !std::is_same_v<Points, std::vector<LivoxPoint>> &&
+              !std::is_same_v<Points, pcl::PointCloud<pcl::PointXYZRGB>>) {
+            EXPECT_EQ(points[0].ring, 0);
+          }
+        },
+        scan.points);
+    if (layouts[i] == kXt32) {
+      EXPECT_DOUBLE_EQ(std::get<pcl::PointCloud<Xt32Point>>(scan.points)[0]
+                           .timestamp, 0);
+    }
+  }
+}
+
+TEST(MeasurementConversionsTest, MalformedOptionalFieldsStillReject) {
+  const auto valid = MakeCloudMessage(VelodynePoint{});
+  for (int kind = 0; kind < 3; ++kind) {
+    auto message = valid;
+    auto field = std::find_if(message.fields.begin(), message.fields.end(),
+                              [](const auto& value) {
+                                return value.name == "time";
+                              });
+    ASSERT_NE(field, message.fields.end());
+    if (kind == 0) field->datatype = sensor_msgs::PointField::FLOAT64;
+    if (kind == 1) field->count = 2;
+    if (kind == 2) field->offset = message.point_step;
+    LidarScan scan{42, std::vector<LivoxPoint>(1)};
+    EXPECT_FALSE(ConvertPointCloud(message, kVelodyne, 0, &scan).empty());
+    EXPECT_DOUBLE_EQ(scan.timestamp, 42);
+    EXPECT_TRUE(std::holds_alternative<std::vector<LivoxPoint>>(scan.points));
+  }
+}
+
 TEST(MeasurementConversionsTest, DepthCloudPreservesPackedColor) {
   pcl::PointXYZRGB point;
   point.x = 2;
   point.r = 1;
   point.g = 2;
   point.b = 3;
-  LidarScan result;
-  ASSERT_TRUE(
-      ConvertPointCloud(MakeCloudMessage(point), 4, 0, &result).empty());
-  const auto& decoded =
-      std::get<pcl::PointCloud<pcl::PointXYZRGB>>(result.points)[0];
-  EXPECT_FLOAT_EQ(decoded.x, 2);
-  EXPECT_EQ(decoded.r, 1);
-  EXPECT_EQ(decoded.g, 2);
-  EXPECT_EQ(decoded.b, 3);
+  auto message = MakeCloudMessage(point);
+  for (int layout = 0; layout < 3; ++layout) {
+    for (auto& field : message.fields) {
+      if (field.name != "rgb") continue;
+      if (layout > 0) field.datatype = sensor_msgs::PointField::UINT32;
+      if (layout == 2) field.name = "rgba";
+    }
+    LidarScan result;
+    ASSERT_TRUE(ConvertPointCloud(message, kDepthCamera, 0, &result).empty());
+    const auto& decoded =
+        std::get<pcl::PointCloud<pcl::PointXYZRGB>>(result.points)[0];
+    EXPECT_FLOAT_EQ(decoded.x, 2);
+    EXPECT_EQ(decoded.r, 1);
+    EXPECT_EQ(decoded.g, 2);
+    EXPECT_EQ(decoded.b, 3);
+  }
+}
+
+TEST(MeasurementConversionsTest, FloatRgbaIsRejectedWithoutChangingOutput) {
+  pcl::PointXYZRGB point;
+  point.r = 1;
+  point.g = 2;
+  point.b = 3;
+  auto message = MakeCloudMessage(point);
+  for (auto& field : message.fields) {
+    if (field.name == "rgb") field.name = "rgba";
+  }
+  LidarScan result{42, std::vector<LivoxPoint>(1)};
+  EXPECT_FALSE(ConvertPointCloud(message, kDepthCamera, 0, &result).empty());
+  EXPECT_DOUBLE_EQ(result.timestamp, 42);
+  EXPECT_TRUE(std::holds_alternative<std::vector<LivoxPoint>>(result.points));
 }
 
 TEST(MeasurementConversionsTest, Xt32PreservesDoubleTimestamp) {
@@ -267,7 +399,7 @@ TEST(MeasurementConversionsTest, MalformedCloudLeavesOutputUnchanged) {
   const auto valid = MakeCloudMessage(point);
   std::vector<sensor_msgs::PointCloud2> invalid(10, valid);
   invalid[0].data.pop_back();
-  invalid[1].fields.pop_back();
+  RemoveField("x", &invalid[1]);
   invalid[2].fields[0].datatype = sensor_msgs::PointField::FLOAT64;
   invalid[3].fields[0].offset = valid.point_step;
   invalid[4].fields[0].count = 2;

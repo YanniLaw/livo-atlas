@@ -763,12 +763,6 @@ void LIVMapper::standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
   std::unique_lock<std::mutex> lock(mtx_buffer);
 
   double cur_head_time = msg->header.stamp.toSec() + lidar_time_offset;
-  // cout<<"got feature"<<endl;
-  if (cur_head_time < last_timestamp_lidar)
-  {
-    ROS_ERROR("lidar loop back, clear buffer");
-    lid_raw_data_buffer.clear();
-  }
   // ROS_INFO("get point cloud at time: %.6f", msg->header.stamp.toSec());
   livo_atlas::LidarScan scan;
   const std::string error = livo_atlas::ros1::ConvertPointCloud(
@@ -785,6 +779,11 @@ void LIVMapper::standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
     ROS_ERROR("Received an empty point cloud");
     lock.unlock();
     return;
+  }
+  if (cur_head_time < last_timestamp_lidar) {
+    ROS_ERROR("lidar loop back, clear buffer");
+    lid_raw_data_buffer.clear();
+    lid_header_time_buffer.clear();
   }
   lid_raw_data_buffer.push_back(std::move(measurement.cloud));
   lid_header_time_buffer.push_back(measurement.timestamp);
@@ -814,11 +813,6 @@ void LIVMapper::livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_i
 
   double cur_head_time = msg->header.stamp.toSec();
   ROS_INFO("Get LiDAR, its header time: %.6f", cur_head_time);
-  if (cur_head_time < last_timestamp_lidar)
-  {
-    ROS_ERROR("lidar loop back, clear buffer");
-    lid_raw_data_buffer.clear();
-  }
   // ROS_INFO("get point cloud at time: %.6f", msg->header.stamp.toSec());
   livo_atlas::LidarScan scan;
   const std::string error = livo_atlas::ros1::ConvertLivox(*msg, &scan);
@@ -837,6 +831,11 @@ void LIVMapper::livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_i
     return;
   }
 
+  if (cur_head_time < last_timestamp_lidar) {
+    ROS_ERROR("lidar loop back, clear buffer");
+    lid_raw_data_buffer.clear();
+    lid_header_time_buffer.clear();
+  }
   lid_raw_data_buffer.push_back(std::move(measurement.cloud));
   lid_header_time_buffer.push_back(measurement.timestamp);
   last_timestamp_lidar = cur_head_time;
