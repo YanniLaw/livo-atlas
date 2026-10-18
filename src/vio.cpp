@@ -786,6 +786,7 @@ void VIOManager::computeJacobianAndUpdateEKF(cv::Mat img)
   if (total_points == 0) return;
   
   compute_jacobian_time = update_ekf_time = 0.0;
+  G.setZero();
 
   for (int level = patch_pyrimid_level - 1; level >= 0; level--)
   {
@@ -1529,13 +1530,13 @@ void VIOManager::updateState(cv::Mat img, int level)
 
   const int H_DIM = total_points * patch_size_total;
   z.resize(H_DIM);
-  z.setZero();
   H_sub.resize(H_DIM, 7);
-  H_sub.setZero();
 
   for (int iteration = 0; iteration < max_iterations; iteration++)
   {
     double t1 = omp_get_wtime();
+    z.setZero();
+    H_sub.setZero();
 
     M3D Rwi(state->rot_end);
     V3D Pwi(state->pos_end);
@@ -1572,6 +1573,10 @@ void VIOManager::updateState(cv::Mat img, int level)
 
       V3D pf = Rcw * pt->pos_ + Pcw;
       V2D pc = cam->world2cam(pf);
+      if (!pc.allFinite() || pc[0] < 0 || pc[1] < 0 ||
+          pc[0] >= img.cols || pc[1] >= img.rows) {
+        continue;
+      }
 
       computeProjectionJacobian(pf, Jdpi);
       M3D p_hat;
@@ -1581,6 +1586,14 @@ void VIOManager::updateState(cv::Mat img, int level)
       float v_ref = pc[1];
       int u_ref_i = floorf(pc[0] / scale) * scale;
       int v_ref_i = floorf(pc[1] / scale) * scale;
+      // Include the bilinear interpolation and gradient samples at this level.
+      const int sampling_margin = (patch_size_half + 1) * scale;
+      if (u_ref_i - sampling_margin < 0 ||
+          v_ref_i - sampling_margin < 0 ||
+          u_ref_i + sampling_margin >= img.cols ||
+          v_ref_i + sampling_margin >= img.rows) {
+        continue;
+      }
       float subpix_u_ref = (u_ref - u_ref_i) / scale;
       float subpix_v_ref = (v_ref - v_ref_i) / scale;
       float w_ref_tl = (1.0 - subpix_u_ref) * (1.0 - subpix_v_ref);
@@ -1633,6 +1646,7 @@ void VIOManager::updateState(cv::Mat img, int level)
       error += patch_error;
     }
 
+    if (n_meas == 0) break;
     error = error / n_meas;
     
     compute_jacobian_time += omp_get_wtime() - t1;

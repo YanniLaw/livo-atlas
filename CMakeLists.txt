@@ -147,8 +147,12 @@ if(CATKIN_ENABLE_TESTING)
   endif()
   catkin_add_gtest(vio_reference_patch_test
     tests/vio_reference_patch_test.cc tests/core/test_main.cc)
-  if(TARGET vio_reference_patch_test)
-    target_link_libraries(vio_reference_patch_test vio lio ${catkin_LIBRARIES}
-      ${OpenCV_LIBRARIES} ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
-  endif()
+  catkin_add_gtest(vio_sampling_test
+    tests/vio_sampling_test.cc tests/core/test_main.cc)
+  foreach(VIO_TEST vio_reference_patch_test vio_sampling_test)
+    if(TARGET ${VIO_TEST})
+      target_link_libraries(${VIO_TEST} vio lio ${catkin_LIBRARIES}
+        ${OpenCV_LIBRARIES} ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+    endif()
+  endforeach()
 endif()
