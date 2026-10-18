@@ -12,10 +12,9 @@ which is included as part of this source code package.
 
 #include "vio.h"
 
-VIOManager::VIOManager()
-{
-  // downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
-}
+#include <stdexcept>
+
+VIOManager::VIOManager() : visual_submap(nullptr) {}
 
 VIOManager::~VIOManager()
 {
@@ -40,6 +39,9 @@ void VIOManager::setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P)
 
 void VIOManager::initializeVIO()
 {
+  if (patch_size <= 0 || patch_size % 2 != 0) {
+    throw std::invalid_argument("VIO patch_size must be a positive even number");
+  }
   visual_submap = new SubSparseMap;
 
   fx = cam->fx();

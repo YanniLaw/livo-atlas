@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -97,6 +98,25 @@ TEST_F(VioSamplingTest, AllInvalidPatchesPreserveCovariance) {
   EXPECT_TRUE(result.pos_end.isZero(0));
   EXPECT_DOUBLE_EQ(result.inv_expo_time, 1);
   EXPECT_TRUE(result.cov.isApprox(StatesGroup().cov, 0));
+}
+
+TEST(VioSamplingConfigTest, RejectsNonPositiveAndOddPatchSizes) {
+  vk::PinholeCamera camera(512, 512, 1, 200, 200, 256, 256);
+  for (int patch_size : {-2, 0, 1, 7, 9}) {
+    SCOPED_TRACE(patch_size);
+    VIOManager manager;
+    manager.cam = &camera;
+    manager.grid_size = 32;
+    manager.raycast_en = false;
+    manager.patch_size = patch_size;
+    manager.patch_pyrimid_level = 4;
+    manager.Rli = M3D::Identity();
+    manager.Rcl = M3D::Identity();
+    manager.Pli = V3D::Zero();
+    manager.Pcl = V3D::Zero();
+    EXPECT_THROW(manager.initializeVIO(), std::invalid_argument);
+    EXPECT_EQ(manager.visual_submap, nullptr);
+  }
 }
 
 }  // namespace
