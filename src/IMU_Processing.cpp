@@ -47,6 +47,7 @@ void ImuProcess::Reset()
   init_iter_num = 1;
   IMUpose.clear();
   last_imu = {};
+  last_prop_end_time = 0.0;
   cur_pcl_un_.reset(new PointCloudXYZI());
 }
 

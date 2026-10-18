@@ -1,6 +1,10 @@
 #include "IMU_Processing.h"
 
 #include <cmath>
+#include <cstring>
+#include <memory>
+#include <new>
+#include <type_traits>
 
 #include <gtest/gtest.h>
 
@@ -14,6 +18,7 @@ ImuMeasurement MakeImu(double timestamp, double yaw_rate = 0) {
 
 TEST(ImuMeasurementTest, InitializationNormalizesRawAccelerationInAlgorithm) {
   ImuProcess process;
+  process.first_lidar_time = 0;
   process.set_imu_init_frame_num(1000);  // Keep the legacy file writer inactive.
   StatesGroup state;
   LidarMeasureGroup input;
@@ -32,6 +37,7 @@ TEST(ImuMeasurementTest, InitializationNormalizesRawAccelerationInAlgorithm) {
 
 TEST(ImuMeasurementTest, PropagationCarriesTheLastSampleAcrossFrames) {
   ImuProcess process;
+  process.first_lidar_time = 0;
   process.set_imu_init_frame_num(1000);
   StatesGroup state;
   LidarMeasureGroup input;
@@ -59,6 +65,30 @@ TEST(ImuMeasurementTest, PropagationCarriesTheLastSampleAcrossFrames) {
   EXPECT_NEAR(state.vel_end.norm(), 0, 1e-12);
   EXPECT_TRUE(state.cov.allFinite());
   EXPECT_DOUBLE_EQ(input.last_lio_update_time, 0.3);
+}
+
+TEST(ImuMeasurementTest, FirstPropagationDoesNotDependOnPreviousStorageBytes) {
+  std::aligned_storage_t<sizeof(ImuProcess), alignof(ImuProcess)> storage;
+  std::memset(&storage, 0x7f, sizeof(storage));
+  const auto destroy = [](ImuProcess* process) { process->~ImuProcess(); };
+  std::unique_ptr<ImuProcess, decltype(destroy)> process(
+      new (&storage) ImuProcess(), destroy);
+  process->first_lidar_time = 0;
+  process->set_imu_init_frame_num(1000);
+  StatesGroup state;
+  LidarMeasureGroup input;
+  input.lio_vio_flg = LIO;
+  MeasureGroup group;
+  group.imu = {MakeImu(0)};
+  input.measures.push_back(group);
+  PointCloudXYZI::Ptr output(new PointCloudXYZI());
+  process->Process2(input, state, output);
+  process->imu_need_init = false;
+  input.measures.back().imu = {MakeImu(0.2, 2)};
+  input.measures.back().lio_time = 0.2;
+  process->Process2(input, state, output);
+  // Average yaw rate 1 rad/s for 0.2 s, even in reused nonzero storage.
+  EXPECT_NEAR(std::atan2(state.rot_end(1, 0), state.rot_end(0, 0)), 0.2, 1e-12);
 }
 
 }  // namespace
