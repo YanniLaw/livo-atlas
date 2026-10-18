@@ -16,10 +16,21 @@ target_include_directories(core_math_state_test PRIVATE "${PACKAGE_INCLUDE_DIR}"
 target_link_libraries(core_math_state_test PRIVATE Eigen3::Eigen GTest::GTest)
 add_test(NAME core_math_state_test COMMAND core_math_state_test)
 
+add_library(livo_atlas_calibration STATIC
+  ../../src/sensor/extrinsics.cc ../../src/camera/camera_config.cc)
+target_include_directories(livo_atlas_calibration PUBLIC "${PACKAGE_INCLUDE_DIR}")
+target_link_libraries(livo_atlas_calibration PUBLIC Eigen3::Eigen)
+add_executable(calibration_test calibration_test.cc test_main.cc)
+target_link_libraries(calibration_test PRIVATE
+  livo_atlas_calibration GTest::GTest)
+add_test(NAME calibration_test COMMAND calibration_test)
+
 set(HEADER_CHECK_SOURCES)
-foreach(HEADER math_types so3_math state)
-  set(CHECK_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${HEADER}_header_check.cc")
-  file(WRITE "${CHECK_SOURCE}" "#include \"livo_atlas/core/${HEADER}.h\"\n")
+foreach(HEADER core/math_types core/so3_math core/state
+    sensor/extrinsics camera/camera_config frontend/calibration)
+  string(REPLACE "/" "_" CHECK_NAME "${HEADER}")
+  set(CHECK_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${CHECK_NAME}_header_check.cc")
+  file(WRITE "${CHECK_SOURCE}" "#include \"livo_atlas/${HEADER}.h\"\n")
   list(APPEND HEADER_CHECK_SOURCES "${CHECK_SOURCE}")
 endforeach()
 add_library(core_header_checks OBJECT ${HEADER_CHECK_SOURCES})

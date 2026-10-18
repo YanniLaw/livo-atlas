@@ -58,26 +58,26 @@
 - Produces: `Calibration { RigidTransform imu_from_lidar; RigidTransform camera_from_lidar; CameraConfig camera; }`。
 - Produces: `std::string ValidateExtrinsic(const RigidTransform&)`；`std::string ParseExtrinsic(const std::vector<double>& rotation, const std::vector<double>& translation, RigidTransform* result)`；`std::string ValidateCameraConfig(const CameraConfig&)`。
 
-- [ ] **Step 1: 先写行为测试与最小可编译接口**
+- [x] **Step 1: 先写行为测试与最小可编译接口**
 
   测试有效的带平移 Z 轴 90° 旋转，行优先数组 `{0,-1,0,1,0,0,0,0,1}` 将点 `(2,0,0)` 加平移 `(1,2,3)` 后得到 `(1,4,3)`。覆盖长度、NaN/Inf、反射、非正交旋转及失败不修改输出。
   原 `avia.yaml` 舍入矩阵校验成功且逐元素不变；旋转的正交残差与行列式误差阈值均为 `1e-4`。
   相机用例覆盖两种模型；非法模型、尺寸、焦距、缩放、畸变与主点的非有限值；缩放后尺寸不足 1、超出 int、像素索引乘积溢出和内参乘积非有限。允许有限的负主点，不擅自修正标定。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
   在 `validation/P1-02-noetic-20261018/core-build` 独立配置、单线程构建。先给接口最小占位实现以取得行为失败；缺头或链接错误不算校验逻辑的 RED 证据。保存失败日志。
 
-- [ ] **Step 3: 实现最小校验及解析**
+- [x] **Step 3: 实现最小校验及解析**
 
   在索引前检查 9/3 长度；逐行填入 Eigen；成功才提交结果。校验不正交化。相机尺寸在浮点乘法、有限性和范围检查通过后才转换为整数；保持 vikit 的正数截断规则。
 
-- [ ] **Step 4: 独立验证 GREEN**
+- [x] **Step 4: 独立验证 GREEN**
 
   Run: `cmake --build validation/P1-02-noetic-20261018/core-build -- -j1`，然后在该目录运行 `ctest --output-on-failure`。
   Expected: 原数学/状态与新标定行为测试均通过；新公共头独立包含可编译，编译命令中没有 ROS、PCL、vikit 路径。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
   提交普通类型、实现、测试与构建接线：`refactor: define and validate plain sensor calibration`。
 

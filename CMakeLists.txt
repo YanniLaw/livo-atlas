@@ -112,6 +112,9 @@ include_directories(
 )
 
 # Add libraries
+add_library(livo_atlas_calibration STATIC
+  src/sensor/extrinsics.cc src/camera/camera_config.cc)
+target_link_libraries(livo_atlas_calibration PUBLIC Eigen3::Eigen)
 add_library(vio src/vio.cpp src/frame.cpp src/visual_point.cpp)
 add_library(lio src/voxel_map.cpp)
 add_library(pre src/preprocess.cpp)
@@ -147,6 +150,11 @@ if(CATKIN_ENABLE_TESTING)
   endif()
   catkin_add_gtest(core_math_state_test
     tests/core/math_test.cc tests/core/state_test.cc tests/core/test_main.cc)
+  catkin_add_gtest(calibration_test
+    tests/core/calibration_test.cc tests/core/test_main.cc)
+  if(TARGET calibration_test)
+    target_link_libraries(calibration_test livo_atlas_calibration)
+  endif()
   catkin_add_gtest(legacy_core_compatibility_test
     tests/legacy_core_compatibility_test.cc tests/core/test_main.cc)
   catkin_add_gtest(vio_reference_patch_test
