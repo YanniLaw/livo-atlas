@@ -12,19 +12,26 @@ which is included as part of this source code package.
 
 #include "LIVMapper.h"
 
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
+
+#include "livo_atlas/camera/vikit_camera_factory.h"
+#include "livo_atlas/ros1/calibration_reader.h"
+
 LIVMapper::LIVMapper(ros::NodeHandle &nh)
     : extT(0, 0, 0),
       extR(M3D::Identity())
 {
-  extrinT.assign(3, 0.0);
-  extrinR.assign(9, 0.0);
-  cameraextrinT.assign(3, 0.0);
-  cameraextrinR.assign(9, 0.0);
-
   p_pre.reset(new Preprocess());
   p_imu.reset(new ImuProcess());
 
   readParameters(nh);
+  ValidateImageParameters();
+  camera_ = livo_atlas::CreateVikitCamera(calibration_.camera);
+  if (camera_ == nullptr) {
+    throw std::invalid_argument("Invalid camera calibration");
+  }
   VoxelMapConfig voxel_config;
   loadVoxelConfig(nh, voxel_config);
 
@@ -101,10 +108,6 @@ void LIVMapper::readParameters(ros::NodeHandle &nh)
 
   nh.param<bool>("pcd_save/colmap_output_en", colmap_output_en, false);
   nh.param<double>("pcd_save/filter_size_pcd", filter_size_pcd, 0.5);
-  nh.param<vector<double>>("extrin_calib/extrinsic_T", extrinT, vector<double>());
-  nh.param<vector<double>>("extrin_calib/extrinsic_R", extrinR, vector<double>());
-  nh.param<vector<double>>("extrin_calib/Pcl", cameraextrinT, vector<double>());
-  nh.param<vector<double>>("extrin_calib/Rcl", cameraextrinR, vector<double>());
   nh.param<double>("debug/plot_time", plot_time, -10);
   nh.param<int>("debug/frame_cnt", frame_cnt, 6);
 
@@ -114,24 +117,70 @@ void LIVMapper::readParameters(ros::NodeHandle &nh)
   nh.param<bool>("publish/dense_map_en", dense_map_en, false);
 
   p_pre->blind_sqr = p_pre->blind * p_pre->blind;
+
+  const ros::NodeHandle camera_node("~");
+  const std::string error =
+      livo_atlas::ros1::ReadCalibration(nh, camera_node, &calibration_);
+  if (!error.empty()) {
+    throw std::invalid_argument(error);
+  }
+}
+
+void LIVMapper::ValidateImageParameters() const {
+  // Camera validation has already checked these conversions and index bounds.
+  const auto& camera = calibration_.camera;
+  const int width = static_cast<int>(camera.width * camera.scale);
+  const int height = static_cast<int>(camera.height * camera.scale);
+  int cell_size = grid_size;
+  if (cell_size <= 0) {
+    throw std::invalid_argument("vio/grid_size must be positive");
+  }
+  if (cell_size <= 10) {
+    if (grid_n_height <= 0) {
+      throw std::invalid_argument("vio/grid_n_height must be positive");
+    }
+    cell_size = height / grid_n_height;
+  }
+  if (cell_size == 0 || width / cell_size == 0 || height / cell_size == 0) {
+    throw std::invalid_argument("VIO grid is incompatible with camera dimensions");
+  }
+  if (patch_size <= 0 || patch_size % 2 != 0) {
+    throw std::invalid_argument("vio/patch_size must be a positive even number");
+  }
+  // Search can add two to the largest pyramid index (levels - 1).
+  if (patch_pyrimid_level <= 0 || patch_pyrimid_level > 28) {
+    throw std::invalid_argument("vio/patch_pyrimid_level is outside the index range");
+  }
+  constexpr int kMaxIndex = std::numeric_limits<int>::max();
+  const std::int64_t patch_area = std::int64_t{patch_size} * patch_size;
+  if (patch_area > kMaxIndex / patch_pyrimid_level) {
+    throw std::invalid_argument("vio/patch_size exceeds the patch index range");
+  }
+  const std::int64_t scale = std::int64_t{1} << (patch_pyrimid_level + 1);
+  if ((patch_size / 2 + 1) > kMaxIndex / scale || width > kMaxIndex / scale) {
+    throw std::invalid_argument("vio/patch_pyrimid_level exceeds image index bounds");
+  }
+  if (colmap_output_en && camera.model != "Pinhole") {
+    throw std::invalid_argument("pcd_save/colmap_output_en requires a Pinhole camera");
+  }
 }
 
 void LIVMapper::initializeComponents() 
 {
   downSizeFilterSurf.setLeafSize(filter_size_surf_min, filter_size_surf_min, filter_size_surf_min);
-  extT << VEC_FROM_ARRAY(extrinT);
-  extR << MAT_FROM_ARRAY(extrinR);
+  extT = calibration_.imu_from_lidar.translation;
+  extR = calibration_.imu_from_lidar.rotation;
 
-  voxelmap_manager->extT_ << VEC_FROM_ARRAY(extrinT);
-  voxelmap_manager->extR_ << MAT_FROM_ARRAY(extrinR);
+  voxelmap_manager->extT_ = extT;
+  voxelmap_manager->extR_ = extR;
 
-  if (!vk::camera_loader::loadFromRosNs("laserMapping", vio_manager->cam)) throw std::runtime_error("Camera model not correctly specified.");
+  vio_manager->cam = camera_.get();
 
   vio_manager->grid_size = grid_size;
   vio_manager->patch_size = patch_size;
   vio_manager->outlier_threshold = outlier_threshold;
   vio_manager->setImuToLidarExtrinsic(extT, extR);
-  vio_manager->setLidarToCameraExtrinsic(cameraextrinR, cameraextrinT);
+  vio_manager->SetLidarToCameraExtrinsic(calibration_.camera_from_lidar);
   vio_manager->state = &_state;
   vio_manager->state_propagat = &state_propagat;
   vio_manager->max_iterations = max_iterations;
@@ -139,7 +188,6 @@ void LIVMapper::initializeComponents()
   vio_manager->normal_en = normal_en;
   vio_manager->inverse_composition_en = inverse_composition_en;
   vio_manager->raycast_en = raycast_en;
-  vio_manager->grid_n_width = grid_n_width;
   vio_manager->grid_n_height = grid_n_height;
   vio_manager->patch_pyrimid_level = patch_pyrimid_level;
   vio_manager->exposure_estimate_en = exposure_estimate_en;

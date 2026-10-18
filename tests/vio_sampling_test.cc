@@ -26,9 +26,7 @@ class VioSamplingTest : public ::testing::Test {
     manager_.exposure_estimate_en = true;
     manager_.inverse_composition_en = false;
     manager_.setImuToLidarExtrinsic(V3D::Zero(), M3D::Identity());
-    std::vector<double> rotation = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    std::vector<double> translation = {0, 0, 0};
-    manager_.setLidarToCameraExtrinsic(rotation, translation);
+    manager_.SetLidarToCameraExtrinsic(RigidTransform{});
     manager_.initializeVIO();
     manager_.total_points = 1;
     manager_.visual_submap->voxel_points = {&point_};

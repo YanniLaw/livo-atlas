@@ -114,12 +114,16 @@ include_directories(
 # Add libraries
 add_library(livo_atlas_calibration STATIC
   src/sensor/extrinsics.cc src/camera/camera_config.cc)
+set_target_properties(livo_atlas_calibration PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(livo_atlas_calibration PUBLIC Eigen3::Eigen)
 add_library(vio src/vio.cpp src/frame.cpp src/visual_point.cpp)
 add_library(lio src/voxel_map.cpp)
 add_library(pre src/preprocess.cpp)
 add_library(imu_proc src/IMU_Processing.cpp)
-add_library(laser_mapping src/LIVMapper.cpp)
+add_library(laser_mapping src/LIVMapper.cpp src/camera/vikit_camera_factory.cc
+  src/ros1/calibration_reader.cc)
+target_link_libraries(laser_mapping livo_atlas_calibration ${catkin_LIBRARIES})
 
 # Add the main executable
 add_executable(fastlivo_mapping src/main.cpp)
@@ -161,6 +165,13 @@ if(CATKIN_ENABLE_TESTING)
     tests/vio_reference_patch_test.cc tests/core/test_main.cc)
   catkin_add_gtest(vio_sampling_test
     tests/vio_sampling_test.cc tests/core/test_main.cc)
+  catkin_add_gtest(camera_config_test
+    tests/camera_config_test.cc tests/core/test_main.cc)
+  if(TARGET camera_config_test)
+    target_link_libraries(camera_config_test laser_mapping vio lio pre imu_proc
+      ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
+      ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+  endif()
   foreach(VIO_TEST vio_reference_patch_test vio_sampling_test)
     if(TARGET ${VIO_TEST})
       target_link_libraries(${VIO_TEST} vio lio ${catkin_LIBRARIES}

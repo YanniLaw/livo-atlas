@@ -31,10 +31,10 @@ void VIOManager::setImuToLidarExtrinsic(const V3D &transl, const M3D &rot)
   Rli = rot.transpose();
 }
 
-void VIOManager::setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P)
-{
-  Rcl << MAT_FROM_ARRAY(R);
-  Pcl << VEC_FROM_ARRAY(P);
+void VIOManager::SetLidarToCameraExtrinsic(
+    const livo_atlas::RigidTransform& transform) {
+  Rcl = transform.rotation;
+  Pcl = transform.translation;
 }
 
 void VIOManager::initializeVIO()

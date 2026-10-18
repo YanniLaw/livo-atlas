@@ -21,8 +21,8 @@ std::string ValidateExtrinsic(const RigidTransform& transform);
 // Rotation has nine row-major coefficients; translation has three coefficients.
 // On failure, result is unchanged.
 std::string ParseExtrinsic(const std::vector<double>& rotation,
-                           const std::vector<double>& translation,
-                           RigidTransform* result);
+                          const std::vector<double>& translation,
+                          RigidTransform* result);
 
 }  // namespace livo_atlas
 

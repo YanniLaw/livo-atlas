@@ -92,31 +92,32 @@
 - Produces: `VIOManager::SetLidarToCameraExtrinsic(const livo_atlas::RigidTransform&)`；Rcl/Pcl 为直接拷贝，Rli/Pli、Rci/Pci 的表达式保持原样。
 - Produces: `tools/check_calibration_startup.py --workspace <隔离构建副本> --output <新目录> --port <独立端口>`；全部案例通过才返回 0，保存每项参数、退出码和日志及源/二进制摘要。
 
-- [ ] **Step 1: 建立真实边界的 RED 证据**
+- [x] **Step 1: 建立真实边界的 RED 证据**
 
   工具先对阶段开始的独立构建运行：缺失/短外参应明确失败；可选项错误类型应失败；重命名节点仍能加载私有相机参数。原版不能满足的案例记录为 RED，不接受段错误作为成功拒绝。
   为工厂建立可编译的空指针占位实现，真实相机测试先失败；该测试随后对针孔/鱼眼的缩放、投影、反投影与原 vikit 对象逐值对照。
   VIO 测试使用两组不同的 90° 旋转和非零平移，手算 Rci/Pci 的期望，避免单位旋转掩盖方向错误。
 
-- [ ] **Step 2: 实现读取与接线**
+- [x] **Step 2: 实现读取与接线**
 
   保留四组外参数组的参数名；必填相机参数为 model/width/height/fx/fy/cx/cy；scale 默认 1，四个畸变系数默认 0。
   支持 ROS 数值参数的整数与浮点表示，拒绝布尔值、字符串及错误数组元素。提供的可选参数类型不对时不得默认。
   在 mapper 创建文件/初始化估计器前完成全部标定、网格、窗口与金字塔检查；只检查实际使用的图像处理参数，不引入完整前端配置框架。
   相机由 mapper 的 `unique_ptr` 拥有，VIO 继续使用生命周期明确的非拥有指针。替换原向量 setter，更新现有采样测试调用。main 捕获初始化错误，输出原因并返回非零状态。
+  实测补充：vikit 的 native 编译与本包的默认指令集导致 Eigen 分配/释放约定不同，原始相机的虚析构释放路径可崩溃。工厂用无数据成员的内部派生类将分配与 deleting destructor 保持在本包同一编译目标；最小复现与真实工厂测试验证，vikit 源码不变。
 
-- [ ] **Step 3: 构建、测试与启动 GREEN**
+- [x] **Step 3: 构建、测试与启动 GREEN**
 
   构建独立候选副本，不复用其他路径的 CMake 缓存；运行全部 C++ 与 Python 测试、启动检查。
   启动检查覆盖包内四套 YAML 配对、可选默认值、私有命名空间、错误数组/类型/非有限值/旋转/尺寸/焦距/缩放/模型、图像网格和窗口/金字塔溢出，以及鱼眼 COLMAP 约束。
   Expected: 正确案例完成订阅注册并正常退出；错误案例有相关参数诊断、非零正常退出、没有注册估计器订阅，也未修改 mapper 输出文件。保存完整证据。
 
-- [ ] **Step 4: 短段及完整 bag 配对回归**
+- [x] **Step 4: 短段及完整 bag 配对回归**
 
   以阶段开始提交创建独立参考副本，依次构建参考和候选。统一 `OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE`，使用现有 `tools/run_baseline.py`，30 秒、0.5 倍先各跑一次；通过后各回放 136 秒覆盖完整 bag。另跑候选默认并行 45 秒检查正常运行。
   Expected: 短段 296、完整 1351 个轨迹点；输入计数、传感器时间、更新序列一致；同时间戳位置/姿态及 `mat_pre.txt`、`mat_out.txt` 在导出精度内零差异；所有运行正常退出。不对齐轨迹、不裁剪时间、不放宽阈值。
 
-- [ ] **Step 5: 更新文档并提交**
+- [x] **Step 5: 更新文档并提交**
 
   更新本计划的完成状态、文档入口和 `docs/p1-02-validation.md`，记录真实命令、测试数量、摘要、数值差异与限制。提交：`refactor: isolate ROS1 calibration loading and camera construction`。
 

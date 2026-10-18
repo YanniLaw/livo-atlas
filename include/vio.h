@@ -23,6 +23,8 @@ which is included as part of this source code package.
 #include <vikit/vision.h>
 #include <vikit/pinhole_camera.h>
 
+#include "livo_atlas/sensor/extrinsics.h"
+
 struct SubSparseMap
 {
   vector<float> propa_errors;
@@ -146,7 +148,7 @@ public:
   void retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &plane_map);
   void generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg);
   void setImuToLidarExtrinsic(const V3D &transl, const M3D &rot);
-  void setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P);
+  void SetLidarToCameraExtrinsic(const livo_atlas::RigidTransform& transform);
   void initializeVIO();
   void getImagePatch(cv::Mat img, V2D pc, float *patch_tmp, int level);
   void computeProjectionJacobian(V3D p, MD(2, 3) & J);

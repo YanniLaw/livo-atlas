@@ -13,13 +13,17 @@ which is included as part of this source code package.
 #ifndef LIV_MAPPER_H
 #define LIV_MAPPER_H
 
+#include <memory>
+
 #include "IMU_Processing.h"
 #include "vio.h"
 #include "preprocess.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <nav_msgs/Path.h>
-#include <vikit/camera_loader.h>
+#include <vikit/abstract_camera.h>
+
+#include "livo_atlas/frontend/calibration.h"
 
 class LIVMapper
 {
@@ -57,6 +61,7 @@ public:
   void publish_mavros(const ros::Publisher &mavros_pose_publisher);
   void publish_path(const ros::Publisher pubPath);
   void readParameters(ros::NodeHandle &nh);
+  void ValidateImageParameters() const;
   template <typename T> void set_posestamp(T &out);
   template <typename T> void pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi, Eigen::Matrix<T, 3, 1> &po);
   template <typename T> Eigen::Matrix<T, 3, 1> pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi);
@@ -113,7 +118,7 @@ public:
   bool raycast_en = false;
   int lidar_en = 1;
   bool is_first_frame = false;
-  int grid_size, patch_size, grid_n_width, grid_n_height, patch_pyrimid_level;
+  int grid_size, patch_size, grid_n_height, patch_pyrimid_level;
   double outlier_threshold;
   double plot_time;
   int frame_cnt;
@@ -124,10 +129,7 @@ public:
   deque<cv::Mat> img_buffer;
   deque<double> img_time_buffer;
   vector<pointWithVar> _pv_list;
-  vector<double> extrinT;
-  vector<double> extrinR;
-  vector<double> cameraextrinT;
-  vector<double> cameraextrinR;
+  livo_atlas::Calibration calibration_;
   double IMG_POINT_COV;
 
   PointCloudXYZI::Ptr visual_sub_map;
@@ -157,6 +159,8 @@ public:
   PreprocessPtr p_pre;
   ImuProcessPtr p_imu;
   VoxelMapManagerPtr voxelmap_manager;
+  // Declared before VIO so the camera outlives its non-owning VIO pointer.
+  std::unique_ptr<vk::AbstractCamera> camera_;
   VIOManagerPtr vio_manager;
 
   ros::Publisher plane_pub;

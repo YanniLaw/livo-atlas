@@ -69,8 +69,10 @@ TEST(ExtrinsicsTest, RejectsNonFiniteValuesWithoutChangingOutput) {
     transform.translation = Eigen::Vector3d(4, 5, 6);
     std::vector<double> rotation = kIdentity;
     rotation[1] = invalid;
-    EXPECT_FALSE(ParseExtrinsic(rotation, kZeroTranslation, &transform).empty());
-    EXPECT_FALSE(ParseExtrinsic(kIdentity, {0, invalid, 0}, &transform).empty());
+    EXPECT_FALSE(
+        ParseExtrinsic(rotation, kZeroTranslation, &transform).empty());
+    EXPECT_FALSE(
+        ParseExtrinsic(kIdentity, {0, invalid, 0}, &transform).empty());
     EXPECT_TRUE(transform.rotation.isIdentity(0));
     EXPECT_TRUE(transform.translation.isApprox(Eigen::Vector3d(4, 5, 6), 0));
     transform.translation(0) = invalid;
@@ -92,7 +94,7 @@ CameraConfig PinholeConfig() {
   return config;
 }
 
-TEST(CameraValidationTest, AcceptsBothSupportedModelsAndFractionalDimensions) {
+TEST(CameraValidationTest, AcceptsSupportedModelsAndFractionalDimensions) {
   CameraConfig config = PinholeConfig();
   config.width = 1281;
   EXPECT_TRUE(ValidateCameraConfig(config).empty());
@@ -102,7 +104,8 @@ TEST(CameraValidationTest, AcceptsBothSupportedModelsAndFractionalDimensions) {
 
 TEST(CameraValidationTest, RejectsUnsupportedModels) {
   CameraConfig config = PinholeConfig();
-  for (const char* model : {"", "pinhole", "Ocam", "ATAN", "PolynomialCamera"}) {
+  for (const char* model :
+       {"", "pinhole", "Ocam", "ATAN", "PolynomialCamera"}) {
     config.model = model;
     EXPECT_FALSE(ValidateCameraConfig(config).empty()) << model;
   }
