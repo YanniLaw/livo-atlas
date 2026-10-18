@@ -52,11 +52,13 @@ Preprocess::Preprocess() : feature_enabled(0), lidar_type(livo_atlas::kLivox), b
 Preprocess::~Preprocess() {}
 
 void Preprocess::Process(const livo_atlas::LidarScan& scan,
-                         PointCloudXYZI* output) {
+                        PointCloudXYZI* output) {
   pl_surf.clear();
-  std::visit([this](const auto& points) {
-    if (!points.empty()) ProcessPoints(points);
-  }, scan.points);
+  std::visit(
+      [this](const auto& points) {
+        if (!points.empty()) ProcessPoints(points);
+      },
+      scan.points);
   *output = pl_surf;
 }
 

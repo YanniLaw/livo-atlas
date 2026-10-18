@@ -35,8 +35,10 @@ TEST(MeasurementConversionsTest, ImuPreservesCorrectedTimeAndRawValues) {
   message.header.stamp.fromSec(message.header.stamp.toSec() + 983.0);
   const auto result = ConvertImu(message);
   EXPECT_DOUBLE_EQ(result.timestamp, 1000.093456789);
-  EXPECT_TRUE(result.angular_velocity.isApprox(Eigen::Vector3d(1.25, -2.5, 3.75), 0));
-  EXPECT_TRUE(result.linear_acceleration.isApprox(Eigen::Vector3d(-0.25, 0.5, 1), 0));
+  EXPECT_TRUE(
+      result.angular_velocity.isApprox(Eigen::Vector3d(1.25, -2.5, 3.75), 0));
+  EXPECT_TRUE(
+      result.linear_acceleration.isApprox(Eigen::Vector3d(-0.25, 0.5, 1), 0));
   message.linear_acceleration.z = 99;
   EXPECT_DOUBLE_EQ(result.linear_acceleration.z(), 1.0);
 }
@@ -134,7 +136,8 @@ TEST(MeasurementConversionsTest, LivoxPreservesFieldsAndRejectsCountMismatch) {
   message.points[0].offset_time = 0;
   message.point_num = 3;
   EXPECT_FALSE(ConvertLivox(message, &result).empty());
-  EXPECT_EQ(std::get<std::vector<LivoxPoint>>(result.points)[0].offset_time, 1234567u);
+  EXPECT_EQ(std::get<std::vector<LivoxPoint>>(result.points)[0].offset_time,
+            1234567u);
   message.point_num = 0;
   EXPECT_FALSE(ConvertLivox(message, &result).empty());
 }
@@ -166,8 +169,10 @@ TEST(MeasurementConversionsTest, OusterPreservesIntegerFields) {
   point.ambient = 31234;
   point.range = 87654321;
   LidarScan result;
-  ASSERT_TRUE(ConvertPointCloud(MakeCloudMessage(point), 3, 0, &result).empty());
-  const auto& decoded = std::get<pcl::PointCloud<OusterPoint>>(result.points)[0];
+  ASSERT_TRUE(
+      ConvertPointCloud(MakeCloudMessage(point), 3, 0, &result).empty());
+  const auto& decoded =
+      std::get<pcl::PointCloud<OusterPoint>>(result.points)[0];
   EXPECT_EQ(decoded.t, 4294967290u);
   EXPECT_EQ(decoded.ring, 63);
   EXPECT_EQ(decoded.reflectivity, 65234);
@@ -182,8 +187,10 @@ TEST(MeasurementConversionsTest, DepthCloudPreservesPackedColor) {
   point.g = 2;
   point.b = 3;
   LidarScan result;
-  ASSERT_TRUE(ConvertPointCloud(MakeCloudMessage(point), 4, 0, &result).empty());
-  const auto& decoded = std::get<pcl::PointCloud<pcl::PointXYZRGB>>(result.points)[0];
+  ASSERT_TRUE(
+      ConvertPointCloud(MakeCloudMessage(point), 4, 0, &result).empty());
+  const auto& decoded =
+      std::get<pcl::PointCloud<pcl::PointXYZRGB>>(result.points)[0];
   EXPECT_FLOAT_EQ(decoded.x, 2);
   EXPECT_EQ(decoded.r, 1);
   EXPECT_EQ(decoded.g, 2);
@@ -196,8 +203,10 @@ TEST(MeasurementConversionsTest, Xt32PreservesDoubleTimestamp) {
   point.ring = 31;
   point.intensity = 53.25;
   LidarScan result;
-  ASSERT_TRUE(ConvertPointCloud(MakeCloudMessage(point), 5, 0, &result).empty());
-  const auto& decoded = std::get<pcl::PointCloud<Xt32Point>>(result.points)[0];
+  ASSERT_TRUE(
+      ConvertPointCloud(MakeCloudMessage(point), 5, 0, &result).empty());
+  const auto& decoded =
+      std::get<pcl::PointCloud<Xt32Point>>(result.points)[0];
   EXPECT_DOUBLE_EQ(decoded.timestamp, 1700000000.1234567);
   EXPECT_EQ(decoded.ring, 31);
   EXPECT_FLOAT_EQ(decoded.intensity, 53.25);
@@ -209,8 +218,10 @@ TEST(MeasurementConversionsTest, Pandar128PreservesByteIntensity) {
   point.ring = 127;
   point.intensity = 255;
   LidarScan result;
-  ASSERT_TRUE(ConvertPointCloud(MakeCloudMessage(point), 6, 0, &result).empty());
-  const auto& decoded = std::get<pcl::PointCloud<Pandar128Point>>(result.points)[0];
+  ASSERT_TRUE(
+      ConvertPointCloud(MakeCloudMessage(point), 6, 0, &result).empty());
+  const auto& decoded =
+      std::get<pcl::PointCloud<Pandar128Point>>(result.points)[0];
   EXPECT_DOUBLE_EQ(decoded.timestamp, 1000.0025);
   EXPECT_EQ(decoded.ring, 127);
   EXPECT_EQ(decoded.intensity, 255);
@@ -222,8 +233,10 @@ TEST(MeasurementConversionsTest, RobosensePreservesFloatIntensity) {
   point.ring = 127;
   point.intensity = 255.5;
   LidarScan result;
-  ASSERT_TRUE(ConvertPointCloud(MakeCloudMessage(point), 7, 0, &result).empty());
-  const auto& decoded = std::get<pcl::PointCloud<RobosensePoint>>(result.points)[0];
+  ASSERT_TRUE(
+      ConvertPointCloud(MakeCloudMessage(point), 7, 0, &result).empty());
+  const auto& decoded =
+      std::get<pcl::PointCloud<RobosensePoint>>(result.points)[0];
   EXPECT_DOUBLE_EQ(decoded.timestamp, 1000.0025);
   EXPECT_EQ(decoded.ring, 127);
   EXPECT_FLOAT_EQ(decoded.intensity, 255.5);

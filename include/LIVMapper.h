@@ -13,7 +13,9 @@ which is included as part of this source code package.
 #ifndef LIV_MAPPER_H
 #define LIV_MAPPER_H
 
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 
 #include "IMU_Processing.h"
 #include "vio.h"
@@ -21,8 +23,10 @@ which is included as part of this source code package.
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <livox_ros_driver/CustomMsg.h>
+#include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/Imu.h>
 #include <vikit/abstract_camera.h>
 
 #include "livo_atlas/frontend/calibration.h"
@@ -67,7 +71,6 @@ public:
   template <typename T> void set_posestamp(T &out);
   template <typename T> void pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi, Eigen::Matrix<T, 3, 1> &po);
   template <typename T> Eigen::Matrix<T, 3, 1> pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi);
-  cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr &img_msg);
 
   std::mutex mtx_buffer, mtx_buffer_imu_prop;
   std::condition_variable sig_buffer;
@@ -98,8 +101,9 @@ public:
   StatesGroup imu_propagate, latest_ekf_state;
 
   bool new_imu = false, state_update_flg = false, imu_prop_enable = true, ekf_finish_once = false;
-  deque<sensor_msgs::Imu> prop_imu_buffer;
-  sensor_msgs::Imu newest_imu;
+  deque<livo_atlas::ImuMeasurement> prop_imu_buffer;
+  livo_atlas::ImuMeasurement newest_imu;
+  ros::Time newest_imu_stamp_;
   double latest_ekf_time;
   nav_msgs::Odometry imu_prop_odom;
   ros::Publisher pubImuPropOdom;
@@ -127,7 +131,7 @@ public:
   double img_time_offset = 0.0;
   deque<PointCloudXYZI::Ptr> lid_raw_data_buffer;
   deque<double> lid_header_time_buffer;
-  deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
+  deque<livo_atlas::ImuMeasurement> imu_buffer;
   deque<cv::Mat> img_buffer;
   deque<double> img_time_buffer;
   vector<pointWithVar> _pv_list;

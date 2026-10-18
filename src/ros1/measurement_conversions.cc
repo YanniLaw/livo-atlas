@@ -43,10 +43,13 @@ std::string ValidateCloudLayout(const sensor_msgs::PointCloud2& message) {
       }
       matched = &field;
     }
-    if (matched == nullptr) return "PointCloud2: missing field " + expected.name;
+    if (matched == nullptr) {
+      return "PointCloud2: missing field " + expected.name;
+    }
     // PCL also permits packed color as uint32, including an rgba field name.
-    const bool packed_color = expected.name == "rgb" &&
-                              matched->datatype == sensor_msgs::PointField::UINT32;
+    const bool packed_color =
+        expected.name == "rgb" &&
+        matched->datatype == sensor_msgs::PointField::UINT32;
     if ((!packed_color && matched->datatype != expected.datatype) ||
         matched->count != 1 ||
         std::uint64_t{matched->offset} + pcl::getFieldSize(expected.datatype) >
@@ -76,7 +79,8 @@ std::string DecodeCloud(const sensor_msgs::PointCloud2& message,
 
 ImuMeasurement ConvertImu(const sensor_msgs::Imu& message) {
   return {message.header.stamp.toSec(),
-          Eigen::Vector3d(message.angular_velocity.x, message.angular_velocity.y,
+          Eigen::Vector3d(message.angular_velocity.x,
+                          message.angular_velocity.y,
                           message.angular_velocity.z),
           Eigen::Vector3d(message.linear_acceleration.x,
                           message.linear_acceleration.y,
@@ -139,7 +143,8 @@ std::string ConvertPointCloud(const sensor_msgs::PointCloud2& message,
     case kRobosense:
       return DecodeCloud<RobosensePoint>(message, time_offset, output);
     default:
-      return "PointCloud2: unsupported lidar_type " + std::to_string(lidar_type);
+      return "PointCloud2: unsupported lidar_type " +
+             std::to_string(lidar_type);
   }
 }
 

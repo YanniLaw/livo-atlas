@@ -21,6 +21,7 @@ which is included as part of this source code package.
 #include <omp.h>
 #include <pcl/common/io.h>
 #include <ros/ros.h>
+#include <tf/transform_broadcaster.h>
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>

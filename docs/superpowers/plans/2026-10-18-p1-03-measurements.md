@@ -92,15 +92,15 @@
 - Produces: `MeasureGroup::imu`、mapper 两条 IMU 队列均为 `deque<livo_atlas::ImuMeasurement>`；`ImuProcess` 的跨帧 `last_imu` 为值。图像和点云经 Task 1 转换后再按原有队列和窗口入队。
 - Produces: ROS1 mapper 单独保存高频输出用的 `ros::Time`；输入算法仍只使用普通 double 时间。
 
-- [ ] **Step 1: 固定接线验收证据**
+- [x] **Step 1: 固定接线验收证据**
 
   先为真实 IMU Process2 添加现状特征测试，在迁移前运行，验证初始加速度范数、静止状态、有限协方差与保留边界样本；迁移后把同一输入夹具改为值测量，保持断言。原算法已经存在，不用人为清空算法制造失败。Task 1 的新转换函数须有行为 RED→GREEN。同步完整行为以阶段开始提交的独立参考为对照。
 
-- [ ] **Step 2: 迁移消费者**
+- [x] **Step 2: 迁移消费者**
 
   去掉公共头中的 ROS IMU 和 TF 包含；需要 TF 的 voxel_map 显式包含。保持原 IMU 标量运算顺序，时间访问替换为 timestamp。ROS 时间偏移和驱动补偿仍在 ROS1 回调按原 fromSec/toSec 顺序执行。图像转换失败在回调报告并正常释放锁。
 
-- [ ] **Step 3: 全部测试和真实启动检查**
+- [x] **Step 3: 全部测试和真实启动检查**
 
   Run: 独立核心及 sensor 测试、全部 catkin 测试、全部 Python 测试；对候选执行现有 40 项 `tools/check_calibration_startup.py`。
   Expected: 全部通过；参数行为不变；输入算法接口中没有 ROS 消息。编译器参数保持原基准指令集，不引入 native/fast-math。

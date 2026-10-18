@@ -152,6 +152,12 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(imu_measurement_test
+    tests/imu_measurement_test.cc tests/core/test_main.cc)
+  if(TARGET imu_measurement_test)
+    target_link_libraries(imu_measurement_test imu_proc
+      ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+  endif()
   catkin_add_gtest(measurement_conversions_test
     tests/measurement_conversions_test.cc tests/core/test_main.cc)
   if(TARGET measurement_conversions_test)
