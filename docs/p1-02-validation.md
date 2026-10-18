@@ -1,7 +1,7 @@
 # P1-02 配置与标定边界实测记录
 
 范围为 [P1-02 执行计划](superpowers/plans/2026-10-18-p1-02-calibration.md)。本阶段只修改 `livo-atlas`，vikit 源码保持不变。
-直接测试、启动检查、完整配对和默认并行运行已通过；最终独立审阅按计划收尾。
+P1-02 已完成。最终源码 `ac64ce4` 通过直接测试、40 项启动检查、短段和完整配对、默认并行检查，独立审阅的一项网格问题已闭环。
 
 ## 配置入口
 
@@ -63,8 +63,8 @@ vikit 使用 `-march=native`，当前包使用默认指令集；本机 Eigen 3.3
 | 独立构建 | 数学/状态 14 个及标定 14 个用例通过；6 个公共头分别包含编译通过 |
 | Noetic C++ | 42 个实际用例通过，包含原有 24 个及新增标定 14 个、相机/VIO 外参 4 个 |
 | Python | 原有 10 个工具用例通过 |
-| 真实启动 | 37 项通过：8 个有效配置场景、29 个错误配置场景 |
-| 诊断和副作用 | 29 个错误场景均返回 1、有相关参数诊断，未注册传感器订阅且未改变 Log 文件指纹 |
+| 真实启动 | 40 项通过：9 个有效配置场景、31 个错误配置场景 |
+| 诊断和副作用 | 31 个错误场景均返回 1、有相关参数诊断，未注册传感器订阅且未改变 Log 文件指纹 |
 
 独立构建的编译命令没有 ROS、PCL、vikit、native 或 fast-math 路径/参数。
 相同的核心用例也由 catkin 执行，不把两次执行重复累计成独立用例数量。
@@ -73,7 +73,7 @@ vikit 使用 `-march=native`，当前包使用默认指令集；本机 Eigen 3.3
 
 ## 完整数值回归
 
-参考为 P1-01 最终提交 `2b515ae471451e073dd26fd8add5bf6a9830801e`，候选为此次配置/标定迁移。
+参考为 P1-01 最终提交 `2b515ae471451e073dd26fd8add5bf6a9830801e`，最终候选为 `ac64ce4f75878211baf77776d3b0e81e2336a1e5`。
 两边分别创建源码副本和 CMake 构建，不复用其他路径的缓存；统一 `OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE`、0.5 倍回放。
 每次运行日志确认实际 OpenMP 限制。此条件用于纯结构迁移的精确对照，不改变默认运行设置。
 
@@ -97,15 +97,44 @@ VIO 源文件的变化仅为接收已解析外参的 setter；标定检查不正
 | `reference_ws/`、`candidate_ws/` | 冻结源码、独立构建、编译命令及测试 XML |
 | `core-red.log`、`camera-red-evidence/`、`startup-red-retry/` | 行为测试与原节点的 RED 证据 |
 | `camera-delete-diagnostic/` | 原始虚析构问题的独立复现代码、命令和结果 |
-| `startup-green/` | 全部 37 个真实节点案例、参数、日志、摘要 |
+| `startup-green/` | 最终全部 40 个真实节点案例、参数、日志、摘要 |
 | `reference_short/`、`candidate_short/`、`reference_full/`、`candidate_full/` | 每次运行的实际参数、轨迹、状态、输入/退出证据 |
 | `candidate_default_45/` | 默认并行的 45 秒正常运行检查 |
 | `short-comparison.json`、`full-comparison.json` 及 `*-states.json` | 两组零阈值比较与状态数组检查 |
 | `runtime-artifacts.json`、`build-settings-comparison.json` | 两边可执行文件及 7 个运行库摘要、编译参数比较 |
 | `verify.sh`、`check_results.py`、`acceptance.json` | 最终测试命令、摘要核对逻辑及验收汇总 |
+| `final-review/reviewed-version/` | `54d73a1` 的原源码、运行库、37 项启动检查及三份候选回放，修复前归档 |
+| `final-review/grid-red/`、`final-review/review-report.md` | 审阅问题的真实 RED 证据、独立审阅结论及执行裁决 |
 
 最初的沙箱套接字拒绝记录在 `startup-red-runner.log`，它不是功能测试结果；获准建立本机私有 ROS graph 后重新运行并保存真实 RED/GREEN 结果。
 原节点未通过的历史记录与相机删除崩溃日志均保留，没有作为通过结果计入。
+
+## 独立审阅与网格修复
+
+独立只读审阅覆盖 `2b515ae..54d73a1` 全部变更，发现 0 项 Critical、1 项 Important、0 项 Minor。
+原 VIO 将整数除法结果再传给 ceil，实际仍按向下取整分配网格。640×512、grid_size=300、patch_size=8、pyramid=4 时只分配 2 格；
+像素 (320,400) 通过 border=80 的图像检查，但得到索引 3。相同问题也能由 grid_n_height 推导出的单元尺寸触发。
+
+两个真实节点用例在修复前都错误地完成启动；修复后均返回 1、没有订阅和日志副作用。
+修复只在启动时检查 `width % cell_size <= border`、`height % cell_size <= border`，保留原网格分配和计算公式。
+新增 grid_size=150 的安全非整除案例，验证不会把所有非整除网格都拒绝；四套既有 YAML 仍通过。
+候选修复版为 `ac64ce4f75878211baf77776d3b0e81e2336a1e5`；参考源码和二进制未变化，重用本阶段已实测的参考短段/完整结果。
+修复版候选重新执行 30 秒、完整 136 秒和默认并行 45 秒，分别输出 296、1351、446 个位姿，全部正常退出；上方两组零差异表已对应最终修复版。
+主工作区的 `fastlivo_mapping` 也已重新构建。最后汇总核对最终 5 份运行记录及归档的 3 份审阅版候选记录的源码、运行库和可执行文件摘要。
+审阅发现的唯一 Important 用实际节点用例先复现后修复，全部直接测试与最终 bag 回归通过；没有遗留 Minor，也没有用第二轮审阅代替回归测试。
+
+## 实施取舍与代价
+
+| 决定 | 理由与代价 |
+| --- | --- |
+| 在当前 refactor-fast_livo2 分支原位实施 | 沿用已确认的执行方式；并发编辑时需要协调，回放输出通过隔离源码副本保护。 |
+| 按本轮授权直接完成文档、编码及验证 | 不重复请求同一执行步骤的许可；若范围理解有误，可回退这些本地提交。 |
+| 删除未初始化且立即被覆盖的 mapper grid_n_width | 不影响 VIO 网格公式；若外部消费者直接使用旧字段，需要补兼容入口。 |
+| 针孔参数同时检查 float 表示范围 | 原 vikit 会创建 float OpenCV 矩阵；超范围标定将被拒绝，而不是构造 Inf 矩阵。 |
+| 临时内部相机派生类保持分配与释放约定一致 | 修复真实删除崩溃、保持 vikit 不变；不同工具链需要重新执行相机生命周期回归。 |
+| 保留既有鱼眼特殊值行为直到 P3 | 本阶段保持模型计算；相关输入仍受原实现限制，兼容测试不等于模型正确性证明。 |
+| 非标定参数的全面校验随模块迁移 | 控制本阶段范围；未迁移选项仍可能保留原来的默认回退行为。 |
+| 结论限定于本机已测条件 | 当前不保证 ARM/Humble、实时性或真值精度；这些目标需要对应环境和数据验证。 |
 
 ## 在其他 Noetic 电脑复现
 
@@ -119,7 +148,7 @@ set -euo pipefail
 export WS_ROOT=/path/to/livo-atlas_ws
 export PACKAGE_ROOT="$WS_ROOT/src/livo-atlas"
 export RUN_ROOT="$WS_ROOT/validation/p1-02-reproduce"
-export CANDIDATE_REV=HEAD
+export CANDIDATE_REV=ac64ce4f75878211baf77776d3b0e81e2336a1e5
 mkdir -p "$RUN_ROOT"
 
 cmake -S "$PACKAGE_ROOT/tests/core" -B "$RUN_ROOT/core-build" \
@@ -128,7 +157,7 @@ nice -n 10 cmake --build "$RUN_ROOT/core-build" -- -j1
 (cd "$RUN_ROOT/core-build" && ctest --output-on-failure)
 ```
 
-`CANDIDATE_REV` 选择本阶段完整源码版本。在后续阶段复现历史结果时，使用本阶段的源码提交，而不是更新后的 HEAD。
+`CANDIDATE_REV` 固定到本阶段最终源码版本，后续文档提交不改变该版本的生产代码。
 创建两个独立源码副本，参考只需构建节点，候选运行全部测试：
 
 ```bash
@@ -179,10 +208,14 @@ OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE \
 短段轨迹和状态日志通过零阈值比较后，依次对参考和候选运行 `--duration 136 --rate 0.5`，输出到不同新目录并比较完整结果。
 默认并行的候选另跑 45 秒，检查输入、有限输出及正常退出。详见通用说明中的比较命令和限制说明。
 本机 `run_replays.py` 保存完整顺序，`verify.sh` 重跑直接测试并核对运行、源码及二进制摘要；这些证据脚本随包外验证目录迁移。
+源码交接包位于 `validation/P1-02-noetic-20261018/handoff/livo-atlas-p1-02.bundle`，包含完整本地 Git 历史；同目录提供摘要和恢复说明。
+bag、vikit 和验证产物需单独携带，编译产物及旧 CMake 缓存不用于另一台电脑的构建。
 
 ## 验证范围
 
 普通标定库可以无 ROS 构建；完整前端仍依赖 ROS1 和 vikit。
 当前结果不覆盖 ARM、Humble、默认并行的逐位确定性、1 倍实时性、带真值的定位精度或其他数据集的运行精度。
 启动时加载 HILTI/NTU/MARS 配置只证明配置与初始化可用，其数据集的完整算法回放尚未执行。
+鱼眼模型沿用 vikit 既有的光轴等特殊值行为，P3 替换模型时需要独立处理；当前相机测试证明与旧实现一致，不证明模型对全部特殊输入都数学正确。
+非标定 ROS 参数的全面严格校验随对应模块迁移推进，本阶段没有引入完整前端配置框架。
 后续阶段是 P1-03：内部 IMU、图像、点云测量类型及 ROS1 转换。
