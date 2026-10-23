@@ -59,13 +59,13 @@
 
 **Interfaces:** 采用 Spec 的精确类型、枚举值、构造函数和 TrySynchronize 签名。SensorBuffers 三条队列及 latest_imu_time；输出保留旧结构字段与初值，且不自动推进 last_lio_update_time。
 
-- [ ] **Step 1: 测试和可编译空实现**
+- [x] **Step 1: 测试和可编译空实现**
   除 Task 1 三组行为外，覆盖缺输入等待、曝光偏移、过旧图像阈值、覆盖不足不消费、严格 IMU 窗口、重复等待保留队首、多个扫描切分、剩余点跨窗口、输入云不被改写、VIO 图像所有权、VIO 保留原三队列门控、尾点而非最大偏移作为覆盖、空/空指针云、ONLY_LIO 单点移除和内部无效云。TrySynchronize 空实现只返回 kWaiting，测试不得解引用未产生的输出。
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
   独立 cmake -S tests/frontend -B <证据>/frontend-build，nice 构建 -j1 后运行测试。预期得到内容/状态断言失败，不把编译或链接错误计为 RED。
-- [ ] **Step 3: 实现 GREEN**
+- [x] **Step 3: 实现 GREEN**
   直接按原分支实现，保留浮点表达式、顺序、旧就绪门控及剩余云语义。仅增加 Spec 已定义的无效云边界处理；不引入模拟 ROS 或第二份同步算法。
-- [ ] **Step 4: 全部检查与提交**
+- [x] **Step 4: 全部检查与提交**
   独立测试及两个公共头编译通过，无 ROS/vikit/native/fast-math flags；当前 Noetic/Python/ROS 特征测试仍绿。Commit: `refactor: add standalone sensor synchronizer`。
 
 ### Task 3: 接入 ROS1 与数值验收
