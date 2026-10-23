@@ -50,6 +50,10 @@ def main():
     parser.add_argument('--rate', type=float, default=0.5)
     parser.add_argument('--port', type=int, default=11341)
     parser.add_argument('--gdb', action='store_true', help='Capture a stack trace on shutdown faults')
+    parser.add_argument('--semantic-output', action='store_true',
+                        help='Hash declared cloud fields and image pixels, excluding padding/clocks')
+    parser.add_argument('--save-products', action='store_true',
+                        help='Enable and capture world PCD, images and COLMAP output')
     args = parser.parse_args()
     source_package = Path(__file__).resolve().parents[1]
     workspace = args.workspace.resolve()
@@ -97,6 +101,7 @@ def main():
     processes = []
     log_handles = []
     counts = collections.Counter()
+    semantic = {'/cloud_registered': [], '/rgb_img': []}
     odometry = []
     cloud_sizes = []
     resources = []
@@ -164,6 +169,12 @@ def main():
         run(['rosparam', 'set', '/use_sim_time', 'true'])
         run(['rosparam', 'set', '/evo/pose_output_en', 'true'])
         run(['rosparam', 'set', '/evo/seq_name', seq_name])
+        if args.save_products:
+            for key, value in [('pcd_save/pcd_save_en', 'true'),
+                               ('pcd_save/colmap_output_en', 'true'),
+                               ('pcd_save/interval', '-1'),
+                               ('image_save/img_save_en', 'true')]:
+                run(['rosparam', 'set', '/' + key, value])
         run(['rosparam', 'dump', str(output / 'parameters.yaml')])
 
         import psutil
@@ -171,7 +182,8 @@ def main():
         import rospy as ros_module
         from nav_msgs.msg import Odometry
         from rosgraph_msgs.msg import Clock
-        from sensor_msgs.msg import PointCloud2
+        from sensor_msgs.msg import Image, PointCloud2
+        from output_digest import cloud_digest, image_digest
         rospy = ros_module
         rospy.init_node('baseline_observer', disable_signals=True)
 
@@ -193,10 +205,21 @@ def main():
             with lock:
                 counts['/cloud_registered'] += 1
                 cloud_sizes.append(msg.width * msg.height)
+                if args.semantic_output:
+                    semantic['/cloud_registered'].append(cloud_digest(msg))
+
+        def receive_image(msg):
+            with lock:
+                counts['/rgb_img'] += 1
+                semantic['/rgb_img'].append(image_digest(msg))
 
         subscribers = [rospy.Subscriber(topic, rospy.AnyMsg, count(topic),
                        queue_size=2000, buff_size=8 * 1024 * 1024)
-                       for topic in ['/livox/lidar', '/livox/imu', '/left_camera/image', '/rgb_img']]
+                       for topic in ['/livox/lidar', '/livox/imu', '/left_camera/image']]
+        subscribers.append(rospy.Subscriber(
+            '/rgb_img', Image if args.semantic_output else rospy.AnyMsg,
+            receive_image if args.semantic_output else count('/rgb_img'),
+            queue_size=2000, buff_size=8 * 1024 * 1024))
         subscribers.extend([
             rospy.Subscriber('/aft_mapped_to_init', Odometry, receive_odom, queue_size=2000),
             rospy.Subscriber('/cloud_registered', PointCloud2, receive_cloud,
@@ -265,6 +288,11 @@ def main():
         with lock:
             saved_counts = dict(counts)
         stop(node)
+        if args.semantic_output:
+            (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
+        if args.save_products:
+            for directory in ['pcd', 'image', 'Colmap']:
+                shutil.copytree(package / 'Log' / directory, output / 'products' / directory)
         for name in ['mat_pre.txt', 'mat_out.txt', 'imu.txt']:
             shutil.copy2(package / ('Log/' + name), output / name)
         if not trajectory.exists():
