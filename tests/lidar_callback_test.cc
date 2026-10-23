@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <limits>
 #include <memory>
+#include <vector>
 
 #include <Eigen/Core>
 #include <gtest/gtest.h>
@@ -200,6 +201,73 @@ TEST_F(SynchronizerIntegrationTest, LidarOnlyNeedsNeitherImuNorImage) {
   EXPECT_DOUBLE_EQ(measurements.measures.back().lio_time, 100.125);
   ASSERT_EQ(measurements.lidar->size(), 2);
   EXPECT_FLOAT_EQ(measurements.lidar->back().curvature, 125);
+}
+
+TEST_F(SynchronizerIntegrationTest, ImuCallbackPreservesCoverageAndRollback) {
+  CreateMapper(ONLY_LIO);
+  mapper_->ros_driver_fix_en = true;
+  mapper_->last_timestamp_lidar = 0.975;
+  AddCloud(0.975, {0, 125});
+  sensor_msgs::Imu::Ptr message(new sensor_msgs::Imu);
+  message->header.stamp = ros::Time(100, 100000000);
+  mapper_->imu_cbk(message);
+  ASSERT_EQ(mapper_->sensor_buffers_.imu.size(), 1);
+  EXPECT_DOUBLE_EQ(mapper_->sensor_buffers_.imu.front().timestamp, 1.1);
+  EXPECT_LT(mapper_->sensor_buffers_.latest_imu_time, 1.1);
+  LidarMeasureGroup measurements;
+  EXPECT_FALSE(mapper_->sync_packages(measurements));
+
+  message->header.stamp = ros::Time(100, 250000000);
+  mapper_->imu_cbk(message);
+  ASSERT_EQ(mapper_->sensor_buffers_.imu.size(), 2);
+  EXPECT_DOUBLE_EQ(mapper_->sensor_buffers_.latest_imu_time, 1.25);
+  message->header.stamp = ros::Time(100, 0);
+  mapper_->imu_cbk(message);
+  EXPECT_EQ(mapper_->sensor_buffers_.imu.size(), 2);
+  EXPECT_DOUBLE_EQ(mapper_->sensor_buffers_.latest_imu_time, 1.25);
+  EXPECT_DOUBLE_EQ(mapper_->last_timestamp_imu, 1.25);
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  ASSERT_EQ(measurements.measures.back().imu.size(), 1);
+  EXPECT_DOUBLE_EQ(measurements.measures.back().imu.front().timestamp, 1.1);
+}
+
+TEST_F(SynchronizerIntegrationTest, LidarOnlyPipelineKeepsAnchorAndWorldPoints) {
+  ros::NodeHandle node;
+  node.setParam("extrin_calib/extrinsic_T", std::vector<double>{0, 0, 0});
+  node.setParam("extrin_calib/extrinsic_R",
+                std::vector<double>{1, 0, 0, 0, 1, 0, 0, 0, 1});
+  CreateMapper(ONLY_LO);
+  image_transport::ImageTransport transport(node);
+  mapper_->initializeSubscribersAndPublishers(node, transport);
+  for (double timestamp : {100.0, 100.25}) {
+    AddCloud(timestamp, {0, 125});
+    ASSERT_TRUE(mapper_->sync_packages(mapper_->LidarMeasures));
+    mapper_->handleFirstFrame();
+    mapper_->processImu();
+    mapper_->stateEstimationAndMapping();
+    EXPECT_DOUBLE_EQ(mapper_->LidarMeasures.last_lio_update_time,
+                     timestamp + 0.125);
+    EXPECT_DOUBLE_EQ(mapper_->_first_lidar_time, -1.0);
+    EXPECT_EQ(mapper_->vio_manager->state, &mapper_->_state);
+    ASSERT_EQ(mapper_->pcl_w_wait_pub->size(), 2);
+    EXPECT_FLOAT_EQ(mapper_->pcl_w_wait_pub->front().x, 2);
+    EXPECT_FLOAT_EQ(mapper_->pcl_w_wait_pub->back().x, 3);
+    EXPECT_TRUE(mapper_->_state.pos_end.isZero(0));
+  }
+}
+
+TEST_F(SynchronizerIntegrationTest, InitialImuOutputDoesNotBuildMap) {
+  CreateMapper(ONLY_LIO);
+  AddCloud(100, {0, 125});
+  AddImu(100.0625);
+  AddImu(100.125);
+  ASSERT_TRUE(mapper_->sync_packages(mapper_->LidarMeasures));
+  mapper_->handleFirstFrame();
+  mapper_->processImu();
+  mapper_->stateEstimationAndMapping();
+  EXPECT_TRUE(mapper_->feats_undistort->empty());
+  EXPECT_FALSE(mapper_->lidar_map_inited);
+  EXPECT_TRUE(mapper_->_state.gravity.isApprox(Eigen::Vector3d(0, 0, 9.81)));
 }
 
 
