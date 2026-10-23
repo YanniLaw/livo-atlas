@@ -5,25 +5,13 @@
 
 #include "livo_atlas/core/state.h"
 #include "livo_atlas/frontend/frontend_options.h"
+#include "livo_atlas/frontend/frontend_result.h"
 #include "livo_atlas/frontend/synchronized_measurements.h"
 
 class VIOManager;
 class VoxelMapManager;
 
 namespace livo_atlas {
-
-struct FrontendResult {
-  UpdateKind kind = UpdateKind::kWaiting;
-  bool first_frame = false;
-  bool updated = false;
-  double timestamp = 0.0;
-  double relative_time = 0.0;
-  State prediction;
-  State estimate;
-  // Read-only views valid until the next Process call. States above are values.
-  PointCloud::ConstPtr world_cloud;
-  PointCloud::ConstPtr undistorted_cloud;
-};
 
 class Frontend {
  public:

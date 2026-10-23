@@ -129,12 +129,22 @@ add_library(imu_proc src/IMU_Processing.cpp)
 add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
 target_link_libraries(livo_atlas_ros1_conversions
   ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-add_library(livo_atlas_frontend STATIC
-  src/frontend/frontend.cc src/camera/vikit_camera_factory.cc)
+add_library(livo_atlas_vikit_camera STATIC src/camera/vikit_camera_factory.cc)
+set_target_properties(livo_atlas_vikit_camera PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(livo_atlas_vikit_camera PUBLIC livo_atlas_calibration
+  ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+add_library(livo_atlas_frontend STATIC src/frontend/frontend.cc)
 set_target_properties(livo_atlas_frontend PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
-  vio lio imu_proc ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
+  vio lio imu_proc livo_atlas_vikit_camera
+  ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
   ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+add_library(livo_atlas_output STATIC src/output/output_processor.cc)
+add_library(livo_atlas_io STATIC src/io/result_writer.cc)
+set_target_properties(livo_atlas_output livo_atlas_io PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(livo_atlas_output PUBLIC livo_atlas_vikit_camera
+  ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(livo_atlas_io PUBLIC ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 add_library(laser_mapping src/LIVMapper.cpp src/ros1/calibration_reader.cc)
 # Keep estimator DSOs ahead of native vikit's incompatible weak Eigen helpers.
 target_link_libraries(laser_mapping livo_atlas_calibration livo_atlas_synchronization
@@ -164,6 +174,16 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(result_writer_test
+    tests/io/result_writer_test.cc tests/core/test_main.cc)
+  if(TARGET result_writer_test)
+    target_link_libraries(result_writer_test livo_atlas_io)
+  endif()
+  catkin_add_gtest(output_processor_test
+    tests/output/output_test.cc tests/core/test_main.cc)
+  if(TARGET output_processor_test)
+    target_link_libraries(output_processor_test livo_atlas_output)
+  endif()
   # Run explicitly on Linux: LSan needs permission to inspect process threads.
   # Link-only instrumentation preserves the estimators' Eigen build settings.
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
