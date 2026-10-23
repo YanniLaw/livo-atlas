@@ -6,7 +6,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <vikit/pinhole_camera.h>
+#include "livo_atlas/camera/pinhole_camera.h"
 
 namespace livo_atlas {
 namespace {
@@ -57,7 +57,7 @@ class VioSamplingTest : public ::testing::Test {
     return state_;
   }
 
-  vk::PinholeCamera camera_{512, 512, 1, 200, 200, 256, 256};
+  livo_atlas::PinholeCamera camera_{{"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}}};
   VisualPoint point_{V3D(0, 0, 1)};
   StatesGroup state_;
   StatesGroup prior_;
@@ -99,7 +99,7 @@ TEST_F(VioSamplingTest, AllInvalidPatchesPreserveCovariance) {
 }
 
 TEST(VioSamplingConfigTest, RejectsNonPositiveAndOddPatchSizes) {
-  vk::PinholeCamera camera(512, 512, 1, 200, 200, 256, 256);
+  livo_atlas::PinholeCamera camera({"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}});
   for (int patch_size : {-2, 0, 1, 7, 9}) {
     SCOPED_TRACE(patch_size);
     VIOManager manager;

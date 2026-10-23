@@ -24,7 +24,7 @@ which is included as part of this source code package.
 #include <pcl/filters/voxel_grid.h>
 
 #include "IMU_Processing.h"
-#include "livo_atlas/camera/vikit_camera_factory.h"
+#include "livo_atlas/camera/camera_factory.h"
 #include "vio.h"
 
 namespace livo_atlas {
@@ -34,7 +34,7 @@ class Frontend::Impl {
   explicit Impl(const FrontendOptions& options)
       : options_(options),
         imu_(new ImuProcess),
-        camera_(CreateVikitCamera(options.calibration.camera)),
+        camera_(CreateCamera(options.calibration.camera)),
         visual_(new VIOManager) {
     if (!camera_) throw std::invalid_argument("Invalid camera calibration");
     std::unordered_map<VOXEL_LOCATION, VoxelOctoTree*> empty_map;
@@ -262,7 +262,7 @@ class Frontend::Impl {
   std::unique_ptr<ImuProcess> imu_;
   std::unique_ptr<VoxelMapManager> map_;
   // Camera outlives VIO's non-owning pointer.
-  std::unique_ptr<vk::AbstractCamera> camera_;
+  std::unique_ptr<livo_atlas::Camera> camera_;
   std::unique_ptr<VIOManager> visual_;
   PointCloud::Ptr undistorted_{new PointCloud};
   PointCloud::Ptr down_body_{new PointCloud};

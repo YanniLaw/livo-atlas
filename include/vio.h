@@ -18,10 +18,7 @@ which is included as part of this source code package.
 #include <opencv2/imgproc/imgproc_c.h>
 #include <pcl/filters/voxel_grid.h>
 #include <set>
-#include <vikit/math_utils.h>
-#include <vikit/robust_cost.h>
-#include <vikit/vision.h>
-#include <vikit/pinhole_camera.h>
+#include "livo_atlas/camera/pinhole_camera.h"
 
 #include "livo_atlas/sensor/extrinsics.h"
 #include "livo_atlas/frontend/diagnostics.h"
@@ -87,7 +84,7 @@ class VIOManager
 {
 public:
   int grid_size;
-  vk::AbstractCamera *cam;
+  livo_atlas::Camera *cam;
   StatesGroup *state;
   StatesGroup *state_propagat;
   M3D Rli, Rci, Rcl, Rcw, Jdphi_dR, Jdp_dt, Jdp_dR;
@@ -155,10 +152,10 @@ public:
   void computeJacobianAndUpdateEKF(cv::Mat img);
   void resetGrid();
   void updateVisualMapPoints(cv::Mat img);
-  void getWarpMatrixAffine(const vk::AbstractCamera &cam, const Vector2d &px_ref, const Vector3d &f_ref, const double depth_ref, const SE3 &T_cur_ref,
+  void getWarpMatrixAffine(const livo_atlas::Camera &cam, const Vector2d &px_ref, const Vector3d &f_ref, const double depth_ref, const SE3 &T_cur_ref,
                            const int level_ref, 
                            const int pyramid_level, const int halfpatch_size, Matrix2d &A_cur_ref);
-  void getWarpMatrixAffineHomography(const vk::AbstractCamera &cam, const V2D &px_ref,
+  void getWarpMatrixAffineHomography(const livo_atlas::Camera &cam, const V2D &px_ref,
                                      const V3D &xyz_ref, const V3D &normal_ref, const SE3 &T_cur_ref, const int level_ref, Matrix2d &A_cur_ref);
   void warpAffine(const Matrix2d &A_cur_ref, const cv::Mat &img_ref, const Vector2d &px_ref, const int level_ref, const int search_level,
                   const int pyramid_level, const int halfpatch_size, float *patch);

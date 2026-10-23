@@ -190,7 +190,7 @@ TEST(CameraValidationTest, RejectsUnrepresentableScaledIntrinsics) {
     config.scale = 2;
     config.*member = std::numeric_limits<double>::max();
     EXPECT_FALSE(ValidateCameraConfig(config).empty());
-    config.*member = 1e40;  // vikit stores a float OpenCV camera matrix.
+    config.*member = 1e40;  // Pinhole stores a float OpenCV camera matrix.
     EXPECT_FALSE(ValidateCameraConfig(config).empty());
   }
   CameraConfig config = PinholeConfig();

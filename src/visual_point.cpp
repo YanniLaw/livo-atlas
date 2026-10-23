@@ -13,7 +13,6 @@ which is included as part of this source code package.
 #include "visual_point.h"
 #include "feature.h"
 #include <stdexcept>
-#include <vikit/math_utils.h>
 
 VisualPoint::VisualPoint(const Vector3d &pos)
     : pos_(pos), previous_normal_(Vector3d::Zero()), normal_(Vector3d::Zero()),

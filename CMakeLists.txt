@@ -126,20 +126,23 @@ add_library(imu_proc src/IMU_Processing.cpp)
 add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
 target_link_libraries(livo_atlas_ros1_conversions
   ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-add_library(livo_atlas_vikit_camera STATIC src/camera/vikit_camera_factory.cc)
-set_target_properties(livo_atlas_vikit_camera PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(livo_atlas_vikit_camera PUBLIC livo_atlas_calibration
+add_library(livo_atlas_camera STATIC src/camera/camera.cc src/camera/camera_factory.cc
+  src/camera/pinhole_camera.cc src/camera/equidistant_camera.cc
+  src/image/image_ops.cc)
+set_target_properties(livo_atlas_camera PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(livo_atlas_camera PUBLIC livo_atlas_calibration
   ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(vio PUBLIC livo_atlas_camera)
 add_library(livo_atlas_frontend STATIC src/frontend/frontend.cc)
 set_target_properties(livo_atlas_frontend PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
-  vio lio imu_proc livo_atlas_vikit_camera
+  vio lio imu_proc livo_atlas_camera
   ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
   ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
 add_library(livo_atlas_output STATIC src/output/output_processor.cc)
 add_library(livo_atlas_io STATIC src/io/result_writer.cc)
 set_target_properties(livo_atlas_output livo_atlas_io PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(livo_atlas_output PUBLIC livo_atlas_vikit_camera
+target_link_libraries(livo_atlas_output PUBLIC livo_atlas_camera
   ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 target_link_libraries(livo_atlas_io PUBLIC ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 add_library(laser_mapping src/LIVMapper.cpp src/ros1/calibration_reader.cc
@@ -176,6 +179,14 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(camera_image_test tests/camera/camera_test.cc
+    tests/image/image_ops_test.cc tests/core/test_main.cc)
+  if(TARGET camera_image_test)
+    target_include_directories(camera_image_test PRIVATE tests)
+    target_compile_definitions(camera_image_test PRIVATE
+      TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(camera_image_test livo_atlas_camera)
+  endif()
   catkin_add_gtest(result_writer_test
     tests/io/result_writer_test.cc tests/core/test_main.cc)
   if(TARGET result_writer_test)

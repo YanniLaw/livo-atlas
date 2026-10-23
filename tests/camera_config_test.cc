@@ -1,8 +1,7 @@
-#include "livo_atlas/camera/vikit_camera_factory.h"
+#include "livo_atlas/camera/camera_factory.h"
 
 #include <gtest/gtest.h>
-#include <vikit/equidistant_camera.h>
-#include <vikit/pinhole_camera.h>
+#include "livo_atlas/camera/pinhole_camera.h"
 
 #include "vio.h"
 
@@ -23,8 +22,7 @@ CameraConfig CameraCalibration(const std::string& model) {
   return config;
 }
 
-void ExpectSameCamera(const vk::AbstractCamera& actual,
-                     const vk::AbstractCamera& legacy) {
+void ExpectScaledCamera(const Camera& actual) {
   EXPECT_EQ(actual.width(), 640);
   EXPECT_EQ(actual.height(), 512);
   EXPECT_DOUBLE_EQ(actual.scale(), 0.5);
@@ -32,51 +30,36 @@ void ExpectSameCamera(const vk::AbstractCamera& actual,
   EXPECT_DOUBLE_EQ(actual.fy(), 646.65775);
   EXPECT_DOUBLE_EQ(actual.cx(), 313.456795);
   EXPECT_DOUBLE_EQ(actual.cy(), 261.399612);
-  for (const Eigen::Vector3d& point :
-       {Eigen::Vector3d(0, 0, 1), Eigen::Vector3d(1, 2, 10),
-        Eigen::Vector3d(-2, -1, 5)}) {
-    EXPECT_TRUE(actual.world2cam(point).isApprox(legacy.world2cam(point), 0));
-  }
-  for (const Eigen::Vector2d& pixel :
-       {Eigen::Vector2d(100, 150), Eigen::Vector2d(320, 256),
-        Eigen::Vector2d(500, 400)}) {
-    EXPECT_TRUE(actual.cam2world(pixel).isApprox(legacy.cam2world(pixel), 0));
-  }
 }
 
-TEST(CameraFactoryTest, PinholeMatchesLegacyScalingAndProjection) {
-  const CameraConfig config = CameraCalibration("Pinhole");
-  const auto camera = CreateVikitCamera(config);
+TEST(CameraFactoryTest, PinholePreservesScaledIntrinsics) {
+  const auto camera = CreateCamera(CameraCalibration("Pinhole"));
   ASSERT_NE(camera, nullptr);
-  const vk::PinholeCamera legacy(
-      1281, 1025, 0.5, 1293.56944, 1293.3155, 626.91359, 522.799224,
-      -0.076160, 0.123001, -0.00113, 0.000251);
-  ExpectSameCamera(*camera, legacy);
+  ExpectScaledCamera(*camera);
+  EXPECT_EQ(camera->Project(Eigen::Vector3d(0, 0, 1)),
+            Eigen::Vector2d(313.456795, 261.399612));
 }
 
-TEST(CameraFactoryTest, EquidistantMatchesLegacyScalingAndProjection) {
-  const CameraConfig config = CameraCalibration("EquidistantCamera");
-  const auto camera = CreateVikitCamera(config);
+TEST(CameraFactoryTest, EquidistantPreservesScaledIntrinsicsAndAxisBranch) {
+  const auto camera = CreateCamera(CameraCalibration("EquidistantCamera"));
   ASSERT_NE(camera, nullptr);
-  const vk::EquidistantCamera legacy(
-      1281, 1025, 0.5, 1293.56944, 1293.3155, 626.91359, 522.799224,
-      -0.076160, 0.123001, -0.00113, 0.000251);
-  ExpectSameCamera(*camera, legacy);
+  ExpectScaledCamera(*camera);
+  EXPECT_EQ(camera->Project(Eigen::Vector3d(0, 0, 1)), Eigen::Vector2d(0, 0));
 }
 
 TEST(CameraFactoryTest, RejectsInvalidCalibrationBeforeConstruction) {
   CameraConfig config = CameraCalibration("unsupported");
-  EXPECT_EQ(CreateVikitCamera(config), nullptr);
+  EXPECT_EQ(CreateCamera(config), nullptr);
   config = CameraCalibration("Pinhole");
   config.fx = 0;
-  EXPECT_EQ(CreateVikitCamera(config), nullptr);
+  EXPECT_EQ(CreateCamera(config), nullptr);
   config = CameraCalibration("Pinhole");
   config.width = 0;
-  EXPECT_EQ(CreateVikitCamera(config), nullptr);
+  EXPECT_EQ(CreateCamera(config), nullptr);
 }
 
 TEST(VioExtrinsicsTest, PreservesNonIdentityFrameDirectionsAndTranslations) {
-  vk::PinholeCamera camera(512, 512, 1, 200, 200, 256, 256);
+  PinholeCamera camera({"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}});
   VIOManager manager;
   manager.cam = &camera;
   manager.grid_size = 32;

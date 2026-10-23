@@ -13,14 +13,13 @@ which is included as part of this source code package.
 #ifndef LIVO_POINT_H_
 #define LIVO_POINT_H_
 
-#include <boost/noncopyable.hpp>
 #include "common_lib.h"
 #include "frame.h"
 
 class Feature;
 
 /// A visual map point on the surface of the scene.
-class VisualPoint : boost::noncopyable
+class VisualPoint
 {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -38,6 +37,8 @@ public:
 
   VisualPoint(const Vector3d &pos);
   ~VisualPoint();
+  VisualPoint(const VisualPoint&) = delete;
+  VisualPoint& operator=(const VisualPoint&) = delete;
   void findMinScoreFeature(const Vector3d &framepos, Feature *&ftr) const;
   void deleteNonRefPatchFeatures();
   void deleteFeatureRef(Feature *ftr);

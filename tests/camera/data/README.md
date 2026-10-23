@@ -27,3 +27,13 @@ contiguous storage or eleven padding pixels per row. Hashing excludes padding.
 
 These fixtures characterize existing behavior. Optical-axis model corrections
 and new image pyramids require a separate numerical change.
+
+The frozen library used `-march=native` and fused multiply/add. A separately
+compiled old-source control with the default ISA matches the replacement
+exactly for every captured result. Native compilation with
+`-ffp-contract=off` also matches that control exactly. Against the frozen native
+library, 129 camera components differ by at most 3 double ULP (maximum absolute
+difference 1.8189894035458565e-12); 38 score samples differ by at most 2 float ULP
+(maximum 0.0009765625). Unit tests use GTest's standard 4 ULP comparison for
+these numerical fixtures. Image hashes remain exact. Bag trajectory, message
+and export comparisons are separate gates; this allowance does not relax them.

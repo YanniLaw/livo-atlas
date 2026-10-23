@@ -14,6 +14,8 @@ which is included as part of this source code package.
 
 #include <stdexcept>
 
+#include "livo_atlas/image/image_ops.h"
+
 VIOManager::VIOManager() : visual_submap(nullptr) {}
 
 VIOManager::~VIOManager()
@@ -108,7 +110,7 @@ void VIOManager::initializeVIO()
         for (float d_temp = d_min; d_temp <= d_max; d_temp += step)
         {
           V3D xyz;
-          xyz = cam->cam2world(u, v);
+          xyz = cam->Unproject(u, v);
           xyz *= d_temp / xyz[2];
           // xyz[0] = (u - cx) / fx * d_temp;
           // xyz[1] = (v - cy) / fy * d_temp;
@@ -236,7 +238,7 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
   }
 }
 
-void VIOManager::getWarpMatrixAffineHomography(const vk::AbstractCamera &cam, const V2D &px_ref, const V3D &xyz_ref, const V3D &normal_ref,
+void VIOManager::getWarpMatrixAffineHomography(const livo_atlas::Camera &cam, const V2D &px_ref, const V3D &xyz_ref, const V3D &normal_ref,
                                                   const SE3 &T_cur_ref, const int level_ref, Matrix2d &A_cur_ref)
 {
   // create homography matrix
@@ -245,33 +247,33 @@ void VIOManager::getWarpMatrixAffineHomography(const vk::AbstractCamera &cam, co
       T_cur_ref.rotation_matrix() * (normal_ref.dot(xyz_ref) * Eigen::Matrix3d::Identity() - t * normal_ref.transpose());
   // Compute affine warp matrix A_ref_cur using homography projection
   const int kHalfPatchSize = 4;
-  V3D f_du_ref(cam.cam2world(px_ref + Eigen::Vector2d(kHalfPatchSize, 0) * (1 << level_ref)));
-  V3D f_dv_ref(cam.cam2world(px_ref + Eigen::Vector2d(0, kHalfPatchSize) * (1 << level_ref)));
+  V3D f_du_ref(cam.Unproject(px_ref + Eigen::Vector2d(kHalfPatchSize, 0) * (1 << level_ref)));
+  V3D f_dv_ref(cam.Unproject(px_ref + Eigen::Vector2d(0, kHalfPatchSize) * (1 << level_ref)));
   //   f_du_ref = f_du_ref/f_du_ref[2];
   //   f_dv_ref = f_dv_ref/f_dv_ref[2];
   const V3D f_cur(H_cur_ref * xyz_ref);
   const V3D f_du_cur = H_cur_ref * f_du_ref;
   const V3D f_dv_cur = H_cur_ref * f_dv_ref;
-  V2D px_cur(cam.world2cam(f_cur));
-  V2D px_du_cur(cam.world2cam(f_du_cur));
-  V2D px_dv_cur(cam.world2cam(f_dv_cur));
+  V2D px_cur(cam.Project(f_cur));
+  V2D px_du_cur(cam.Project(f_du_cur));
+  V2D px_dv_cur(cam.Project(f_dv_cur));
   A_cur_ref.col(0) = (px_du_cur - px_cur) / kHalfPatchSize;
   A_cur_ref.col(1) = (px_dv_cur - px_cur) / kHalfPatchSize;
 }
 
-void VIOManager::getWarpMatrixAffine(const vk::AbstractCamera &cam, const Vector2d &px_ref, const Vector3d &f_ref, const double depth_ref,
+void VIOManager::getWarpMatrixAffine(const livo_atlas::Camera &cam, const Vector2d &px_ref, const Vector3d &f_ref, const double depth_ref,
                                         const SE3 &T_cur_ref, const int level_ref, const int pyramid_level, const int halfpatch_size,
                                         Matrix2d &A_cur_ref)
 {
   // Compute affine warp matrix A_ref_cur
   const Vector3d xyz_ref(f_ref * depth_ref);
-  Vector3d xyz_du_ref(cam.cam2world(px_ref + Vector2d(halfpatch_size, 0) * (1 << level_ref) * (1 << pyramid_level)));
-  Vector3d xyz_dv_ref(cam.cam2world(px_ref + Vector2d(0, halfpatch_size) * (1 << level_ref) * (1 << pyramid_level)));
+  Vector3d xyz_du_ref(cam.Unproject(px_ref + Vector2d(halfpatch_size, 0) * (1 << level_ref) * (1 << pyramid_level)));
+  Vector3d xyz_dv_ref(cam.Unproject(px_ref + Vector2d(0, halfpatch_size) * (1 << level_ref) * (1 << pyramid_level)));
   xyz_du_ref *= xyz_ref[2] / xyz_du_ref[2];
   xyz_dv_ref *= xyz_ref[2] / xyz_dv_ref[2];
-  const Vector2d px_cur(cam.world2cam(T_cur_ref * (xyz_ref)));
-  const Vector2d px_du(cam.world2cam(T_cur_ref * (xyz_du_ref)));
-  const Vector2d px_dv(cam.world2cam(T_cur_ref * (xyz_dv_ref)));
+  const Vector2d px_cur(cam.Project(T_cur_ref * (xyz_ref)));
+  const Vector2d px_du(cam.Project(T_cur_ref * (xyz_du_ref)));
+  const Vector2d px_dv(cam.Project(T_cur_ref * (xyz_dv_ref)));
   A_cur_ref.col(0) = (px_du - px_cur) / halfpatch_size;
   A_cur_ref.col(1) = (px_dv - px_cur) / halfpatch_size;
 }
@@ -299,7 +301,7 @@ void VIOManager::warpAffine(const Matrix2d &A_cur_ref, const cv::Mat &img_ref, c
       if (px[0] < 0 || px[1] < 0 || px[0] >= img_ref.cols - 1 || px[1] >= img_ref.rows - 1)
         patch_ptr[patch_size_total * pyramid_level + y * patch_size + x] = 0;
       else
-        patch_ptr[patch_size_total * pyramid_level + y * patch_size + x] = (float)vk::interpolateMat_8u(img_ref, px[0], px[1]);
+        patch_ptr[patch_size_total * pyramid_level + y * patch_size + x] = (float)livo_atlas::InterpolateGray8(img_ref, px[0], px[1]);
     }
   }
 }
@@ -400,9 +402,9 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
       V2D px;
       // px[0] = fx * pt_c[0]/pt_c[2] + cx;
       // px[1] = fy * pt_c[1]/pt_c[2]+ cy;
-      px = new_frame_->cam_->world2cam(pt_c);
+      px = new_frame_->cam_->Project(pt_c);
 
-      if (new_frame_->cam_->isInFrame(px.cast<int>(), border))
+      if (new_frame_->cam_->IsInFrame(px.cast<int>(), border))
       {
         // cv::circle(img_cp, cv::Point2f(px[0], px[1]), 3, cv::Scalar(0, 0, 255), -1, 8);
         float depth = pt_c[2];
@@ -451,7 +453,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
         // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree  0.17 80 degree 0.08 85 degree
 
         V2D pc(new_frame_->w2c(pt->pos_));
-        if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
+        if (new_frame_->cam_->IsInFrame(pc.cast<int>(), border))
         {
           // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(0, 255, 255), -1, 8);
           voxel_in_fov = true;
@@ -530,7 +532,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 
             V2D pc(new_frame_->w2c(pt->pos_));
 
-            if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
+            if (new_frame_->cam_->IsInFrame(pc.cast<int>(), border))
             {
               // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(255, 255, 0), -1, 8); 
               // sub_map_ray_fov.push_back(pt);
@@ -801,13 +803,13 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
     V3D pt = pg[i].point_w;
     V2D pc(new_frame_->w2c(pt));
 
-    if (new_frame_->cam_->isInFrame(pc.cast<int>(), border)) // 20px is the patch size in the matcher
+    if (new_frame_->cam_->IsInFrame(pc.cast<int>(), border)) // 20px is the patch size in the matcher
     {
       int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
 
       if (grid_num[index] != TYPE_MAP)
       {
-        float cur_value = vk::shiTomasiScore(img, pc[0], pc[1]);
+        float cur_value = livo_atlas::ShiTomasiScore(img, pc[0], pc[1]);
         // if (cur_value < 5) continue;
         if (cur_value > scan_value[index])
         {
@@ -824,13 +826,13 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
     V3D pt = visual_submap->add_from_voxel_map[j].point_w;
     V2D pc(new_frame_->w2c(pt));
 
-    if (new_frame_->cam_->isInFrame(pc.cast<int>(), border)) // 20px is the patch size in the matcher
+    if (new_frame_->cam_->IsInFrame(pc.cast<int>(), border)) // 20px is the patch size in the matcher
     {
       int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
 
       if (grid_num[index] != TYPE_MAP)
       {
-        float cur_value = vk::shiTomasiScore(img, pc[0], pc[1]);
+        float cur_value = livo_atlas::ShiTomasiScore(img, pc[0], pc[1]);
         if (cur_value > scan_value[index])
         {
           scan_value[index] = cur_value;
@@ -864,7 +866,7 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
 
       VisualPoint *pt_new = new VisualPoint(pt);
 
-      Vector3d f = cam->cam2world(pc);
+      Vector3d f = cam->Unproject(pc);
       Feature *ftr_new = new Feature(pt_new, patch, pc, f, new_frame_->T_f_w_, 0);
       ftr_new->img_ = img;
       ftr_new->id_ = new_frame_->id_;
@@ -943,7 +945,7 @@ void VIOManager::updateVisualMapPoints(cv::Mat img)
     {
       update_num += 1;
       update_flag[i] = 1;
-      Vector3d f = cam->cam2world(pc);
+      Vector3d f = cam->Unproject(pc);
       Feature *ftr_new = new Feature(pt, patch_temp, pc, f, new_frame_->T_f_w_, visual_submap->search_levels[i]);
       ftr_new->img_ = img;
       ftr_new->id_ = new_frame_->id_;
@@ -1198,7 +1200,7 @@ void VIOManager::projectPatchFromRefToCur(const unordered_map<VOXEL_LOCATION, Vo
           Vector2f px_patch(x - patch_size / 2, y - patch_size / 2);
           px_patch *= (1 << search_level);
           const Vector2f px_ref(px_patch + ref_ftr->px_.cast<float>());
-          uint8_t pixel_value = (uint8_t)vk::interpolateMat_8u(img_ref, px_ref[0], px_ref[1]);
+          uint8_t pixel_value = (uint8_t)livo_atlas::InterpolateGray8(img_ref, px_ref[0], px_ref[1]);
 
           const Vector2f px(A_cur_ref.cast<float>() * px_patch + pc.cast<float>());
           if (px[0] < 0 || px[1] < 0 || px[0] >= img_cur.cols - 1 || px[1] >= img_cur.rows - 1)
@@ -1247,7 +1249,7 @@ void VIOManager::projectPatchFromRefToCur(const unordered_map<VOXEL_LOCATION, Vo
               px_patch[1] > (-patch_size / 2 * (1 << search_level)) && px_patch[1] < (patch_size / 2 * (1 << search_level)))
           {
             const Vector2f px_ref(px_patch + ref_ftr->px_.cast<float>());
-            uint8_t pixel_value = (uint8_t)vk::interpolateMat_8u(img_ref, px_ref[0], px_ref[1]);
+            uint8_t pixel_value = (uint8_t)livo_atlas::InterpolateGray8(img_ref, px_ref[0], px_ref[1]);
             it_normal[width * j + i] = pixel_value;
           }
         }
@@ -1280,7 +1282,7 @@ void VIOManager::projectPatchFromRefToCur(const unordered_map<VOXEL_LOCATION, Vo
         Vector2f px_patch(x - patch_size / 2, y - patch_size / 2);
         px_patch *= (1 << search_level);
         const Vector2f px_ref(px_patch + ref_ftr->px_.cast<float>());
-        uint8_t pixel_value = (uint8_t)vk::interpolateMat_8u(img_ref, px_ref[0], px_ref[1]);
+        uint8_t pixel_value = (uint8_t)livo_atlas::InterpolateGray8(img_ref, px_ref[0], px_ref[1]);
 
         const Vector2f px(A_cur_ref.cast<float>() * px_patch + pc.cast<float>());
         if (px[0] < 0 || px[1] < 0 || px[0] >= img_cur.cols - 1 || px[1] >= img_cur.rows - 1)
@@ -1432,7 +1434,7 @@ void VIOManager::updateStateInverse(cv::Mat img, int level)
       if (pt == nullptr) continue;
 
       V3D pf = Rcw * pt->pos_ + Pcw;
-      pc = cam->world2cam(pf);
+      pc = cam->Project(pf);
 
       const float u_ref = pc[0];
       const float v_ref = pc[1];
@@ -1559,7 +1561,7 @@ void VIOManager::updateState(cv::Mat img, int level)
       if (pt == nullptr) continue;
 
       V3D pf = Rcw * pt->pos_ + Pcw;
-      V2D pc = cam->world2cam(pf);
+      V2D pc = cam->Project(pf);
       if (!pc.allFinite() || pc[0] < 0 || pc[1] < 0 ||
           pc[0] >= img.cols || pc[1] >= img.rows) {
         continue;

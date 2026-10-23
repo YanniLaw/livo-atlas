@@ -10,18 +10,14 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#include <boost/bind.hpp>
 #include "feature.h"
 #include "frame.h"
 #include "visual_point.h"
 #include <stdexcept>
-#include <vikit/math_utils.h>
-#include <vikit/performance_monitor.h>
-#include <vikit/vision.h>
 
 int Frame::frame_counter_ = 0;
 
-Frame::Frame(vk::AbstractCamera *cam, const cv::Mat &img)
+Frame::Frame(livo_atlas::Camera *cam, const cv::Mat &img)
     : id_(frame_counter_++), 
       cam_(cam)
 {
@@ -46,20 +42,3 @@ void Frame::initFrame(const cv::Mat &img)
 
   img_ = img;
 }
-
-/// Utility functions for the Frame class
-namespace frame_utils
-{
-
-void createImgPyramid(const cv::Mat &img_level_0, int n_levels, ImgPyr &pyr)
-{
-  pyr.resize(n_levels);
-  pyr[0] = img_level_0;
-  for (int i = 1; i < n_levels; ++i)
-  {
-    pyr[i] = cv::Mat(pyr[i - 1].rows / 2, pyr[i - 1].cols / 2, CV_8U);
-    vk::halfSample(pyr[i - 1], pyr[i]);
-  }
-}
-
-} // namespace frame_utils

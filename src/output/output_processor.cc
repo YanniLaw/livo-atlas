@@ -4,9 +4,9 @@
 #include <limits>
 #include <stdexcept>
 
-#include <vikit/pinhole_camera.h>
+#include "livo_atlas/camera/pinhole_camera.h"
 
-#include "livo_atlas/camera/vikit_camera_factory.h"
+#include "livo_atlas/camera/camera_factory.h"
 
 namespace livo_atlas {
 namespace {
@@ -47,7 +47,7 @@ class OutputProcessor::Impl {
     }
     if (options_.mode == FrontendMode::kLidarInertialVisual ||
         options_.colmap) {
-      camera_ = CreateVikitCamera(options_.calibration.camera);
+      camera_ = CreateCamera(options_.calibration.camera);
       if (!camera_) throw std::invalid_argument("Invalid output camera");
     }
   }
@@ -72,8 +72,8 @@ class OutputProcessor::Impl {
         Colorize(result, colored.get());
       }
       if (options_.colmap) {
-        auto* pinhole = static_cast<vk::PinholeCamera*>(camera_.get());
-        pinhole->undistortImage(result.color_image, output.colmap_image);
+        auto* pinhole = static_cast<livo_atlas::PinholeCamera*>(camera_.get());
+        pinhole->UndistortImage(result.color_image, &output.colmap_image);
       }
     }
     if (!colored->empty()) PointCloud().swap(pending_);
@@ -89,12 +89,12 @@ class OutputProcessor::Impl {
           result.camera_from_world_rotation * world +
           result.camera_from_world_translation;
       if (!local.allFinite() || local.z() <= 0) continue;
-      const Eigen::Vector2d pixel = camera_->world2cam(local);
+      const Eigen::Vector2d pixel = camera_->Project(local);
       if (!pixel.allFinite() || pixel.cwiseAbs().maxCoeff() >
                                     std::numeric_limits<int>::max()) {
         continue;
       }
-      if (!camera_->isInFrame(pixel.cast<int>(), 3)) continue;
+      if (!camera_->IsInFrame(pixel.cast<int>(), 3)) continue;
       const Eigen::Vector3f color = SampleColor(result.color_image, pixel);
       pcl::PointXYZRGB output;
       output.x = point.x;
@@ -110,7 +110,7 @@ class OutputProcessor::Impl {
   }
 
   OutputProcessorOptions options_;
-  std::unique_ptr<vk::AbstractCamera> camera_;
+  std::unique_ptr<livo_atlas::Camera> camera_;
   PointCloud pending_;
   int scan_count_ = 1;
 };
