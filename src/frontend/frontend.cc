@@ -1,4 +1,4 @@
-/* 
+/*
 This file is part of FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry.
 
 Developer: Chunran Zheng <zhengcr@connect.hku.hk>
@@ -82,6 +82,13 @@ class Frontend::Impl {
     if (!imu.estimate_gravity) imu_->disable_gravity_est();
     if (!imu.estimate_bias) imu_->disable_bias_est();
     if (!visual.estimate_exposure) imu_->disable_exposure_est();
+  }
+
+  ~Impl() {
+    // Visual objects can borrow map data; destroy them before the voxel roots.
+    visual_.reset();
+    for (const auto& entry : map_->voxel_map_) delete entry.second;
+    map_->voxel_map_.clear();
   }
 
   FrontendResult Process(SynchronizedMeasurements* measurements) {

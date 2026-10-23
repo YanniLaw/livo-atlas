@@ -1,6 +1,6 @@
 # P2-02：单一前端状态与处理流程
 
-本阶段按[设计](superpowers/specs/2026-10-24-p2-02-frontend-design.md)和[执行计划](superpowers/plans/2026-10-24-p2-02-frontend.md)，从 LIVMapper 提取实际 Frontend。参考提交为 `f77ae4871b9f72a469918ea6a5617db6067566d8`。当前106项单元、9项ROS、10项Python、40项启动及独立构建/14个公共头检查通过；30秒正式回放296点与参考的时间、计数及导出数据零差异。完整136秒回放1351点也通过相同的零差异对照；默认并行45秒回放446点且正常退出；独立审阅仍在进行。
+本阶段按[设计](superpowers/specs/2026-10-24-p2-02-frontend-design.md)和[执行计划](superpowers/plans/2026-10-24-p2-02-frontend.md)，从 LIVMapper 提取实际 Frontend。参考提交为 `f77ae4871b9f72a469918ea6a5617db6067566d8`。本阶段实现、独立审阅问题修复和最终验收均已完成。106项单元、9项真实ROS、10项Python、40项启动、1项地图生命周期泄漏检查，以及61项独立核心/传感器/同步检查和14个公共头通过。修复后的3秒真实残差调试正常退出；最终30秒/完整136秒/默认并行45秒分别296/1351/446点，控制配对时间、计数和三份状态/轨迹导出数组完全一致。全部正式最终记录均在审阅修复后重新采集。
 
 ## 已实现的边界
 
@@ -101,8 +101,45 @@ OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE /usr/bin/python3 \
 
 之后运行完整136秒，再取消两个OMP控制变量运行默认并行45秒。预期轨迹点数296/1351/446；控制配对的两项最大轨迹误差设为0，另比较mat_pre/mat_out导出数组。`verify.sh` 重跑直接检查并核验已采集的真实XML/摘要/回放；`run_validation.py`/`build_commands.sh` 保存本机实际步骤。
 
+## 独立审阅与生命周期修复
+
+一次只读全阶段审阅覆盖 `f77ae48..187c8b0`，提出1项 Important：新 Frontend 析构没有释放旧 VoxelMapManager 容器中的原始体素树指针。另有新增文件行末空白使整个阶段差异的格式检查失败；该问题按明确的验收门槛提升为 Important，同一批修复，不再进行第二轮审阅。
+
+私有实现析构先销毁视觉借用者，再逐个删除剩余根节点，复用原 VoxelOctoTree 的递归析构，最后清空容器。六个估计源文件/数值公式保持不变。
+
+实际生命周期检查连续创建4个前端、执行真实LO建图并析构。无地图对照也保留12680字节、7处外部TBB/VTK/PCL分配；规则仅匹配这5个已确认的依赖分配站点，不含应用或估计器。应用地图在限定规则后仍 RED：11872字节/32处（8根、8平面、8点向量、8层级向量）。修复后相同检查退出0。报告、无地图对照、规则和程序摘要均保存在 `final-review/`。
+
+本机单独 liblsan 在进入 main 前初始化失败，该错误没有计为泄漏 RED；随后链接集成 ASan/LSan 运行库进行分配/泄漏观察。仅诊断程序带 sanitizer 链接选项，估计器及其所有编译参数不变，因此不声称执行了完整插桩的地址越界检查。此检查也不宣称系统库不存在泄漏。
+
+Linux GCC/Clang 可显式构建诊断程序；普通 run_tests 不运行需要进程线程检查权限的 sanitizer：
+
+```bash
+nice -n 10 cmake --build validation/p202-candidate/build \
+  --target frontend_lifecycle_check -- -j1
+ASAN_OPTIONS=detect_leaks=1 \
+LSAN_OPTIONS='suppressions=/absolute/path/to/src/livo-atlas/tests/frontend/map_lifecycle.lsan' \
+  validation/p202-candidate/devel/lib/livo_atlas/frontend_lifecycle_check
+```
+
+平台依赖改变时须重新检查外部对照，不能随意扩大排除规则。范围格式检查使用 `git diff --check f77ae48` 覆盖已经提交与未提交的整个阶段，而非只检查当前工作区差异。
+
+审阅中的未判断项已逐项裁定：继续保留ROS/vikit过渡实现及借用访问口、已验证的Noetic链接顺序、原数值/输入约定、直接调用前置条件和顺序执行契约。旧ROOT_DIR/静态输出计数器留给P2-03；无残差时原诊断-nan留待单独清理，不能当作有限质量指标。没有据此承诺异步保留对象、多个实例的独立输出文件、任意链接顺序或其他设备/平台/性能/真值结果。新计时定义和发布墙钟时刻按本轮既定取舍保留。完整理由和代价记在执行账本，没有未处理的重要发现，也没有延期Minor。
+
 ## 后续范围
 
 P2-03 将迁移 ROS 发布和文件输出，P3 移除 vikit 并验证完整无ROS核心，P4 再实现 Humble 接入。保留原首帧绝对时间锚点、完整时钟回退 reset、disB初值及其他驱动/缺ring约定的独立修复边界。本 bag只覆盖非特征 Livox+IMU+相机，不证明其他设备、特征分支、ARM/Humble、异步安全、1倍实时或真值精度。
 
 本机未安装clang-format；新代码按Google C++17人工核对，并执行git diff --check，不声称自动格式化已通过。
+
+## 离线交付
+
+最终源码完整历史保存在 `validation/P2-02-noetic-20261024/livo-atlas-p2-02-20261024.bundle`，同名 `.sha256` 提供摘要。已在空Git仓库校验其全部前置历史，`completion.json` 记录最终源码提交、验证及归档状态。换机示例：
+
+```bash
+mkdir -p src
+git clone -b refactor-fast_livo2 \
+  validation/P2-02-noetic-20261024/livo-atlas-p2-02-20261024.bundle \
+  src/livo-atlas
+```
+
+另行带上固定版rpg_vikit和Retail_Street.bag。`execution-record/`保存本阶段账本、任务验证日志和一次审阅差异；审阅报告及修复前完整源码/运行文件/记录保存在`final-review/reviewed-version`，最终结果在阶段根目录。失败或审阅前结果没有覆盖为通过结果。

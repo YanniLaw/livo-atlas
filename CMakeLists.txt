@@ -164,6 +164,15 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  # Run explicitly on Linux: LSan needs permission to inspect process threads.
+  # Link-only instrumentation preserves the estimators' Eigen build settings.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+      CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(frontend_lifecycle_check EXCLUDE_FROM_ALL
+      tests/frontend/map_lifecycle_check.cc)
+    target_link_libraries(frontend_lifecycle_check
+      livo_atlas_frontend -fsanitize=address)
+  endif()
   catkin_add_gtest(frontend_test
     tests/frontend/frontend_test.cc tests/core/test_main.cc)
   if(TARGET frontend_test)

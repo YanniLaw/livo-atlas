@@ -1,0 +1,7 @@
+# Process-level retention in system libraries, separately recorded by the probe.
+# No livo-atlas, map, camera or estimator allocation site is suppressed.
+leak:libtbb.so.2
+leak:vtkCellArray::New
+leak:vtkIdTypeArray::New
+leak:vtkAOSDataArrayTemplate<long long>::vtkAOSDataArrayTemplate
+leak:libpcl_features.so.1.10
