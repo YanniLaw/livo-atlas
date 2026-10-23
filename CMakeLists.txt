@@ -129,10 +129,15 @@ add_library(imu_proc src/IMU_Processing.cpp)
 add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
 target_link_libraries(livo_atlas_ros1_conversions
   ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-add_library(laser_mapping src/LIVMapper.cpp src/camera/vikit_camera_factory.cc
-  src/ros1/calibration_reader.cc)
+add_library(livo_atlas_frontend STATIC
+  src/frontend/frontend.cc src/camera/vikit_camera_factory.cc)
+set_target_properties(livo_atlas_frontend PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
+  imu_proc vio lio ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
+  ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+add_library(laser_mapping src/LIVMapper.cpp src/ros1/calibration_reader.cc)
 target_link_libraries(laser_mapping livo_atlas_calibration livo_atlas_synchronization
-  livo_atlas_ros1_conversions ${catkin_LIBRARIES})
+  livo_atlas_frontend livo_atlas_ros1_conversions ${catkin_LIBRARIES})
 
 # Add the main executable
 add_executable(fastlivo_mapping src/main.cpp)
@@ -157,6 +162,11 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(frontend_test
+    tests/frontend/frontend_test.cc tests/core/test_main.cc)
+  if(TARGET frontend_test)
+    target_link_libraries(frontend_test livo_atlas_frontend)
+  endif()
   catkin_add_gtest(synchronizer_test
     tests/frontend/synchronizer_test.cc tests/core/test_main.cc)
   if(TARGET synchronizer_test)

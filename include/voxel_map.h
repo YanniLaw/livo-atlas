@@ -14,6 +14,7 @@ which is included as part of this source code package.
 #define VOXEL_MAP_H_
 
 #include "common_lib.h"
+#include "livo_atlas/mapping/voxel_map_options.h"
 #include <Eigen/Dense>
 #include <fstream>
 #include <math.h>
@@ -33,24 +34,7 @@ which is included as part of this source code package.
 
 static int voxel_plane_id = 0;
 
-typedef struct VoxelMapConfig
-{
-  double max_voxel_size_;
-  int max_layer_;
-  int max_iterations_;
-  std::vector<int> layer_init_num_;
-  int max_points_num_;
-  double planner_threshold_;
-  double beam_err_;
-  double dept_err_;
-  double sigma_num_;
-  bool is_pub_plane_map_;
-
-  // config of local map sliding
-  double sliding_thresh;
-  bool map_sliding_en;
-  int half_map_size;
-} VoxelMapConfig;
+using VoxelMapConfig = livo_atlas::VoxelMapOptions;
 
 typedef struct PointToPlane
 {

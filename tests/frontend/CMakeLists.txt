@@ -23,7 +23,8 @@ target_link_libraries(synchronizer_test PRIVATE synchronization GTest::GTest)
 add_test(NAME synchronizer_test COMMAND synchronizer_test)
 
 set(HEADER_CHECK_SOURCES)
-foreach(HEADER frontend/synchronized_measurements sensor/synchronizer)
+foreach(HEADER frontend/synchronized_measurements sensor/synchronizer
+    frontend/frontend frontend/frontend_options mapping/voxel_map_options)
   string(REPLACE "/" "_" CHECK_NAME "${HEADER}")
   set(CHECK_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${CHECK_NAME}_header_check.cc")
   file(WRITE "${CHECK_SOURCE}" "#include \"livo_atlas/${HEADER}.h\"\n")
