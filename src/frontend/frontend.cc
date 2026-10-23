@@ -14,6 +14,7 @@ which is included as part of this source code package.
 
 #include <cassert>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -50,8 +51,10 @@ class Frontend::Impl {
     visual_->grid_size = visual.grid_size;
     visual_->patch_size = visual.patch_size;
     visual_->outlier_threshold = visual.outlier_threshold;
-    visual_->setImuToLidarExtrinsic(extrinsics.translation, extrinsics.rotation);
-    visual_->SetLidarToCameraExtrinsic(options_.calibration.camera_from_lidar);
+    visual_->setImuToLidarExtrinsic(
+        extrinsics.translation, extrinsics.rotation);
+    visual_->SetLidarToCameraExtrinsic(
+        options_.calibration.camera_from_lidar);
     visual_->state = &state_;
     visual_->state_propagat = &propagated_;
     visual_->max_iterations = visual.max_iterations;
@@ -67,7 +70,8 @@ class Frontend::Impl {
 
     const auto& imu = options_.imu;
     imu_->set_extrinsic(extrinsics.translation, extrinsics.rotation);
-    imu_->set_gyr_cov_scale(Eigen::Vector3d::Constant(imu.gyroscope_covariance));
+    imu_->set_gyr_cov_scale(
+        Eigen::Vector3d::Constant(imu.gyroscope_covariance));
     imu_->set_acc_cov_scale(
         Eigen::Vector3d::Constant(imu.accelerometer_covariance));
     imu_->set_inv_expo_cov(imu.inverse_exposure_covariance);

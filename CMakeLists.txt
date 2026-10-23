@@ -133,11 +133,13 @@ add_library(livo_atlas_frontend STATIC
   src/frontend/frontend.cc src/camera/vikit_camera_factory.cc)
 set_target_properties(livo_atlas_frontend PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
-  imu_proc vio lio ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
+  vio lio imu_proc ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
   ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
 add_library(laser_mapping src/LIVMapper.cpp src/ros1/calibration_reader.cc)
+# Keep estimator DSOs ahead of native vikit's incompatible weak Eigen helpers.
 target_link_libraries(laser_mapping livo_atlas_calibration livo_atlas_synchronization
-  livo_atlas_frontend livo_atlas_ros1_conversions ${catkin_LIBRARIES})
+  livo_atlas_frontend vio lio imu_proc
+  livo_atlas_ros1_conversions ${catkin_LIBRARIES})
 
 # Add the main executable
 add_executable(fastlivo_mapping src/main.cpp)

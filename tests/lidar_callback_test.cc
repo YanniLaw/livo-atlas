@@ -101,8 +101,9 @@ TEST_F(LidarCallbackTest, StandardValidatesBeforeChangingPairedRollbackQueues) {
 
 class SynchronizerIntegrationTest : public ::testing::Test {
  protected:
-  void CreateMapper(SLAM_MODE mode) {
+  void CreateMapper(SLAM_MODE mode, int initialization_frames = 3) {
     ros::NodeHandle node;
+    node.setParam("imu/imu_int_frame", initialization_frames);
     node.setParam("common/lidar_en", 1);
     node.setParam("common/img_en", mode == LIVO ? 1 : 0);
     node.setParam("imu/imu_en", mode != ONLY_LO);
@@ -242,17 +243,15 @@ TEST_F(SynchronizerIntegrationTest, LidarOnlyPipelineKeepsAnchorAndWorldPoints) 
   for (double timestamp : {100.0, 100.25}) {
     AddCloud(timestamp, {0, 125});
     ASSERT_TRUE(mapper_->sync_packages(mapper_->LidarMeasures));
-    mapper_->handleFirstFrame();
-    mapper_->processImu();
-    mapper_->stateEstimationAndMapping();
+    mapper_->ProcessMeasurements();
     EXPECT_DOUBLE_EQ(mapper_->LidarMeasures.last_lio_update_time,
                      timestamp + 0.125);
-    EXPECT_DOUBLE_EQ(mapper_->_first_lidar_time, -1.0);
-    EXPECT_EQ(mapper_->vio_manager->state, &mapper_->_state);
+    EXPECT_DOUBLE_EQ((mapper_->last_result_.timestamp - mapper_->last_result_.relative_time), -1.0);
+    EXPECT_EQ(mapper_->frontend_->visual().state, &mapper_->frontend_->state());
     ASSERT_EQ(mapper_->pcl_w_wait_pub->size(), 2);
     EXPECT_FLOAT_EQ(mapper_->pcl_w_wait_pub->front().x, 2);
     EXPECT_FLOAT_EQ(mapper_->pcl_w_wait_pub->back().x, 3);
-    EXPECT_TRUE(mapper_->_state.pos_end.isZero(0));
+    EXPECT_TRUE(mapper_->frontend_->state().pos_end.isZero(0));
   }
 }
 
@@ -262,12 +261,54 @@ TEST_F(SynchronizerIntegrationTest, InitialImuOutputDoesNotBuildMap) {
   AddImu(100.0625);
   AddImu(100.125);
   ASSERT_TRUE(mapper_->sync_packages(mapper_->LidarMeasures));
-  mapper_->handleFirstFrame();
-  mapper_->processImu();
-  mapper_->stateEstimationAndMapping();
-  EXPECT_TRUE(mapper_->feats_undistort->empty());
-  EXPECT_FALSE(mapper_->lidar_map_inited);
-  EXPECT_TRUE(mapper_->_state.gravity.isApprox(Eigen::Vector3d(0, 0, 9.81)));
+  mapper_->ProcessMeasurements();
+  EXPECT_TRUE(mapper_->last_result_.undistorted_cloud->empty());
+  EXPECT_TRUE(mapper_->frontend_->local_map().voxel_map_.empty());
+  EXPECT_TRUE(mapper_->frontend_->state().gravity.isApprox(Eigen::Vector3d(0, 0, 9.81)));
+}
+
+TEST_F(SynchronizerIntegrationTest, VisualCloudIsConsumedWithoutPublishing) {
+  CreateMapper(LIVO, 1);
+  const auto& camera = mapper_->frontend_options_.calibration.camera;
+  const auto add_image = [&](double timestamp) {
+    mapper_->sensor_buffers_.images.push_back(
+        {timestamp, cv::Mat(static_cast<int>(camera.height * camera.scale),
+                            static_cast<int>(camera.width * camera.scale),
+                            CV_8UC3, cv::Scalar(7, 8, 9))});
+  };
+  AddCloud(100, {0, 125});
+  for (double timestamp : {100.0, 100.0625, 100.125, 100.25, 100.5, 100.75}) {
+    AddImu(timestamp);
+  }
+  add_image(100.125);
+  auto& measurements = mapper_->LidarMeasures;
+  auto& frontend = *mapper_->frontend_;
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  EXPECT_FALSE(frontend.Process(&measurements).updated);
+  AddCloud(100.25, {0, 125});
+  AddCloud(100.625, {0, 125});
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  EXPECT_FALSE(frontend.Process(&measurements).updated);
+
+  add_image(100.5);
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  ASSERT_EQ(measurements.lio_vio_flg, LIO);
+  ASSERT_TRUE(frontend.Process(&measurements).updated);
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  ASSERT_EQ(measurements.lio_vio_flg, VIO);
+  const auto visual = frontend.Process(&measurements);
+  ASSERT_TRUE(visual.updated);
+  ASSERT_TRUE(visual.world_cloud);
+  EXPECT_FALSE(visual.world_cloud->empty());
+
+  // No publisher runs. The next valid image window has no LiDAR points.
+  add_image(100.5625);
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  ASSERT_EQ(measurements.lio_vio_flg, LIO);
+  EXPECT_FALSE(frontend.Process(&measurements).updated);
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  ASSERT_EQ(measurements.lio_vio_flg, VIO);
+  EXPECT_FALSE(frontend.Process(&measurements).updated);
 }
 
 

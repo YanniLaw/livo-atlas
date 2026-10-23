@@ -17,7 +17,6 @@ which is included as part of this source code package.
 #include <memory>
 #include <mutex>
 
-#include "IMU_Processing.h"
 #include "vio.h"
 #include "preprocess.h"
 #include <cv_bridge/cv_bridge.h>
@@ -27,9 +26,9 @@ which is included as part of this source code package.
 #include <nav_msgs/Path.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/Imu.h>
-#include <vikit/abstract_camera.h>
 
 #include "livo_atlas/frontend/calibration.h"
+#include "livo_atlas/frontend/frontend.h"
 #include "livo_atlas/sensor/synchronizer.h"
 
 class LIVMapper
@@ -38,21 +37,15 @@ public:
   LIVMapper(ros::NodeHandle &nh);
   ~LIVMapper();
   void initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_transport::ImageTransport &it);
-  void initializeComponents();
   void initializeFiles();
   void run();
-  void gravityAlignment();
-  void handleFirstFrame();
-  void stateEstimationAndMapping();
-  void handleVIO();
-  void handleLIO();
+  void InitializeFrontend();
+  void ProcessMeasurements();
   void savePCD();
-  void processImu();
   
   bool sync_packages(LidarMeasureGroup &meas);
   void prop_imu_once(StatesGroup &imu_prop_state, const double dt, V3D acc_avr, V3D angvel_avr);
   void imu_prop_callback(const ros::TimerEvent &e);
-  void transformLidar(const Eigen::Matrix3d rot, const Eigen::Vector3d t, const PointCloudXYZI::Ptr &input_cloud, PointCloudXYZI::Ptr &trans_cloud);
   void pointBodyToWorld(const PointType &pi, PointType &po);
   void RGBpointBodyLidarToIMU(PointType const *const pi, PointType *const po);
   void RGBpointBodyToWorld(PointType const *const pi, PointType *const po);
@@ -60,8 +53,8 @@ public:
   void livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg_in);
   void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in);
   void img_cbk(const sensor_msgs::ImageConstPtr &msg_in);
-  void publish_img_rgb(const image_transport::Publisher &pubImage, VIOManagerPtr vio_manager);
-  void publish_frame_world(const ros::Publisher &pubLaserCloudFullRes, VIOManagerPtr vio_manager);
+  void publish_img_rgb(const image_transport::Publisher &pubImage, VIOManager& vio_manager);
+  void publish_frame_world(const ros::Publisher &pubLaserCloudFullRes, VIOManager& vio_manager);
   void publish_visual_sub_map(const ros::Publisher &pubSubVisualMap);
   void publish_effect_world(const ros::Publisher &pubLaserCloudEffect, const std::vector<PointToPlane> &ptpl_list);
   void publish_odometry(const ros::Publisher &pubOdomAftMapped);
@@ -77,25 +70,19 @@ public:
   std::condition_variable sig_buffer;
 
   SLAM_MODE slam_mode_;
-  std::unordered_map<VOXEL_LOCATION, VoxelOctoTree *> voxel_map;
   
   string root_dir;
   string lid_topic, imu_topic, seq_name, img_topic;
   V3D extT;
   M3D extR;
 
-  int feats_down_size = 0, max_iterations = 0;
-
   double res_mean_last = 0.05;
-  double gyr_cov = 0, acc_cov = 0, inv_expo_cov = 0;
   double blind_rgb_points = 0.0;
   double last_timestamp_lidar = -1.0, last_timestamp_imu = -1.0, last_timestamp_img = -1.0;
-  double filter_size_surf_min = 0;
   double filter_size_pcd = 0;
-  double _first_lidar_time = 0.0;
   double match_time = 0, solve_time = 0, solve_const_H_time = 0;
 
-  bool lidar_map_inited = false, pcd_save_en = false, img_save_en = false, pub_effect_point_en = false, pose_output_en = false, ros_driver_fix_en = false, hilti_en = false;
+  bool pcd_save_en = false, img_save_en = false, pub_effect_point_en = false, pose_output_en = false, ros_driver_fix_en = false, hilti_en = false;
   int img_save_interval = 1, pcd_save_interval = -1, pcd_save_type = 0;
   int pub_scan_num = 1;
 
@@ -111,49 +98,30 @@ public:
   double imu_time_offset = 0.0;
   double lidar_time_offset = 0.0;
 
-  bool gravity_align_en = false, gravity_align_finished = false;
-
   bool sync_jump_flag = false;
 
-  bool imu_en, gravity_est_en, flg_reset = false, ba_bg_est_en = true;
-  bool dense_map_en = false;
-  int img_en = 1, imu_int_frame = 3;
-  bool normal_en = true;
-  bool exposure_estimate_en = false;
+  bool imu_en = false, flg_reset = false;
+  int img_en = 1;
   double exposure_time_init = 0.0;
-  bool inverse_composition_en = false;
-  bool raycast_en = false;
   int lidar_en = 1;
-  bool is_first_frame = false;
-  int grid_size, patch_size, grid_n_height, patch_pyrimid_level;
-  double outlier_threshold;
-  double plot_time;
-  int frame_cnt;
   double img_time_offset = 0.0;
   livo_atlas::SensorBuffers sensor_buffers_;
   livo_atlas::SensorSynchronizer synchronizer_;
-  vector<pointWithVar> _pv_list;
   livo_atlas::Calibration calibration_;
-  double IMG_POINT_COV;
+  livo_atlas::FrontendOptions frontend_options_;
+  std::unique_ptr<livo_atlas::Frontend> frontend_;
+  livo_atlas::FrontendResult last_result_;
 
   PointCloudXYZI::Ptr visual_sub_map;
-  PointCloudXYZI::Ptr feats_undistort;
-  PointCloudXYZI::Ptr feats_down_body;
-  PointCloudXYZI::Ptr feats_down_world;
-  PointCloudXYZI::Ptr pcl_w_wait_pub;
+  PointCloudXYZI::ConstPtr feats_undistort;
+  PointCloudXYZI::ConstPtr pcl_w_wait_pub;
   PointCloudXYZI::Ptr pcl_wait_pub;
   PointCloudXYZRGB::Ptr pcl_wait_save;
   PointCloudXYZI::Ptr pcl_wait_save_intensity;
 
   ofstream fout_pre, fout_out, fout_visual_pos, fout_lidar_pos, fout_points;
 
-  pcl::VoxelGrid<PointType> downSizeFilterSurf;
-
-  V3D euler_cur;
-
   LidarMeasureGroup LidarMeasures;
-  StatesGroup _state;
-  StatesGroup  state_propagat;
 
   nav_msgs::Path path;
   nav_msgs::Odometry odomAftMapped;
@@ -161,11 +129,6 @@ public:
   geometry_msgs::PoseStamped msg_body_pose;
 
   PreprocessPtr p_pre;
-  ImuProcessPtr p_imu;
-  VoxelMapManagerPtr voxelmap_manager;
-  // Declared before VIO so the camera outlives its non-owning VIO pointer.
-  std::unique_ptr<vk::AbstractCamera> camera_;
-  VIOManagerPtr vio_manager;
 
   ros::Publisher plane_pub;
   ros::Publisher voxel_pub;
