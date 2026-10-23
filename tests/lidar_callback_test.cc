@@ -24,18 +24,16 @@ class LidarCallbackTest : public ::testing::Test {
   }
 
   void ExpectOriginalQueue(const PointCloud::Ptr& original) {
-    ASSERT_EQ(mapper_->lid_raw_data_buffer.size(), 1);
-    EXPECT_EQ(mapper_->lid_raw_data_buffer.front(), original);
-    ASSERT_EQ(mapper_->lid_header_time_buffer.size(), 1);
-    EXPECT_DOUBLE_EQ(mapper_->lid_header_time_buffer.front(), 20);
+    ASSERT_EQ(mapper_->sensor_buffers_.point_clouds.size(), 1);
+    EXPECT_EQ(mapper_->sensor_buffers_.point_clouds.front().cloud, original);
+    EXPECT_DOUBLE_EQ(mapper_->sensor_buffers_.point_clouds.front().timestamp, 20);
     EXPECT_DOUBLE_EQ(mapper_->last_timestamp_lidar, 20);
   }
 
   void ExpectRolledBackQueue() {
-    ASSERT_EQ(mapper_->lid_raw_data_buffer.size(), 1);
-    EXPECT_FLOAT_EQ(mapper_->lid_raw_data_buffer.front()->front().x, 4);
-    ASSERT_EQ(mapper_->lid_header_time_buffer.size(), 1);
-    EXPECT_DOUBLE_EQ(mapper_->lid_header_time_buffer.front(), 12);
+    ASSERT_EQ(mapper_->sensor_buffers_.point_clouds.size(), 1);
+    EXPECT_FLOAT_EQ(mapper_->sensor_buffers_.point_clouds.front().cloud->front().x, 4);
+    EXPECT_DOUBLE_EQ(mapper_->sensor_buffers_.point_clouds.front().timestamp, 12);
     EXPECT_DOUBLE_EQ(mapper_->last_timestamp_lidar, 12);
   }
 
@@ -65,8 +63,8 @@ sensor_msgs::PointCloud2::Ptr StandardMessage(double time, float x) {
 
 TEST_F(LidarCallbackTest, LivoxValidatesBeforeChangingPairedRollbackQueues) {
   mapper_->livox_pcl_cbk(LivoxMessage(20, 2));
-  ASSERT_EQ(mapper_->lid_raw_data_buffer.size(), 1);
-  const auto original = mapper_->lid_raw_data_buffer.front();
+  ASSERT_EQ(mapper_->sensor_buffers_.point_clouds.size(), 1);
+  const auto original = mapper_->sensor_buffers_.point_clouds.front().cloud;
   auto malformed = LivoxMessage(10, 4);
   malformed->point_num = 2;
   mapper_->livox_pcl_cbk(malformed);
@@ -83,8 +81,8 @@ TEST_F(LidarCallbackTest, LivoxValidatesBeforeChangingPairedRollbackQueues) {
 TEST_F(LidarCallbackTest, StandardValidatesBeforeChangingPairedRollbackQueues) {
   mapper_->p_pre->lidar_type = kVelodyne;
   mapper_->standard_pcl_cbk(StandardMessage(20, 2));
-  ASSERT_EQ(mapper_->lid_raw_data_buffer.size(), 1);
-  const auto original = mapper_->lid_raw_data_buffer.front();
+  ASSERT_EQ(mapper_->sensor_buffers_.point_clouds.size(), 1);
+  const auto original = mapper_->sensor_buffers_.point_clouds.front().cloud;
   auto malformed = StandardMessage(10, 4);
   malformed->data.pop_back();
   mapper_->standard_pcl_cbk(malformed);
@@ -119,19 +117,18 @@ class SynchronizerIntegrationTest : public ::testing::Test {
       point.curvature = offset;
       cloud->push_back(point);
     }
-    mapper_->lid_raw_data_buffer.push_back(cloud);
-    mapper_->lid_header_time_buffer.push_back(timestamp);
+    mapper_->sensor_buffers_.point_clouds.push_back({timestamp, cloud});
   }
 
   void AddImu(double timestamp) {
-    mapper_->imu_buffer.push_back(
+    mapper_->sensor_buffers_.imu.push_back(
         {timestamp, Eigen::Vector3d::Zero(), Eigen::Vector3d(0, 0, -9.81)});
-    mapper_->last_timestamp_imu = timestamp;
+    mapper_->sensor_buffers_.latest_imu_time = timestamp;
   }
 
   void AddImage(double timestamp) {
-    mapper_->img_buffer.emplace_back(1, 1, CV_8UC3, cv::Scalar(7, 8, 9));
-    mapper_->img_time_buffer.push_back(timestamp);
+    mapper_->sensor_buffers_.images.push_back(
+        {timestamp, cv::Mat(1, 1, CV_8UC3, cv::Scalar(7, 8, 9))});
   }
 
   std::unique_ptr<LIVMapper> mapper_;
@@ -182,11 +179,11 @@ TEST_F(SynchronizerIntegrationTest, LioUsesCoverageBeforeFinalRosRounding) {
   AddImu(100.0625);
   AddImu(100.125);
   AddImu(100.25);
-  mapper_->last_timestamp_imu =
+  mapper_->sensor_buffers_.latest_imu_time =
       std::nextafter(100.125, -std::numeric_limits<double>::infinity());
   LidarMeasureGroup measurements;
   EXPECT_FALSE(mapper_->sync_packages(measurements));
-  mapper_->last_timestamp_imu = 100.125;
+  mapper_->sensor_buffers_.latest_imu_time = 100.125;
   ASSERT_TRUE(mapper_->sync_packages(measurements));
   EXPECT_EQ(measurements.lio_vio_flg, LIO);
   EXPECT_DOUBLE_EQ(measurements.measures.back().lio_time, 100.125);

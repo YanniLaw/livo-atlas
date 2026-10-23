@@ -112,6 +112,11 @@ include_directories(
 )
 
 # Add libraries
+add_library(livo_atlas_synchronization STATIC src/sensor/synchronizer.cc)
+set_target_properties(livo_atlas_synchronization PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(livo_atlas_synchronization PUBLIC Eigen3::Eigen
+  ${PCL_COMMON_LIBRARIES} opencv_core)
 add_library(livo_atlas_calibration STATIC
   src/sensor/extrinsics.cc src/camera/camera_config.cc)
 set_target_properties(livo_atlas_calibration PROPERTIES
@@ -126,7 +131,7 @@ target_link_libraries(livo_atlas_ros1_conversions
   ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
 add_library(laser_mapping src/LIVMapper.cpp src/camera/vikit_camera_factory.cc
   src/ros1/calibration_reader.cc)
-target_link_libraries(laser_mapping livo_atlas_calibration
+target_link_libraries(laser_mapping livo_atlas_calibration livo_atlas_synchronization
   livo_atlas_ros1_conversions ${catkin_LIBRARIES})
 
 # Add the main executable
@@ -152,6 +157,11 @@ if(mimalloc_FOUND)
 endif()
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(synchronizer_test
+    tests/frontend/synchronizer_test.cc tests/core/test_main.cc)
+  if(TARGET synchronizer_test)
+    target_link_libraries(synchronizer_test livo_atlas_synchronization)
+  endif()
   # Run explicitly with rostest: this exercises real parameters and callbacks.
   catkin_add_executable_with_gtest(lidar_callback_test
     tests/lidar_callback_test.cc)

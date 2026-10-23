@@ -30,6 +30,7 @@ which is included as part of this source code package.
 #include <vikit/abstract_camera.h>
 
 #include "livo_atlas/frontend/calibration.h"
+#include "livo_atlas/sensor/synchronizer.h"
 
 class LIVMapper
 {
@@ -114,7 +115,7 @@ public:
 
   bool sync_jump_flag = false;
 
-  bool lidar_pushed = false, imu_en, gravity_est_en, flg_reset = false, ba_bg_est_en = true;
+  bool imu_en, gravity_est_en, flg_reset = false, ba_bg_est_en = true;
   bool dense_map_en = false;
   int img_en = 1, imu_int_frame = 3;
   bool normal_en = true;
@@ -129,11 +130,8 @@ public:
   double plot_time;
   int frame_cnt;
   double img_time_offset = 0.0;
-  deque<PointCloudXYZI::Ptr> lid_raw_data_buffer;
-  deque<double> lid_header_time_buffer;
-  deque<livo_atlas::ImuMeasurement> imu_buffer;
-  deque<cv::Mat> img_buffer;
-  deque<double> img_time_buffer;
+  livo_atlas::SensorBuffers sensor_buffers_;
+  livo_atlas::SensorSynchronizer synchronizer_;
   vector<pointWithVar> _pv_list;
   livo_atlas::Calibration calibration_;
   double IMG_POINT_COV;

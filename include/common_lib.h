@@ -22,6 +22,7 @@ which is included as part of this source code package.
 #include <deque>
 
 #include "livo_atlas/core/state.h"
+#include "livo_atlas/frontend/synchronized_measurements.h"
 #include "livo_atlas/sensor/measurements.h"
 
 using namespace std;
@@ -48,59 +49,18 @@ enum LID_TYPE
   PANDAR128 = livo_atlas::kPandar128,
   ROBOSENSE = livo_atlas::kRobosense
 };
-enum SLAM_MODE
-{
-  ONLY_LO = 0,
-  ONLY_LIO = 1,
-  LIVO = 2
-};
-enum EKF_STATE
-{
-  WAIT = 0,
-  VIO = 1,
-  LIO = 2,
-  LO = 3
-};
-
-struct MeasureGroup
-{
-  double vio_time;
-  double lio_time;
-  deque<livo_atlas::ImuMeasurement> imu;
-  cv::Mat img;
-  MeasureGroup()
-  {
-    vio_time = 0.0;
-    lio_time = 0.0;
-  };
-};
-
-struct LidarMeasureGroup
-{
-  double lidar_frame_beg_time;
-  double lidar_frame_end_time;
-  double last_lio_update_time;
-  PointCloudXYZI::Ptr lidar;
-  PointCloudXYZI::Ptr pcl_proc_cur;
-  PointCloudXYZI::Ptr pcl_proc_next;
-  deque<struct MeasureGroup> measures;
-  EKF_STATE lio_vio_flg;
-  int lidar_scan_index_now;
-
-  LidarMeasureGroup()
-  {
-    lidar_frame_beg_time = -0.0;
-    lidar_frame_end_time = 0.0;
-    last_lio_update_time = -1.0;
-    lio_vio_flg = WAIT;
-    this->lidar.reset(new PointCloudXYZI());
-    this->pcl_proc_cur.reset(new PointCloudXYZI());
-    this->pcl_proc_next.reset(new PointCloudXYZI());
-    this->measures.clear();
-    lidar_scan_index_now = 0;
-    last_lio_update_time = -1.0;
-  };
-};
+// Compatibility names for the existing estimator; the core owns the types.
+using SLAM_MODE = livo_atlas::FrontendMode;
+constexpr SLAM_MODE ONLY_LO = SLAM_MODE::kLidarOnly;
+constexpr SLAM_MODE ONLY_LIO = SLAM_MODE::kLidarInertial;
+constexpr SLAM_MODE LIVO = SLAM_MODE::kLidarInertialVisual;
+using EKF_STATE = livo_atlas::UpdateKind;
+constexpr EKF_STATE WAIT = EKF_STATE::kWaiting;
+constexpr EKF_STATE VIO = EKF_STATE::kVisual;
+constexpr EKF_STATE LIO = EKF_STATE::kLidarInertial;
+constexpr EKF_STATE LO = EKF_STATE::kLidarOnly;
+using MeasureGroup = livo_atlas::MeasurementGroup;
+using LidarMeasureGroup = livo_atlas::SynchronizedMeasurements;
 
 typedef struct pointWithVar
 {

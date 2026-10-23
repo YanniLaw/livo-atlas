@@ -1,6 +1,6 @@
 # P2-01 同步器执行计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 将现有同步与点云切分迁入普通 C++ 库，保持 Noetic 有效输入的窗口及数值结果。
 
@@ -74,13 +74,13 @@
 
 **Interfaces:** common_lib.h 转发旧名称和枚举常量；Mapper 持有 SensorBuffers/SensorSynchronizer，保留原 last_timestamp_imu 及高频 ROS stamp。全部回调把 P1-03 测量直接入成对队列，sync_packages 持锁委托并将返回状态映射到旧 bool/日志。
 
-- [ ] **Step 1: 迁移接线**
+- [x] **Step 1: 迁移接线**
   原 5 条平行队列替换成 SensorBuffers；新同步器按原 slam_mode_/exposure_time_init 配置；删除 mapper 中同步算法和 lidar_pushed。两组 ROS 测试只调整缓冲输入/观察接线，Task 1 数值断言不变。
-- [ ] **Step 2: 全套直接验证**
+- [x] **Step 2: 全套直接验证**
   主工程与独立候选都构建 fastlivo_mapping/run_tests；执行全部 C++、10 Python、5 ROS、40 启动检查；独立 core/sensor/frontend 及公共头检查。所有实际 XML 用例通过。
-- [ ] **Step 3: 参考校验及三次候选回放**
+- [x] **Step 3: 参考校验及三次候选回放**
   逐一核对 P1-03 最终候选的源码/全部运行库/bag/环境，校对 6 个估计源编译参数；复用其短段/完整记录。候选依次运行 30 s、136 s、默认并行 45 s；预期 296/1351/446 点、输入和更新计数一致、轨迹及 mat_pre/mat_out 导出值完全一致、正常退出。
-- [ ] **Step 4: 记录与提交**
+- [x] **Step 4: 记录与提交**
   写 docs/p2-01-validation.md、更新文档索引，记录实际命令、边界、证据与未完成的 P2-02/P2-03。Commit: `refactor: delegate ROS1 synchronization to the core`。运行最终 verify.sh，全部通过后完成任务。
 
 ## 收尾
