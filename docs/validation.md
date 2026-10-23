@@ -38,8 +38,8 @@ sha256sum "$WS_ROOT/Retail_Street.bag" > "$RUN_ROOT/bag.sha256"
 
 ## 2. 创建源码副本
 
-当前算法会向编译时 `ROOT_DIR` 下的 `Log/` 写文件，因此验证节点必须从源码副本构建。
-`run_baseline.py` 会拒绝直接使用开发包自身作为测试源码。
+P2-03 起通过 `output/directory` 写入本次证据目录，不再依赖源码路径。P2-02 及更早的节点仍向编译时 `ROOT_DIR` 下的 `Log/` 写文件，使用当前 `run_baseline.py` 验证这些旧节点时必须加 `--legacy-output`。
+为固定实际测试源码与二进制，`run_baseline.py` 继续要求源码副本，拒绝直接使用开发包自身。本文后半的历史命令复现旧版本时，也应使用对应版本的工具或添加该兼容开关，不能覆盖冻结证据。
 vikit 只通过符号链接参与构建，不修改其源码。
 
 ```bash
@@ -73,7 +73,7 @@ nice -n 10 cmake --build "$RUN_ROOT/core-build" -- -j1 \
 ```
 
 检查 `core-build/compile_commands.json` 中头文件检查的命令：只应有工程 include 和 Eigen 路径，不能出现 ROS、PCL 或 vikit 路径。
-这里的独立构建范围是三个核心头；完整前端仍通过下方 catkin 构建。
+该独立入口覆盖数学、状态和标定；sensor、synchronization、writer 的独立入口及最新计数见 [P2-03 复现记录](p2-03-validation.md)。完整前端仍通过下方 catkin 构建。
 头文件检查直接读取 Eigen target 的包含路径，兼容独立入口声明的 CMake 3.10 下限；
 object library 的链接支持在 [CMake 3.12](https://cmake.org/cmake/help/v3.12/release/3.12.html#commands) 才加入。
 本文命令使用 Noetic 自带的 CMake 3.16，未单独实测旧版工具链。
