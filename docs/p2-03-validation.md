@@ -1,6 +1,6 @@
 # P2-03：输出边界与复现
 
-本阶段将 ROS 发布、点云着色和文件写入分开；完整回归和整阶段评审结果在下方登记。实施基线为 `3eb1f8cb72f4b3d9898dbd760aabf70e65db5bb7`，主要实现提交为 `380e42944d898bc3f0a7d67cffd97c4cfabd2335`。
+本阶段已完成 ROS 发布、点云着色和文件写入分离，并通过完整回归及一次整阶段独立评审。实施基线为 `3eb1f8cb72f4b3d9898dbd760aabf70e65db5bb7`，主要实现提交为 `380e42944d898bc3f0a7d67cffd97c4cfabd2335`。
 
 ## 实际边界
 
@@ -90,4 +90,14 @@ OMP_THREAD_LIMIT=1 OMP_DISPLAY_ENV=TRUE /usr/bin/python3 \
 
 验证旧版节点才加 `--legacy-output`；`--save-products` 同时验证 PCD、图像、COLMAP。完整场景使用 `--duration 136` 和新输出目录/端口；默认线程场景移除两个 OMP 环境变量后运行 45 秒。构建始终 nice -n 10/-j1，不能与 bag 回放并行，无 RViz。
 
-包外脚本 `build_all.py`、`run_validation.py`、`run_replays.py`、`check_builds.py`、`verify_task*.py` 保存本机实际操作；迁移电脑时若要保留旧证据，需要单独复制整个证据目录。中断目录应先改名归档再重跑，不覆盖已完成的参考或复用未通过的结果。当前直接检查与回放验收通过，整阶段评审和源码 bundle 在完成后登记。
+包外脚本 `build_all.py`、`run_validation.py`、`run_replays.py`、`check_builds.py`、`verify_task*.py` 保存本机实际操作；迁移电脑时若要保留旧证据，需要单独复制整个证据目录。中断目录应先改名归档再重跑，不覆盖已完成的参考或复用未通过的结果。
+
+## 整阶段评审与后续事项
+
+一次新上下文 `gpt-6-astra/high` 只读评审覆盖 `3eb1f8c..69bdf89`。结论为 0 Critical、0 Important、2 Minor；没有评审后的产品代码改动，也没有重复评审。完整报告及逐项裁定位于证据目录的 `final-review.md`、`rulings.json`。
+
+两项非阻断事项留待后续：流写入/关闭失败应补充具体文件名上下文（当前已正确报告失败）；PCD/图像两个 writer 以不同间隔交错运行的计数独立性，应补充行为测试（当前字段为实例成员，COLMAP 双实例已有测试）。
+
+评审明确排除项也已逐项登记：完整核心去 ROS/vikit 与遗留计时归 P3；现有证据限定为本机回归/定向泄漏；旧 ROS Mapper 的函数静态 IMU 传播游标尚未迁移为实例字段，同进程多个 Mapper 开启高频传播时仍可能互相影响；并发 writer 共用目录不受支持，会有覆盖风险。新核心和输出组件的实例隔离不等于旧 ROS Mapper 的所有模式已支持多实例。
+
+交付保留 `refactor-fast_livo2` 分支，不合并或推送。工作区根目录的 `livo-atlas-p2-03-20261024.bundle` 保存完整历史；最终提交、文件大小、SHA-256 和空仓库验证结果见证据目录 `completion.json`。在另一台电脑的空工作区可用 `git clone /path/to/livo-atlas-p2-03-20261024.bundle src/livo-atlas` 恢复源码，再按上方步骤获取固定版依赖并重新构建。执行账本、任务简报和评审 diff 归档到证据目录的 `execution-record/`。
