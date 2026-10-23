@@ -28,12 +28,12 @@ struct VisualOptions {
   int patch_pyramid_levels = 3;
   int patch_size = 8;
   double outlier_threshold = 1000;
-  bool colmap_output = false;
   double plot_time = -10;
   int plot_frame_count = 6;
 };
 
 struct FrontendOptions {
+  bool output_effective_points = false;
   Calibration calibration;
   VoxelMapOptions voxel_map;
   ImuOptions imu;

@@ -16,7 +16,7 @@ which is included as part of this source code package.
 #include <Eigen/Eigen>
 #include "common_lib.h"
 #include <utils/so3_math.h>
-#include <fstream>
+#include "livo_atlas/frontend/diagnostics.h"
 const bool time_list(PointType &x, PointType &y) { return (x.curvature < y.curvature); }
 
 /// *************IMU Process and undistortion
@@ -45,7 +45,7 @@ public:
   void Process2(LidarMeasureGroup &lidar_meas, StatesGroup &stat, PointCloudXYZI::Ptr cur_pcl_un_);
   void UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_inout, PointCloudXYZI &pcl_out);
 
-  ofstream fout_imu;
+  std::vector<livo_atlas::ImuDiagnostic> diagnostics_;
   double IMU_mean_acc_norm;
   V3D unbiased_gyr;
 

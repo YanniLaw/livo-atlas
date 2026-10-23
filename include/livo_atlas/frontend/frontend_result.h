@@ -24,6 +24,7 @@ struct FrontendResult {
   PointCloud::ConstPtr undistorted_cloud;
   PointCloud::ConstPtr effective_cloud;
   std::vector<PlaneVisualization> planes;
+  bool has_plane_visualization = false;
   bool imu_initialized = false;
   std::vector<ImuDiagnostic> imu_diagnostics;
   cv::Mat color_image;

@@ -24,6 +24,7 @@ which is included as part of this source code package.
 #include <vikit/pinhole_camera.h>
 
 #include "livo_atlas/sensor/extrinsics.h"
+#include "livo_atlas/frontend/diagnostics.h"
 
 struct SubSparseMap
 {
@@ -87,7 +88,6 @@ class VIOManager
 public:
   int grid_size;
   vk::AbstractCamera *cam;
-  vk::PinholeCamera *pinhole_cam;
   StatesGroup *state;
   StatesGroup *state_propagat;
   M3D Rli, Rci, Rcl, Rcw, Jdphi_dR, Jdp_dt, Jdp_dR;
@@ -100,7 +100,7 @@ public:
   vector<float> scan_value;
   vector<float> patch_buffer;
   bool normal_en, inverse_composition_en, exposure_estimate_en, raycast_en, has_ref_patch_cache;
-  bool ncc_en = false, colmap_output_en = false;
+  bool ncc_en = false;
 
   int width, height, grid_n_width, grid_n_height, length;
   double image_resize_factor;
@@ -124,7 +124,7 @@ public:
   Matrix<double, DIM_STATE, DIM_STATE> G, H_T_H;
   MatrixXd K, H_sub_inv;
 
-  ofstream fout_camera, fout_colmap;
+  std::vector<livo_atlas::DebugImage> debug_images_;
   unordered_map<VOXEL_LOCATION, VOXEL_POINTS *> feat_map;
   unordered_map<VOXEL_LOCATION, int> sub_feat_map; 
   unordered_map<int, Warp *> warp_map;
@@ -168,10 +168,8 @@ public:
   void projectPatchFromRefToCur(const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &plane_map);
   void updateReferencePatch(const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &plane_map);
   void precomputeReferencePatches(int level);
-  void dumpDataForColmap();
   double calculateNCC(float *ref_patch, float *cur_patch, int patch_size);
   int getBestSearchLevel(const Matrix2d &A_cur_ref, const int max_level);
-  V3F getInterpolatedPixel(cv::Mat img, V2D pc);
   
   // void resetRvizDisplay();
   // deque<VisualPoint *> map_cur_frame;

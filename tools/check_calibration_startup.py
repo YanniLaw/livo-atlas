@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Exercise real ROS1 startup with valid YAML and malformed calibration.
+"""Exercise real ROS1 startup with valid YAML and malformed configuration.
 
 Use a source copy: the legacy node writes logs into its compile-time package.
 This tool starts and stops its own ROS graph and never reuses an output folder.
@@ -86,6 +86,21 @@ def cases():
     add('fisheye_colmap', {'pcd_save/colmap_output_en': True},
         algorithm='HILTI22.yaml', camera='camera_fisheye_HILTI22.yaml',
         error='colmap_output_en')
+    add('output_default', default_output=True)
+    add('empty_output_directory', {'output/directory': ''}, error='output/directory')
+    add('wrong_output_directory_type', {'output/directory': 42}, error='output/directory')
+    add('invalid_sequence_name', {'evo/seq_name': '../escape'}, error='evo/seq_name')
+    add('zero_publish_interval', {'publish/pub_scan_num': 0}, error='publish/pub_scan_num')
+    add('zero_image_interval', {'image_save/img_save_en': True,
+                               'image_save/interval': 0}, error='image_save/interval')
+    add('zero_pcd_interval', {'pcd_save/pcd_save_en': True,
+                             'pcd_save/interval': 0}, error='pcd_save/interval')
+    add('invalid_pcd_type', {'pcd_save/pcd_save_en': True,
+                           'pcd_save/type': 2}, error='pcd_save/type')
+    add('invalid_pcd_filter', {'pcd_save/pcd_save_en': True,
+                             'pcd_save/filter_size_pcd': float('nan')},
+        error='pcd_save/filter_size_pcd')
+    add('blocked_output_directory', blocked_output=True, error='blocked_file')
     return result
 
 
@@ -179,6 +194,16 @@ def main():
                 parameters.setdefault('evo', {})['pose_output_en'] = False
                 parameters.setdefault('pcd_save', {})['pcd_save_en'] = False
                 parameters.setdefault('image_save', {})['img_save_en'] = False
+                node_output = output / 'node_output' / case['name']
+                if case.get('default_output'):
+                    parameters.pop('output', None)
+                    node_output = Path(env['ROS_HOME']) / 'livo_atlas'
+                else:
+                    set_nested(parameters, 'output/directory', str(node_output))
+                if case.get('blocked_output'):
+                    node_output = output / 'blocked_file'
+                    node_output.write_text('intentional startup failure fixture\n')
+                    set_nested(parameters, 'output/directory', str(node_output))
                 for key, value in case['changes'].items():
                     set_nested(parameters, key, copy.deepcopy(value))
                 for key in case['remove']:
@@ -212,7 +237,9 @@ def main():
                 changed_logs = before != log_fingerprints(package)
                 expected_error = case['error']
                 if expected_error is None:
-                    passed = ready and node.returncode == 0
+                    passed = (ready and node.returncode == 0 and not changed_logs and
+                              (node_output / 'mat_pre.txt').is_file() and
+                              (node_output / 'mat_out.txt').is_file())
                 else:
                     passed = (not registered and node.returncode > 0 and
                               expected_error in text and not changed_logs)

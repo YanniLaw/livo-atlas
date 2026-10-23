@@ -118,6 +118,11 @@ class ResultWriter::Impl {
   }
 
   void InitializeColmap() {
+    if (options_.pcd) {
+      // Preserve the original COLMAP script's reconstruction reset.
+      fs::remove_all(Path("Colmap/images"));
+      fs::remove_all(Path("Colmap/sparse/0"));
+    }
     fs::create_directories(Path("Colmap/images"));
     Open(Path("Colmap/sparse/0/points3D.txt"), &points_);
     Open(Path("Colmap/sparse/0/images.txt"), &colmap_poses_);
@@ -167,6 +172,7 @@ class ResultWriter::Impl {
       out_ << " " << result.undistorted_cloud->size() << std::endl;
     } catch (const std::exception& error) {
       closed_ = true;
+      failed_ = true;
       throw std::runtime_error(options_.directory.string() + ": " +
                                error.what());
     }
@@ -195,7 +201,7 @@ class ResultWriter::Impl {
     if (options_.pcd) {
       if (options_.pcd_type == 0) {
         if (options_.mode == FrontendMode::kLidarInertialVisual) {
-          if (prepared.colored_cloud) colored_ += *prepared.colored_cloud;
+          if (prepared.colored_cloud) *colored_ += *prepared.colored_cloud;
         } else {
           plain_ += *result.world_cloud;
         }
@@ -217,12 +223,12 @@ class ResultWriter::Impl {
         ++scan_count_;
       }
       const int interval = options_.pcd_type == 1 ? 1 : options_.pcd_interval;
-      if ((!colored_.empty() || !plain_.empty()) && interval > 0 &&
+      if ((!colored_->empty() || !plain_.empty()) && interval > 0 &&
           scan_count_ >= interval) {
         const auto path = Path("pcd") / (name + ".pcd");
-        if (!colored_.empty()) {
-          WriteCloud(path, colored_);
-          ColoredCloud().swap(colored_);
+        if (!colored_->empty()) {
+          WriteCloud(path, *colored_);
+          ColoredCloud().swap(*colored_);
         }
         if (!plain_.empty()) {
           WriteCloud(path, plain_);
@@ -241,11 +247,15 @@ class ResultWriter::Impl {
   }
 
   void Finish() {
+    if (failed_) {
+      throw std::runtime_error("Output writer previously failed: " +
+                               options_.directory.string());
+    }
     if (closed_) return;
     closed_ = true;
     try {
       if (options_.pcd && options_.pcd_type == 0 &&
-          options_.pcd_interval < 0 && (!colored_.empty() || !plain_.empty())) {
+          options_.pcd_interval < 0 && (!colored_->empty() || !plain_.empty())) {
         WriteAccumulatedCloud();
       }
       for (auto* stream : {&pre_, &out_, &trajectory_, &imu_, &lidar_poses_,
@@ -253,6 +263,7 @@ class ResultWriter::Impl {
         if (stream->is_open()) stream->close();
       }
     } catch (const std::exception& error) {
+      failed_ = true;
       throw std::runtime_error(options_.directory.string() + ": " +
                                error.what());
     }
@@ -264,14 +275,13 @@ class ResultWriter::Impl {
       WriteCloud(raw, plain_);
       return;
     }
-    ColoredCloud::Ptr input(new ColoredCloud(colored_));
     ColoredCloud downsampled;
     pcl::VoxelGrid<pcl::PointXYZRGB> filter;
-    filter.setInputCloud(input);
+    filter.setInputCloud(colored_);
     filter.setLeafSize(options_.voxel_size, options_.voxel_size,
                        options_.voxel_size);
     filter.filter(downsampled);
-    WriteCloud(raw, colored_);
+    WriteCloud(raw, *colored_);
     WriteCloud(Path("pcd/all_downsampled_points.pcd"), downsampled);
     if (!options_.colmap) return;
     points_ << "# 3D point list with one line of data per point\n"
@@ -288,12 +298,13 @@ class ResultWriter::Impl {
   OutputOptions options_;
   std::ofstream pre_, out_, trajectory_, imu_, lidar_poses_, image_poses_;
   std::ofstream points_, colmap_poses_;
-  ColoredCloud colored_;
+  ColoredCloud::Ptr colored_{new ColoredCloud};
   PointCloud plain_;
   int scan_count_ = 0;
   int image_count_ = 0;
   int colmap_count_ = 1;
   bool closed_ = false;
+  bool failed_ = false;
 };
 
 ResultWriter::ResultWriter(const OutputOptions& options)

@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 """Validate a built ROS1 snapshot against a bag in a private local ROS graph.
 
-Pass a separate catkin workspace: the legacy node writes logs under its
-compile-time source directory. The supplied workspace should contain a copy of
-the package, rather than a symlink to the development checkout.
+Pass a separate catkin source copy to pin the implementation. Current nodes write
+to an explicit runtime output directory; --legacy-output supports older nodes
+whose output directory is compiled into the executable.
 """
 import argparse
 import collections
@@ -54,6 +54,8 @@ def main():
                         help='Hash declared cloud fields and image pixels, excluding padding/clocks')
     parser.add_argument('--save-products', action='store_true',
                         help='Enable and capture world PCD, images and COLMAP output')
+    parser.add_argument('--legacy-output', action='store_true',
+                        help='Read older node outputs from its source package Log directory')
     args = parser.parse_args()
     source_package = Path(__file__).resolve().parents[1]
     workspace = args.workspace.resolve()
@@ -141,7 +143,9 @@ def main():
                     proc.wait(timeout=5)
 
     try:
-        trajectory = make_trajectory_path(package, seq_name)
+        node_output = package / 'Log' if args.legacy_output else output / 'node_output'
+        trajectory = (make_trajectory_path(package, seq_name) if args.legacy_output
+                      else node_output / 'result' / (seq_name + '.txt'))
         # Do not attach to or interrupt an existing master on this port.
         probe = socket.socket()
         try:
@@ -169,6 +173,8 @@ def main():
         run(['rosparam', 'set', '/use_sim_time', 'true'])
         run(['rosparam', 'set', '/evo/pose_output_en', 'true'])
         run(['rosparam', 'set', '/evo/seq_name', seq_name])
+        if not args.legacy_output:
+            run(['rosparam', 'set', '/output/directory', str(node_output)])
         if args.save_products:
             for key, value in [('pcd_save/pcd_save_en', 'true'),
                                ('pcd_save/colmap_output_en', 'true'),
@@ -183,7 +189,10 @@ def main():
         from nav_msgs.msg import Odometry
         from rosgraph_msgs.msg import Clock
         from sensor_msgs.msg import Image, PointCloud2
-        from output_digest import cloud_digest, image_digest
+        try:
+            from .output_digest import cloud_digest, image_digest
+        except ImportError:
+            from output_digest import cloud_digest, image_digest
         rospy = ros_module
         rospy.init_node('baseline_observer', disable_signals=True)
 
@@ -292,9 +301,9 @@ def main():
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
         if args.save_products:
             for directory in ['pcd', 'image', 'Colmap']:
-                shutil.copytree(package / 'Log' / directory, output / 'products' / directory)
+                shutil.copytree(node_output / directory, output / 'products' / directory)
         for name in ['mat_pre.txt', 'mat_out.txt', 'imu.txt']:
-            shutil.copy2(package / ('Log/' + name), output / name)
+            shutil.copy2(node_output / name, output / name)
         if not trajectory.exists():
             raise RuntimeError('No sensor-timestamped trajectory was produced')
         shutil.copy2(trajectory, output / 'trajectory.tum')

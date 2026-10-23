@@ -127,22 +127,7 @@ void VIOManager::initializeVIO()
     // cv::waitKey(1);
   }
 
-  if(colmap_output_en)
-  {
-    pinhole_cam = dynamic_cast<vk::PinholeCamera*>(cam);
-    fout_colmap.open(DEBUG_FILE_DIR("Colmap/sparse/0/images.txt"), ios::out);
-    fout_colmap << "# Image list with two lines of data per image:\n";
-    fout_colmap << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
-    fout_colmap << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
-    fout_camera.open(DEBUG_FILE_DIR("Colmap/sparse/0/cameras.txt"), ios::out);
-    fout_camera << "# Camera list with one line of data per camera:\n";
-    fout_camera << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n";
-    fout_camera << "1 PINHOLE " << width << " " << height << " "
-        << std::fixed << std::setprecision(6)  // 控制浮点数精度为10位
-        << fx << " " << fy << " "
-        << cx << " " << cy << std::endl;
-    fout_camera.close();
-  }
+
   grid_num.resize(length);
   map_index.resize(length);
   map_dist.resize(length);
@@ -1108,7 +1093,6 @@ void VIOManager::projectPatchFromRefToCur(const unordered_map<VOXEL_LOCATION, Vo
   // if(new_frame_->id_ != 2) return; //124
 
   int patch_size = 25;
-  string dir = string(ROOT_DIR) + "Log/ref_cur_combine/";
 
   cv::Mat result = cv::Mat::zeros(height, width, CV_8UC1);
   cv::Mat result_normal = cv::Mat::zeros(height, width, CV_8UC1);
@@ -1198,8 +1182,11 @@ void VIOManager::projectPatchFromRefToCur(const unordered_map<VOXEL_LOCATION, Vo
       cv::circle(ref_cur_combine_temp, cv::Point2f(ref_ftr->px_[0] + img_cur.cols, ref_ftr->px_[1]), 1, cv::Scalar(0, 0, 255), -1, 8);
       cv::circle(ref_cur_combine_temp, cv::Point2f(pc[0], pc[1]), 1, cv::Scalar(0, 255, 0), -1, 8);
       cv::circle(ref_cur_combine_temp, cv::Point2f(pc_prior[0], pc_prior[1]), 1, cv::Scalar(255, 255, 255), -1, 8);
-      cv::imwrite(dir + std::to_string(new_frame_->id_) + "_" + std::to_string(ref_ftr->id_) + "_" + std::to_string(num) + ".png",
-                  ref_cur_combine_temp);
+      debug_images_.push_back(
+          {std::to_string(new_frame_->id_) + "_" +
+               std::to_string(ref_ftr->id_) + "_" + std::to_string(num) +
+               ".png",
+           ref_cur_combine_temp.clone()});
 
       std::vector<std::vector<pixel_member>> pixel_warp_matrix;
 
@@ -1319,12 +1306,10 @@ void VIOManager::projectPatchFromRefToCur(const unordered_map<VOXEL_LOCATION, Vo
   cv::absdiff(img_photometric_error, result_normal, img_photometric_error);
   cv::hconcat(img_photometric_error, new_frame_->img_, ref_cur_combine_error);
 
-  cv::imwrite(dir + std::to_string(new_frame_->id_) + "_0_" + ".png", ref_cur_combine);
-  cv::imwrite(dir + std::to_string(new_frame_->id_) + +"_0_" +
-                  "photometric"
-                  ".png",
-              ref_cur_combine_error);
-  cv::imwrite(dir + std::to_string(new_frame_->id_) + "_0_" + "normal" + ".png", ref_cur_combine_normal);
+  const std::string name = std::to_string(new_frame_->id_) + "_0_";
+  debug_images_.push_back({name + ".png", ref_cur_combine});
+  debug_images_.push_back({name + "photometric.png", ref_cur_combine_error});
+  debug_images_.push_back({name + "normal.png", ref_cur_combine_normal});
 }
 
 void VIOManager::precomputeReferencePatches(int level)
@@ -1605,7 +1590,6 @@ void VIOManager::updateState(cv::Mat img, int level)
 
       vector<float> P = visual_submap->warp_patch[i];
       double inv_ref_expo = visual_submap->inv_expo_list[i];
-      // ROS_ERROR("inv_ref_expo: %.3lf, state->inv_expo_time: %.3lf\n", inv_ref_expo, state->inv_expo_time);
 
       for (int x = 0; x < patch_size; x++)
       {
@@ -1700,7 +1684,6 @@ void VIOManager::updateState(cv::Mat img, int level)
 
     if (iteration == max_iterations || EKF_end) break;
   }
-  // if (state->inv_expo_time < 0.0)  {ROS_ERROR("reset expo time!!!!!!!!!!\n"); state->inv_expo_time = 0.0;}
 }
 
 void VIOManager::updateFrameState(StatesGroup state)
@@ -1755,52 +1738,9 @@ void VIOManager::plotTrackedPoints()
   // cv::putText(img_cp, text, origin, cv::FONT_HERSHEY_COMPLEX, 0.7, cv::Scalar(0, 255, 0), 2, 8, 0);
 }
 
-V3F VIOManager::getInterpolatedPixel(cv::Mat img, V2D pc)
-{
-  const float u_ref = pc[0];
-  const float v_ref = pc[1];
-  const int u_ref_i = floorf(pc[0]);
-  const int v_ref_i = floorf(pc[1]);
-  const float subpix_u_ref = (u_ref - u_ref_i);
-  const float subpix_v_ref = (v_ref - v_ref_i);
-  const float w_ref_tl = (1.0 - subpix_u_ref) * (1.0 - subpix_v_ref);
-  const float w_ref_tr = subpix_u_ref * (1.0 - subpix_v_ref);
-  const float w_ref_bl = (1.0 - subpix_u_ref) * subpix_v_ref;
-  const float w_ref_br = subpix_u_ref * subpix_v_ref;
-  uint8_t *img_ptr = (uint8_t *)img.data + ((v_ref_i)*width + (u_ref_i)) * 3;
-  float B = w_ref_tl * img_ptr[0] + w_ref_tr * img_ptr[0 + 3] + w_ref_bl * img_ptr[width * 3] + w_ref_br * img_ptr[width * 3 + 0 + 3];
-  float G = w_ref_tl * img_ptr[1] + w_ref_tr * img_ptr[1 + 3] + w_ref_bl * img_ptr[1 + width * 3] + w_ref_br * img_ptr[width * 3 + 1 + 3];
-  float R = w_ref_tl * img_ptr[2] + w_ref_tr * img_ptr[2 + 3] + w_ref_bl * img_ptr[2 + width * 3] + w_ref_br * img_ptr[width * 3 + 2 + 3];
-  V3F pixel(B, G, R);
-  return pixel;
-}
-
-void VIOManager::dumpDataForColmap()
-{
-  static int cnt = 1;
-  std::ostringstream ss;
-  ss << std::setw(5) << std::setfill('0') << cnt;
-  std::string cnt_str = ss.str();
-  std::string image_path = std::string(ROOT_DIR) + "Log/Colmap/images/" + cnt_str + ".png";
-  
-  cv::Mat img_rgb_undistort;
-  pinhole_cam->undistortImage(img_rgb, img_rgb_undistort);
-  cv::imwrite(image_path, img_rgb_undistort);
-  
-  Eigen::Quaterniond q(new_frame_->T_f_w_.rotation_matrix());
-  Eigen::Vector3d t = new_frame_->T_f_w_.translation();
-  fout_colmap << cnt << " "
-            << std::fixed << std::setprecision(6)  // 保证浮点数精度为6位
-            << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " "
-            << t.x() << " " << t.y() << " " << t.z() << " "
-            << 1 << " "  // CAMERA_ID (假设相机ID为1)
-            << cnt_str << ".png" << std::endl;
-  fout_colmap << "0.0 0.0 -1" << std::endl;
-  cnt++;
-}
-
 void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map, double img_time)
 {
+  debug_images_.clear();
   if (width != img.cols || height != img.rows)
   {
     if (img.empty()) printf("[ VIO ] Empty Image!\n");
@@ -1845,7 +1785,6 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
 
   double t7 = omp_get_wtime();
   
-  if(colmap_output_en)  dumpDataForColmap();
 
   frame_count++;
   ave_total = ave_total * (frame_count - 1) / frame_count + (t7 - t1 - (t5 - t4)) / frame_count;
@@ -1888,5 +1827,4 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
   // origin.x = 20;
   // origin.y = 20;
   // cv::putText(img_cp, text, origin, cv::FONT_HERSHEY_COMPLEX, 0.6, cv::Scalar(255, 255, 255), 1, 8, 0);
-  // cv::imwrite("/home/chunran/Desktop/raycasting/" + std::to_string(new_frame_->id_) + ".png", img_cp);
 }

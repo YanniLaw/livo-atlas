@@ -28,7 +28,7 @@ flowchart LR
 4. `io/result_writer.h/.cc` 接受输出配置（目录、序列名、开关、间隔、点云类型、下采样尺寸、模式和标定），`Write(result, prepared)` 写状态、轨迹及传感器产物，`Finish()` 幂等完成 EOF 导出并关闭文件。析构关闭文件，不吞掉显式 Finish 的失败。它只依赖 Eigen/PCL/OpenCV/标准库，提供无 ROS/vikit 的独立测试入口。
 5. `ros1/result_publisher.h/.cc` 拥有原发布器、TF 和路径，只把普通结果及 PreparedOutput 转为 ROS 消息。初始化接收 NodeHandle 和 ImageTransport；`Publish` 保留原分支顺序；另提供 IMU 高频里程计发布入口。文件写入不依赖订阅者或发布器是否初始化。
 
-FrontendOptions 增加有效点云输出开关；平面开关继续兼容现有配置字段。没有启用的可选快照不额外遍历地图。视觉 pose 来自实际 `new_frame_->T_f_w_`，不能由外参和估计状态重新推导。COLMAP 四元数继续由该 pose 的旋转矩阵构造，着色继续使用其单位四元数乘点的运算顺序。
+FrontendOptions 增加有效点云输出开关；平面开关继续兼容现有配置字段。没有启用的可选快照不额外遍历地图。视觉 pose 来自实际 `new_frame_->T_f_w_`，不能由外参和估计状态重新推导。COLMAP 四元数继续由该 pose 的旋转矩阵构造，着色继续使用原四元数乘点的运算顺序；允许原标定舍入误差，不额外归一化。
 
 ## 调用与兼容行为
 
@@ -46,7 +46,7 @@ FrontendOptions 增加有效点云输出开关；平面开关继续兼容现有�
 
 新增 ROS 参数 `output/directory`。默认 `$ROS_HOME/livo_atlas`，否则 `$HOME/.ros/livo_atlas`；两者均未设置时使用当前目录下 `livo_atlas_output`。这些环境解析只在 ROS1 层。独立 writer 必须显式传目录，绝不依赖编译时源码路径。
 
-目录内保留 `mat_pre.txt`、`mat_out.txt`、`imu.txt`、`result/<seq>.txt`、`pcd/`、`image/`、`Colmap/images/`、`Colmap/sparse/0/`、`ref_cur_combine/`。按需创建子目录，不执行脚本/chmod/system。文件覆盖与原新运行一致；不同并发实例必须使用不同目录。序列名仅允许单个非空文件名，拒绝 .、..、路径分隔符。
+目录内保留 `mat_pre.txt`、`mat_out.txt`、`imu.txt`、`result/<seq>.txt`、`pcd/`、`image/`、`Colmap/images/`、`Colmap/sparse/0/`、`ref_cur_combine/`。按需创建子目录，不执行脚本/chmod/system。同时开启 PCD/COLMAP 时，像原脚本一样清空该目录下的 `Colmap/images` 和 `Colmap/sparse/0` 再写重建；其他目录不清空。文件覆盖与原新运行一致；不同并发实例必须使用不同目录。序列名仅允许单个非空文件名，拒绝 .、..、路径分隔符。
 
 构造时先验证全部选项再创建文件/订阅：输出目录非空；着色间隔正数；图像启用时间隔正数；PCD 启用时间隔非零、类型 0/1、滤波尺寸有限且正；COLMAP 必须 Pinhole。目录/流/图像/PCD 写入失败报告具体路径并让本次运行失败，不能生成“成功”证据。写入失败或显式 Finish 后禁止继续 Write。
 

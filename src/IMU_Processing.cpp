@@ -13,8 +13,7 @@ which is included as part of this source code package.
 #include "IMU_Processing.h"
 
 #include <omp.h>
-#include <ros/assert.h>
-#include <ros/console.h>
+#include <cassert>
 
 ImuProcess::ImuProcess() : Eye3d(M3D::Identity()),
                            Zero3d(0, 0, 0), b_first_frame(true), imu_need_init(true)
@@ -39,7 +38,6 @@ ImuProcess::~ImuProcess() {}
 
 void ImuProcess::Reset()
 {
-  ROS_WARN("Reset ImuProcess");
   mean_acc = V3D(0, 0, -1.0);
   mean_gyr = V3D(0, 0, 0);
   angvel_last = Zero3d;
@@ -110,7 +108,6 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, StatesGroup &state_inout, in
 {
   /** 1. initializing the gravity, gyro bias, acc and gyro covariance
    ** 2. normalize the acceleration measurenments to unit gravity **/
-  ROS_INFO("IMU Initializing: %.1f %%", double(N) / MAX_INI_COUNT * 100);
   V3D cur_acc, cur_gyr;
 
   if (b_first_frame)
@@ -318,11 +315,9 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
   else
   {
     tau = state_inout.inv_expo_time;
-    // ROS_ERROR("tau: %.6f !!!!!!", tau);
   }
   // state_inout.cov(6, 6) = 0.01;
 
-  // ROS_ERROR("lidar_meas.lio_vio_flg");
   // cout<<"lidar_meas.lio_vio_flg: "<<lidar_meas.lio_vio_flg<<endl;
   switch (lidar_meas.lio_vio_flg)
   {
@@ -349,7 +344,8 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
       // cout<<"acc_avr: "<<acc_avr.transpose()<<endl;
 
       // #ifdef DEBUG_PRINT
-      fout_imu << setw(10) << head.timestamp - first_lidar_time << " " << angvel_avr.transpose() << " " << acc_avr.transpose() << endl;
+      diagnostics_.push_back(
+          {head.timestamp - first_lidar_time, angvel_avr, acc_avr});
       // #endif
 
       // imu_time = head.timestamp - first_lidar_time;
@@ -547,9 +543,10 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
 
 void ImuProcess::Process2(LidarMeasureGroup &lidar_meas, StatesGroup &stat, PointCloudXYZI::Ptr cur_pcl_un_)
 {
+  diagnostics_.clear();
   double t1, t2, t3;
   t1 = omp_get_wtime();
-  ROS_ASSERT(lidar_meas.lidar != nullptr);
+  assert(lidar_meas.lidar != nullptr);
   if (!imu_en)
   {
     Forward_without_imu(lidar_meas, stat, *cur_pcl_un_);
@@ -575,14 +572,6 @@ void ImuProcess::Process2(LidarMeasureGroup &lidar_meas, StatesGroup &stat, Poin
     {
       // cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
       imu_need_init = false;
-      ROS_INFO("IMU Initials: Gravity: %.4f %.4f %.4f %.4f; acc covarience: "
-               "%.8f %.8f %.8f; gry covarience: %.8f %.8f %.8f \n",
-               stat.gravity[0], stat.gravity[1], stat.gravity[2], mean_acc.norm(), cov_acc[0], cov_acc[1], cov_acc[2], cov_gyr[0], cov_gyr[1],
-               cov_gyr[2]);
-      ROS_INFO("IMU Initials: ba covarience: %.8f %.8f %.8f; bg covarience: "
-               "%.8f %.8f %.8f",
-               cov_bias_acc[0], cov_bias_acc[1], cov_bias_acc[2], cov_bias_gyr[0], cov_bias_gyr[1], cov_bias_gyr[2]);
-      fout_imu.open(DEBUG_FILE_DIR("imu.txt"), ios::out);
     }
 
     return;

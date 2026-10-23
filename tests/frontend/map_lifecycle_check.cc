@@ -3,8 +3,6 @@
 #include <iostream>
 #include <string>
 
-#include "voxel_map.h"
-
 namespace {
 
 bool CreateAndDestroyPopulatedFrontend(bool create_map) {
@@ -31,7 +29,7 @@ bool CreateAndDestroyPopulatedFrontend(bool create_map) {
   input.measures.emplace_back();
   input.measures.back().lio_time = 100.125;
   const auto result = frontend.Process(&input);
-  return result.updated && !frontend.local_map().voxel_map_.empty();
+  return result.updated && result.world_cloud && !result.world_cloud->empty();
 }
 
 }  // namespace

@@ -1,6 +1,8 @@
 #include "LIVMapper.h"
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -11,17 +13,39 @@
 #include <opencv2/core.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>
+#include <ros/package.h>
+
 
 namespace livo_atlas {
 namespace {
+
+std::filesystem::path OutputDirectory() {
+  return std::filesystem::temp_directory_path() /
+         ("livo_ros_" + std::to_string(ros::WallTime::now().toNSec()));
+}
+
+std::string ReadText(const std::filesystem::path& path) {
+  std::ifstream stream(path);
+  return std::string(std::istreambuf_iterator<char>(stream), {});
+}
+
 
 class LidarCallbackTest : public ::testing::Test {
  protected:
   void SetUp() override {
     ros::NodeHandle node;
+    output_directory_ = OutputDirectory();
+    node.setParam("output/directory", output_directory_.string());
     mapper_ = std::make_unique<LIVMapper>(node);
     mapper_->p_pre->set(false, kLivox, 1, 1);
     mapper_->p_pre->blind_sqr = 1;
+  }
+
+  void TearDown() override {
+    mapper_.reset();
+    if (!output_directory_.empty()) {
+      std::filesystem::remove_all(output_directory_);
+    }
   }
 
   void ExpectOriginalQueue(const PointCloud::Ptr& original) {
@@ -39,6 +63,7 @@ class LidarCallbackTest : public ::testing::Test {
   }
 
   std::unique_ptr<LIVMapper> mapper_;
+  std::filesystem::path output_directory_;
 };
 
 livox_ros_driver::CustomMsg::Ptr LivoxMessage(double time, float x) {
@@ -103,12 +128,21 @@ class SynchronizerIntegrationTest : public ::testing::Test {
  protected:
   void CreateMapper(SLAM_MODE mode, int initialization_frames = 3) {
     ros::NodeHandle node;
+    output_directory_ = OutputDirectory();
+    node.setParam("output/directory", output_directory_.string());
     node.setParam("imu/imu_int_frame", initialization_frames);
     node.setParam("common/lidar_en", 1);
     node.setParam("common/img_en", mode == LIVO ? 1 : 0);
     node.setParam("imu/imu_en", mode != ONLY_LO);
     mapper_ = std::make_unique<LIVMapper>(node);
     ASSERT_EQ(mapper_->slam_mode_, mode);
+  }
+
+  void TearDown() override {
+    mapper_.reset();
+    if (!output_directory_.empty()) {
+      std::filesystem::remove_all(output_directory_);
+    }
   }
 
   void AddCloud(double timestamp, std::initializer_list<float> offsets) {
@@ -134,6 +168,7 @@ class SynchronizerIntegrationTest : public ::testing::Test {
   }
 
   std::unique_ptr<LIVMapper> mapper_;
+  std::filesystem::path output_directory_;
 };
 
 TEST_F(SynchronizerIntegrationTest, LivoCutsBoundaryAndAlternatesSameImage) {
@@ -247,10 +282,9 @@ TEST_F(SynchronizerIntegrationTest, LidarOnlyPipelineKeepsAnchorAndWorldPoints) 
     EXPECT_DOUBLE_EQ(mapper_->LidarMeasures.last_lio_update_time,
                      timestamp + 0.125);
     EXPECT_DOUBLE_EQ((mapper_->last_result_.timestamp - mapper_->last_result_.relative_time), -1.0);
-    EXPECT_EQ(mapper_->frontend_->visual().state, &mapper_->frontend_->state());
-    ASSERT_EQ(mapper_->pcl_w_wait_pub->size(), 2);
-    EXPECT_FLOAT_EQ(mapper_->pcl_w_wait_pub->front().x, 2);
-    EXPECT_FLOAT_EQ(mapper_->pcl_w_wait_pub->back().x, 3);
+    ASSERT_EQ(mapper_->last_result_.world_cloud->size(), 2);
+    EXPECT_FLOAT_EQ(mapper_->last_result_.world_cloud->front().x, 2);
+    EXPECT_FLOAT_EQ(mapper_->last_result_.world_cloud->back().x, 3);
     EXPECT_TRUE(mapper_->frontend_->state().pos_end.isZero(0));
   }
 }
@@ -263,7 +297,8 @@ TEST_F(SynchronizerIntegrationTest, InitialImuOutputDoesNotBuildMap) {
   ASSERT_TRUE(mapper_->sync_packages(mapper_->LidarMeasures));
   mapper_->ProcessMeasurements();
   EXPECT_TRUE(mapper_->last_result_.undistorted_cloud->empty());
-  EXPECT_TRUE(mapper_->frontend_->local_map().voxel_map_.empty());
+  EXPECT_FALSE(mapper_->last_result_.updated);
+  EXPECT_FALSE(mapper_->last_result_.world_cloud);
   EXPECT_TRUE(mapper_->frontend_->state().gravity.isApprox(Eigen::Vector3d(0, 0, 9.81)));
 }
 
@@ -300,6 +335,11 @@ TEST_F(SynchronizerIntegrationTest, VisualCloudIsConsumedWithoutPublishing) {
   ASSERT_TRUE(visual.updated);
   ASSERT_TRUE(visual.world_cloud);
   EXPECT_FALSE(visual.world_cloud->empty());
+  ASSERT_FALSE(visual.color_image.empty());
+  ASSERT_FALSE(visual.tracking_image.empty());
+  EXPECT_EQ(visual.color_image.at<cv::Vec3b>(0, 0), cv::Vec3b(7, 8, 9));
+  // Preserve the quaternion from the rounded calibration without normalizing.
+  EXPECT_NEAR(visual.camera_from_world_rotation.norm(), 1, 1e-6);
 
   // No publisher runs. The next valid image window has no LiDAR points.
   add_image(100.5625);
@@ -310,6 +350,24 @@ TEST_F(SynchronizerIntegrationTest, VisualCloudIsConsumedWithoutPublishing) {
   ASSERT_EQ(measurements.lio_vio_flg, VIO);
   EXPECT_FALSE(frontend.Process(&measurements).updated);
 }
+
+TEST_F(SynchronizerIntegrationTest, OutputUsesConfiguredDirectory) {
+  const auto source_log =
+      std::filesystem::path(ros::package::getPath("livo_atlas")) / "Log";
+  const auto original = ReadText(source_log / "mat_pre.txt");
+  CreateMapper(ONLY_LO);
+  ros::NodeHandle node;
+  image_transport::ImageTransport transport(node);
+  mapper_->initializeSubscribersAndPublishers(node, transport);
+  AddCloud(100, {0, 125});
+  ASSERT_TRUE(mapper_->sync_packages(mapper_->LidarMeasures));
+  mapper_->ProcessMeasurements();
+  EXPECT_FALSE(ReadText(output_directory_ / "mat_pre.txt").empty());
+  EXPECT_FALSE(ReadText(output_directory_ / "mat_out.txt").empty());
+  EXPECT_EQ(ReadText(source_log / "mat_pre.txt"), original);
+}
+
+
 
 
 }  // namespace

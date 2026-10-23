@@ -65,7 +65,6 @@ class Frontend::Impl {
     visual_->grid_n_height = visual.grid_rows;
     visual_->patch_pyrimid_level = visual.patch_pyramid_levels;
     visual_->exposure_estimate_en = visual.estimate_exposure;
-    visual_->colmap_output_en = visual.colmap_output;
     visual_->initializeVIO();
 
     const auto& imu = options_.imu;
@@ -105,6 +104,8 @@ class Frontend::Impl {
       result.first_frame = true;
     }
     imu_->Process2(*measurements, state_, undistorted_);
+    result.imu_initialized = options_.imu.enabled && !imu_->imu_need_init;
+    result.imu_diagnostics = imu_->diagnostics_;
     if (options_.align_gravity) AlignGravity();
     propagated_ = state_;
     map_->state_ = state_;
@@ -128,10 +129,37 @@ class Frontend::Impl {
     result.estimate = state_;
     if (result.updated) {
       result.world_cloud = world_;
+      CaptureOutput(&result);
       // Consumption belongs to the frontend, even if the caller skips output.
       if (result.kind == UpdateKind::kVisual) world_.reset(new PointCloud);
     }
     return result;
+  }
+
+  void CaptureOutput(FrontendResult* result) {
+    if (result->kind == UpdateKind::kVisual) {
+      result->color_image = visual_->img_rgb;
+      result->tracking_image = visual_->img_cp;
+      const auto& pose = visual_->new_frame_->T_f_w_;
+      result->camera_from_world_rotation = pose.unit_quaternion();
+      result->camera_from_world_translation = pose.translation();
+      result->debug_images = visual_->debug_images_;
+      return;
+    }
+    if (options_.output_effective_points) {
+      PointCloud::Ptr effective(new PointCloud(map_->ptpl_list_.size(), 1));
+      for (std::size_t i = 0; i < map_->ptpl_list_.size(); ++i) {
+        const auto& point = map_->ptpl_list_[i].point_w_;
+        effective->points[i].x = point.x();
+        effective->points[i].y = point.y();
+        effective->points[i].z = point.z();
+      }
+      result->effective_cloud = effective;
+    }
+    if (options_.voxel_map.is_pub_plane_map_) {
+      result->has_plane_visualization = true;
+      result->planes = map_->GetVisualization();
+    }
   }
 
   void AlignGravity() {
@@ -264,7 +292,4 @@ double Frontend::imu_mean_acceleration_norm() const {
   if (!impl_->options_.imu.enabled || impl_->imu_->imu_need_init) return 0;
   return impl_->imu_->IMU_mean_acc_norm;
 }
-VIOManager& Frontend::visual() { return *impl_->visual_; }
-VoxelMapManager& Frontend::local_map() { return *impl_->map_; }
-
 }  // namespace livo_atlas

@@ -2,8 +2,6 @@
 
 #include <gtest/gtest.h>
 
-#include "vio.h"
-
 namespace livo_atlas {
 namespace {
 
@@ -77,19 +75,15 @@ TEST(FrontendTest, ContinuousScansKeepSharedStateAndMap) {
   Frontend frontend(MakeOptions());
   auto input = MakeScan();
   ASSERT_TRUE(frontend.Process(&input).updated);
-  ASSERT_FALSE(frontend.local_map().voxel_map_.empty());
-  const auto entry = *frontend.local_map().voxel_map_.begin();
   input = MakeScan(100.25);
   const auto result = frontend.Process(&input);
   ASSERT_TRUE(result.updated);
   EXPECT_FALSE(result.first_frame);
   EXPECT_DOUBLE_EQ(result.timestamp, 100.375);
   EXPECT_DOUBLE_EQ(result.relative_time, 101.375);
-  EXPECT_EQ(frontend.visual().state, &frontend.state());
-  EXPECT_NE(frontend.visual().state_propagat, &frontend.state());
-  EXPECT_TRUE(frontend.visual().state_propagat->cov.isApprox(
-      result.prediction.cov, 0));
-  EXPECT_EQ(frontend.local_map().voxel_map_.at(entry.first), entry.second);
+  EXPECT_TRUE(result.estimate.cov.isApprox(frontend.state().cov, 0));
+  ASSERT_EQ(result.world_cloud->size(), 2);
+  EXPECT_FLOAT_EQ(result.world_cloud->front().x, 2);
 }
 
 TEST(FrontendTest, ResultStateSnapshotSurvivesNextUpdate) {
@@ -110,7 +104,7 @@ TEST(FrontendTest, InstancesDoNotShareState) {
   auto input = MakeScan();
   ASSERT_TRUE(first.Process(&input).updated);
   EXPECT_DOUBLE_EQ(second.state().cov(3, 7), 0);
-  EXPECT_NE(first.visual().state, second.visual().state);
+  EXPECT_NE(&first.state(), &second.state());
   input = MakeScan(200.0);
   const auto result = second.Process(&input);
   ASSERT_TRUE(result.updated);
@@ -127,7 +121,8 @@ TEST(FrontendTest, InitialImuReturnsPredictionWithoutMapping) {
   EXPECT_FALSE(result.updated);
   EXPECT_TRUE(result.first_frame);
   EXPECT_TRUE(result.prediction.gravity.isApprox(Eigen::Vector3d(0, 0, 9.81)));
-  EXPECT_TRUE(frontend.local_map().voxel_map_.empty());
+  EXPECT_FALSE(result.updated);
+  EXPECT_FALSE(result.world_cloud);
   EXPECT_TRUE(frontend.imu_needs_initialization());
   EXPECT_DOUBLE_EQ(frontend.imu_mean_acceleration_norm(), 0);
 }
@@ -146,6 +141,58 @@ TEST(FrontendTest, EmptyVisualInputDoesNotUpdate) {
   EXPECT_FALSE(result.updated);
   EXPECT_FALSE(result.first_frame);
   EXPECT_EQ(result.kind, UpdateKind::kVisual);
+}
+
+TEST(FrontendTest, ImuDiagnosticsExposeOriginalUncorrectedMeans) {
+  auto options = MakeOptions();
+  options.imu.enabled = true;
+  options.imu.initialization_frames = 1;
+  Frontend frontend(options);
+  auto input = MakeScan(100, UpdateKind::kLidarInertial);
+  const auto initialized = frontend.Process(&input);
+  EXPECT_TRUE(initialized.imu_initialized);
+  EXPECT_TRUE(initialized.imu_diagnostics.empty());
+  input = MakeScan(100.25, UpdateKind::kLidarInertial);
+  const auto result = frontend.Process(&input);
+  ASSERT_EQ(result.imu_diagnostics.size(), 2);
+  EXPECT_DOUBLE_EQ(result.imu_diagnostics[0].relative_time, 0.125);
+  EXPECT_DOUBLE_EQ(result.imu_diagnostics[1].relative_time, 0.3125);
+  for (const auto& diagnostic : result.imu_diagnostics) {
+    EXPECT_TRUE(diagnostic.angular_velocity.isZero(0));
+    EXPECT_TRUE(diagnostic.acceleration.isApprox(
+        Eigen::Vector3d(0, 0, -9.81), 0));
+  }
+}
+
+TEST(FrontendTest, OptionalMapSnapshotsExposePlanesAndEffectivePoints) {
+  auto options = MakeOptions();
+  options.output_effective_points = true;
+  options.voxel_map.is_pub_plane_map_ = true;
+  options.voxel_map.max_voxel_size_ = 10;
+  Frontend frontend(options);
+  auto input = MakeScan();
+  input.lidar->clear();
+  for (float x : {1, 2, 3}) {
+    for (float y : {1, 2, 3}) {
+      Point point;
+      point.x = x;
+      point.y = y;
+      point.z = 0;
+      point.curvature = 125;
+      input.lidar->push_back(point);
+    }
+  }
+  const auto result = frontend.Process(&input);
+  ASSERT_TRUE(result.updated);
+  ASSERT_TRUE(result.effective_cloud);
+  EXPECT_TRUE(result.has_plane_visualization);
+  ASSERT_FALSE(result.planes.empty());
+  EXPECT_TRUE(result.planes.front().valid);
+  EXPECT_NEAR(result.planes.front().center.x(), 2, 1e-6);
+  // Nine initial points plus the first six insertions trigger the old map's
+  // refresh: (9 * 2 + 3 * 1 + 3 * 2) / 15 = 1.8. The last three wait.
+  EXPECT_NEAR(result.planes.front().center.y(), 1.8, 1e-6);
+  EXPECT_NEAR(result.planes.front().normal.norm(), 1, 1e-12);
 }
 
 TEST(FrontendTest, ExtrinsicsTransformOutputCloud) {

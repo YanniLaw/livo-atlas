@@ -30,9 +30,6 @@ else()
 endif()
 message(STATUS "Using the compiler's default CPU instruction set")
 
-# Define project root directory
-add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
-
 # Detect CPU core count for potential multithreading optimization
 include(ProcessorCount)
 ProcessorCount(N)
@@ -145,10 +142,15 @@ set_target_properties(livo_atlas_output livo_atlas_io PROPERTIES POSITION_INDEPE
 target_link_libraries(livo_atlas_output PUBLIC livo_atlas_vikit_camera
   ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 target_link_libraries(livo_atlas_io PUBLIC ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
-add_library(laser_mapping src/LIVMapper.cpp src/ros1/calibration_reader.cc)
+add_library(laser_mapping src/LIVMapper.cpp src/ros1/calibration_reader.cc
+  src/ros1/voxel_options_reader.cc)
+add_library(livo_atlas_ros1_output src/ros1/result_publisher.cc)
+target_link_libraries(livo_atlas_ros1_output ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 # Keep estimator DSOs ahead of native vikit's incompatible weak Eigen helpers.
 target_link_libraries(laser_mapping livo_atlas_calibration livo_atlas_synchronization
   livo_atlas_frontend vio lio imu_proc
+  livo_atlas_output livo_atlas_io livo_atlas_ros1_output
   livo_atlas_ros1_conversions ${catkin_LIBRARIES})
 
 # Add the main executable
@@ -205,9 +207,10 @@ if(CATKIN_ENABLE_TESTING)
   endif()
   # Run explicitly with rostest: this exercises real parameters and callbacks.
   catkin_add_executable_with_gtest(lidar_callback_test
-    tests/lidar_callback_test.cc)
+    tests/lidar_callback_test.cc tests/ros1/result_publisher_test.cc)
   if(TARGET lidar_callback_test)
     target_link_libraries(lidar_callback_test laser_mapping vio lio pre imu_proc
+      livo_atlas_ros1_output
       ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES}
       ${Sophus_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
   endif()

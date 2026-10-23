@@ -331,6 +331,31 @@ TEST_F(ResultWriterTest, ReportsImageWriteFailureAndRejectsLaterWrites) {
   result.color_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(1, 2, 3));
   EXPECT_THROW(writer.Write(result, Prepared()), std::runtime_error);
   EXPECT_THROW(writer.Write(result, Prepared()), std::logic_error);
+  EXPECT_THROW(writer.Finish(), std::runtime_error);
+}
+
+TEST_F(ResultWriterTest, ColmapRestartClearsOnlyGeneratedReconstruction) {
+  options_.pcd = true;
+  options_.colmap = true;
+  options_.mode = FrontendMode::kLidarInertialVisual;
+  auto result = Result(UpdateKind::kVisual);
+  {
+    ResultWriter writer(options_);
+    writer.Write(result, Prepared());
+    result.timestamp = 100.5;
+    writer.Write(result, Prepared());
+    writer.Finish();
+  }
+  ASSERT_TRUE(fs::exists(options_.directory / "Colmap/images/00002.png"));
+  std::ofstream(options_.directory / "keep.txt") << "keep this file";
+  {
+    ResultWriter writer(options_);
+    writer.Write(result, Prepared());
+    writer.Finish();
+  }
+  EXPECT_TRUE(fs::exists(options_.directory / "Colmap/images/00001.png"));
+  EXPECT_FALSE(fs::exists(options_.directory / "Colmap/images/00002.png"));
+  EXPECT_TRUE(fs::exists(options_.directory / "keep.txt"));
 }
 
 }  // namespace
