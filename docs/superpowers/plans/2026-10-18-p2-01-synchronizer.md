@@ -32,7 +32,7 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| tests/synchronizer_integration_test.cc | 真实 LIVMapper 同步行为的迁移前后特征测试。 |
+| tests/lidar_callback_test.cc | 真实 LIVMapper 同步行为的迁移前后特征测试。 |
 | include/livo_atlas/frontend/synchronized_measurements.h | 模式、更新类型和旧同步结构的唯一实现。 |
 | include/livo_atlas/sensor/synchronizer.h, src/sensor/synchronizer.cc | 普通队列、同步返回值和同步/切分实现。 |
 | tests/frontend/synchronizer_test.cc, tests/frontend/CMakeLists.txt | 核心行为 RED/GREEN、无 ROS 构建和两个头独立包含。 |
@@ -42,15 +42,15 @@
 
 ### Task 1: 固定原同步行为
 
-**Files:** tests/synchronizer_integration_test.cc、CMakeLists.txt；独立候选副本与包外验证脚本。
+**Files:** tests/lidar_callback_test.cc、CMakeLists.txt；独立候选副本与包外验证脚本。
 
-**Interfaces:** 继续调用真实 `LIVMapper::sync_packages(LidarMeasureGroup&)`，通过实际配置选择 LIVO、ONLY_LIO、ONLY_LO；新增文件加入现有 lidar_callback_test，复用独立 rostest master。
+**Interfaces:** 继续调用真实 `LIVMapper::sync_packages(LidarMeasureGroup&)`，通过实际配置选择 LIVO、ONLY_LIO、ONLY_LO；新增用例留在现有 lidar_callback_test 的同一编译单元，复用独立 rostest master。
 
-- [ ] **Step 1: 基线与特征测试**
+- [x] **Step 1: 基线与特征测试**
   运行当前 78 项单元和 10 项 Python。添加 3 项测试：100/100.125/100.25 秒与点偏移 0/125/250 ms 验证严格切分和同时间 LIO→VIO；ONLY_LIO 接收覆盖时间为 nextafter(100.125,-inf) 时等待、达到 100.125 时处理；ONLY_LO 无 IMU/图像时输出扫描尾部。
-- [ ] **Step 2: 独立构建、运行原实现**
+- [x] **Step 2: 独立构建、运行原实现**
   git archive 基线创建 candidate_ws，加入测试；显式 CATKIN_DEVEL_PREFIX，单线程构建 fastlivo_mapping、lidar_callback_test、run_tests。运行 rostest，预期原 2 项回调与新增 3 项同步测试全部通过；算法源码摘要与基线相同。记录 XML、源码及运行库摘要。
-- [ ] **Step 3: 提交与任务检查**
+- [x] **Step 3: 提交与任务检查**
   Commit: `test: characterize existing sensor synchronization`。任务检查脚本验证 78 单元、5 ROS、10 Python，输出明确 OK。
 
 ### Task 2: 实现独立同步核心

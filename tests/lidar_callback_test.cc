@@ -1,8 +1,13 @@
 #include "LIVMapper.h"
 
+#include <cmath>
+#include <initializer_list>
+#include <limits>
 #include <memory>
 
+#include <Eigen/Core>
 #include <gtest/gtest.h>
+#include <opencv2/core.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>
 
@@ -93,6 +98,113 @@ TEST_F(LidarCallbackTest, StandardValidatesBeforeChangingPairedRollbackQueues) {
   mapper_->standard_pcl_cbk(StandardMessage(12, 4));
   ExpectRolledBackQueue();
 }
+
+
+class SynchronizerIntegrationTest : public ::testing::Test {
+ protected:
+  void CreateMapper(SLAM_MODE mode) {
+    ros::NodeHandle node;
+    node.setParam("common/lidar_en", 1);
+    node.setParam("common/img_en", mode == LIVO ? 1 : 0);
+    node.setParam("imu/imu_en", mode != ONLY_LO);
+    mapper_ = std::make_unique<LIVMapper>(node);
+    ASSERT_EQ(mapper_->slam_mode_, mode);
+  }
+
+  void AddCloud(double timestamp, std::initializer_list<float> offsets) {
+    PointCloud::Ptr cloud(new PointCloud);
+    for (float offset : offsets) {
+      Point point;
+      point.x = 2 + cloud->size();
+      point.curvature = offset;
+      cloud->push_back(point);
+    }
+    mapper_->lid_raw_data_buffer.push_back(cloud);
+    mapper_->lid_header_time_buffer.push_back(timestamp);
+  }
+
+  void AddImu(double timestamp) {
+    mapper_->imu_buffer.push_back(
+        {timestamp, Eigen::Vector3d::Zero(), Eigen::Vector3d(0, 0, -9.81)});
+    mapper_->last_timestamp_imu = timestamp;
+  }
+
+  void AddImage(double timestamp) {
+    mapper_->img_buffer.emplace_back(1, 1, CV_8UC3, cv::Scalar(7, 8, 9));
+    mapper_->img_time_buffer.push_back(timestamp);
+  }
+
+  std::unique_ptr<LIVMapper> mapper_;
+};
+
+TEST_F(SynchronizerIntegrationTest, LivoCutsBoundaryAndAlternatesSameImage) {
+  CreateMapper(LIVO);
+  AddCloud(100, {0, 125, 250});
+  for (double timestamp : {100.0, 100.0625, 100.125, 100.25}) {
+    AddImu(timestamp);
+  }
+  AddImage(100.125);
+  LidarMeasureGroup measurements;
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  EXPECT_EQ(measurements.lio_vio_flg, LIO);
+  EXPECT_DOUBLE_EQ(measurements.last_lio_update_time, 100);
+  ASSERT_EQ(measurements.pcl_proc_cur->size(), 1);
+  EXPECT_FLOAT_EQ(measurements.pcl_proc_cur->front().x, 2);
+  ASSERT_EQ(measurements.pcl_proc_next->size(), 2);
+  EXPECT_FLOAT_EQ((*measurements.pcl_proc_next)[0].curvature, 0);
+  EXPECT_FLOAT_EQ((*measurements.pcl_proc_next)[1].curvature, 125);
+  ASSERT_EQ(measurements.measures.back().imu.size(), 2);
+  EXPECT_DOUBLE_EQ(measurements.measures.back().imu.front().timestamp, 100.0625);
+  EXPECT_DOUBLE_EQ(measurements.measures.back().imu.back().timestamp, 100.125);
+
+  // The estimator advances this time; synchronization itself does not.
+  measurements.last_lio_update_time = 100.125;
+  EXPECT_FALSE(mapper_->sync_packages(measurements));
+  AddCloud(100.25, {0, 125});
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  EXPECT_EQ(measurements.lio_vio_flg, VIO);
+  EXPECT_DOUBLE_EQ(measurements.measures.back().vio_time, 100.125);
+  EXPECT_EQ(measurements.measures.back().img.at<cv::Vec3b>(0, 0),
+            cv::Vec3b(7, 8, 9));
+
+  AddImage(100.25);
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  EXPECT_EQ(measurements.lio_vio_flg, LIO);
+  ASSERT_EQ(measurements.pcl_proc_cur->size(), 2);
+  EXPECT_FLOAT_EQ((*measurements.pcl_proc_cur)[0].x, 3);
+  EXPECT_FLOAT_EQ((*measurements.pcl_proc_cur)[1].x, 4);
+  EXPECT_FLOAT_EQ((*measurements.pcl_proc_cur)[1].curvature, 125);
+}
+
+TEST_F(SynchronizerIntegrationTest, LioUsesCoverageBeforeFinalRosRounding) {
+  CreateMapper(ONLY_LIO);
+  AddCloud(100, {0, 125});
+  AddImu(100.0625);
+  AddImu(100.125);
+  AddImu(100.25);
+  mapper_->last_timestamp_imu =
+      std::nextafter(100.125, -std::numeric_limits<double>::infinity());
+  LidarMeasureGroup measurements;
+  EXPECT_FALSE(mapper_->sync_packages(measurements));
+  mapper_->last_timestamp_imu = 100.125;
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  EXPECT_EQ(measurements.lio_vio_flg, LIO);
+  EXPECT_DOUBLE_EQ(measurements.measures.back().lio_time, 100.125);
+  ASSERT_EQ(measurements.measures.back().imu.size(), 2);
+  EXPECT_DOUBLE_EQ(measurements.measures.back().imu.back().timestamp, 100.125);
+}
+
+TEST_F(SynchronizerIntegrationTest, LidarOnlyNeedsNeitherImuNorImage) {
+  CreateMapper(ONLY_LO);
+  AddCloud(100, {0, 125});
+  LidarMeasureGroup measurements;
+  ASSERT_TRUE(mapper_->sync_packages(measurements));
+  EXPECT_EQ(measurements.lio_vio_flg, LO);
+  EXPECT_DOUBLE_EQ(measurements.measures.back().lio_time, 100.125);
+  ASSERT_EQ(measurements.lidar->size(), 2);
+  EXPECT_FLOAT_EQ(measurements.lidar->back().curvature, 125);
+}
+
 
 }  // namespace
 }  // namespace livo_atlas
