@@ -75,9 +75,9 @@ Task gate: `/usr/bin/python3 validation/P4-layout-20261024/check_layout.py sourc
 **Interfaces:** Consumes Task1/2相同目标与新头；produces 可复现文档、完整验收结果与独立历史 bundle。
 
 - [x] **Step 1: mode0三个安装消费。** shared/static均运行138例和所有普通头检查，禁OpenMP安装消费者执行LO/LIO/VIO；Humble ament安装消费者同样通过，无旧根头。
-- [ ] **Step 2: 官方 bag 回放。** Noetic catkin/Humble真实colcon安装节点各运行3s产品和136s完整窗口，对各自P4同环境结果严格比较 trajectory/mat_pre/mat_out/imu、发布语义及57产品；ROS2回调输入计数和14个运行文件SHA保持绑定。
-- [ ] **Step 3: 更新当前文档。** 给出单入口流程、新目录、旧include迁移表、三模式构建命令、执行证据、仍存在的legacy内部接口边界；历史P4文档保留原样。
-- [ ] **Step 4: 提交可审查实现并执行一次整阶段评审。** 比较5884f15..HEAD，评审spec/plan/ledger及五项Review Focus，重要问题一次RED→GREEN修复与相关全套验证。
+- [x] **Step 2: 官方 bag 回放。** Noetic catkin/Humble真实colcon安装节点各运行3s产品和136s完整窗口，对各自P4同环境结果严格比较 trajectory/mat_pre/mat_out/imu、发布语义及57产品；ROS2回调输入计数和14个运行文件SHA保持绑定。
+- [x] **Step 3: 更新当前文档。** 给出单入口流程、新目录、旧include迁移表、三模式构建命令、执行证据、仍存在的legacy内部接口边界；历史P4文档保留原样。
+- [x] **Step 4: 提交可审查实现并执行一次整阶段评审。** 比较5884f15..HEAD，评审spec/plan/ledger及五项Review Focus，重要问题一次RED→GREEN修复与相关全套验证。
 - [ ] **Step 5: 收尾。** 归档本计划执行记录，新完整历史bundle在空仓库恢复验证；保留当前分支，不合并/推送。
 
 Expected: 各模式安装成功，回放同环境严格一致，源码Log和vikit不变，bundle可恢复最终提交。

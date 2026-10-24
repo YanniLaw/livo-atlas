@@ -1,6 +1,6 @@
 # P4 修正：统一入口与职责目录验证
 
-状态：统一入口、文件迁移、构建/单元/启动/安装与两套完整 bag 回归已通过，独立评审与交付收尾中。
+状态：实现、两套完整回归与一次独立评审均已通过。最终交付恢复结果见包外 recovery.json。
 参考为 P4 `5884f15728e3a1dfd394beaa1f3a595db87d35af`。
 设计见[修正规格](superpowers/specs/2026-10-24-p4-unified-entry-layout-design.md)，
 步骤见[实施计划](superpowers/plans/2026-10-24-p4-unified-entry-layout.md)，
@@ -60,4 +60,31 @@ mode0 真实编译输入没有节点，也没有 ROS 版本宏。Humble 与 Noet
 对各自 P4 参考的最大绝对差均为0，发布语义也严格相等。Humble 保持全部30157条输入
 的外部观察者字节/计数及节点接收计数核验，正常退出。各自短段57个产品逐字节相等。
 
-最终评审与完整历史 bundle 恢复记录在交付收尾完成后补充。
+## 独立评审与裁定
+
+一次独立只读评审覆盖 `5884f15..2488582`，Critical / Important / Minor 均为0，
+无需代码修复，无延期 Minor。评审检查了源差异、原文件、编译输入、原始 XML、安装与回放证据。
+后续收尾仅更新文档和记录，算法/入口/构建代码保持该评审版本。
+
+1. 保留P4异常边界：ROS初始化在try外，处理异常不会执行正常路径Finish。本次统一入口且实测
+   正常/配置错误路径一致；代价是初始化异常或处理中断仍可能缺少最终Finish产物。
+2. 旧include按迁移表更新，不恢复根转发头，保留原类/库名；代价是外部源码消费者必须更新include。
+3. 早期 `candidate_ws-source.json` 保留为过程证据，其中 frontend.cc 的include排序早于最终版本。
+   最终以 `startup-final` / `final-ros` 的源码清单，以及回放的14个运行文件绑定为准，均与最终源码/产物匹配；
+   代价是误用早期清单会误判最终源码版本。
+4. 按评审后归档/打包顺序完成交付，恢复必须匹配最终提交；代价是在最终恢复校验前取包可能拿到过期提交。
+
+## 跨电脑交付
+
+完整历史文件为工作区 `livo-atlas-p4-layout-20261024.bundle`。本轮 `recovery.json` 保存
+最终提交、bundle SHA256、大小、提交数及空bare仓库恢复结果；`completion.json` 关联最终验收。
+执行记录归档到 `validation/P4-layout-20261024/execution-record/`，旧P4证据和bundle保持原样。
+迁移时复制源码bundle、需要的证据与bag，按摘要校验后执行：
+
+```bash
+git clone /path/to/livo-atlas-p4-layout-20261024.bundle livo-atlas
+git -C livo-atlas switch refactor-fast_livo2
+```
+
+依赖和三模式构建见 [core-build.md](core-build.md) / [ros-builds.md](ros-builds.md)。
+本轮继续保留 `refactor-fast_livo2` 分支，不合并/推送。
