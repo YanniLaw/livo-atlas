@@ -23,6 +23,8 @@ which is included as part of this source code package.
 
 #include <cv_bridge/cv_bridge.h>
 
+#include "livo_atlas/frontend/image_options.h"
+#include "livo_atlas/frontend/imu_propagation.h"
 #include "livo_atlas/ros1/calibration_reader.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
 #include "livo_atlas/ros1/voxel_options_reader.h"
@@ -151,47 +153,10 @@ void LIVMapper::readParameters(ros::NodeHandle &nh)
 }
 
 void LIVMapper::ValidateImageParameters() const {
-  // Camera validation has already checked these conversions and index bounds.
-  const auto& camera = calibration_.camera;
-  const auto& visual_options = frontend_options_.visual;
-  const int width = static_cast<int>(camera.width * camera.scale);
-  const int height = static_cast<int>(camera.height * camera.scale);
-  int cell_size = visual_options.grid_size;
-  if (cell_size <= 0) {
-    throw std::invalid_argument("vio/grid_size must be positive");
-  }
-  if (cell_size <= 10) {
-    if (visual_options.grid_rows <= 0) {
-      throw std::invalid_argument("vio/grid_n_height must be positive");
-    }
-    cell_size = height / visual_options.grid_rows;
-  }
-  if (cell_size == 0 || width / cell_size == 0 || height / cell_size == 0) {
-    throw std::invalid_argument("VIO grid is incompatible with camera dimensions");
-  }
-  if (visual_options.patch_size <= 0 || visual_options.patch_size % 2 != 0) {
-    throw std::invalid_argument("vio/patch_size must be a positive even number");
-  }
-  // Search can add two to the largest pyramid index (levels - 1).
-  if (visual_options.patch_pyramid_levels <= 0 || visual_options.patch_pyramid_levels > 28) {
-    throw std::invalid_argument("vio/patch_pyrimid_level is outside the index range");
-  }
-  constexpr int kMaxIndex = std::numeric_limits<int>::max();
-  const std::int64_t patch_area = std::int64_t{visual_options.patch_size} * visual_options.patch_size;
-  if (patch_area > kMaxIndex / visual_options.patch_pyramid_levels) {
-    throw std::invalid_argument("vio/patch_size exceeds the patch index range");
-  }
-  const std::int64_t scale = std::int64_t{1} << (visual_options.patch_pyramid_levels + 1);
-  if ((visual_options.patch_size / 2 + 1) > kMaxIndex / scale || width > kMaxIndex / scale) {
-    throw std::invalid_argument("vio/patch_pyrimid_level exceeds image index bounds");
-  }
-  // Preserve VIO's floor grid counts. Truncated tails must be excluded by its
-  // image border, so every accepted pixel has an allocated row and column.
-  const std::int64_t border = (visual_options.patch_size / 2 + 1) * (scale / 2);
-  if (width % cell_size > border || height % cell_size > border) {
-    throw std::invalid_argument("VIO grid does not cover the accepted image area");
-  }
-  if (output_options_.colmap && camera.model != "Pinhole") {
+  const auto error = livo_atlas::ValidateImageOptions(calibration_.camera,
+                                                     frontend_options_.visual);
+  if (!error.empty()) throw std::invalid_argument(error);
+  if (output_options_.colmap && calibration_.camera.model != "Pinhole") {
     throw std::invalid_argument("pcd_save/colmap_output_en requires a Pinhole camera");
   }
 }
@@ -273,24 +238,9 @@ void LIVMapper::run()
   result_writer_->Finish();
 }
 
-void LIVMapper::prop_imu_once(StatesGroup &imu_prop_state, const double dt, V3D acc_avr, V3D angvel_avr)
-{
-  double mean_acc_norm = frontend_->imu_mean_acceleration_norm();
-  acc_avr = acc_avr * G_m_s2 / mean_acc_norm - imu_prop_state.bias_a;
-  angvel_avr -= imu_prop_state.bias_g;
-
-  M3D Exp_f = Exp(angvel_avr, dt);
-  /* propogation of IMU attitude */
-  imu_prop_state.rot_end = imu_prop_state.rot_end * Exp_f;
-
-  /* Specific acceleration (global frame) of IMU */
-  V3D acc_imu = imu_prop_state.rot_end * acc_avr + V3D(imu_prop_state.gravity[0], imu_prop_state.gravity[1], imu_prop_state.gravity[2]);
-
-  /* propogation of IMU */
-  imu_prop_state.pos_end = imu_prop_state.pos_end + imu_prop_state.vel_end * dt + 0.5 * acc_imu * dt * dt;
-
-  /* velocity of IMU */
-  imu_prop_state.vel_end = imu_prop_state.vel_end + acc_imu * dt;
+void LIVMapper::prop_imu_once(StatesGroup& state, double dt, V3D acc, V3D gyro) {
+  livo_atlas::PropagateImu(&state, dt, acc, gyro,
+                         frontend_->imu_mean_acceleration_norm());
 }
 
 void LIVMapper::imu_prop_callback(const ros::TimerEvent &e)

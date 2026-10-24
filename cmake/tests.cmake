@@ -18,6 +18,7 @@ target_compile_definitions(camera_image_test PRIVATE TEST_DATA_DIR="${PROJECT_SO
 livo_atlas_test(camera_config_test tests/camera_config_test.cc)
 livo_atlas_test(result_writer_test tests/io/result_writer_test.cc)
 livo_atlas_test(output_processor_test tests/output/output_test.cc)
+livo_atlas_test(adapter_contract_test tests/frontend/adapter_contract_test.cc)
 livo_atlas_test(frontend_test tests/frontend/frontend_test.cc)
 livo_atlas_test(synchronizer_test tests/frontend/synchronizer_test.cc)
 livo_atlas_test(imu_measurement_test tests/imu_measurement_test.cc)

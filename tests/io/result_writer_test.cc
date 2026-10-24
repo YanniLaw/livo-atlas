@@ -1,6 +1,7 @@
 #include "livo_atlas/io/result_writer.h"
 
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -73,7 +74,7 @@ class ResultWriterTest : public testing::Test {
     PreparedOutput output;
     output.has_cloud = true;
     ColoredCloud::Ptr cloud(new ColoredCloud);
-    pcl::PointXYZRGB point(10, 20, 30);
+    pcl::PointXYZRGB point(std::uint8_t{10}, std::uint8_t{20}, std::uint8_t{30});
     point.x = 1;
     point.y = 2;
     point.z = 3;

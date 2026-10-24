@@ -66,7 +66,8 @@ if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
     endif()
   endforeach()
 endif()
-livo_atlas_library(frontend src/frontend/frontend.cc)
+livo_atlas_library(frontend src/frontend/frontend.cc
+  src/frontend/image_options.cc src/frontend/imu_propagation.cc)
 target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
   livo_atlas_vio livo_atlas_lio livo_atlas_imu pcl_filters)
 livo_atlas_library(output src/output/output_processor.cc)
