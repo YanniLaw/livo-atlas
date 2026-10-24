@@ -2,10 +2,15 @@
 
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+
+#ifdef __linux__
+#include <unistd.h>
+#endif
 
 #include <gtest/gtest.h>
 #include <opencv2/imgcodecs.hpp>
@@ -357,6 +362,100 @@ TEST_F(ResultWriterTest, ColmapRestartClearsOnlyGeneratedReconstruction) {
   EXPECT_FALSE(fs::exists(options_.directory / "Colmap/images/00002.png"));
   EXPECT_TRUE(fs::exists(options_.directory / "keep.txt"));
 }
+
+void ExpectFileFailure(const std::function<void()>& operation,
+                       const fs::path& path) {
+  try {
+    operation();
+    FAIL() << "Expected a file error for " << path;
+  } catch (const std::runtime_error& error) {
+    EXPECT_NE(std::string(error.what()).find(path.string()), std::string::npos)
+        << error.what();
+  }
+}
+
+TEST_F(ResultWriterTest, ReportsSpecificFileOnActualTextWriteFailure) {
+#ifdef __linux__
+  fs::create_directories(options_.directory);
+  const auto path = options_.directory / "mat_out.txt";
+  fs::create_symlink("/dev/full", path);
+  ResultWriter writer(options_);
+  ExpectFileFailure([&] { writer.Write(Result(), Prepared()); }, path);
+  EXPECT_THROW(writer.Write(Result(), Prepared()), std::logic_error);
+  EXPECT_THROW(writer.Finish(), std::runtime_error);
+#else
+  GTEST_SKIP() << "Requires the Linux /dev/full device";
+#endif
+}
+
+TEST_F(ResultWriterTest, ReportsSpecificFileOnActualTextCloseFailure) {
+#ifdef __linux__
+  ResultWriter writer(options_);
+  const auto path = options_.directory / "mat_out.txt";
+  int descriptor = -1;
+  for (const auto& entry : fs::directory_iterator("/proc/self/fd")) {
+    std::error_code error;
+    if (fs::read_symlink(entry.path(), error) == path && !error) {
+      descriptor = std::stoi(entry.path().filename().string());
+      break;
+    }
+  }
+  ASSERT_GT(descriptor, 2);
+  ASSERT_EQ(close(descriptor), 0);
+  ExpectFileFailure([&] { writer.Finish(); }, path);
+  EXPECT_THROW(writer.Finish(), std::runtime_error);
+#else
+  GTEST_SKIP() << "Requires Linux file descriptor inspection";
+#endif
+}
+
+TEST_F(ResultWriterTest, InterleavedWritersKeepSeparatePcdAndImageCadences) {
+  auto first_options = options_;
+  first_options.directory = root_ / "first";
+  first_options.mode = FrontendMode::kLidarInertialVisual;
+  first_options.pcd = true;
+  first_options.images = true;
+  first_options.pcd_interval = 2;
+  first_options.image_interval = 2;
+  auto second_options = first_options;
+  second_options.directory = root_ / "second";
+  second_options.pcd_interval = 3;
+  second_options.image_interval = 3;
+  ResultWriter first(first_options);
+  ResultWriter second(second_options);
+  auto lidar_output = Prepared();
+  lidar_output.colored_cloud.reset(new ColoredCloud);
+  for (int frame = 1; frame <= 3; ++frame) {
+    auto lidar = Result(UpdateKind::kLidarInertial);
+    lidar.timestamp = 100 + frame * 0.25;
+    auto visual = Result(UpdateKind::kVisual);
+    visual.timestamp = lidar.timestamp + 0.0625;
+    visual.color_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(7, 8, 9));
+    first.Write(lidar, lidar_output);
+    second.Write(lidar, lidar_output);
+    first.Write(visual, Prepared());
+    second.Write(visual, Prepared());
+  }
+  first.Finish();
+  second.Finish();
+  EXPECT_TRUE(fs::exists(first_options.directory / "pcd/100.500000.pcd"));
+  EXPECT_TRUE(fs::exists(first_options.directory / "image/100.562500.png"));
+  EXPECT_TRUE(fs::exists(second_options.directory / "pcd/100.750000.pcd"));
+  EXPECT_TRUE(fs::exists(second_options.directory / "image/100.812500.png"));
+  for (const auto& directory : {first_options.directory, second_options.directory}) {
+    int clouds = 0;
+    int images = 0;
+    for (const auto& entry : fs::directory_iterator(directory / "pcd")) {
+      if (entry.path().extension() == ".pcd") ++clouds;
+    }
+    for (const auto& entry : fs::directory_iterator(directory / "image")) {
+      if (entry.path().extension() == ".png") ++images;
+    }
+    EXPECT_EQ(clouds, 1);
+    EXPECT_EQ(images, 1);
+  }
+}
+
 
 }  // namespace
 }  // namespace livo_atlas

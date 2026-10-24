@@ -300,7 +300,6 @@ void LIVMapper::imu_prop_callback(const ros::TimerEvent &e)
   new_imu = false; // 控制propagate频率和IMU频率一致
   if (imu_prop_enable && !prop_imu_buffer.empty())
   {
-    static double last_t_from_lidar_end_time = 0;
     if (state_update_flg)
     {
       imu_propagate = latest_ekf_state;
@@ -309,16 +308,15 @@ void LIVMapper::imu_prop_callback(const ros::TimerEvent &e)
       {
         prop_imu_buffer.pop_front();
       }
-      last_t_from_lidar_end_time = 0;
+      last_time_from_lidar_end_ = 0;
       for (int i = 0; i < prop_imu_buffer.size(); i++)
       {
         double t_from_lidar_end_time = prop_imu_buffer[i].timestamp - latest_ekf_time;
-        double dt = t_from_lidar_end_time - last_t_from_lidar_end_time;
-        // cout << "prop dt" << dt << ", " << t_from_lidar_end_time << ", " << last_t_from_lidar_end_time << endl;
+        double dt = t_from_lidar_end_time - last_time_from_lidar_end_;
         V3D acc_imu(prop_imu_buffer[i].linear_acceleration.x(), prop_imu_buffer[i].linear_acceleration.y(), prop_imu_buffer[i].linear_acceleration.z());
         V3D omg_imu(prop_imu_buffer[i].angular_velocity.x(), prop_imu_buffer[i].angular_velocity.y(), prop_imu_buffer[i].angular_velocity.z());
         prop_imu_once(imu_propagate, dt, acc_imu, omg_imu);
-        last_t_from_lidar_end_time = t_from_lidar_end_time;
+        last_time_from_lidar_end_ = t_from_lidar_end_time;
       }
       state_update_flg = false;
     }
@@ -327,9 +325,9 @@ void LIVMapper::imu_prop_callback(const ros::TimerEvent &e)
       V3D acc_imu(newest_imu.linear_acceleration.x(), newest_imu.linear_acceleration.y(), newest_imu.linear_acceleration.z());
       V3D omg_imu(newest_imu.angular_velocity.x(), newest_imu.angular_velocity.y(), newest_imu.angular_velocity.z());
       double t_from_lidar_end_time = newest_imu.timestamp - latest_ekf_time;
-      double dt = t_from_lidar_end_time - last_t_from_lidar_end_time;
+      double dt = t_from_lidar_end_time - last_time_from_lidar_end_;
       prop_imu_once(imu_propagate, dt, acc_imu, omg_imu);
-      last_t_from_lidar_end_time = t_from_lidar_end_time;
+      last_time_from_lidar_end_ = t_from_lidar_end_time;
     }
 
     result_publisher_->PublishImuPropagation(imu_propagate,

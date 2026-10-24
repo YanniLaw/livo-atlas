@@ -71,6 +71,7 @@ class LIVMapper {
   livo_atlas::ImuMeasurement newest_imu;
   ros::Time newest_imu_stamp_;
   double latest_ekf_time = 0.0;
+  double last_time_from_lidar_end_ = 0.0;
   double imu_time_offset = 0.0;
   double lidar_time_offset = 0.0;
   bool imu_en = false;

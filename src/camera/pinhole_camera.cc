@@ -17,7 +17,8 @@ PinholeCamera::PinholeCamera(const CameraConfig& config)
   if (config.model != "Pinhole") {
     throw std::invalid_argument("PinholeCamera requires Pinhole calibration");
   }
-  intrinsics_ = (cv::Mat_<float>(3, 3) << fx(), 0, cx(), 0, fy(), cy(), 0, 0, 1);
+  intrinsics_ =
+      (cv::Mat_<float>(3, 3) << fx(), 0, cx(), 0, fy(), cy(), 0, 0, 1);
   coefficients_ = (cv::Mat_<float>(1, 5) << distortion_[0], distortion_[1],
                     distortion_[2], distortion_[3], distortion_[4]);
   cv::initUndistortRectifyMap(intrinsics_, coefficients_,
@@ -59,8 +60,11 @@ Eigen::Vector3d PinholeCamera::Unproject(const Eigen::Vector2d& pixel) const {
 
 void PinholeCamera::UndistortImage(const cv::Mat& raw, cv::Mat* output) const {
   if (output == nullptr) throw std::invalid_argument("null undistorted image");
-  if (distorted_) cv::remap(raw, *output, map_x_, map_y_, cv::INTER_LINEAR);
-  else *output = raw.clone();
+  if (distorted_) {
+    cv::remap(raw, *output, map_x_, map_y_, cv::INTER_LINEAR);
+  } else {
+    *output = raw.clone();
+  }
 }
 
 }  // namespace livo_atlas

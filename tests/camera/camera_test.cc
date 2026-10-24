@@ -32,7 +32,8 @@ CameraConfig Config() {
 }
 
 TEST(CameraTest, MatchesFrozenProjectionAndUnitBearings) {
-  std::ifstream input(std::string(TEST_DATA_DIR) + "/camera/data/legacy_camera.csv");
+  std::ifstream input(std::string(TEST_DATA_DIR) +
+                      "/camera/data/legacy_camera.csv");
   ASSERT_TRUE(input.is_open());
   std::unique_ptr<Camera> camera;
   int rows = 0;
@@ -49,7 +50,9 @@ TEST(CameraTest, MatchesFrozenProjectionAndUnitBearings) {
       config.fy = std::stod(fields[7]);
       config.cx = std::stod(fields[8]);
       config.cy = std::stod(fields[9]);
-      for (int i = 0; i < 4; ++i) config.distortion[i] = std::stod(fields[10 + i]);
+      for (int i = 0; i < 4; ++i) {
+        config.distortion[i] = std::stod(fields[10 + i]);
+      }
       camera = CreateCamera(config);
       ASSERT_NE(camera, nullptr);
       continue;
@@ -66,10 +69,13 @@ TEST(CameraTest, MatchesFrozenProjectionAndUnitBearings) {
     }
     for (int i = 0; i < 3; ++i) {
       const double expected = std::stod(fields[5 + i]);
-      if (std::isnan(expected)) EXPECT_TRUE(std::isnan(actual[i]));
       // Frozen vikit used native FMA. The baseline-ISA control is bit exact;
       // native vs baseline differs by at most 3 ULP on the captured platform.
-      else EXPECT_DOUBLE_EQ(actual[i], expected);
+      if (std::isnan(expected)) {
+        EXPECT_TRUE(std::isnan(actual[i]));
+      } else {
+        EXPECT_DOUBLE_EQ(actual[i], expected);
+      }
     }
     ++rows;
   }
@@ -77,7 +83,8 @@ TEST(CameraTest, MatchesFrozenProjectionAndUnitBearings) {
 }
 
 TEST(CameraTest, KeepsFrozenUndistortedPixelBytes) {
-  std::ifstream input(std::string(TEST_DATA_DIR) + "/camera/data/legacy_undistort.csv");
+  std::ifstream input(std::string(TEST_DATA_DIR) +
+                      "/camera/data/legacy_undistort.csv");
   ASSERT_TRUE(input.is_open());
   for (std::string line; std::getline(input, line);) {
     const auto fields = Fields(line);
@@ -131,8 +138,11 @@ TEST(CameraTest, RejectsBadConfigurationBeforeModelAllocation) {
       if (variant == 3) config.fx = 0;
       if (variant == 4) config.distortion[3] = std::nan("");
       EXPECT_EQ(CreateCamera(config), nullptr);
-      if (model == "Pinhole") EXPECT_THROW(PinholeCamera{config}, std::invalid_argument);
-      else EXPECT_THROW(EquidistantCamera{config}, std::invalid_argument);
+      if (model == "Pinhole") {
+        EXPECT_THROW(PinholeCamera{config}, std::invalid_argument);
+      } else {
+        EXPECT_THROW(EquidistantCamera{config}, std::invalid_argument);
+      }
     }
   }
 }

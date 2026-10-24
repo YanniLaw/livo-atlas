@@ -14,7 +14,8 @@ float InterpolateGray8(const cv::Mat& image, float u, float v) {
   if (!std::isfinite(u) || !std::isfinite(v) || u < 0 || v < 0 ||
       static_cast<double>(u) >= image.cols - 1 ||
       static_cast<double>(v) >= image.rows - 1) {
-    throw std::out_of_range("InterpolateGray8 requires a full 2x2 neighborhood");
+    throw std::out_of_range(
+        "InterpolateGray8 requires a full 2x2 neighborhood");
   }
   const int x = static_cast<int>(std::floor(u));
   const int y = static_cast<int>(std::floor(v));
@@ -39,7 +40,9 @@ float ShiTomasiScore(const cv::Mat& image, int u, int v) {
   constexpr int kBoxArea = kBoxSize * kBoxSize;
   // Check before adding offsets, including for extreme integer coordinates.
   if (u < kHalfBox + 1 || v < kHalfBox + 1 ||
-      u >= image.cols - kHalfBox - 1 || v >= image.rows - kHalfBox - 1) return 0;
+      u >= image.cols - kHalfBox - 1 || v >= image.rows - kHalfBox - 1) {
+    return 0;
+  }
   float dxx = 0;
   float dyy = 0;
   float dxy = 0;

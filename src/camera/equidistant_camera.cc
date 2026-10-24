@@ -11,7 +11,8 @@ EquidistantCamera::EquidistantCamera(const CameraConfig& config)
       distorted_(std::abs(config.distortion[0]) > 1e-7),
       distortion_(config.distortion) {
   if (config.model != "EquidistantCamera") {
-    throw std::invalid_argument("EquidistantCamera requires equidistant calibration");
+    throw std::invalid_argument(
+        "EquidistantCamera requires equidistant calibration");
   }
 }
 
@@ -32,7 +33,8 @@ Eigen::Vector2d EquidistantCamera::Project(const Eigen::Vector2d& point) const {
   return {point.x() * factor * fx() + cx(), point.y() * factor * fy() + cy()};
 }
 
-Eigen::Vector3d EquidistantCamera::Unproject(const Eigen::Vector2d& pixel) const {
+Eigen::Vector3d EquidistantCamera::Unproject(
+    const Eigen::Vector2d& pixel) const {
   double x = (pixel.x() - cx()) / fx();
   double y = (pixel.y() - cy()) / fy();
   if (distorted_) {

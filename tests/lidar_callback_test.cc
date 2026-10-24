@@ -66,6 +66,52 @@ class LidarCallbackTest : public ::testing::Test {
   std::filesystem::path output_directory_;
 };
 
+TEST_F(LidarCallbackTest, TwoMappersHaveIndependentHighFrequencyImuCursors) {
+  ros::NodeHandle node;
+  const auto second_directory = OutputDirectory();
+  node.setParam("output/directory", second_directory.string());
+  auto second = std::make_unique<LIVMapper>(node);
+  auto initialize = [](LIVMapper* mapper) {
+    mapper->frontend_options_.imu.enabled = true;
+    mapper->frontend_options_.imu.initialization_frames = 1;
+    mapper->InitializeFrontend();
+    SynchronizedMeasurements input;
+    input.lio_vio_flg = UpdateKind::kLidarInertial;
+    input.last_lio_update_time = 100;
+    input.measures.emplace_back();
+    for (double timestamp : {100.0, 100.0625}) {
+      input.measures.back().imu.push_back(
+          {timestamp, Eigen::Vector3d::Zero(), Eigen::Vector3d(0, 0, -9.81)});
+    }
+    mapper->frontend_->Process(&input);
+    EXPECT_FALSE(mapper->frontend_->imu_needs_initialization());
+    mapper->imu_prop_enable = true;
+    mapper->ekf_finish_once = true;
+    mapper->latest_ekf_time = 100;
+    mapper->latest_ekf_state.gravity.setZero();
+    mapper->latest_ekf_state.vel_end = Eigen::Vector3d(1, 0, 0);
+    mapper->state_update_flg = true;
+    mapper->prop_imu_buffer.push_back(
+        {100, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()});
+    mapper->new_imu = true;
+    mapper->imu_prop_callback({});
+  };
+  initialize(mapper_.get());
+  initialize(second.get());
+  for (LIVMapper* mapper : {mapper_.get(), second.get()}) {
+    mapper->newest_imu =
+        {100.125, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()};
+    mapper->new_imu = true;
+    mapper->imu_prop_callback({});
+  }
+  EXPECT_DOUBLE_EQ(mapper_->imu_propagate.pos_end.x(), 0.125);
+  EXPECT_DOUBLE_EQ(second->imu_propagate.pos_end.x(), 0.125);
+  EXPECT_TRUE(mapper_->imu_propagate.pos_end.isApprox(
+      second->imu_propagate.pos_end, 0));
+  second.reset();
+  std::filesystem::remove_all(second_directory);
+}
+
 livox_ros_driver::CustomMsg::Ptr LivoxMessage(double time, float x) {
   livox_ros_driver::CustomMsg::Ptr message(new livox_ros_driver::CustomMsg);
   message->header.stamp.fromSec(time);

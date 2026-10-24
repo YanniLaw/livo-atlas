@@ -25,7 +25,8 @@ inline bool RunFrontendScenario(FrontendMode mode) {
   for (int frame = 0; frame < 4; ++frame) {
     const double begin = 100 + frame * 0.25;
     SynchronizedMeasurements input;
-    input.lio_vio_flg = inertial ? UpdateKind::kLidarInertial : UpdateKind::kLidarOnly;
+    input.lio_vio_flg =
+        inertial ? UpdateKind::kLidarInertial : UpdateKind::kLidarOnly;
     input.last_lio_update_time = begin;
     input.lidar_frame_beg_time = begin;
     input.lidar_frame_end_time = begin + 0.125;
@@ -55,7 +56,10 @@ inline bool RunFrontendScenario(FrontendMode mode) {
       continue;
     }
     if (!lidar.updated || !lidar.world_cloud || lidar.world_cloud->empty() ||
-        !lidar.estimate.pos_end.allFinite() || !lidar.estimate.cov.allFinite()) return false;
+        !lidar.estimate.pos_end.allFinite() ||
+        !lidar.estimate.cov.allFinite()) {
+      return false;
+    }
     ++lidar_updates;
     if (!visual) continue;
     input.lio_vio_flg = UpdateKind::kVisual;
@@ -69,9 +73,13 @@ inline bool RunFrontendScenario(FrontendMode mode) {
       }
     }
     const auto image = frontend.Process(&input);
-    if (!image.updated || image.color_image.empty() || image.tracking_image.empty() ||
-        !image.estimate.pos_end.allFinite() || !image.estimate.cov.allFinite()) return false;
-    tracked |= cv::norm(image.color_image, image.tracking_image, cv::NORM_INF) > 0;
+    if (!image.updated || image.color_image.empty() ||
+        image.tracking_image.empty() || !image.estimate.pos_end.allFinite() ||
+        !image.estimate.cov.allFinite()) {
+      return false;
+    }
+    tracked |=
+        cv::norm(image.color_image, image.tracking_image, cv::NORM_INF) > 0;
     ++visual_updates;
     // A caller that skips publishing must still consume this frame's cloud.
     if (frontend.Process(&input).updated) return false;
