@@ -6,7 +6,7 @@
 
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "ros2/mapper_node.h"
-#include "ros2/mapping_session.h"
+#include "livo_atlas/runtime/mapping_session.h"
 #include "ros2/parameters.h"
 #include "ros2/result_publisher.h"
 

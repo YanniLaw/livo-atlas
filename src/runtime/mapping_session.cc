@@ -8,36 +8,17 @@
 
 #include "livo_atlas/frontend/image_options.h"
 #include "livo_atlas/frontend/imu_propagation.h"
-#include "livo_atlas/sensor/synchronizer.h"
+#include "livo_atlas/runtime/mapping_session.h"
 #include "livo_atlas/sensor/preprocess.h"
-#include "ros2/mapping_session.h"
+#include "livo_atlas/sensor/synchronizer.h"
 
-namespace livo_atlas::ros2 {
+namespace livo_atlas {
 namespace {
-FrontendMode Mode(const SessionOptions& options) {
-  if (options.image_enabled && options.lidar_enabled) {
-    return FrontendMode::kLidarInertialVisual;
-  }
-  return options.frontend.imu.enabled ? FrontendMode::kLidarInertial
-                                      : FrontendMode::kLidarOnly;
-}
-SessionOptions Prepare(SessionOptions options) {
-  const auto error = ValidateImageOptions(options.frontend.calibration.camera,
-                                          options.frontend.visual);
-  if (!error.empty()) throw std::invalid_argument(error);
-  options.output.mode = options.processor.mode = Mode(options);
-  options.output.calibration = options.processor.calibration =
-      options.frontend.calibration;
-  options.processor.colmap = options.output.colmap;
-  ValidateOutputOptions(options.output);
-  return options;
-}
 // Preserve the two ROS1 fromSec/toSec stages without importing ROS into this
-// ordinary session. The input range is the ROS2 signed seconds range.
-double NanosecondTime(double value) {
-  if (!std::isfinite(value) ||
-      value < std::numeric_limits<std::int32_t>::min() ||
-      value >= double{std::numeric_limits<std::int32_t>::max()} + 1) {
+// ordinary session. The source supplies its whole-second transport range.
+double NanosecondTime(double value, const TimestampRange& range) {
+  if (!std::isfinite(value) || value < range.minimum ||
+      value >= range.maximum) {
     throw std::invalid_argument("corrected IMU timestamp is out of range");
   }
   double whole = std::floor(value);
@@ -46,14 +27,18 @@ double NanosecondTime(double value) {
     ++whole;
     nanoseconds = 0;
   }
-  return whole + static_cast<double>(nanoseconds) * 1e-9;
+  const double result = whole + static_cast<double>(nanoseconds) * 1e-9;
+  if (result < range.minimum || result >= range.maximum) {
+    throw std::invalid_argument("corrected IMU timestamp is out of range");
+  }
+  return result;
 }
 }  // namespace
 class MappingSession::Impl {
  public:
   explicit Impl(SessionOptions options)
-      : options_(Prepare(std::move(options))),
-        synchronizer_(Mode(options_), options_.exposure_time),
+      : options_(PrepareSessionOptions(std::move(options))),
+        synchronizer_(options_.output.mode, options_.exposure_time),
         frontend_(options_.frontend),
         processor_(options_.processor),
         writer_(options_.output) {
@@ -79,10 +64,11 @@ class MappingSession::Impl {
       return false;
     }
     double timestamp =
-        NanosecondTime(measurement.timestamp - options_.imu_time_offset);
+        NanosecondTime(measurement.timestamp - options_.imu_time_offset,
+                       options_.imu_time_range);
     if (options_.driver_fix) timestamp += std::round(last_lidar_ - timestamp);
     if (last_imu_ > 0 && timestamp < last_imu_) return false;
-    measurement.timestamp = NanosecondTime(timestamp);
+    measurement.timestamp = NanosecondTime(timestamp, options_.imu_time_range);
     last_imu_ = timestamp;
     buffers_.imu.push_back(measurement);
     buffers_.latest_imu_time = timestamp;
@@ -105,25 +91,26 @@ class MappingSession::Impl {
     last_image_ = timestamp;
     return true;
   }
+  SynchronizationResult ProcessNext(const ResultCallback& callback) {
+    const auto status = synchronizer_.TrySynchronize(&buffers_, &measurements_);
+    if (status != SynchronizationResult::kReady) return status;
+    const auto start = std::chrono::steady_clock::now();
+    const auto result = frontend_.Process(&measurements_);
+    const double elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+            .count();
+    if (result.updated && options_.propagate_imu) {
+      latest_state_ = result.estimate;
+      latest_time_ = result.timestamp;
+      state_updated_ = have_estimate_ = true;
+    }
+    const auto prepared = processor_.Process(result);
+    writer_.Write(result, prepared);
+    if (result.updated && callback) callback(result, prepared, elapsed);
+    return status;
+  }
   void ProcessAvailable(const ResultCallback& callback) {
-    while (true) {
-      const auto status =
-          synchronizer_.TrySynchronize(&buffers_, &measurements_);
-      if (status == SynchronizationResult::kWaiting) return;
-      if (status != SynchronizationResult::kReady) continue;
-      const auto start = std::chrono::steady_clock::now();
-      const auto result = frontend_.Process(&measurements_);
-      const double elapsed = std::chrono::duration<double>(
-                                 std::chrono::steady_clock::now() - start)
-                                 .count();
-      if (result.updated && options_.propagate_imu) {
-        latest_state_ = result.estimate;
-        latest_time_ = result.timestamp;
-        state_updated_ = have_estimate_ = true;
-      }
-      const auto prepared = processor_.Process(result);
-      writer_.Write(result, prepared);
-      if (result.updated) callback(result, prepared, elapsed);
+    while (ProcessNext(callback) != SynchronizationResult::kWaiting) {
     }
   }
   std::optional<PropagationResult> PropagateLatest() {
@@ -180,6 +167,10 @@ bool MappingSession::AddImu(ImuMeasurement measurement) {
 bool MappingSession::AddImage(ImageMeasurement measurement) {
   return impl_->AddImage(std::move(measurement));
 }
+SynchronizationResult MappingSession::ProcessNext(
+    const ResultCallback& callback) {
+  return impl_->ProcessNext(callback);
+}
 void MappingSession::ProcessAvailable(const ResultCallback& callback) {
   impl_->ProcessAvailable(callback);
 }
@@ -187,4 +178,4 @@ std::optional<PropagationResult> MappingSession::PropagateLatest() {
   return impl_->PropagateLatest();
 }
 void MappingSession::Finish() { impl_->writer_.Finish(); }
-}  // namespace livo_atlas::ros2
+}  // namespace livo_atlas

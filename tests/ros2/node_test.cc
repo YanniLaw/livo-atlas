@@ -11,7 +11,7 @@
 #include "ros2/mapper_node.h"
 namespace livo_atlas::ros2 {
 TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
-  auto params = test::Parameters("/tmp/livo_atlas_p4/tests/dds");
+  auto params = test::Parameters("/tmp/livo_atlas_convergence/tests/dds");
   params.emplace_back("common.img_en", 0);
   params.emplace_back("common.imu_topic", "/p4_test/imu");
   params.emplace_back("common.lid_topic", "/p4_test/lidar");

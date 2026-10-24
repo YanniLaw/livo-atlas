@@ -3,7 +3,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <string>
 
-#include "ros2/mapping_session.h"
+#include "livo_atlas/runtime/mapping_session.h"
 namespace livo_atlas::ros2 {
 struct NodeParameters {
   SessionOptions session;

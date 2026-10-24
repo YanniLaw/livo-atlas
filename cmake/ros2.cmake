@@ -12,16 +12,14 @@ add_library(livo_atlas_ros2_conversions src/ros2/measurement_conversions.cc)
 target_link_libraries(livo_atlas_ros2_conversions livo_atlas::core)
 ament_target_dependencies(livo_atlas_ros2_conversions
   sensor_msgs cv_bridge pcl_conversions livox_ros_driver2)
-add_library(livo_atlas_ros2_session src/ros2/mapping_session.cc)
-target_include_directories(livo_atlas_ros2_session PUBLIC ${PROJECT_SOURCE_DIR}/src)
-target_link_libraries(livo_atlas_ros2_session livo_atlas::core livo_atlas::output livo_atlas::io)
 add_library(livo_atlas_ros2_mapper src/ros2/parameters.cc src/ros2/mapper_node.cc src/ros2/result_publisher.cc)
-target_link_libraries(livo_atlas_ros2_mapper livo_atlas_ros2_session livo_atlas_ros2_conversions)
+target_include_directories(livo_atlas_ros2_mapper PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(livo_atlas_ros2_mapper livo_atlas_runtime livo_atlas_ros2_conversions)
 ament_target_dependencies(livo_atlas_ros2_mapper rclcpp nav_msgs geometry_msgs
   visualization_msgs tf2_ros cv_bridge)
-set_target_properties(livo_atlas_ros2_conversions livo_atlas_ros2_session
+set_target_properties(livo_atlas_ros2_conversions
   livo_atlas_ros2_mapper PROPERTIES INSTALL_RPATH "$ORIGIN" INSTALL_RPATH_USE_LINK_PATH TRUE)
-install(TARGETS livo_atlas_ros2_conversions livo_atlas_ros2_session livo_atlas_ros2_mapper
+install(TARGETS livo_atlas_ros2_conversions livo_atlas_ros2_mapper
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
 install(DIRECTORY include/livo_atlas/ros2 DESTINATION include/livo_atlas)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})

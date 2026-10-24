@@ -12,7 +12,7 @@
 #include "ros2/parameters.h"
 namespace livo_atlas::ros2 {
 TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
-  auto params = test::Parameters("/tmp/livo_atlas_p4/tests/parameter-test");
+  auto params = test::Parameters("/tmp/livo_atlas_convergence/tests/parameter-test");
   params.emplace_back("common.imu_topic", "~/imu");
   auto options = rclcpp::NodeOptions().parameter_overrides(params);
   options.arguments({"--ros-args", "-r", "/parameter_test/imu:=/review/imu"});
@@ -48,7 +48,7 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
     SCOPED_TRACE(invalid.get_name());
     const auto directory =
         std::filesystem::temp_directory_path() /
-        ("livo_atlas_p4/tests/invalid-" + std::to_string(++index));
+        ("livo_atlas_convergence/tests/invalid-" + std::to_string(++index));
     ASSERT_FALSE(std::filesystem::exists(directory));
     auto params = test::Parameters(directory.string());
     for (auto it = params.begin(); it != params.end();)
@@ -78,7 +78,7 @@ TEST(Ros2ParametersTest, InvalidTopicsAndCovariancesPreserveExistingOutputs) {
     SCOPED_TRACE(invalid.get_name());
     const auto directory =
         std::filesystem::temp_directory_path() /
-        ("livo_atlas_p4/tests/preserve-" + std::to_string(seed) + "-" +
+        ("livo_atlas_convergence/tests/preserve-" + std::to_string(seed) + "-" +
          std::to_string(++index));
     const std::vector<std::string> names = {
         "mat_pre.txt", "mat_out.txt", "imu.txt", "Colmap/sparse/0/images.txt",
@@ -116,7 +116,7 @@ TEST(Ros2ParametersTest,
     SCOPED_TRACE(invalid.get_name());
     const auto directory =
         std::filesystem::temp_directory_path() /
-        ("livo_atlas_p4/tests/absent-" + std::to_string(seed) + "-" +
+        ("livo_atlas_convergence/tests/absent-" + std::to_string(seed) + "-" +
          std::to_string(++index));
     auto params = test::Parameters(directory.string());
     params.push_back(invalid);
