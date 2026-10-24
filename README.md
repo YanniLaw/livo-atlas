@@ -2,6 +2,11 @@
 
 本工程以 `livo-atlas` 为包目录开展重构。[重构文档](docs/README.md)包含目标架构、阶段验收、跨电脑验证步骤及 C++ 编码约定。
 
+当前提供普通 C++17 核心、ROS1 Noetic 和 ROS2 Humble；两个 ROS 版本共用
+`src/app/mapping_main.cc` 入口，按构建版本选择接入库。构建操作见
+[双版本说明](docs/ros-builds.md)，职责目录和旧头路径迁移见
+[源码组织](docs/core-build.md#源码组织与-include-迁移)。
+
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 
 ### 📢 News
@@ -52,7 +57,8 @@ The [**FAST-Calib**](https://github.com/hku-mars/FAST-Calib) toolkit is recommen
 
 ### 2.1 Ubuntu and ROS
 
-Ubuntu 18.04~20.04.  [ROS Installation](http://wiki.ros.org/ROS/Installation).
+本分支已验证 Ubuntu 20.04 / ROS1 Noetic 与 Ubuntu 22.04 / ROS2 Humble。
+依赖和构建命令见 [双版本说明](docs/ros-builds.md)。
 
 ### 2.2 PCL && Eigen && OpenCV
 

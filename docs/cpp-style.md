@@ -34,11 +34,13 @@
 
 ## 格式检查
 
-在安装了支持 C++17 的 clang-format 的机器上，只格式化本次新增或迁移的文件：
+在安装了支持 C++17 的 clang-format 的机器上，对本次新增或实质修改的文件执行格式检查；仅调整路径的原算法文件保留正文：
 
 ```bash
-clang-format -i tests/pcl_memory_compatibility_test.cc
+clang-format -style=Google --dry-run --Werror src/app/mapping_main.cc
 git diff --check
 ```
 
-格式化后仍需构建和运行行为测试。本机尚未发现 clang-format，因此当前代码按 Google 布局人工检查，不声称已通过自动格式检查。
+格式化后仍需构建和运行行为测试。本机宿主环境未安装 clang-format；统一入口阶段使用已有 Humble 容器中的 clang-format14，
+对新 `mapping_main.cc` 执行 Google 格式化和只读复核。原算法文件仅迁移路径/include/guard，
+未整文件格式化；各阶段具体检查范围以验证报告为准。

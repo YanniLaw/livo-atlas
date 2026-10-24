@@ -1,6 +1,6 @@
 # 统一 ROS 入口与职责目录实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 用同一入口编译 Noetic/Humble 节点，并将剩余旧算法文件按职责分类。
 
@@ -44,11 +44,11 @@ spec 中的 source/header 映射是本计划的完整迁移表；保持已有库
 
 **Interfaces:** Consumes 现有 `LIVMapper(ros::NodeHandle&)`、`MapperNode()`/`Finish()`；produces 同名 `fastlivo_mapping`，私有 `LIVO_ATLAS_ROS_VERSION=1|2`，普通库接口不变。
 
-- [ ] **Step 1: 验证旧构建不满足同一 TU。** 新证据脚本读取 P4 两份 compile_commands，断言节点源均为 `src/app/mapping_main.cc`，记录旧入口失败；不为目录移动添加产品单元测试。
-- [ ] **Step 2: 实施统一入口和节点 CMake。** 使用一处 main、共用状态和异常处理，条件分支保留两个版本各自生命周期；节点 RPATH、可选 mimalloc、安装目的地保持。
-- [ ] **Step 3: 构建两种真实节点并验证编译输入。** 新 Noetic candidate_ws、新 Humble build2，串行 `cmake --build ... --target fastlivo_mapping -- -j1`；断言两种模式同一 TU、宏私有、普通核心不含 ROS 依赖。
-- [ ] **Step 4: 运行实际启动检查。** Noetic 50 例，Humble 16 例，验证正常 SIGINT 与无效配置的非零退出，输出到新目录。
-- [ ] **Step 5: 提交。** `refactor: share the mapping entry across ROS versions`。
+- [x] **Step 1: 验证旧构建不满足同一 TU。** 新证据脚本读取 P4 两份 compile_commands，断言节点源均为 `src/app/mapping_main.cc`，记录旧入口失败；不为目录移动添加产品单元测试。
+- [x] **Step 2: 实施统一入口和节点 CMake。** 使用一处 main、共用状态和异常处理，条件分支保留两个版本各自生命周期；节点 RPATH、可选 mimalloc、安装目的地保持。
+- [x] **Step 3: 构建两种真实节点并验证编译输入。** 新 Noetic candidate_ws、新 Humble build2，串行 `cmake --build ... --target fastlivo_mapping -- -j1`；断言两种模式同一 TU、宏私有、普通核心不含 ROS 依赖。
+- [x] **Step 4: 运行实际启动检查。** Noetic 50 例，Humble 16 例，验证正常 SIGINT 与无效配置的非零退出，输出到新目录。
+- [x] **Step 5: 提交。** `refactor: share the mapping entry across ROS versions`。
 
 Expected: 旧编译输入断言失败；新节点编译成功，统一 TU 检查和 66 个启动检查通过。
 Task gate: `/usr/bin/python3 validation/P4-layout-20261024/check_layout.py entry`。
@@ -59,22 +59,22 @@ Task gate: `/usr/bin/python3 validation/P4-layout-20261024/check_layout.py entry
 
 **Interfaces:** Consumes Task1 节点与旧类/库名；produces 规范新路径，无根转发头；保留全部 C++ 类型/符号。
 
-- [ ] **Step 1: 编译新路径消费者确认缺失。** 使用头文件自包含探针包含 `livo_atlas/frontend/imu/imu_processor.h`，旧树报该头不存在。
-- [ ] **Step 2: 迁移并更新引用。** 执行 spec 映射，更新 include、guard、构建安装与测试路径；必要时补标准自包含 include，不更改算法正文。
-- [ ] **Step 3: 检查迁移内容。** 对5884f15旧路径和新路径逐文件去除 include/guard 后比较，正文完全相同；实际包根无剩余算法实现或旧转发头。
-- [ ] **Step 4: 构建全部现有测试和新头。** Noetic158、ROS12、Humble176，mode0安装检查的头文件逐个编译；Python Noetic13和Humble5均通过，Noetic ROS2工具模块按现有条件跳过。
-- [ ] **Step 5: 提交。** `refactor: group estimator sources and headers by responsibility`。
+- [x] **Step 1: 编译新路径消费者确认缺失。** 使用头文件自包含探针包含 `livo_atlas/frontend/imu/imu_processor.h`，旧树报该头不存在。
+- [x] **Step 2: 迁移并更新引用。** 执行 spec 映射，更新 include、guard、构建安装与测试路径；必要时补标准自包含 include，不更改算法正文。
+- [x] **Step 3: 检查迁移内容。** 对5884f15旧路径和新路径逐文件去除 include/guard 后比较，正文完全相同；实际包根无剩余算法实现或旧转发头。
+- [x] **Step 4: 构建全部现有测试和新头。** Noetic158、ROS12、Humble176，mode0安装检查的头文件逐个编译；Python Noetic13和Humble5均通过，Noetic ROS2工具模块按现有条件跳过。
+- [x] **Step 5: 提交。** `refactor: group estimator sources and headers by responsibility`。
 
 Expected: 新路径探针先缺头失败，再编译成功；两个版本全部原测试通过，正文比较一致。
 Task gate: `/usr/bin/python3 validation/P4-layout-20261024/check_layout.py sources`。
 
 ### Task 3: 安装、实际回放与可移植交付
 
-**Files:** `docs/{core-build,ros-builds}.md`、README、本阶段验收记录；验证副本在新证据目录，当前仓库不增加框架。
+**Files:** `docs/{core-build,ros-builds,cpp-style}.md`、README、本阶段验收记录；验证副本在新证据目录，当前仓库不增加框架。
 
 **Interfaces:** Consumes Task1/2相同目标与新头；produces 可复现文档、完整验收结果与独立历史 bundle。
 
-- [ ] **Step 1: mode0三个安装消费。** shared/static均运行138例和所有普通头检查，禁OpenMP安装消费者执行LO/LIO/VIO；Humble ament安装消费者同样通过，无旧根头。
+- [x] **Step 1: mode0三个安装消费。** shared/static均运行138例和所有普通头检查，禁OpenMP安装消费者执行LO/LIO/VIO；Humble ament安装消费者同样通过，无旧根头。
 - [ ] **Step 2: 官方 bag 回放。** Noetic catkin/Humble真实colcon安装节点各运行3s产品和136s完整窗口，对各自P4同环境结果严格比较 trajectory/mat_pre/mat_out/imu、发布语义及57产品；ROS2回调输入计数和14个运行文件SHA保持绑定。
 - [ ] **Step 3: 更新当前文档。** 给出单入口流程、新目录、旧include迁移表、三模式构建命令、执行证据、仍存在的legacy内部接口边界；历史P4文档保留原样。
 - [ ] **Step 4: 提交可审查实现并执行一次整阶段评审。** 比较5884f15..HEAD，评审spec/plan/ledger及五项Review Focus，重要问题一次RED→GREEN修复与相关全套验证。

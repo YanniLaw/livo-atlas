@@ -9,6 +9,14 @@ Ubuntu22.04/Humble。跨系统需要重新编译。
 ROS2 的 `mapping_session` 是接入实现中的普通 C++ 组合对象，不是另一套估计器，也不是新公开 SDK。
 核心安装与外部 CMake 消费见 [core-build.md](core-build.md)。
 
+两个版本共用 `src/app/mapping_main.cc` 中唯一的 main，按 OpenVINS 的
+[统一入口组织方式](https://github.com/rpng/open_vins/blob/master/ov_msckf/src/run_subscribe_msckf.cpp)
+选择 ROS 初始化、适配器和执行器。`cmake/node.cmake` 创建一次节点目标，
+仅给它定义 `LIVO_ATLAS_ROS_VERSION=1|2`；普通算法库没有这个宏。Noetic 分支创建
+LIVMapper，Humble 分支创建 MapperNode 并在单线程 executor 退出后 Finish/shutdown。
+`src/ros1` / `src/ros2` 保存各自的接入实现；源码与头文件的职责目录和 include 迁移表见
+[源码组织](core-build.md#源码组织与-include-迁移)。
+
 ## 依赖
 
 核心需要 Eigen3、PCL、OpenCV 和兼容旧非模板 API 的 Sophus。继续沿用原工程兼容版

@@ -2,7 +2,7 @@
 
 P3 把相机模型、图像基础操作、同步、预处理、前端和文件输出作为普通
 C++17 库构建。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Humble
-节点、参数、消息转换和发布；双版本操作见 [ros-builds.md](ros-builds.md)。
+接入库；公共 `cmake/node.cmake` 从同一个 `src/app/mapping_main.cc` 创建节点。双版本操作见 [ros-builds.md](ros-builds.md)。
 `rpg_vikit` 不再是 livo-atlas 的构建或运行依赖；工作区里原有的依赖源码可以保留。
 
 ## 依赖与编译选项
@@ -98,3 +98,54 @@ GTSAM 后端、持久关键帧和 3DGS 仍属于后续阶段。
 `FrontendResult` 的状态为值快照，图像和点云视图有效期到下一次 `Process`。
 文件写入和 ROS 发布由调用者处理，跳过发布也会正常消费视觉帧。
 ROS 层仅对成功更新打印一次整体 LIO/VIO 耗时，核心不读取墙上时间。
+
+## 源码组织与 include 迁移
+
+Noetic 与 Humble 的可执行文件都从 `src/app/mapping_main.cc` 编译。公共
+`cmake/node.cmake` 创建一次 `fastlivo_mapping`；目标私有宏
+`LIVO_ATLAS_ROS_VERSION=1|2` 只选择入口里的初始化、适配器、执行器与退出处理。
+mode0 仅提供普通库。`cmake/ros1.cmake` / `cmake/ros2.cmake` 保留各自接入库和包导出。
+
+```text
+src/
+├── app/mapping_main.cc           # 唯一 ROS 节点入口
+├── frontend/
+│   ├── frontend.cc               # 估计流程与状态所有权
+│   ├── imu/imu_processor.cc      # IMU 初始化、传播、去畸变
+│   └── vision/{vio,frame}.cc     # 视觉更新与帧
+├── mapping/{voxel_map,visual_point}.cc
+├── sensor/{preprocess,synchronizer,extrinsics}.cc
+├── camera/                      # 相机模型
+├── image/                       # 图像基础操作
+├── output/                      # 普通结果处理
+├── io/                          # 文件输出
+├── ros1/                        # LIVMapper、参数、转换、发布
+└── ros2/                        # MapperNode、session、参数、转换、发布
+```
+
+头文件沿用同样职责目录，统一从 `include/livo_atlas` 进入；ROS2 私有组合对象的头留在
+`src/ros2`。visual_point 描述带世界坐标和观测关联的地图点，归 mapping；frame/feature
+归视觉前端。库目标保留原名，视觉地图点仍由 `livo_atlas_vio` 编译，目录不要求一目录一库。
+
+旧源码使用方更新下表中的 include；类名和链接目标保持。安装里使用同一套新路径。
+
+| 旧 include | 新 include |
+|---|---|
+| `IMU_Processing.h` | `livo_atlas/frontend/imu/imu_processor.h` |
+| `vio.h` | `livo_atlas/frontend/vision/vio.h` |
+| `frame.h` | `livo_atlas/frontend/vision/frame.h` |
+| `feature.h` | `livo_atlas/frontend/vision/feature.h` |
+| `voxel_map.h` | `livo_atlas/mapping/voxel_map.h` |
+| `visual_point.h` | `livo_atlas/mapping/visual_point.h` |
+| `preprocess.h` | `livo_atlas/sensor/preprocess.h` |
+| `LIVMapper.h` | `livo_atlas/ros1/mapper.h`（仅 Noetic） |
+| `common_lib.h` | `livo_atlas/internal/legacy/common.h` |
+| `utils/types.h` | `livo_atlas/internal/legacy/types.h` |
+| `utils/so3_math.h` | `livo_atlas/internal/legacy/so3_math.h` |
+| `utils/color.h` | `livo_atlas/internal/legacy/color.h` |
+
+原根目录 `.cpp` 按上面的职责改为 `.cc`：IMU_Processing→imu_processor，LIVMapper→mapper，
+其余实现保留基础文件名。新代码使用 `livo_atlas/frontend/frontend.h` 等普通接口；
+`internal/legacy` 集中旧宏、全局别名和兼容数学入口，供既有算法过渡，避免继续扩张。
+本轮保持旧算法正文和类型名称，按模块逐步消化旧实现，不进行整仓库格式化。
+未来关键帧快照/GTSAM/重建输出继续从普通前端结果和 I/O 边界接入。
