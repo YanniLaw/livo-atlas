@@ -19,12 +19,8 @@ add_library(livo_atlas_ros2_mapper src/ros2/parameters.cc src/ros2/mapper_node.c
 target_link_libraries(livo_atlas_ros2_mapper livo_atlas_ros2_session livo_atlas_ros2_conversions)
 ament_target_dependencies(livo_atlas_ros2_mapper rclcpp nav_msgs geometry_msgs
   visualization_msgs tf2_ros cv_bridge)
-add_executable(fastlivo_mapping src/ros2/main.cc)
-target_link_libraries(fastlivo_mapping PRIVATE livo_atlas_ros2_mapper)
 set_target_properties(livo_atlas_ros2_conversions livo_atlas_ros2_session
   livo_atlas_ros2_mapper PROPERTIES INSTALL_RPATH "$ORIGIN" INSTALL_RPATH_USE_LINK_PATH TRUE)
-set_target_properties(fastlivo_mapping PROPERTIES INSTALL_RPATH "$ORIGIN/.." INSTALL_RPATH_USE_LINK_PATH TRUE)
-install(TARGETS fastlivo_mapping RUNTIME DESTINATION lib/${PROJECT_NAME})
 install(TARGETS livo_atlas_ros2_conversions livo_atlas_ros2_session livo_atlas_ros2_mapper
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
 install(DIRECTORY include/livo_atlas/ros2 DESTINATION include/livo_atlas)

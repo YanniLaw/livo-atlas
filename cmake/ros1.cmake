@@ -28,20 +28,13 @@ add_library(livo_atlas_ros1_mapper src/LIVMapper.cpp src/ros1/calibration_reader
 target_link_libraries(livo_atlas_ros1_mapper PUBLIC livo_atlas::core
   livo_atlas::output livo_atlas::io livo_atlas_ros1_output
   livo_atlas_ros1_conversions)
-add_executable(fastlivo_mapping src/main.cpp)
-target_link_libraries(fastlivo_mapping PRIVATE livo_atlas_ros1_mapper)
 set_target_properties(livo_atlas_ros1_mapper livo_atlas_ros1_conversions
-  livo_atlas_ros1_output fastlivo_mapping PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+  livo_atlas_ros1_output PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 if(UNIX AND NOT APPLE)
   set_target_properties(livo_atlas_ros1_mapper livo_atlas_ros1_conversions
     livo_atlas_ros1_output PROPERTIES INSTALL_RPATH "$ORIGIN")
-  set_target_properties(fastlivo_mapping PROPERTIES INSTALL_RPATH "$ORIGIN/..")
 endif()
-find_package(mimalloc QUIET)
-if(mimalloc_FOUND)
-  target_link_libraries(fastlivo_mapping PRIVATE mimalloc)
-endif()
-install(TARGETS fastlivo_mapping livo_atlas_ros1_mapper
+install(TARGETS livo_atlas_ros1_mapper
   livo_atlas_ros1_conversions livo_atlas_ros1_output
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
