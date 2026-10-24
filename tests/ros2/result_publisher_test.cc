@@ -13,7 +13,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "ros2/result_publisher.h"
+#include "livo_atlas/ros2/result_publisher.h"
 namespace livo_atlas::ros2 {
 namespace {
 

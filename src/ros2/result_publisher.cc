@@ -16,7 +16,7 @@
 
 #include "livo_atlas/core/so3_math.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "ros2/result_publisher.h"
+#include "livo_atlas/ros2/result_publisher.h"
 
 namespace livo_atlas::ros2 {
 namespace {

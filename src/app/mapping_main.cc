@@ -2,36 +2,45 @@
 #include <exception>
 #include <memory>
 
+#include "livo_atlas/runtime/mapping_session.h"
 #if LIVO_ATLAS_ROS_VERSION == 1
-#include "livo_atlas/ros1/mapper.h"
+#include "livo_atlas/ros1/mapping_adapter.h"
+namespace ros_integration = livo_atlas::ros1;
 #elif LIVO_ATLAS_ROS_VERSION == 2
-#include "ros2/mapper_node.h"
+#include "livo_atlas/ros2/mapping_adapter.h"
+namespace ros_integration = livo_atlas::ros2;
 #else
 #error "The mapping node requires ROS1 or ROS2"
 #endif
-
 int main(int argc, char** argv) {
 #if LIVO_ATLAS_ROS_VERSION == 1
   ros::init(argc, argv, "laserMapping");
-  ros::NodeHandle node_handle;
-  image_transport::ImageTransport image_transport(node_handle);
+  auto node = std::make_shared<ros::NodeHandle>();
 #else
   rclcpp::init(argc, argv);
 #endif
-
   int result = 0;
   try {
+#if LIVO_ATLAS_ROS_VERSION == 2
+    auto node = std::make_shared<rclcpp::Node>("laserMapping");
+#endif
+    const auto parameters = ros_integration::ReadParameters(*node);
+    livo_atlas::MappingSession session(parameters.mapping.session);
+    ros_integration::MappingAdapter adapter(*node, parameters, session);
 #if LIVO_ATLAS_ROS_VERSION == 1
-    LIVMapper mapper(node_handle);
-    mapper.initializeSubscribersAndPublishers(node_handle, image_transport);
-    mapper.run();
+    ros::Rate rate(5000);
+    while (ros::ok()) {
+      ros::spinOnce();
+      if (adapter.ProcessNext() != livo_atlas::SynchronizationResult::kReady)
+        rate.sleep();
+    }
 #else
-    auto node = std::make_shared<livo_atlas::ros2::MapperNode>();
     rclcpp::executors::SingleThreadedExecutor executor;
     executor.add_node(node);
     executor.spin();
-    node->Finish();
 #endif
+    session.Finish();
+    adapter.ReportInputs();
   } catch (const std::exception& error) {
 #if LIVO_ATLAS_ROS_VERSION == 1
     ROS_FATAL_STREAM(

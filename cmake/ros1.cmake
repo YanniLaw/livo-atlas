@@ -6,7 +6,7 @@ endif()
 # Keep dependents before dependencies for static linking as well.
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES livo_atlas_frontend livo_atlas_output livo_atlas_io
+  LIBRARIES livo_atlas_runtime livo_atlas_frontend livo_atlas_output livo_atlas_io
     livo_atlas_vio livo_atlas_lio livo_atlas_imu livo_atlas_synchronization
     livo_atlas_preprocess livo_atlas_camera livo_atlas_calibration
     ${livo_atlas_runtime_libraries}
@@ -18,25 +18,13 @@ add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
 target_include_directories(livo_atlas_ros1_conversions PUBLIC ${catkin_INCLUDE_DIRS})
 target_link_libraries(livo_atlas_ros1_conversions PUBLIC livo_atlas::core
   ${catkin_LIBRARIES})
-add_library(livo_atlas_ros1_output src/ros1/result_publisher.cc)
-target_include_directories(livo_atlas_ros1_output PUBLIC
-  ${catkin_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(livo_atlas_ros1_output PUBLIC livo_atlas::output
-  ${catkin_LIBRARIES})
-add_library(livo_atlas_ros1_mapper src/ros1/mapper.cc src/ros1/parameters.cc src/ros1/calibration_reader.cc
-  src/ros1/voxel_options_reader.cc)
-target_link_libraries(livo_atlas_ros1_mapper PUBLIC livo_atlas::runtime livo_atlas::core
-  livo_atlas::output livo_atlas::io livo_atlas_ros1_output
-  livo_atlas_ros1_conversions)
-set_target_properties(livo_atlas_ros1_mapper livo_atlas_ros1_conversions
-  livo_atlas_ros1_output PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+add_library(livo_atlas_ros1_mapper src/ros1/mapping_adapter.cc src/ros1/parameters.cc src/ros1/result_publisher.cc)
+target_link_libraries(livo_atlas_ros1_mapper PUBLIC livo_atlas::runtime livo_atlas_ros1_conversions)
+set_target_properties(livo_atlas_ros1_mapper livo_atlas_ros1_conversions PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 if(UNIX AND NOT APPLE)
-  set_target_properties(livo_atlas_ros1_mapper livo_atlas_ros1_conversions
-    livo_atlas_ros1_output PROPERTIES INSTALL_RPATH "$ORIGIN")
+  set_target_properties(livo_atlas_ros1_mapper livo_atlas_ros1_conversions PROPERTIES INSTALL_RPATH "$ORIGIN")
 endif()
-install(TARGETS livo_atlas_ros1_mapper
-  livo_atlas_ros1_conversions livo_atlas_ros1_output
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+install(TARGETS livo_atlas_ros1_mapper livo_atlas_ros1_conversions
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
 install(DIRECTORY config launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})

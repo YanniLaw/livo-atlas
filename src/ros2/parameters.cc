@@ -1,3 +1,5 @@
+#include "livo_atlas/ros2/parameters.h"
+
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -6,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "livo_atlas/ros2/parameters.h"
 namespace livo_atlas::ros2 {
 namespace {
 class RosParameterReader final : public ParameterReader {

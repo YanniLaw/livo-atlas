@@ -1,3 +1,5 @@
+#include "livo_atlas/ros2/mapping_adapter.h"
+
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -6,9 +8,8 @@
 
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "livo_atlas/ros2/parameters.h"
+#include "livo_atlas/ros2/result_publisher.h"
 #include "livo_atlas/runtime/mapping_session.h"
-#include "ros2/mapper_node.h"
-#include "ros2/result_publisher.h"
 
 namespace livo_atlas::ros2 {
 namespace {
@@ -18,12 +19,13 @@ rclcpp::QoS SensorQos(const NodeParameters& parameters, int depth) {
   return qos;
 }
 }  // namespace
-class MapperNode::Impl {
+class MappingAdapter::Impl {
  public:
-  explicit Impl(MapperNode& node)
+  Impl(rclcpp::Node& node, const NodeParameters& parameters,
+       MappingSession& session)
       : node_(node),
-        parameters_(ReadParameters(node)),
-        session_(parameters_.mapping.session),
+        parameters_(parameters),
+        session_(session),
         publisher_(node, parameters_.mapping.session.output.mode) {
     if (parameters_.mapping.session.preprocess.lidar_type == kLivox) {
       livox_ = node.create_subscription<livox_ros_driver2::msg::CustomMsg>(
@@ -79,14 +81,8 @@ class MapperNode::Impl {
             Warn(error);
         });
     processing_ = node.create_wall_timer(std::chrono::milliseconds(1), [this] {
-      session_.ProcessAvailable(
-          [this](const auto& result, const auto& prepared, double elapsed) {
-            publisher_.Publish(result, prepared);
-            const char* stage = result.kind == UpdateKind::kVisual
-                                    ? "VIO Time"
-                                    : "LIO Mapping Time";
-            std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
-          });
+      while (ProcessNext() != SynchronizationResult::kWaiting) {
+      }
     });
     propagation_ = node.create_wall_timer(std::chrono::milliseconds(4), [this] {
       const auto result = session_.PropagateLatest();
@@ -95,8 +91,16 @@ class MapperNode::Impl {
     });
     RCLCPP_INFO(node.get_logger(), "livo_atlas frontend ready");
   }
-  void Finish() {
-    session_.Finish();
+  SynchronizationResult ProcessNext() {
+    return session_.ProcessNext([this](const auto& result, const auto& prepared,
+                                       double elapsed) {
+      publisher_.Publish(result, prepared);
+      const char* stage =
+          result.kind == UpdateKind::kVisual ? "VIO Time" : "LIO Mapping Time";
+      std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
+    });
+  }
+  void ReportInputs() {
     std::printf("livo_atlas inputs: lidar=%llu imu=%llu image=%llu\n",
                 static_cast<unsigned long long>(lidar_count_),
                 static_cast<unsigned long long>(imu_count_),
@@ -106,9 +110,9 @@ class MapperNode::Impl {
     RCLCPP_WARN(node_.get_logger(), "%s", error.c_str());
   }
   std::uint64_t lidar_count_ = 0, imu_count_ = 0, image_count_ = 0;
-  MapperNode& node_;
+  rclcpp::Node& node_;
   NodeParameters parameters_;
-  MappingSession session_;
+  MappingSession& session_;
   ResultPublisher publisher_;
   rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr livox_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_;
@@ -116,8 +120,13 @@ class MapperNode::Impl {
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_;
   rclcpp::TimerBase::SharedPtr processing_, propagation_;
 };
-MapperNode::MapperNode(const rclcpp::NodeOptions& options)
-    : Node("laserMapping", options), impl_(std::make_unique<Impl>(*this)) {}
-MapperNode::~MapperNode() = default;
-void MapperNode::Finish() { impl_->Finish(); }
+MappingAdapter::MappingAdapter(rclcpp::Node& node,
+                               const NodeParameters& parameters,
+                               MappingSession& session)
+    : impl_(std::make_unique<Impl>(node, parameters, session)) {}
+MappingAdapter::~MappingAdapter() = default;
+SynchronizationResult MappingAdapter::ProcessNext() {
+  return impl_->ProcessNext();
+}
+void MappingAdapter::ReportInputs() { impl_->ReportInputs(); }
 }  // namespace livo_atlas::ros2

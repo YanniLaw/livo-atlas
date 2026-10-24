@@ -6,9 +6,11 @@
 #include <tf2_msgs/msg/tf_message.hpp>
 #include <thread>
 
+#include "livo_atlas/ros2/mapping_adapter.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
+#include "livo_atlas/ros2/parameters.h"
+#include "livo_atlas/runtime/mapping_session.h"
 #include "ros2/fixtures.h"
-#include "ros2/mapper_node.h"
 namespace livo_atlas::ros2 {
 TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
   auto params = test::Parameters("/tmp/livo_atlas_convergence/tests/dds");
@@ -16,8 +18,11 @@ TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
   params.emplace_back("common.imu_topic", "/p4_test/imu");
   params.emplace_back("common.lid_topic", "/p4_test/lidar");
   params.emplace_back("preprocess.point_filter_num", 1);
-  auto mapper = std::make_shared<MapperNode>(
-      rclcpp::NodeOptions().parameter_overrides(params));
+  auto node = std::make_shared<rclcpp::Node>(
+      "laserMapping", rclcpp::NodeOptions().parameter_overrides(params));
+  const auto config = ReadParameters(*node);
+  MappingSession session(config.mapping.session);
+  MappingAdapter mapper(*node, config, session);
   auto peer = std::make_shared<rclcpp::Node>("p4_dds_peer");
   int poses = 0, clouds = 0, transforms = 0;
   auto odom = peer->create_subscription<nav_msgs::msg::Odometry>(
@@ -46,7 +51,7 @@ TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
       "/p4_test/lidar", rclcpp::SensorDataQoS());
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(peer);
-  executor.add_node(mapper);
+  executor.add_node(node);
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(4);
   while (pub->get_subscription_count() == 0 &&
@@ -80,8 +85,48 @@ TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
   EXPECT_EQ(clouds, 3);
   EXPECT_EQ(transforms, 3);
   testing::internal::CaptureStdout();
-  mapper->Finish();
+  session.Finish();
+  mapper.ReportInputs();
   const auto output = testing::internal::GetCapturedStdout();
   EXPECT_NE(output.find("lidar=3 imu=0 image=0"), std::string::npos);
+}
+}  // namespace livo_atlas::ros2
+
+namespace livo_atlas::ros2 {
+TEST(Ros2NodeTest, PublishesFromTheInjectedRuntime) {
+  auto params = test::Parameters("/tmp/livo_atlas_convergence/tests/injected");
+  params.emplace_back("common.img_en", 0);
+  params.emplace_back("preprocess.point_filter_num", 1);
+  auto node = std::make_shared<rclcpp::Node>(
+      "injected_runtime", rclcpp::NodeOptions().parameter_overrides(params));
+  const auto config = ReadParameters(*node);
+  MappingSession session(config.mapping.session);
+  MappingAdapter adapter(*node, config, session);
+  auto peer = std::make_shared<rclcpp::Node>("injected_peer");
+  int poses = 0;
+  auto sub = peer->create_subscription<nav_msgs::msg::Odometry>(
+      "/aft_mapped_to_init", 10,
+      [&](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+        EXPECT_TRUE(std::isfinite(msg->pose.pose.position.x));
+        ++poses;
+      });
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(peer);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  while (sub->get_publisher_count() == 0 &&
+         std::chrono::steady_clock::now() < deadline) {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_GT(sub->get_publisher_count(), 0u);
+  ASSERT_TRUE(session.AddLidar(test::Scan(100)));
+  while (poses == 0 && std::chrono::steady_clock::now() < deadline) {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_EQ(poses, 1);
+  session.Finish();
 }
 }  // namespace livo_atlas::ros2

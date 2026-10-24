@@ -1,3 +1,5 @@
+#include "livo_atlas/runtime/mapping_session.h"
+
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -8,7 +10,6 @@
 
 #include "livo_atlas/frontend/image_options.h"
 #include "livo_atlas/frontend/imu_propagation.h"
-#include "livo_atlas/runtime/mapping_session.h"
 #include "livo_atlas/sensor/preprocess.h"
 #include "livo_atlas/sensor/synchronizer.h"
 

@@ -1,9 +1,10 @@
+#include "livo_atlas/runtime/options.h"
+
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
 
 #include "livo_atlas/frontend/image_options.h"
-#include "livo_atlas/runtime/options.h"
 
 namespace livo_atlas {
 

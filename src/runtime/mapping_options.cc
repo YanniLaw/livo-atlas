@@ -1,10 +1,11 @@
+#include "livo_atlas/runtime/mapping_options.h"
+
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
-#include "livo_atlas/runtime/mapping_options.h"
 namespace livo_atlas {
 namespace {
 std::string DefaultDirectory() {
@@ -140,7 +141,12 @@ MappingOptions LoadMappingOptions(ParameterReader& reader) {
     const std::string name = camera.model == "Pinhole"
                                  ? "cam_d" + std::to_string(i)
                                  : "k" + std::to_string(i + 1);
-    camera.distortion[i] = reader.Number(name, camera.distortion[i]);
+    try {
+      camera.distortion[i] = reader.Number(name, camera.distortion[i]);
+    } catch (const std::invalid_argument& error) {
+      throw std::invalid_argument(std::string("camera distortion: ") +
+                                  error.what());
+    }
   }
   auto& map = front.voxel_map;
   map.is_pub_plane_map_ =

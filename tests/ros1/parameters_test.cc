@@ -1,3 +1,5 @@
+#include "livo_atlas/ros1/parameters.h"
+
 #include <XmlRpcValue.h>
 #include <gtest/gtest.h>
 #include <ros/ros.h>
@@ -10,7 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "livo_atlas/ros1/parameters.h"
 #include "livo_atlas/runtime/mapping_session.h"
 
 namespace livo_atlas::ros1 {

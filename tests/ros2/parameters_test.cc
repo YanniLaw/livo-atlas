@@ -1,3 +1,5 @@
+#include "livo_atlas/ros2/parameters.h"
+
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -7,10 +9,20 @@
 #include <limits>
 #include <rclcpp/node_interfaces/node_topics_interface.hpp>
 
-#include "livo_atlas/ros2/parameters.h"
+#include "livo_atlas/ros2/mapping_adapter.h"
+#include "livo_atlas/runtime/mapping_session.h"
 #include "ros2/fixtures.h"
-#include "ros2/mapper_node.h"
 namespace livo_atlas::ros2 {
+
+namespace {
+void ConstructAdapter(const std::vector<rclcpp::Parameter>& parameters) {
+  rclcpp::Node node("parameter_constructor",
+                    rclcpp::NodeOptions().parameter_overrides(parameters));
+  const auto config = ReadParameters(node);
+  MappingSession session(config.mapping.session);
+  MappingAdapter adapter(node, config, session);
+}
+}  // namespace
 TEST(Ros2ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
   const auto seed = std::chrono::steady_clock::now().time_since_epoch().count();
   for (const auto& invalid : std::vector<rclcpp::Parameter>{
@@ -80,9 +92,7 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
     for (auto it = params.begin(); it != params.end();)
       it->get_name() == invalid.get_name() ? it = params.erase(it) : ++it;
     params.push_back(invalid);
-    EXPECT_THROW(std::make_shared<MapperNode>(
-                     rclcpp::NodeOptions().parameter_overrides(params)),
-                 std::exception);
+    EXPECT_THROW(ConstructAdapter(params), std::exception);
     EXPECT_FALSE(std::filesystem::exists(directory));
   }
 }
@@ -117,9 +127,7 @@ TEST(Ros2ParametersTest, InvalidTopicsAndCovariancesPreserveExistingOutputs) {
     auto params = test::Parameters(directory.string());
     params.emplace_back("pcd_save.colmap_output_en", true);
     params.push_back(invalid);
-    EXPECT_THROW(std::make_shared<MapperNode>(
-                     rclcpp::NodeOptions().parameter_overrides(params)),
-                 std::exception);
+    EXPECT_THROW(ConstructAdapter(params), std::exception);
     for (const auto& name : names) {
       std::ifstream stream(directory / name);
       const std::string contents((std::istreambuf_iterator<char>(stream)), {});
@@ -146,9 +154,7 @@ TEST(Ros2ParametersTest,
          std::to_string(++index));
     auto params = test::Parameters(directory.string());
     params.push_back(invalid);
-    EXPECT_THROW(std::make_shared<MapperNode>(
-                     rclcpp::NodeOptions().parameter_overrides(params)),
-                 std::exception);
+    EXPECT_THROW(ConstructAdapter(params), std::exception);
     EXPECT_FALSE(std::filesystem::exists(directory));
   }
 }

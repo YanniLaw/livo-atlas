@@ -1,3 +1,5 @@
+#include "livo_atlas/ros1/parameters.h"
+
 #include <XmlRpcValue.h>
 
 #include <algorithm>
@@ -6,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "livo_atlas/ros1/parameters.h"
 namespace livo_atlas::ros1 {
 namespace {
 class RosParameterReader final : public ParameterReader {
