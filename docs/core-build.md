@@ -70,6 +70,19 @@ roslaunch livo_atlas mapping_avia.launch
 节点名、话题和配置入口沿用现有行为，输出目录继续由 `output/directory` 指定。
 mode 1 保留 catkin 包配置；独立 SDK 的 `find_package` 配置由 mode 0 安装。
 
+外部 Noetic 工程通过 `${catkin_LIBRARIES}` 消费普通核心时，导出列表包含完整的
+核心库及静态链接所需运行库。独立消费示例同时调用公开标定校验和连续 LO/LIO/VIO：
+
+```bash
+source devel/setup.bash
+cmake -S src/livo-atlas/tests/catkin_consumer -B build-catkin-consumer
+nice -n 10 cmake --build build-catkin-consumer -- -j1
+build-catkin-consumer/catkin_consumer
+```
+
+该示例应在独立 CMake 工程中运行，以验证导出的库文件；它会拒绝借用原工程目标。
+本机 shared/static 两种 catkin 消费均已验证。
+
 ROS2 Humble 接入安排在 P4。当前传入 `LIVO_ATLAS_ROS_VERSION=2` 会明确报错，
 尚不能宣称支持 ROS2。GTSAM 后端、持久关键帧和 3DGS 导出也属于后续阶段。
 
