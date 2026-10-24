@@ -79,6 +79,9 @@ TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
   EXPECT_EQ(poses, 3);
   EXPECT_EQ(clouds, 3);
   EXPECT_EQ(transforms, 3);
+  testing::internal::CaptureStdout();
   mapper->Finish();
+  const auto output = testing::internal::GetCapturedStdout();
+  EXPECT_NE(output.find("lidar=3 imu=0 image=0"), std::string::npos);
 }
 }  // namespace livo_atlas::ros2

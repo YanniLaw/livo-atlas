@@ -31,6 +31,7 @@ def load_parameters(path):
 def launch_node(context):
     parameters = load_parameters(LaunchConfiguration('config').perform(context))
     parameters.update(load_parameters(LaunchConfiguration('camera').perform(context)))
+    parameters['qos.reliability'] = LaunchConfiguration('reliability').perform(context)
     parameters['use_sim_time'] = LaunchConfiguration('use_sim_time').perform(context).lower() == 'true'
     directory = LaunchConfiguration('output_directory').perform(context)
     if directory:
@@ -46,5 +47,7 @@ def generate_launch_description():
         DeclareLaunchArgument('camera', default_value=str(share / 'config/camera_pinhole.yaml')),
         DeclareLaunchArgument('use_sim_time', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('output_directory', default_value=''),
+        DeclareLaunchArgument('reliability', default_value='best_effort',
+                              choices=['best_effort', 'reliable']),
         OpaqueFunction(function=launch_node),
     ])

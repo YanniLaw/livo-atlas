@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <utility>
@@ -29,6 +30,7 @@ class MapperNode::Impl {
           parameters_.lidar_topic,
           SensorQos(parameters_, parameters_.lidar_depth),
           [this](livox_ros_driver2::msg::CustomMsg::ConstSharedPtr message) {
+            ++lidar_count_;
             LidarScan scan;
             const auto error = ConvertLivox(*message, &scan);
             if (error.empty())
@@ -41,6 +43,7 @@ class MapperNode::Impl {
           parameters_.lidar_topic,
           SensorQos(parameters_, parameters_.lidar_depth),
           [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr message) {
+            ++lidar_count_;
             LidarScan scan;
             const auto error = ConvertPointCloud(
                 *message, parameters_.session.preprocess.lidar_type,
@@ -54,6 +57,7 @@ class MapperNode::Impl {
     imu_ = node.create_subscription<sensor_msgs::msg::Imu>(
         parameters_.imu_topic, SensorQos(parameters_, parameters_.imu_depth),
         [this](sensor_msgs::msg::Imu::ConstSharedPtr message) {
+          ++imu_count_;
           try {
             session_.AddImu(ConvertImu(*message));
           } catch (const std::exception& error) {
@@ -64,6 +68,7 @@ class MapperNode::Impl {
         parameters_.image_topic,
         SensorQos(parameters_, parameters_.image_depth),
         [this](sensor_msgs::msg::Image::ConstSharedPtr message) {
+          ++image_count_;
           ImageMeasurement image;
           const auto error =
               ConvertImage(*message, parameters_.image_time_offset, &image);
@@ -89,9 +94,17 @@ class MapperNode::Impl {
     });
     RCLCPP_INFO(node.get_logger(), "livo_atlas frontend ready");
   }
+  void Finish() {
+    session_.Finish();
+    std::printf("livo_atlas inputs: lidar=%llu imu=%llu image=%llu\n",
+                static_cast<unsigned long long>(lidar_count_),
+                static_cast<unsigned long long>(imu_count_),
+                static_cast<unsigned long long>(image_count_));
+  }
   void Warn(const std::string& error) {
     RCLCPP_WARN(node_.get_logger(), "%s", error.c_str());
   }
+  std::uint64_t lidar_count_ = 0, imu_count_ = 0, image_count_ = 0;
   MapperNode& node_;
   NodeParameters parameters_;
   MappingSession session_;
@@ -105,5 +118,5 @@ class MapperNode::Impl {
 MapperNode::MapperNode(const rclcpp::NodeOptions& options)
     : Node("laserMapping", options), impl_(std::make_unique<Impl>(*this)) {}
 MapperNode::~MapperNode() = default;
-void MapperNode::Finish() { impl_->session_.Finish(); }
+void MapperNode::Finish() { impl_->Finish(); }
 }  // namespace livo_atlas::ros2
