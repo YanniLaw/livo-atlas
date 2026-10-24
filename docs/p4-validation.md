@@ -1,6 +1,6 @@
 # P4：双 ROS 接入验证记录
 
-状态：实现与验收已通过，整阶段独立评审待关闭。
+状态：实现、独立评审修复及最终构建的数据重核均已通过。
 
 基线为 P3 `973a5cce533da34952bfa33574e2a28de4ead579`。设计见
 [P4 spec](superpowers/specs/2026-10-24-p4-humble-design.md)，执行步骤见
@@ -45,9 +45,9 @@ Humble 原生 rosbag2 Reader 与 `ros2 bag play` 都实际读取了转换结果�
 | Noetic C++ 单元 | 158 项通过 |
 | Noetic 真实 ROS / 启动 | 12 / 50 项通过 |
 | Noetic Python | 13 项通过；1 个 ROS2 模块因 Python3.8 显式跳过 |
-| Humble C++ | 171 项通过，包括转换、session、参数和真实 DDS/schema |
-| Humble Python 迁移工具 | 4 项通过，Python3.10 / rosbags0.10.9 |
-| Humble 实际启动/退出 | 9 个进程案例通过，坏配置在输出目录创建前失败 |
+| Humble C++ | 176 项通过，包括转换、session、参数和真实 DDS/schema |
+| Humble Python 迁移工具 | 5 项通过，Python3.10 / rosbags0.10.9 |
+| Humble 实际启动/退出 | 16 个进程案例通过，坏配置在输出目录创建前失败 |
 | mode0 shared / static | 各138项、各25个公共头检查通过 |
 | mode0 shared / static / 无OpenMP | 三种移动安装前缀后的独立消费者均推进 LO/LIO/连续VIO |
 | Humble mode0 / ament 安装 | 独立消费者推进 LO/LIO/连续VIO；核心无 ROS 动态依赖 |
@@ -69,7 +69,7 @@ Humble 原生 rosbag2 Reader 与 `ros2 bag play` 都实际读取了转换结果�
 | Humble 默认线程45s | 446 / 446 | 446 | 全输入、有限数值、正常退出 |
 
 Humble 同时核验外部观察者的完整序列化输入字节与节点自身三个回调接收计数。
-完整场景峰值采样 RSS 为778.51MiB。末尾 VIO 数量沿用三队列就绪条件，没有强制补帧；
+最终完整场景峰值采样 RSS 为781.56MiB。末尾 VIO 数量沿用三队列就绪条件，没有强制补帧；
 45s窗口原 Noetic 参考同样为446/446。
 
 原生 bag CLI 使用默认 best_effort 的一次冒烟出现图像丢包；增加 launch 的可靠 QoS
@@ -105,11 +105,56 @@ Noetic 与 Humble 使用不同编译器和数学依赖，不能宣称二者逐�
 
 - `task4-acceptance.json`、`conversion-summary.json`：完整输入和验收。
 - `environment-controls.json`、`cross-environment-metrics.json`：同环境精确控制与跨环境差值。
-- `products/short/full-comparison.json`：Noetic 严格比较；对应实际文件名为
-  `products-comparison.json`、`short-comparison.json`、`full-comparison.json`。
+- `products-comparison.json`、`short-comparison.json`、`full-comparison.json`：Noetic 严格比较。
 - `humble_*/summary.json`、`native-cli-summary.json`：真实回放与命令行。
 - `sdk-*-checks.json`、`source-runtime-audit.json`、`humble-runtime-artifacts.json`：SDK与源码/运行库。
 
 31个原源树 Log 文件和旁边的 rpg_vikit 均未改变。验证脚本、bag、编译目录和迁移工具的
 隔离 Python 环境不进入源码仓库；迁移机器时单独复制需要的证据和输入。
-最终评审和完整历史 bundle 恢复结果在本阶段关闭时补入。
+修复前四次 Humble 原始结果保存在 `pre-review/`，最终运行逐场记录14个程序/库的
+前后摘要。四个最终场景的数值、发布摘要和短段57个产品均精确等于修复前。
+完整历史交付文件为工作区 `livo-atlas-p4-20261024.bundle`；恢复检查、摘要和最终提交
+记录在 `recovery.json` 与 `completion.json`。迁移时先校验摘要，再克隆 bundle：
+
+```bash
+git clone /path/to/livo-atlas-p4-20261024.bundle livo-atlas
+git -C livo-atlas switch refactor-fast_livo2
+```
+
+## 独立评审闭环
+
+一次 fresh-context 整阶段评审覆盖 `973a5cc..7e55b70`。无 Critical；4个 Important
+和1个由执行者升为 Important 的验收工具问题已在 `fc63f65` 一次集中修复，没有二次评审。
+
+- 无效话题：调用 Humble 自身的展开/remap解析，在构建 session 前校验；新目录不创建，
+  旧诊断/COLMAP哨兵文件保留；合法私有名称与 remap 正向测试通过。
+- 协方差：图像观测协方差必须正，IMU/曝光过程协方差不得负，非法值在文件副作用前拒绝。
+- 非有限 IMU：转换层与普通 session 均在入队前拒绝；插入坏包后的有效序列精确等于干净参考。
+- 时间修正补测：直接测试 session 的非零偏移、整数秒驱动修正、大纪元、纳秒进位和反向拒绝。
+  移除偏移/驱动修正的两个候选变体均被测试识别；54个显式参考时间经独立 Noetic Time 核验。
+- 验收假阳性：发布数量、最终 path 长度、发布位姿有限性与四元数归一化纳入成功条件，
+  关系按实际 LIO/VIO 更新数量推导，不写死该 bag 的发布数量。
+
+各修复都有 RED→GREEN 或反证→恢复记录，最终 C++176/176、Python5/5。
+没有延期 Minor。评审报告及裁定保存在包外验证目录。
+
+## 支持边界
+
+物理驱动、真值精度、单个依赖的数值归因和未测平台/RMW仍需各自验证。
+session 由单一执行者调用；保留原前端的负时间哨兵约定，不声明负纪元流的端到端支持。
+保留原缓存策略，长期缺流时队列可能增长；自动丢弃/恢复策略需单独设计。
+GTSAM、持久关键帧与3DGS仍未实现。
+
+## 实施裁定与代价
+
+1. PCL1.12 新增坐标构造器使原测试的整数颜色构造歧义，显式使用 uint8_t 选择原颜色重载 — 只修复跨版本测试夹具，算法不变 — 若误判原意，会改变夹具颜色，现有颜色断言会检测。
+2. 节点 Finish 输出三个输入接收计数，用于 DDS 回放核验 — 外部观察者计数不能证明数据到达节点本身，计数只在 ROS2 接入层 — 若日志格式后续改变，验收 runner 需同步调整。
+3. M1 从 Minor 重分级为 Important 并修复 — 无发布时验收工具仍可能返回成功，会误导跨机验证，既有回放有实际输出不抵消工具缺陷 — 若新检查过严，合法的发布抑制场景需调整关系式，按实际 LIO/VIO 更新数制定检查。
+4. 物理 Livox 驱动/SDK/设备仍未认证 — 已验证官方消息和实际 DDS，实机联调超出本阶段 — 真实设备仍需独立验证。
+5. 轨迹差值不作为真值精度结论 — 没有提供真值，现有实验衡量实现/环境差异 — 不能保证两平台真值精度等价。
+6. 数值差异归因于环境组合，不指定某一个依赖 — 同环境完整离线控制均精确一致，未逐个替换编译器/数学库 — 更换单个依赖仍需重做对照。
+7. 支持范围限于已测平台/RMW和单执行者 — 其他 CPU/OS/ROS2 发行版/RMW/并发 session 不在本阶段证据内 — 其他环境或并发调用可能失效。
+8. 保留负时间哨兵契约 — 协议转换支持有符号时间，但估计调度沿用原前端起始约定 — 负纪元流可能不推进，不声明端到端支持。
+9. 保留原缓存队列，长期缺流策略另行设计 — 当前设计与验收使用有限输入，自动丢弃会改变恢复语义 — 持续缺流时内存可能增长。
+10. GTSAM/持久关键帧/3DGS继续后续实施 — 用户本阶段目标为前端隔离和双 ROS 接入准备 — 当前交付尚非完整闭环 SLAM 或 3DGS 系统。
+11. 本计划 scratch 完成后移至包外执行记录归档 — 多次断电续做与跨机实施需要保留可恢复记录，计划要求归档 — 若判断不合适，会多保留少量本地文件。
