@@ -1,7 +1,8 @@
-# 独立核心与 Noetic 构建
+# 独立核心与 ROS 构建
 
 P3 把相机模型、图像基础操作、同步、预处理、前端和文件输出作为普通
-C++17 库构建。只有 `cmake/ros1.cmake` 加载 ROS 节点、参数、消息转换和发布。
+C++17 库构建。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Humble
+节点、参数、消息转换和发布；双版本操作见 [ros-builds.md](ros-builds.md)。
 `rpg_vikit` 不再是 livo-atlas 的构建或运行依赖；工作区里原有的依赖源码可以保留。
 
 ## 依赖与编译选项
@@ -83,8 +84,9 @@ build-catkin-consumer/catkin_consumer
 该示例应在独立 CMake 工程中运行，以验证导出的库文件；它会拒绝借用原工程目标。
 本机 shared/static 两种 catkin 消费均已验证。
 
-ROS2 Humble 接入安排在 P4。当前传入 `LIVO_ATLAS_ROS_VERSION=2` 会明确报错，
-尚不能宣称支持 ROS2。GTSAM 后端、持久关键帧和 3DGS 导出也属于后续阶段。
+`LIVO_ATLAS_ROS_VERSION=2` 提供 Humble 接入，要求已 source Humble 环境。
+其 ament 安装导出同一套 namespaced core target；mode 0 不需要 ROS。
+GTSAM 后端、持久关键帧和 3DGS 仍属于后续阶段。
 
 ## 数值与接口约定
 

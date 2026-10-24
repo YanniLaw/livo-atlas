@@ -16,7 +16,8 @@
 12. [P2-02 Frontend 计划](superpowers/plans/2026-10-24-p2-02-frontend.md)及[实现与复现](p2-02-validation.md)：单一前端状态、真实处理流程、结果消费及发布独立性。
 13. [P2-03 输出边界设计](superpowers/specs/2026-10-24-p2-03-output-design.md)、[执行计划](superpowers/plans/2026-10-24-p2-03-output.md)及[实现与复现](p2-03-validation.md)：普通输出处理、独立文件写入与 ROS1 发布。
 14. [P3 核心独立设计](superpowers/specs/2026-10-24-p3-independent-core-design.md)、[执行计划](superpowers/plans/2026-10-24-p3-independent-core.md)、[实测记录](p3-validation.md)及[跨电脑构建说明](core-build.md)：普通相机/图像函数、core/Noetic 构建入口、外部消费与评审修复。
-15. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
+15. [P4 Humble 设计](superpowers/specs/2026-10-24-p4-humble-design.md)、[执行计划](superpowers/plans/2026-10-24-p4-humble.md)、[双版本使用说明](ros-builds.md)和[实测记录](p4-validation.md)：共用核心、ROS2接入、完整DDS回放及跨环境差异归因。
+16. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
