@@ -72,6 +72,16 @@ class Ros2ToolsTest(unittest.TestCase):
         self.assertEqual(runner.count_mismatches({'imu': 3}, {'imu': 2}), {'imu': {'expected': 3, 'observed': 2}})
         self.assertEqual(runner.count_mismatches({'imu': 3}, {'imu': 3, 'image': 1}), {'image': {'expected': 0, 'observed': 1}})
 
+    def test_output_acceptance_rejects_missing_messages_and_nonfinite_poses(self):
+        counts = {'/aft_mapped_to_init': 2, '/rgb_img': 1, '/cloud_registered': 3}
+        poses = [[0., 0., 0., 0., 0., 0., 1.]] * 2
+        self.assertFalse(runner.output_issues(2, 1, counts, 2, poses))
+        self.assertTrue(runner.output_issues(2, 1, {}, 0, []))
+        self.assertTrue(runner.output_issues(2, 1, counts, 1, poses))
+        self.assertTrue(runner.output_issues(2, 1, {**counts, '/rgb_img': 0}, 2, poses))
+        self.assertTrue(runner.output_issues(2, 1, counts, 2, [[float('nan')] * 7] * 2))
+        self.assertTrue(runner.output_issues(2, 1, counts, 2, [[0.] * 7] * 2))
+
 
 if __name__ == '__main__':
     unittest.main()

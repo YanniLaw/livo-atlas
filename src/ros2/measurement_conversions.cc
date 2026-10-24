@@ -131,13 +131,19 @@ builtin_interfaces::msg::Time FromSeconds(double seconds) {
 }
 
 ImuMeasurement ConvertImu(const sensor_msgs::msg::Imu& message) {
-  return {
+  ImuMeasurement measurement{
       ToSeconds(message.header.stamp),
       Eigen::Vector3d(message.angular_velocity.x, message.angular_velocity.y,
                       message.angular_velocity.z),
       Eigen::Vector3d(message.linear_acceleration.x,
                       message.linear_acceleration.y,
                       message.linear_acceleration.z)};
+  if (!measurement.linear_acceleration.allFinite() ||
+      !measurement.angular_velocity.allFinite()) {
+    throw std::invalid_argument(
+        "IMU acceleration and angular velocity must be finite");
+  }
+  return measurement;
 }
 
 std::string ConvertImage(const sensor_msgs::msg::Image& message,

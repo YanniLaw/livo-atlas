@@ -74,6 +74,10 @@ class MappingSession::Impl {
   }
   bool AddImu(ImuMeasurement measurement) {
     if (!options_.frontend.imu.enabled || last_lidar_ < 0) return false;
+    if (!measurement.linear_acceleration.allFinite() ||
+        !measurement.angular_velocity.allFinite()) {
+      return false;
+    }
     double timestamp =
         NanosecondTime(measurement.timestamp - options_.imu_time_offset);
     if (options_.driver_fix) timestamp += std::round(last_lidar_ - timestamp);

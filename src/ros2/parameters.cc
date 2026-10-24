@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
+#include <rclcpp/node_interfaces/node_topics_interface.hpp>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -96,6 +97,11 @@ NodeParameters ReadParameters(rclcpp::Node& node) {
   options.image_enabled = Integer(node, "common.img_en", 1) != 0;
   options.lidar_enabled = Integer(node, "common.lidar_en", 1) != 0;
   config.image_topic = String(node, "common.img_topic", "/left_camera/image");
+  // Resolve names before constructing the session or opening any outputs.
+  for (const auto& topic :
+       {config.lidar_topic, config.imu_topic, config.image_topic}) {
+    node.get_node_topics_interface()->resolve_topic_name(topic);
+  }
   visual.normal_enabled = Boolean(node, "vio.normal_en", true);
   visual.inverse_composition =
       Boolean(node, "vio.inverse_composition_en", false);
@@ -165,6 +171,12 @@ NodeParameters ReadParameters(rclcpp::Node& node) {
                                  ? "cam_d" + std::to_string(i)
                                  : "k" + std::to_string(i + 1);
     camera.distortion[i] = Number(node, name, 0);
+  }
+  if (visual.image_point_covariance <= 0 || imu.accelerometer_covariance < 0 ||
+      imu.gyroscope_covariance < 0 || imu.inverse_exposure_covariance < 0) {
+    throw std::invalid_argument(
+        "vio.img_point_cov must be positive; IMU and exposure covariances must "
+        "be nonnegative");
   }
   const auto error = ValidateImageOptions(camera, visual);
   if (!error.empty()) throw std::invalid_argument(error);

@@ -25,6 +25,25 @@ def count_mismatches(expected, observed):
             if expected.get(topic, 0) != observed.get(topic, 0)}
 
 
+def output_issues(lio, vio, counts, path_size, odometry):
+    expected = {'/aft_mapped_to_init': lio, '/rgb_img': vio,
+                '/cloud_registered': lio + vio}
+    issues = count_mismatches(expected, counts)
+    if path_size != lio:
+        issues['path_size'] = dict(expected=lio, observed=path_size)
+    if len(odometry) != lio:
+        issues['odometry_rows'] = dict(expected=lio, observed=len(odometry))
+    for pose in odometry:
+        if len(pose) != 7 or not all(math.isfinite(value) for value in pose):
+            issues['odometry_values'] = 'non-finite or invalid pose'
+            break
+        norm = math.sqrt(sum(value * value for value in pose[3:7]))
+        if not math.isclose(norm, 1.0, abs_tol=1e-5):
+            issues['odometry_values'] = 'quaternion is not normalized'
+            break
+    return issues
+
+
 def file_digest(path):
     digest = hashlib.sha256()
     with Path(path).open('rb') as stream:
@@ -251,16 +270,19 @@ def main():
                         bool((np.diff(poses[:, 0]) > 0).all()) and
                         bool(np.allclose(np.linalg.norm(poses[:, 4:8], axis=1), 1, atol=1e-5)))
     clean = exited_cleanly(process.returncode, node_log)
+    lio = node_log.count('LIO Mapping Time')
+    vio = node_log.count('VIO Time')
+    publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
     (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2))
     np.savetxt(output / 'odometry.txt', np.asarray(odometry))
-    summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid,
+    summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues,
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
                    input_reliability='reliable', expected_input_counts=dict(expected), observed_counts=dict(received),
                    node_input_counts=node_counts, input_count_mismatches=mismatches,
                    node_input_count_mismatches=node_mismatches, input_serialized_payloads_exact=payload_exact,
                    outputs=dict(outputs), trajectory_rows=len(poses), path_size=path_size,
-                   lio_cycles=node_log.count('LIO Mapping Time'), vio_cycles=node_log.count('VIO Time'),
+                   lio_cycles=lio, vio_cycles=vio, output_issues=publication_issues,
                    arrays={name: dict(shape=list(value.shape), finite=bool(np.isfinite(value).all())) for name, value in arrays.items()},
                    peak_sampled_rss_mib=peak_rss / 1048576, default_threads=args.default_threads,
                    executable=str(args.executable), executable_sha256=file_digest(args.executable),

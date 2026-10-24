@@ -2,6 +2,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -467,5 +468,24 @@ TEST(Ros2TimeTest, InvalidStampDoesNotModifyImageOrCloudOutput) {
   LidarScan scan{42, std::vector<LivoxPoint>{}};
   EXPECT_FALSE(ConvertLivox(cloud, &scan).empty());
   EXPECT_DOUBLE_EQ(scan.timestamp, 42);
+}
+}  // namespace livo_atlas::ros2
+
+namespace livo_atlas::ros2 {
+TEST(MeasurementConversionsTest, RejectsEveryNonfiniteImuComponent) {
+  for (int component = 0; component < 6; ++component) {
+    for (double value : {std::numeric_limits<double>::quiet_NaN(),
+                         std::numeric_limits<double>::infinity()}) {
+      sensor_msgs::msg::Imu message;
+      message.header.stamp = FromSeconds(100);
+      message.linear_acceleration.z = -9.81;
+      const std::array<double*, 6> values = {
+          &message.angular_velocity.x,    &message.angular_velocity.y,
+          &message.angular_velocity.z,    &message.linear_acceleration.x,
+          &message.linear_acceleration.y, &message.linear_acceleration.z};
+      *values[component] = value;
+      EXPECT_THROW(ConvertImu(message), std::invalid_argument);
+    }
+  }
 }
 }  // namespace livo_atlas::ros2

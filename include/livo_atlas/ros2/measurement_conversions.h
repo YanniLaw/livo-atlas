@@ -17,7 +17,8 @@ namespace livo_atlas::ros2 {
 double ToSeconds(const builtin_interfaces::msg::Time& stamp);
 builtin_interfaces::msg::Time FromSeconds(double seconds);
 
-// The caller applies the existing ROS Time offset/driver correction first.
+// Copies the supplied sensor time. Rejects non-finite vectors with
+// std::invalid_argument; the caller controls offset/driver correction policy.
 ImuMeasurement ConvertImu(const sensor_msgs::msg::Imu& message);
 
 // Empty error means success. On failure, *output is unchanged.

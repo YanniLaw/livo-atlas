@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <limits>
 
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "ros2/fixtures.h"
@@ -200,4 +201,109 @@ TEST(SessionTest, ImageRejectionAndHiltiCountersBelongToEachInstance) {
   first.Finish();
   second.Finish();
 }
+}  // namespace livo_atlas::ros2
+
+namespace livo_atlas::ros2 {
+namespace {
+void ExpectSameStates(const std::vector<FrontendResult>& reference,
+                      const std::vector<FrontendResult>& actual) {
+  ASSERT_EQ(reference.size(), actual.size());
+  ASSERT_GT(reference.size(), 2u);
+  for (std::size_t i = 0; i < reference.size(); ++i) {
+    EXPECT_DOUBLE_EQ(reference[i].timestamp, actual[i].timestamp);
+    const auto& a = reference[i].estimate;
+    const auto& b = actual[i].estimate;
+    EXPECT_TRUE(a.rot_end == b.rot_end);
+    EXPECT_TRUE(a.pos_end == b.pos_end);
+    EXPECT_TRUE(a.vel_end == b.vel_end);
+    EXPECT_TRUE(a.bias_a == b.bias_a);
+    EXPECT_TRUE(a.bias_g == b.bias_g);
+    EXPECT_TRUE(a.gravity == b.gravity);
+    EXPECT_TRUE(a.cov == b.cov);
+    EXPECT_DOUBLE_EQ(a.inv_expo_time, b.inv_expo_time);
+    EXPECT_TRUE(b.pos_end.allFinite() && b.cov.allFinite());
+  }
+}
+TEST(SessionTest, RejectingNonfiniteImuLeavesValidSequenceUnchanged) {
+  auto options = test::Options(FrontendMode::kLidarInertial);
+  MappingSession reference(options);
+  options.output.directory /= "injected";
+  MappingSession actual(options);
+  std::vector<FrontendResult> expected, observed;
+  for (int frame = 0; frame < 6; ++frame) {
+    const double t = 100 + frame * .25;
+    reference.AddLidar(test::Scan(t));
+    actual.AddLidar(test::Scan(t));
+    for (int axis = 0; axis < 6; ++axis) {
+      ImuMeasurement invalid{t + 1000, Eigen::Vector3d::Zero(), {0, 0, -9.81}};
+      if (axis < 3)
+        invalid.angular_velocity[axis] =
+            std::numeric_limits<double>::quiet_NaN();
+      else
+        invalid.linear_acceleration[axis - 3] =
+            std::numeric_limits<double>::infinity();
+      ASSERT_FALSE(actual.AddImu(invalid));
+    }
+    for (double offset : {.0625, .125, .1875}) {
+      const ImuMeasurement imu{
+          t + offset, Eigen::Vector3d::Zero(), {frame * .01, 0, -9.81}};
+      ASSERT_TRUE(reference.AddImu(imu));
+      ASSERT_TRUE(actual.AddImu(imu));
+    }
+    reference.ProcessAvailable(
+        [&](const auto& r, const auto&, double) { expected.push_back(r); });
+    actual.ProcessAvailable(
+        [&](const auto& r, const auto&, double) { observed.push_back(r); });
+  }
+  ExpectSameStates(expected, observed);
+  reference.Finish();
+  actual.Finish();
+}
+TEST(SessionTest, AppliesImuOffsetAndDriverCorrectionAtActualIngress) {
+  struct Case {
+    double begin;
+    double offset;
+    double raw_delta;
+    bool driver;
+  };
+  // Corrected reference stamps are dyadic fractions. The final case crosses
+  // a whole-second nanosecond carry: 1000.999999999 - (-0.6ns) -> 1001.
+  for (const auto& c :
+       std::vector<Case>{{1000, .03, .03, false},
+                         {1700000000, .03, -512 + .03, true},
+                         {1000.9375, -.0000000006, -.000000001, false}}) {
+    SCOPED_TRACE(c.begin);
+    auto options = test::Options(FrontendMode::kLidarInertial);
+    MappingSession reference(options);
+    options.output.directory /= "corrected";
+    options.imu_time_offset = c.offset;
+    options.driver_fix = c.driver;
+    MappingSession actual(options);
+    std::vector<FrontendResult> expected, observed;
+    for (int frame = 0; frame < 6; ++frame) {
+      const double t = c.begin + frame * .25;
+      reference.AddLidar(test::Scan(t));
+      actual.AddLidar(test::Scan(t));
+      for (double offset : {.0625, .125, .1875}) {
+        ImuMeasurement imu{
+            t + offset, Eigen::Vector3d::Zero(), {frame * .01, 0, -9.81}};
+        ASSERT_TRUE(reference.AddImu(imu));
+        imu.timestamp = ToSeconds(FromSeconds(t + offset + c.raw_delta));
+        ASSERT_TRUE(actual.AddImu(imu));
+      }
+      ImuMeasurement reverse{ToSeconds(FromSeconds(t + .04 + c.raw_delta)),
+                             Eigen::Vector3d::Zero(),
+                             {0, 0, -9.81}};
+      EXPECT_FALSE(actual.AddImu(reverse));
+      reference.ProcessAvailable(
+          [&](const auto& r, const auto&, double) { expected.push_back(r); });
+      actual.ProcessAvailable(
+          [&](const auto& r, const auto&, double) { observed.push_back(r); });
+    }
+    ExpectSameStates(expected, observed);
+    reference.Finish();
+    actual.Finish();
+  }
+}
+}  // namespace
 }  // namespace livo_atlas::ros2
