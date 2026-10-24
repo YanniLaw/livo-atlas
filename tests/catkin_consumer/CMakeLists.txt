@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.16)
+project(livo_atlas_catkin_consumer LANGUAGES C CXX)
+find_package(catkin REQUIRED COMPONENTS livo_atlas)
+if(TARGET livo_atlas_frontend OR TARGET livo_atlas::core)
+  message(FATAL_ERROR "This check must use exported library files in a separate project")
+endif()
+add_executable(catkin_consumer main.cc)
+target_compile_features(catkin_consumer PRIVATE cxx_std_17)
+target_include_directories(catkin_consumer PRIVATE ${catkin_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../installed_consumer)
+target_link_libraries(catkin_consumer PRIVATE ${catkin_LIBRARIES})

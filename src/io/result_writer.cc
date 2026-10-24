@@ -10,6 +10,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 
+#include "livo_atlas/camera/camera_config.h"
 #include "livo_atlas/core/so3_math.h"
 
 namespace livo_atlas {
@@ -120,9 +121,15 @@ void ValidateOutputOptions(const OutputOptions& options) {
       throw std::invalid_argument("pcd_save/filter_size_pcd must be positive");
     }
   }
-  if (options.colmap && options.calibration.camera.model != "Pinhole") {
-    throw std::invalid_argument(
-        "pcd_save/colmap_output_en requires a Pinhole camera");
+  if (options.colmap) {
+    if (options.calibration.camera.model != "Pinhole") {
+      throw std::invalid_argument(
+          "pcd_save/colmap_output_en requires a Pinhole camera");
+    }
+    const std::string error = ValidateCameraConfig(options.calibration.camera);
+    if (!error.empty()) {
+      throw std::invalid_argument("COLMAP camera: " + error);
+    }
   }
 }
 

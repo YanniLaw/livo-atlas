@@ -13,6 +13,7 @@ which is included as part of this source code package.
 #ifndef LIVO_FRAME_H_
 #define LIVO_FRAME_H_
 
+#include <atomic>
 #include <cstddef>
 #include <list>
 #include <memory>
@@ -33,7 +34,7 @@ class Frame {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  static int frame_counter_;  //!< Counts frames to assign unique ids.
+  static std::atomic<int> frame_counter_;  //!< Assigns unique frame ids.
   int id_;                   //!< Unique id of the frame.
   livo_atlas::Camera *cam_;  //!< Camera model.
   Sophus::SE3 T_f_w_;        //!< Transform (f)rame from (w)orld.

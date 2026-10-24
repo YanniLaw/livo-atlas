@@ -3,6 +3,7 @@
 #include <chrono>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -320,6 +321,44 @@ TEST_F(ResultWriterTest, InvalidOptionsNeverCreateOutputDirectories) {
   for (const auto& invalid_options : invalid) {
     EXPECT_THROW(ResultWriter writer(invalid_options), std::invalid_argument);
     EXPECT_FALSE(fs::exists(options_.directory));
+  }
+}
+
+TEST_F(ResultWriterTest, ColmapRejectsInvalidCameraCalibration) {
+  options_.colmap = true;
+  const auto valid = options_.calibration.camera;
+  for (int variant = 0; variant < 6; ++variant) {
+    options_.calibration.camera = valid;
+    auto& camera = options_.calibration.camera;
+    if (variant == 0) camera.width = 0;
+    if (variant == 1) camera.scale = std::numeric_limits<double>::quiet_NaN();
+    if (variant == 2) camera.scale = std::numeric_limits<double>::infinity();
+    if (variant == 3) camera.scale = 1e100;
+    if (variant == 4) camera.fx = 0;
+    if (variant == 5) camera.distortion[0] =
+        std::numeric_limits<double>::quiet_NaN();
+    EXPECT_THROW(ValidateOutputOptions(options_), std::invalid_argument);
+    EXPECT_FALSE(fs::exists(options_.directory));
+  }
+}
+
+TEST_F(ResultWriterTest, InvalidColmapCameraPreservesExistingOutput) {
+  options_.colmap = true;
+  options_.pcd = true;
+  options_.calibration.camera.width = 0;
+  const std::vector<fs::path> files = {
+      "mat_pre.txt", "mat_out.txt", "Colmap/images/keep.txt",
+      "Colmap/sparse/0/keep.txt"};
+  for (const auto& file : files) {
+    const auto path = options_.directory / file;
+    fs::create_directories(path.parent_path());
+    std::ofstream(path) << "original";
+  }
+  EXPECT_THROW(ResultWriter{options_}, std::invalid_argument);
+  for (const auto& file : files) {
+    std::ifstream stream(options_.directory / file);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(stream), {}),
+              "original") << file;
   }
 }
 

@@ -72,8 +72,8 @@ target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
 livo_atlas_library(output src/output/output_processor.cc)
 target_link_libraries(livo_atlas_output PUBLIC livo_atlas_camera pcl_common)
 livo_atlas_library(io src/io/result_writer.cc)
-target_link_libraries(livo_atlas_io PUBLIC Eigen3::Eigen pcl_io pcl_filters
-  opencv_core opencv_imgcodecs)
+target_link_libraries(livo_atlas_io PUBLIC livo_atlas_calibration Eigen3::Eigen
+  pcl_io pcl_filters opencv_core opencv_imgcodecs)
 add_library(livo_atlas_core INTERFACE)
 set_target_properties(livo_atlas_core PROPERTIES EXPORT_NAME core)
 add_library(livo_atlas::core ALIAS livo_atlas_core)

@@ -18,12 +18,10 @@ which is included as part of this source code package.
 #include "feature.h"
 #include "visual_point.h"
 
-int Frame::frame_counter_ = 0;
+std::atomic<int> Frame::frame_counter_{0};
 
-Frame::Frame(livo_atlas::Camera *cam, const cv::Mat &img)
-    : id_(frame_counter_++), 
-      cam_(cam)
-{
+Frame::Frame(livo_atlas::Camera* cam, const cv::Mat& img)
+    : id_(frame_counter_.fetch_add(1, std::memory_order_relaxed)), cam_(cam) {
   initFrame(img);
 }
 

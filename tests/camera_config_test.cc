@@ -1,5 +1,11 @@
 #include "livo_atlas/camera/camera_factory.h"
 
+#include <algorithm>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <vector>
+
 #include <gtest/gtest.h>
 #include "livo_atlas/camera/pinhole_camera.h"
 
@@ -56,6 +62,47 @@ TEST(CameraFactoryTest, RejectsInvalidCalibrationBeforeConstruction) {
   config = CameraCalibration("Pinhole");
   config.width = 0;
   EXPECT_EQ(CreateCamera(config), nullptr);
+}
+
+TEST(FrameTest, ConcurrentInstancesReceiveUniqueIds) {
+  PinholeCamera camera({"Pinhole", 32, 32, 1, 10, 10, 16, 16, {}});
+  const cv::Mat image(32, 32, CV_8UC1, cv::Scalar(0));
+  constexpr int kThreads = 8;
+  constexpr int kFramesPerThread = 20000;
+  std::vector<std::vector<int>> ids(
+      kThreads, std::vector<int>(kFramesPerThread));
+  std::mutex mutex;
+  std::condition_variable condition;
+  int ready = 0;
+  bool start = false;
+  std::vector<std::thread> workers;
+  for (int thread = 0; thread < kThreads; ++thread) {
+    workers.emplace_back([&, thread] {
+      {
+        std::unique_lock<std::mutex> lock(mutex);
+        ++ready;
+        condition.notify_all();
+        condition.wait(lock, [&] { return start; });
+      }
+      for (int i = 0; i < kFramesPerThread; ++i) {
+        Frame frame(&camera, image);
+        ids[thread][i] = frame.id_;
+      }
+    });
+  }
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    condition.wait(lock, [&] { return ready == kThreads; });
+    start = true;
+  }
+  condition.notify_all();
+  for (auto& worker : workers) worker.join();
+  std::vector<int> all_ids;
+  for (const auto& sequence : ids) {
+    all_ids.insert(all_ids.end(), sequence.begin(), sequence.end());
+  }
+  std::sort(all_ids.begin(), all_ids.end());
+  EXPECT_EQ(std::adjacent_find(all_ids.begin(), all_ids.end()), all_ids.end());
 }
 
 TEST(VioExtrinsicsTest, PreservesNonIdentityFrameDirectionsAndTranslations) {

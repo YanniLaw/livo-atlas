@@ -1,7 +1,15 @@
+set(livo_atlas_runtime_libraries ${CMAKE_THREAD_LIBS_INIT})
+if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
+  list(APPEND livo_atlas_runtime_libraries ${OpenMP_CXX_LIBRARIES})
+endif()
+# External catkin projects receive library files, not the original targets.
+# Keep dependents before dependencies for static linking as well.
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES livo_atlas_frontend livo_atlas_synchronization livo_atlas_preprocess
-    livo_atlas_camera livo_atlas_output livo_atlas_io
+  LIBRARIES livo_atlas_frontend livo_atlas_output livo_atlas_io
+    livo_atlas_vio livo_atlas_lio livo_atlas_imu livo_atlas_synchronization
+    livo_atlas_preprocess livo_atlas_camera livo_atlas_calibration
+    ${livo_atlas_runtime_libraries}
   CATKIN_DEPENDS geometry_msgs nav_msgs sensor_msgs roscpp rospy std_msgs
     pcl_ros tf message_runtime cv_bridge image_transport visualization_msgs
   DEPENDS PCL OpenCV Sophus)
