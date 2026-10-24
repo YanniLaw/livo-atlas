@@ -12,7 +12,6 @@ which is included as part of this source code package.
 
 #include "preprocess.h"
 
-#include <omp.h>
 
 #include <algorithm>
 #include <cmath>
@@ -77,10 +76,7 @@ void Preprocess::ProcessPoints(const std::vector<livo_atlas::LivoxPoint>& points
   pl_surf.clear();
   pl_corn.clear();
   pl_full.clear();
-  double t1 = omp_get_wtime();
   int plsize = points.size();
-  printf("[ Preprocess ] Input point number: %d \n", plsize);
-  // printf("point_filter_num: %d\n", point_filter_num);
 
   pl_corn.reserve(plsize);
   pl_surf.reserve(plsize);
@@ -113,10 +109,6 @@ void Preprocess::ProcessPoints(const std::vector<livo_atlas::LivoxPoint>& points
         }
       }
     }
-    static int count = 0;
-    static double time = 0.0;
-    count++;
-    double t0 = omp_get_wtime();
     for (int j = 0; j < N_SCANS; j++)
     {
       if (pl_buff[j].size() <= 5) continue;
@@ -138,8 +130,6 @@ void Preprocess::ProcessPoints(const std::vector<livo_atlas::LivoxPoint>& points
       give_feature(pl, types);
       // pl_surf += pl;
     }
-    time += omp_get_wtime() - t0;
-    printf("Feature extraction time: %lf \n", time / count);
   }
   else
   {
@@ -170,14 +160,12 @@ void Preprocess::ProcessPoints(const std::vector<livo_atlas::LivoxPoint>& points
           if (pl_full[i].x * pl_full[i].x + pl_full[i].y * pl_full[i].y + pl_full[i].z * pl_full[i].z >= blind_sqr)
           {
             pl_surf.push_back(pl_full[i]);
-            // if (i % 100 == 0 || i == 0) printf("pl_full[i].curvature: %f \n",
             // pl_full[i].curvature);
           }
         }
       }
     }
   }
-  printf("[ Preprocess ] Output point number: %zu \n", pl_surf.points.size());
 }
 
 void Preprocess::ProcessPoints(const pcl::PointCloud<pcl::PointXYZRGB>& pl_orig)
@@ -189,8 +177,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<pcl::PointXYZRGB>& pl_orig)
   pl_corn.reserve(plsize);
   pl_surf.reserve(plsize);
 
-  // cout << "===================================" << endl;
-  // printf("Pt size = %d, N_SCANS = %d\r\n", plsize, N_SCANS);
   for (int i = 0; i < pl_orig.points.size(); i++)
   {
     if (i % point_filter_num != 0) continue;
@@ -212,7 +198,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<pcl::PointXYZRGB>& pl_orig)
     pl_surf.points.push_back(added_pt);
   }
 
-  cout << "pl size:: " << pl_orig.points.size() << endl;
 }
 
 void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::OusterPoint>& pl_orig)
@@ -276,8 +261,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::OusterPoint>& p
   }
   else
   {
-    // cout << "===================================" << endl;
-    // printf("Pt size = %d, N_SCANS = %d\r\n", plsize, N_SCANS);
     for (int i = 0; i < pl_orig.points.size(); i++)
     {
       if (i % point_filter_num != 0) continue;
@@ -302,7 +285,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::OusterPoint>& p
 
       added_pt.curvature = pl_orig.points[i].t / 1e6;
 
-      // cout<<added_pt.curvature<<endl;
 
       pl_surf.points.push_back(added_pt);
     }
@@ -376,7 +358,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::VelodynePoint>&
         double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
         if (is_first[layer])
         {
-          // printf("layer: %d; is first: %d", layer, is_first[layer]);
           yaw_fp[layer] = yaw_angle;
           is_first[layer] = false;
           added_pt.curvature = 0.0;
@@ -423,7 +404,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::VelodynePoint>&
     for (int i = 0; i < plsize; i++)
     {
       PointType added_pt;
-      // cout<<"!!!!!!"<<i<<" "<<plsize<<endl;
 
       added_pt.normal_x = 0;
       added_pt.normal_y = 0;
@@ -442,7 +422,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::VelodynePoint>&
 
         if (is_first[layer])
         {
-          // printf("layer: %d; is first: %d", layer, is_first[layer]);
           yaw_fp[layer] = yaw_angle;
           is_first[layer] = false;
           added_pt.curvature = 0.0;
@@ -463,7 +442,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::VelodynePoint>&
         time_last[layer] = added_pt.curvature;
       }
 
-      // if(i==(plsize-1))  printf("index: %d layer: %d, yaw: %lf, offset-time:
       // %lf, condition: %d\n", i, layer, yaw_angle, added_pt.curvature,
       // prints);
       if (i % point_filter_num == 0)
@@ -471,7 +449,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::VelodynePoint>&
         if (added_pt.x * added_pt.x + added_pt.y * added_pt.y + added_pt.z * added_pt.z > blind_sqr)
         {
           pl_surf.points.push_back(added_pt);
-          // printf("time mode: %d time: %d \n", given_offset_time,
           // pl_orig.points[i].t);
         }
       }
@@ -505,7 +482,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Pandar128Point>
       if (added_pt.x * added_pt.x + added_pt.y * added_pt.y + added_pt.z * added_pt.z > blind_sqr)
       {
         pl_surf.points.push_back(added_pt);
-        // printf("time mode: %d time: %d \n", given_offset_time,
         // pl_orig.points[i].t);
       }
     }
@@ -520,13 +496,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Pandar128Point>
   // sort the points using the comparison function
   std::sort(pl_surf.points.begin(), pl_surf.points.end(), comparePoints);
   
-  // cout << GREEN << "pl_surf.points[0].timestamp: " << pl_surf.points[0].curvature << RESET << endl;
-  // cout << GREEN << "pl_surf.points[1000].timestamp: " << pl_surf.points[1000].curvature << RESET << endl;
-  // cout << GREEN << "pl_surf.points[5000].timestamp: " << pl_surf.points[5000].curvature << RESET << endl;
-  // cout << GREEN << "pl_surf.points[10000].timestamp: " << pl_surf.points[10000].curvature << RESET << endl;
-  // cout << GREEN << "pl_surf.points[20000].timestamp: " << pl_surf.points[20000].curvature << RESET << endl;
-  // cout << GREEN << "pl_surf.points[30000].timestamp: " << pl_surf.points[30000].curvature << RESET << endl;
-  // cout << GREEN << "pl_surf.points[31000].timestamp: " << pl_surf.points[31000].curvature << RESET << endl;
 }
 
 void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Xt32Point>& pl_orig)
@@ -592,7 +561,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Xt32Point>& pl_
         double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
         if (is_first[layer])
         {
-          // printf("layer: %d; is first: %d", layer, is_first[layer]);
           yaw_fp[layer] = yaw_angle;
           is_first[layer] = false;
           added_pt.curvature = 0.0;
@@ -639,7 +607,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Xt32Point>& pl_
     for (int i = 0; i < plsize; i++)
     {
       PointType added_pt;
-      // cout<<"!!!!!!"<<i<<" "<<plsize<<endl;
 
       added_pt.normal_x = 0;
       added_pt.normal_y = 0;
@@ -650,10 +617,8 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Xt32Point>& pl_
       added_pt.intensity = pl_orig.points[i].intensity;
       added_pt.curvature = (pl_orig.points[i].timestamp - time_head) * 1000.f;
 
-      // printf("added_pt.curvature: %lf %lf \n", added_pt.curvature,
       // pl_orig.points[i].timestamp);
 
-      // if(i==(plsize-1))  printf("index: %d layer: %d, yaw: %lf, offset-time:
       // %lf, condition: %d\n", i, layer, yaw_angle, added_pt.curvature,
       // prints);
       if (i % point_filter_num == 0)
@@ -661,7 +626,6 @@ void Preprocess::ProcessPoints(const pcl::PointCloud<livo_atlas::Xt32Point>& pl_
         if (added_pt.x * added_pt.x + added_pt.y * added_pt.y + added_pt.z * added_pt.z > blind_sqr)
         {
           pl_surf.points.push_back(added_pt);
-          // printf("time mode: %d time: %d \n", given_offset_time,
           // pl_orig.points[i].t);
         }
       }
@@ -709,7 +673,6 @@ void Preprocess::give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &t
   int plsize2;
   if (plsize == 0)
   {
-    printf("something wrong\n");
     return;
   }
   uint head = 0;

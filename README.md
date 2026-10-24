@@ -75,26 +75,22 @@ make
 sudo make install
 ```
 
-### 2.4 Vikit
+### 2.4 livo-atlas core
 
-Vikit contains camera models, some math and interpolation functions that we need. Vikit is a catkin project, therefore, download it into your catkin workspace source folder.
-
-```bash
-# Different from the one used in fast-livo1
-cd catkin_ws/src
-git clone https://github.com/xuankuzcr/rpg_vikit.git 
-```
+livo-atlas provides its own camera models and image operations. Vikit is no
+longer required. See [standalone C++ / Noetic build instructions](docs/core-build.md)
+for the current build entry points and supported dependencies.
 
 ## 3. Build
 
-Clone the repository and catkin_make:
+For this refactored package, follow [core / Noetic builds](docs/core-build.md).
+In an existing Noetic workspace containing `src/livo-atlas`:
 
 ```
-cd ~/catkin_ws/src
-git clone https://github.com/hku-mars/FAST-LIVO2
-cd ../
-catkin_make
-source ~/catkin_ws/devel/setup.bash
+source /opt/ros/noetic/setup.bash
+cd ~/livo-atlas_ws
+catkin_make -DCATKIN_BLACKLIST_PACKAGES="vikit_common;vikit_ros" -j1
+source devel/setup.bash
 ```
 
 ## 4. Run our examples

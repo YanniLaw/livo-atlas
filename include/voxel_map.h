@@ -18,7 +18,6 @@ which is included as part of this source code package.
 #include <Eigen/Dense>
 #include <math.h>
 #include <mutex>
-#include <omp.h>
 #include <pcl/common/io.h>
 #include <unordered_map>
 #include "livo_atlas/frontend/diagnostics.h"
@@ -175,9 +174,6 @@ public:
 
   M3D extR_;
   V3D extT_;
-  float build_residual_time, ekf_time;
-  float ave_build_residual_time = 0.0;
-  float ave_ekf_time = 0.0;
   int scan_count = 0;
   StatesGroup state_;
   V3D position_last_;

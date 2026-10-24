@@ -16,7 +16,7 @@ which is included as part of this source code package.
 #include <utils/so3_math.h>
 #include <utils/types.h>
 #include <utils/color.h>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
 #include <sophus/se3.h>
 
 #include <deque>

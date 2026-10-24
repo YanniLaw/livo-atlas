@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include "installed_consumer/scenario.h"
+
 namespace livo_atlas {
 namespace {
 
@@ -15,6 +17,18 @@ FrontendOptions MakeOptions() {
   options.calibration.camera.cx = 256;
   options.calibration.camera.cy = 256;
   return options;
+}
+
+TEST(FrontendTest, OrdinaryCallerRunsRepeatedLidarOnlyWithoutPublisher) {
+  EXPECT_TRUE(test_data::RunFrontendScenario(FrontendMode::kLidarOnly));
+}
+
+TEST(FrontendTest, OrdinaryCallerRunsRepeatedLidarInertialWithoutPublisher) {
+  EXPECT_TRUE(test_data::RunFrontendScenario(FrontendMode::kLidarInertial));
+}
+
+TEST(FrontendTest, OrdinaryCallerRunsRepeatedTrackedVisualWithoutPublisher) {
+  EXPECT_TRUE(test_data::RunFrontendScenario(FrontendMode::kLidarInertialVisual));
 }
 
 SynchronizedMeasurements MakeScan(

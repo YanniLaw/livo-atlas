@@ -110,12 +110,7 @@ public:
   SubSparseMap *visual_submap;
   std::vector<std::vector<V3D>> rays_with_sample_points;
 
-  double compute_jacobian_time, update_ekf_time;
-  double ave_total = 0;
-  // double ave_build_residual_time = 0;
-  // double ave_ekf_time = 0;
 
-  int frame_count = 0;
   bool plot_flag;
 
   Matrix<double, DIM_STATE, DIM_STATE> G, H_T_H;

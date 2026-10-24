@@ -253,9 +253,8 @@ void LIVMapper::ProcessMeasurements() {
   result_writer_->Write(last_result_, prepared);
   if (!last_result_.updated) return;
   result_publisher_->Publish(last_result_, prepared);
-  if (last_result_.kind != VIO) {
-    std::printf("LIO Mapping Time\n| Current Total Time | %.6f |\n", elapsed);
-  }
+  const char* stage = last_result_.kind == VIO ? "VIO Time" : "LIO Mapping Time";
+  std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
 }
 
 void LIVMapper::run() 

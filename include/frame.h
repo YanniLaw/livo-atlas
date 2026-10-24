@@ -13,6 +13,7 @@ which is included as part of this source code package.
 #ifndef LIVO_FRAME_H_
 #define LIVO_FRAME_H_
 
+#include <cstddef>
 #include <list>
 #include <memory>
 
@@ -28,12 +29,11 @@ struct Feature;
 using Features = std::list<Feature*>;
 
 /// A frame saves the image, the associated features and the estimated pose.
-class Frame
-{
-public:
+class Frame {
+ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  static int frame_counter_; //!< Counts the number of created frames. Used to set the unique id.
+  static int frame_counter_;  //!< Counts frames to assign unique ids.
   int id_;                   //!< Unique id of the frame.
   livo_atlas::Camera *cam_;  //!< Camera model.
   Sophus::SE3 T_f_w_;        //!< Transform (f)rame from (w)orld.
@@ -50,31 +50,45 @@ public:
   void initFrame(const cv::Mat &img);
 
   /// Return number of point observations.
-  inline size_t nObs() const { return fts_.size(); }
+  std::size_t nObs() const { return fts_.size(); }
 
   /// Transforms point coordinates in world-frame (w) to camera pixel coordinates (c).
-  inline Eigen::Vector2d w2c(const Eigen::Vector3d &xyz_w) const { return cam_->Project(Eigen::Vector3d(T_f_w_ * xyz_w)); }
+  Eigen::Vector2d w2c(const Eigen::Vector3d& xyz_w) const {
+    return cam_->Project(Eigen::Vector3d(T_f_w_ * xyz_w));
+  }
 
-  /// Transforms point coordinates in world-frame (w) to camera pixel coordinates (c) using the IMU prior pose.
-  inline Eigen::Vector2d w2c_prior(const Eigen::Vector3d &xyz_w) const { return cam_->Project(Eigen::Vector3d(T_f_w_prior_ * xyz_w)); }
+  /// Project a world point using the IMU prior pose.
+  Eigen::Vector2d w2c_prior(const Eigen::Vector3d& xyz_w) const {
+    return cam_->Project(Eigen::Vector3d(T_f_w_prior_ * xyz_w));
+  }
   
   /// Transforms pixel coordinates (c) to frame unit sphere coordinates (f).
-  inline Eigen::Vector3d c2f(const Eigen::Vector2d &px) const { return cam_->Unproject(px); }
+  Eigen::Vector3d c2f(const Eigen::Vector2d& px) const {
+    return cam_->Unproject(px);
+  }
 
   /// Transforms pixel coordinates (c) to frame unit sphere coordinates (f).
-  inline Eigen::Vector3d c2f(const double x, const double y) const { return cam_->Unproject(x, y); }
+  Eigen::Vector3d c2f(double x, double y) const {
+    return cam_->Unproject(x, y);
+  }
 
   /// Transforms point coordinates in world-frame (w) to camera-frams (f).
-  inline Eigen::Vector3d w2f(const Eigen::Vector3d &xyz_w) const { return T_f_w_ * xyz_w; }
+  Eigen::Vector3d w2f(const Eigen::Vector3d& xyz_w) const {
+    return T_f_w_ * xyz_w;
+  }
 
-  /// Transforms point from frame unit sphere (f) frame to world coordinate frame (w).
-  inline Eigen::Vector3d f2w(const Eigen::Vector3d &f) const { return T_f_w_.inverse() * f; }
+  /// Transform a frame point into the world frame.
+  Eigen::Vector3d f2w(const Eigen::Vector3d& f) const {
+    return T_f_w_.inverse() * f;
+  }
 
   /// Projects Point from unit sphere (f) in camera pixels (c).
-  inline Eigen::Vector2d f2c(const Eigen::Vector3d &f) const { return cam_->Project(f); }
+  Eigen::Vector2d f2c(const Eigen::Vector3d& f) const {
+    return cam_->Project(f);
+  }
 
   /// Return the pose of the frame in the (w)orld coordinate frame.
-  inline Eigen::Vector3d pos() const { return T_f_w_.inverse().translation(); }
+  Eigen::Vector3d pos() const { return T_f_w_.inverse().translation(); }
 };
 
 typedef std::unique_ptr<Frame> FramePtr;
