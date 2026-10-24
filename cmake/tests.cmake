@@ -35,7 +35,7 @@ file(GLOB_RECURSE livo_atlas_public_headers RELATIVE ${PROJECT_SOURCE_DIR}/inclu
   ${PROJECT_SOURCE_DIR}/include/livo_atlas/*.h)
 set(livo_atlas_header_checks)
 foreach(header IN LISTS livo_atlas_public_headers)
-  if(header MATCHES "/ros1/")
+  if(header MATCHES "/ros[12]/")
     continue()
   endif()
   string(REPLACE "/" "_" name ${header})
@@ -56,4 +56,9 @@ if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
   catkin_add_executable_with_gtest(lidar_callback_test
     tests/lidar_callback_test.cc tests/ros1/result_publisher_test.cc)
   target_link_libraries(lidar_callback_test livo_atlas_ros1_mapper)
+endif()
+
+if(LIVO_ATLAS_ROS_VERSION STREQUAL "2")
+  livo_atlas_test(ros2_measurement_conversions_test tests/ros2/measurement_conversions_test.cc)
+  target_link_libraries(ros2_measurement_conversions_test livo_atlas_ros2_conversions)
 endif()
