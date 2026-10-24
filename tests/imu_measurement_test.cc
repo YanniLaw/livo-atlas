@@ -91,5 +91,32 @@ TEST(ImuMeasurementTest, FirstPropagationDoesNotDependOnPreviousStorageBytes) {
   EXPECT_NEAR(std::atan2(state.rot_end(1, 0), state.rot_end(0, 0)), 0.2, 1e-12);
 }
 
+TEST(ImuMeasurementTest, LidarOnlyDeskewDoesNotInheritPreviousSensorModel) {
+  std::aligned_storage_t<sizeof(ImuProcess), alignof(ImuProcess)> storage;
+  auto* previous = new (&storage) ImuProcess();
+  previous->lidar_type = L515;
+  previous->~ImuProcess();
+  const auto destroy = [](ImuProcess* process) { process->~ImuProcess(); };
+  std::unique_ptr<ImuProcess, decltype(destroy)> process(
+      new (&storage) ImuProcess(), destroy);
+  process->disable_imu();
+  StatesGroup state;
+  state.vel_end = Eigen::Vector3d(1, 0, 0);
+  LidarMeasureGroup input;
+  input.lio_vio_flg = LO;
+  input.lidar_frame_beg_time = 100;
+  for (int i = 0; i < 3; ++i) {
+    Point point{};
+    point.x = i + 1;
+    point.curvature = i * 62.5;
+    input.lidar->push_back(point);
+  }
+  PointCloudXYZI::Ptr output(new PointCloudXYZI);
+  process->Process2(input, state, output);
+  ASSERT_EQ(output->size(), 3);
+  // The middle return precedes the scan end by 62.5 ms at 1 m/s.
+  EXPECT_FLOAT_EQ(output->points[1].x, 1.9375F);
+}
+
 }  // namespace
 }  // namespace livo_atlas
