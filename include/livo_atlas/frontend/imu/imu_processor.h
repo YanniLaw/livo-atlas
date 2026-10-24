@@ -10,12 +10,12 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef IMU_PROCESSING_H
-#define IMU_PROCESSING_H
+#ifndef LIVO_ATLAS_FRONTEND_IMU_IMU_PROCESSOR_H_
+#define LIVO_ATLAS_FRONTEND_IMU_IMU_PROCESSOR_H_
 
 #include <Eigen/Eigen>
-#include "common_lib.h"
-#include <utils/so3_math.h>
+#include "livo_atlas/internal/legacy/common.h"
+#include "livo_atlas/internal/legacy/so3_math.h"
 #include "livo_atlas/frontend/diagnostics.h"
 
 /// *************IMU Process and undistortion

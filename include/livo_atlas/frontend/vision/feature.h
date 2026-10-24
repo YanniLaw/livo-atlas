@@ -10,10 +10,10 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef LIVO_FEATURE_H_
-#define LIVO_FEATURE_H_
+#ifndef LIVO_ATLAS_FRONTEND_VISION_FEATURE_H_
+#define LIVO_ATLAS_FRONTEND_VISION_FEATURE_H_
 
-#include "visual_point.h"
+#include "livo_atlas/mapping/visual_point.h"
 
 // A salient image region that is tracked across frames.
 struct Feature
@@ -53,4 +53,4 @@ struct Feature
   }
 };
 
-#endif // LIVO_FEATURE_H_
+#endif // LIVO_ATLAS_FRONTEND_VISION_FEATURE_H_

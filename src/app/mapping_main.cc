@@ -3,7 +3,7 @@
 #include <memory>
 
 #if LIVO_ATLAS_ROS_VERSION == 1
-#include "LIVMapper.h"
+#include "livo_atlas/ros1/mapper.h"
 #elif LIVO_ATLAS_ROS_VERSION == 2
 #include "ros2/mapper_node.h"
 #else

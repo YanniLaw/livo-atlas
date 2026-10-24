@@ -1,4 +1,4 @@
-#include "common_lib.h"
+#include "livo_atlas/internal/legacy/common.h"
 
 #include <cmath>
 #include <type_traits>

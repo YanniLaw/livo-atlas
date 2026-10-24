@@ -10,8 +10,8 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef LIVO_ATLAS_LIV_MAPPER_H_
-#define LIVO_ATLAS_LIV_MAPPER_H_
+#ifndef LIVO_ATLAS_ROS1_MAPPER_H_
+#define LIVO_ATLAS_ROS1_MAPPER_H_
 
 #include <condition_variable>
 #include <memory>
@@ -24,12 +24,12 @@ which is included as part of this source code package.
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud2.h>
 
-#include "common_lib.h"
+#include "livo_atlas/internal/legacy/common.h"
 #include "livo_atlas/frontend/frontend.h"
 #include "livo_atlas/io/result_writer.h"
 #include "livo_atlas/ros1/result_publisher.h"
 #include "livo_atlas/sensor/synchronizer.h"
-#include "preprocess.h"
+#include "livo_atlas/sensor/preprocess.h"
 
 class LIVMapper {
  public:
@@ -97,4 +97,4 @@ class LIVMapper {
   ros::Timer imu_prop_timer;
 };
 
-#endif  // LIVO_ATLAS_LIV_MAPPER_H_
+#endif  // LIVO_ATLAS_ROS1_MAPPER_H_

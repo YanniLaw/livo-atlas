@@ -10,7 +10,7 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#include "vio.h"
+#include "livo_atlas/frontend/vision/vio.h"
 
 #ifdef _OPENMP
 #include <omp.h>

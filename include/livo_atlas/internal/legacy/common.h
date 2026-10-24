@@ -10,12 +10,12 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef COMMON_LIB_H
-#define COMMON_LIB_H
+#ifndef LIVO_ATLAS_INTERNAL_LEGACY_COMMON_H_
+#define LIVO_ATLAS_INTERNAL_LEGACY_COMMON_H_
 
-#include <utils/so3_math.h>
-#include <utils/types.h>
-#include <utils/color.h>
+#include "livo_atlas/internal/legacy/so3_math.h"
+#include "livo_atlas/internal/legacy/types.h"
+#include "livo_atlas/internal/legacy/color.h"
 #include <opencv2/core.hpp>
 #include <sophus/se3.h>
 

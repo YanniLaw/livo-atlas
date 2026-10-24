@@ -10,11 +10,11 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef VIO_H_
-#define VIO_H_
+#ifndef LIVO_ATLAS_FRONTEND_VISION_VIO_H_
+#define LIVO_ATLAS_FRONTEND_VISION_VIO_H_
 
-#include "voxel_map.h"
-#include "feature.h"
+#include "livo_atlas/mapping/voxel_map.h"
+#include "livo_atlas/frontend/vision/feature.h"
 #include <opencv2/imgproc/imgproc_c.h>
 #include <pcl/filters/voxel_grid.h>
 #include <set>
@@ -176,4 +176,4 @@ public:
 };
 typedef std::shared_ptr<VIOManager> VIOManagerPtr;
 
-#endif // VIO_H_
+#endif // LIVO_ATLAS_FRONTEND_VISION_VIO_H_

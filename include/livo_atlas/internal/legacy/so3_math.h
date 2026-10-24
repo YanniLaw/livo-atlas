@@ -1,5 +1,5 @@
-#ifndef SO3_MATH_H
-#define SO3_MATH_H
+#ifndef LIVO_ATLAS_INTERNAL_LEGACY_SO3_MATH_H_
+#define LIVO_ATLAS_INTERNAL_LEGACY_SO3_MATH_H_
 
 #include <math.h>
 
@@ -17,4 +17,4 @@ Eigen::Matrix<T, 3, 1> RotMtoEuler(const Eigen::Matrix<T, 3, 3>& rotation) {
   return livo_atlas::RotationMatrixToEuler(rotation);
 }
 
-#endif  // SO3_MATH_H
+#endif  // LIVO_ATLAS_INTERNAL_LEGACY_SO3_MATH_H_

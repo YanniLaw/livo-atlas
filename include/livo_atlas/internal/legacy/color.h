@@ -1,5 +1,5 @@
-#ifndef COLOR_H
-#define COLOR_H
+#ifndef LIVO_ATLAS_INTERNAL_LEGACY_COLOR_H_
+#define LIVO_ATLAS_INTERNAL_LEGACY_COLOR_H_
 
 #define RESET       "\033[0m"
 #define BLACK       "\033[30m"             /* Black */
@@ -21,4 +21,4 @@
 #define BOLDWHITE   "\033[1m\033[37m"      /* Bold White */
 #define BOLDREDPURPLE   "\033[1m\033[95m"  /* Bold Red Purple */
 
-#endif // COLOR_H
+#endif // LIVO_ATLAS_INTERNAL_LEGACY_COLOR_H_

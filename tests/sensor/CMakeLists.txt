@@ -14,7 +14,7 @@ find_package(GTest REQUIRED)
 enable_testing()
 
 get_filename_component(PACKAGE_INCLUDE_DIR "../../include" ABSOLUTE)
-add_library(sensor_preprocess STATIC ../../src/preprocess.cpp)
+add_library(sensor_preprocess STATIC ../../src/sensor/preprocess.cc)
 target_include_directories(sensor_preprocess PUBLIC
   "${PACKAGE_INCLUDE_DIR}" ${PCL_INCLUDE_DIRS})
 target_link_libraries(sensor_preprocess PUBLIC Eigen3::Eigen

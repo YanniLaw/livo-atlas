@@ -10,14 +10,14 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef PREPROCESS_H_
-#define PREPROCESS_H_
+#ifndef LIVO_ATLAS_SENSOR_PREPROCESS_H_
+#define LIVO_ATLAS_SENSOR_PREPROCESS_H_
 
 #include <memory>
 #include <vector>
 
 #include "livo_atlas/sensor/lidar_scan.h"
-#include "utils/types.h"
+#include "livo_atlas/internal/legacy/types.h"
 
 using namespace std;
 
@@ -110,4 +110,4 @@ private:
 };
 typedef std::shared_ptr<Preprocess> PreprocessPtr;
 
-#endif // PREPROCESS_H_
+#endif // LIVO_ATLAS_SENSOR_PREPROCESS_H_

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <pcl/filters/voxel_grid.h>
 
-#include "utils/types.h"
+#include "livo_atlas/internal/legacy/types.h"
 
 namespace livo_atlas {
 namespace {

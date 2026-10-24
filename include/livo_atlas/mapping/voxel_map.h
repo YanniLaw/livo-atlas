@@ -10,10 +10,10 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef VOXEL_MAP_H_
-#define VOXEL_MAP_H_
+#ifndef LIVO_ATLAS_MAPPING_VOXEL_MAP_H_
+#define LIVO_ATLAS_MAPPING_VOXEL_MAP_H_
 
-#include "common_lib.h"
+#include "livo_atlas/internal/legacy/common.h"
 #include "livo_atlas/mapping/voxel_map_options.h"
 #include <Eigen/Dense>
 #include <math.h>
@@ -223,4 +223,4 @@ private:
 };
 typedef std::shared_ptr<VoxelMapManager> VoxelMapManagerPtr;
 
-#endif // VOXEL_MAP_H_
+#endif // LIVO_ATLAS_MAPPING_VOXEL_MAP_H_

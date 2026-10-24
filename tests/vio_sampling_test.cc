@@ -1,4 +1,4 @@
-#include "vio.h"
+#include "livo_atlas/frontend/vision/vio.h"
 
 #include <cstdint>
 #include <memory>

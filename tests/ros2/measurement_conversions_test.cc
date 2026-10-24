@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "preprocess.h"
+#include "livo_atlas/sensor/preprocess.h"
 
 namespace livo_atlas::ros2 {
 namespace {

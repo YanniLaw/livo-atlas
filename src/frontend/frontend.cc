@@ -23,9 +23,9 @@ which is included as part of this source code package.
 #include <Eigen/Geometry>
 #include <pcl/filters/voxel_grid.h>
 
-#include "IMU_Processing.h"
 #include "livo_atlas/camera/camera_factory.h"
-#include "vio.h"
+#include "livo_atlas/frontend/imu/imu_processor.h"
+#include "livo_atlas/frontend/vision/vio.h"
 
 namespace livo_atlas {
 

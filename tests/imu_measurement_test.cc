@@ -1,4 +1,4 @@
-#include "IMU_Processing.h"
+#include "livo_atlas/frontend/imu/imu_processor.h"
 
 #include <cmath>
 #include <cstring>

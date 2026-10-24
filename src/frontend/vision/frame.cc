@@ -10,13 +10,13 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#include "frame.h"
+#include "livo_atlas/frontend/vision/frame.h"
 
 #include <algorithm>
 #include <stdexcept>
 
-#include "feature.h"
-#include "visual_point.h"
+#include "livo_atlas/frontend/vision/feature.h"
+#include "livo_atlas/mapping/visual_point.h"
 
 std::atomic<int> Frame::frame_counter_{0};
 

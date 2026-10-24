@@ -9,7 +9,7 @@
 #include "livo_atlas/frontend/image_options.h"
 #include "livo_atlas/frontend/imu_propagation.h"
 #include "livo_atlas/sensor/synchronizer.h"
-#include "preprocess.h"
+#include "livo_atlas/sensor/preprocess.h"
 #include "ros2/mapping_session.h"
 
 namespace livo_atlas::ros2 {

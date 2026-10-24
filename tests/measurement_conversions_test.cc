@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 #include <pcl_conversions/pcl_conversions.h>
 
-#include "preprocess.h"
+#include "livo_atlas/sensor/preprocess.h"
 
 namespace livo_atlas::ros1 {
 namespace {

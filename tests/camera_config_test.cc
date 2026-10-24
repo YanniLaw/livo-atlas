@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 #include "livo_atlas/camera/pinhole_camera.h"
 
-#include "vio.h"
+#include "livo_atlas/frontend/vision/vio.h"
 
 namespace livo_atlas {
 namespace {

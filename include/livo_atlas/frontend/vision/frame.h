@@ -10,8 +10,8 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef LIVO_FRAME_H_
-#define LIVO_FRAME_H_
+#ifndef LIVO_ATLAS_FRONTEND_VISION_FRAME_H_
+#define LIVO_ATLAS_FRONTEND_VISION_FRAME_H_
 
 #include <atomic>
 #include <cstddef>
@@ -94,4 +94,4 @@ class Frame {
 
 typedef std::unique_ptr<Frame> FramePtr;
 
-#endif // LIVO_FRAME_H_
+#endif // LIVO_ATLAS_FRONTEND_VISION_FRAME_H_

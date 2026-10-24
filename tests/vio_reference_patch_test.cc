@@ -1,10 +1,10 @@
-#include "vio.h"
+#include "livo_atlas/frontend/vision/vio.h"
 
 #include <unordered_map>
 
 #include <gtest/gtest.h>
 
-#include "feature.h"
+#include "livo_atlas/frontend/vision/feature.h"
 
 namespace livo_atlas {
 namespace {

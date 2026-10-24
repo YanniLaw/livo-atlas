@@ -43,13 +43,14 @@ target_link_libraries(livo_atlas_camera PUBLIC livo_atlas_calibration
   opencv_core opencv_imgproc opencv_calib3d)
 livo_atlas_library(synchronization src/sensor/synchronizer.cc)
 target_link_libraries(livo_atlas_synchronization PUBLIC Eigen3::Eigen pcl_common opencv_core)
-livo_atlas_library(preprocess src/preprocess.cpp)
+livo_atlas_library(preprocess src/sensor/preprocess.cc)
 target_link_libraries(livo_atlas_preprocess PUBLIC Eigen3::Eigen pcl_common)
-livo_atlas_library(imu src/IMU_Processing.cpp)
+livo_atlas_library(imu src/frontend/imu/imu_processor.cc)
 target_link_libraries(livo_atlas_imu PUBLIC Eigen3::Eigen pcl_common opencv_core Sophus::Sophus)
-livo_atlas_library(lio src/voxel_map.cpp)
+livo_atlas_library(lio src/mapping/voxel_map.cc)
 target_link_libraries(livo_atlas_lio PUBLIC Eigen3::Eigen pcl_filters opencv_core Sophus::Sophus)
-livo_atlas_library(vio src/vio.cpp src/frame.cpp src/visual_point.cpp)
+livo_atlas_library(vio src/frontend/vision/vio.cc src/frontend/vision/frame.cc
+  src/mapping/visual_point.cc)
 target_link_libraries(livo_atlas_vio PUBLIC livo_atlas_camera livo_atlas_lio
   pcl_filters opencv_imgproc Sophus::Sophus)
 if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
@@ -89,7 +90,7 @@ install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camer
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  PATTERN ros1 EXCLUDE PATTERN ros2 EXCLUDE PATTERN LIVMapper.h EXCLUDE PATTERN livox_ros_driver EXCLUDE)
+  PATTERN ros1 EXCLUDE PATTERN ros2 EXCLUDE PATTERN livox_ros_driver EXCLUDE)
 
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "0")
   include(CMakePackageConfigHelpers)

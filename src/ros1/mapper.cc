@@ -10,7 +10,7 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#include "LIVMapper.h"
+#include "livo_atlas/ros1/mapper.h"
 
 #include <chrono>
 #include <cmath>

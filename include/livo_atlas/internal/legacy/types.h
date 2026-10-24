@@ -1,5 +1,5 @@
-#ifndef TYPES_H
-#define TYPES_H
+#ifndef LIVO_ATLAS_INTERNAL_LEGACY_TYPES_H_
+#define LIVO_ATLAS_INTERNAL_LEGACY_TYPES_H_
 
 #include <vector>
 

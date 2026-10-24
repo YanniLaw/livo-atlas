@@ -10,11 +10,11 @@ This file is subject to the terms and conditions outlined in the 'LICENSE' file,
 which is included as part of this source code package.
 */
 
-#ifndef LIVO_POINT_H_
-#define LIVO_POINT_H_
+#ifndef LIVO_ATLAS_MAPPING_VISUAL_POINT_H_
+#define LIVO_ATLAS_MAPPING_VISUAL_POINT_H_
 
-#include "common_lib.h"
-#include "frame.h"
+#include "livo_atlas/internal/legacy/common.h"
+#include "livo_atlas/frontend/vision/frame.h"
 
 class Feature;
 
@@ -46,4 +46,4 @@ public:
   bool getCloseViewObs(const Vector3d &pos, Feature *&obs, const Vector2d &cur_px) const;
 };
 
-#endif // LIVO_POINT_H_
+#endif // LIVO_ATLAS_MAPPING_VISUAL_POINT_H_
