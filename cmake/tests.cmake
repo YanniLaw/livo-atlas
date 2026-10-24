@@ -54,7 +54,7 @@ if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
   livo_atlas_test(measurement_conversions_test tests/measurement_conversions_test.cc)
   target_link_libraries(measurement_conversions_test livo_atlas_ros1_conversions)
   catkin_add_executable_with_gtest(lidar_callback_test
-    tests/lidar_callback_test.cc tests/ros1/result_publisher_test.cc)
+    tests/lidar_callback_test.cc tests/ros1/result_publisher_test.cc tests/ros1/parameters_test.cc)
   target_link_libraries(lidar_callback_test livo_atlas_ros1_mapper)
 endif()
 

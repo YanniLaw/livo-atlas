@@ -23,9 +23,9 @@ target_include_directories(livo_atlas_ros1_output PUBLIC
   ${catkin_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(livo_atlas_ros1_output PUBLIC livo_atlas::output
   ${catkin_LIBRARIES})
-add_library(livo_atlas_ros1_mapper src/ros1/mapper.cc src/ros1/calibration_reader.cc
+add_library(livo_atlas_ros1_mapper src/ros1/mapper.cc src/ros1/parameters.cc src/ros1/calibration_reader.cc
   src/ros1/voxel_options_reader.cc)
-target_link_libraries(livo_atlas_ros1_mapper PUBLIC livo_atlas::core
+target_link_libraries(livo_atlas_ros1_mapper PUBLIC livo_atlas::runtime livo_atlas::core
   livo_atlas::output livo_atlas::io livo_atlas_ros1_output
   livo_atlas_ros1_conversions)
 set_target_properties(livo_atlas_ros1_mapper livo_atlas_ros1_conversions

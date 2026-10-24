@@ -82,7 +82,7 @@ add_library(livo_atlas::core ALIAS livo_atlas_core)
 target_link_libraries(livo_atlas_core INTERFACE livo_atlas_frontend
   livo_atlas_synchronization livo_atlas_preprocess)
 
-livo_atlas_library(runtime src/runtime/mapping_session.cc src/runtime/options.cc)
+livo_atlas_library(runtime src/runtime/mapping_session.cc src/runtime/options.cc src/runtime/mapping_options.cc)
 target_link_libraries(livo_atlas_runtime PUBLIC livo_atlas::core livo_atlas::output livo_atlas::io)
 
 install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camera

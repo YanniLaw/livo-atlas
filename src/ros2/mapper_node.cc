@@ -5,9 +5,9 @@
 #include <utility>
 
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "ros2/mapper_node.h"
+#include "livo_atlas/ros2/parameters.h"
 #include "livo_atlas/runtime/mapping_session.h"
-#include "ros2/parameters.h"
+#include "ros2/mapper_node.h"
 #include "ros2/result_publisher.h"
 
 namespace livo_atlas::ros2 {
@@ -23,11 +23,11 @@ class MapperNode::Impl {
   explicit Impl(MapperNode& node)
       : node_(node),
         parameters_(ReadParameters(node)),
-        session_(parameters_.session),
-        publisher_(node, parameters_.session.output.mode) {
-    if (parameters_.session.preprocess.lidar_type == kLivox) {
+        session_(parameters_.mapping.session),
+        publisher_(node, parameters_.mapping.session.output.mode) {
+    if (parameters_.mapping.session.preprocess.lidar_type == kLivox) {
       livox_ = node.create_subscription<livox_ros_driver2::msg::CustomMsg>(
-          parameters_.lidar_topic,
+          parameters_.mapping.lidar_topic,
           SensorQos(parameters_, parameters_.lidar_depth),
           [this](livox_ros_driver2::msg::CustomMsg::ConstSharedPtr message) {
             ++lidar_count_;
@@ -40,14 +40,14 @@ class MapperNode::Impl {
           });
     } else {
       cloud_ = node.create_subscription<sensor_msgs::msg::PointCloud2>(
-          parameters_.lidar_topic,
+          parameters_.mapping.lidar_topic,
           SensorQos(parameters_, parameters_.lidar_depth),
           [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr message) {
             ++lidar_count_;
             LidarScan scan;
             const auto error = ConvertPointCloud(
-                *message, parameters_.session.preprocess.lidar_type,
-                parameters_.lidar_time_offset, &scan);
+                *message, parameters_.mapping.session.preprocess.lidar_type,
+                parameters_.mapping.lidar_time_offset, &scan);
             if (error.empty())
               session_.AddLidar(scan);
             else
@@ -55,7 +55,8 @@ class MapperNode::Impl {
           });
     }
     imu_ = node.create_subscription<sensor_msgs::msg::Imu>(
-        parameters_.imu_topic, SensorQos(parameters_, parameters_.imu_depth),
+        parameters_.mapping.imu_topic,
+        SensorQos(parameters_, parameters_.imu_depth),
         [this](sensor_msgs::msg::Imu::ConstSharedPtr message) {
           ++imu_count_;
           try {
@@ -65,13 +66,13 @@ class MapperNode::Impl {
           }
         });
     image_ = node.create_subscription<sensor_msgs::msg::Image>(
-        parameters_.image_topic,
+        parameters_.mapping.image_topic,
         SensorQos(parameters_, parameters_.image_depth),
         [this](sensor_msgs::msg::Image::ConstSharedPtr message) {
           ++image_count_;
           ImageMeasurement image;
-          const auto error =
-              ConvertImage(*message, parameters_.image_time_offset, &image);
+          const auto error = ConvertImage(
+              *message, parameters_.mapping.image_time_offset, &image);
           if (error.empty())
             session_.AddImage(std::move(image));
           else
