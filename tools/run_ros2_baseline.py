@@ -81,6 +81,7 @@ def main():
     parser.add_argument('--rate', type=float, default=.5)
     parser.add_argument('--domain', type=int, default=74)
     parser.add_argument('--save-products', action='store_true')
+    parser.add_argument('--save-keyframes', action='store_true')
     parser.add_argument('--default-threads', action='store_true')
     args = parser.parse_args()
     if not math.isfinite(args.duration) or not math.isfinite(args.rate) or args.duration <= 0 or args.rate <= 0:
@@ -129,6 +130,8 @@ def main():
     parameters.update({'use_sim_time': True, 'qos.reliability': 'reliable',
                        'evo.pose_output_en': True, 'evo.seq_name': 'p4_humble',
                        'output.directory': str(output / 'node-output')})
+    if args.save_keyframes:
+        parameters['keyframes.enabled'] = True
     if args.save_products:
         parameters.update({'pcd_save.pcd_save_en': True, 'pcd_save.colmap_output_en': True,
                            'pcd_save.interval': -1, 'image_save.img_save_en': True})
@@ -260,6 +263,8 @@ def main():
     for name in ('mat_pre.txt', 'mat_out.txt', 'imu.txt'):
         shutil.copy2(node_output / name, output / name)
     shutil.copy2(node_output / 'result/p4_humble.txt', output / 'trajectory.tum')
+    if args.save_keyframes:
+        shutil.move(str(node_output / 'keyframes'), str(output / 'keyframes'))
     if args.save_products:
         for name in ('pcd', 'image', 'Colmap'):
             shutil.copytree(node_output / name, output / 'products' / name)
@@ -277,6 +282,7 @@ def main():
     np.savetxt(output / 'odometry.txt', np.asarray(odometry))
     summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues,
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
+                   keyframes_enabled=args.save_keyframes,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
                    input_reliability='reliable', expected_input_counts=dict(expected), observed_counts=dict(received),
                    node_input_counts=node_counts, input_count_mismatches=mismatches,

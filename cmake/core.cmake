@@ -82,6 +82,16 @@ livo_atlas_library(core src/core/livo_system.cc src/core/system_options.cc src/c
 target_link_libraries(livo_atlas_core PUBLIC livo_atlas_frontend
   livo_atlas_synchronization livo_atlas_preprocess livo_atlas_colorizer livo_atlas_io livo_atlas_keyframes)
 
+add_executable(livo_atlas_inspect_keyframes tools/inspect_keyframes.cc)
+target_link_libraries(livo_atlas_inspect_keyframes PRIVATE livo_atlas::io)
+set_target_properties(livo_atlas_inspect_keyframes PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+if(UNIX AND NOT APPLE)
+  set_target_properties(livo_atlas_inspect_keyframes PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+elseif(APPLE)
+  set_target_properties(livo_atlas_inspect_keyframes PROPERTIES INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
+endif()
+install(TARGETS livo_atlas_inspect_keyframes RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camera livo_atlas_keyframes
   livo_atlas_synchronization livo_atlas_preprocess livo_atlas_imu livo_atlas_lio
   livo_atlas_vio livo_atlas_frontend livo_atlas_colorizer livo_atlas_io livo_atlas_core

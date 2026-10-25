@@ -54,9 +54,13 @@ def main():
                         help='Hash declared cloud fields and image pixels, excluding padding/clocks')
     parser.add_argument('--save-products', action='store_true',
                         help='Enable and capture world PCD, images and COLMAP output')
+    parser.add_argument('--save-keyframes', action='store_true',
+                        help='Capture and retain the P5 keyframe dataset')
     parser.add_argument('--legacy-output', action='store_true',
                         help='Read older node outputs from its source package Log directory')
     args = parser.parse_args()
+    if args.save_keyframes and args.legacy_output:
+        parser.error('--save-keyframes requires the current standalone core')
     source_package = Path(__file__).resolve().parents[1]
     workspace = args.workspace.resolve()
     package = workspace / 'src/livo-atlas'
@@ -175,6 +179,8 @@ def main():
         run(['rosparam', 'set', '/evo/seq_name', seq_name])
         if not args.legacy_output:
             run(['rosparam', 'set', '/output/directory', str(node_output)])
+        if args.save_keyframes:
+            run(['rosparam', 'set', '/keyframes/enabled', 'true'])
         if args.save_products:
             for key, value in [('pcd_save/pcd_save_en', 'true'),
                                ('pcd_save/colmap_output_en', 'true'),
@@ -299,6 +305,8 @@ def main():
         stop(node)
         if args.semantic_output:
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
+        if args.save_keyframes:
+            shutil.move(str(node_output / 'keyframes'), str(output / 'keyframes'))
         if args.save_products:
             for directory in ['pcd', 'image', 'Colmap']:
                 shutil.copytree(node_output / directory, output / 'products' / directory)
@@ -351,6 +359,7 @@ def main():
                                    'p95': float(np.percentile(values, 95)), 'max': max(values)}
                                for key, values in timings.items()},
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
+            'keyframes_enabled': args.save_keyframes,
             'gdb_enabled': args.gdb,
             'clean_shutdown': exited_cleanly(node.returncode, log, args.gdb),
             'player_returncode': player.returncode,
