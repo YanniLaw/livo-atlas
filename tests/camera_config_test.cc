@@ -1,14 +1,14 @@
-#include "livo_atlas/camera/camera_factory.h"
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <condition_variable>
 #include <mutex>
+#include <opencv2/core/mat.hpp>
 #include <thread>
 #include <vector>
 
-#include <gtest/gtest.h>
+#include "livo_atlas/camera/camera_factory.h"
 #include "livo_atlas/camera/pinhole_camera.h"
-
 #include "livo_atlas/frontend/vision/vio.h"
 
 namespace livo_atlas {
@@ -69,8 +69,8 @@ TEST(FrameTest, ConcurrentInstancesReceiveUniqueIds) {
   const cv::Mat image(32, 32, CV_8UC1, cv::Scalar(0));
   constexpr int kThreads = 8;
   constexpr int kFramesPerThread = 20000;
-  std::vector<std::vector<int>> ids(
-      kThreads, std::vector<int>(kFramesPerThread));
+  std::vector<std::vector<int>> ids(kThreads,
+                                    std::vector<int>(kFramesPerThread));
   std::mutex mutex;
   std::condition_variable condition;
   int ready = 0;
@@ -112,15 +112,15 @@ TEST(VioExtrinsicsTest, PreservesNonIdentityFrameDirectionsAndTranslations) {
   manager.grid_size = 32;
   manager.raycast_en = false;
   manager.patch_size = 8;
-  manager.patch_pyrimid_level = 4;
+  manager.patch_pyramid_level = 4;
   Eigen::Matrix3d imu_from_lidar;
   imu_from_lidar << 0, -1, 0, 1, 0, 0, 0, 0, 1;
-  manager.setImuToLidarExtrinsic(Eigen::Vector3d(1, 2, 3), imu_from_lidar);
+  manager.SetImuToLidarExtrinsic(Eigen::Vector3d(1, 2, 3), imu_from_lidar);
   RigidTransform camera_from_lidar;
   camera_from_lidar.rotation << 1, 0, 0, 0, 0, -1, 0, 1, 0;
   camera_from_lidar.translation = Eigen::Vector3d(4, 5, 6);
   manager.SetLidarToCameraExtrinsic(camera_from_lidar);
-  manager.initializeVIO();
+  manager.InitializeVio();
   Eigen::Matrix3d camera_from_imu;
   camera_from_imu << 0, 1, 0, 0, 0, -1, -1, 0, 0;
   EXPECT_TRUE(manager.Rci.isApprox(camera_from_imu, 0));

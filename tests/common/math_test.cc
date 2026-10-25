@@ -1,13 +1,12 @@
-#include "livo_atlas/common/so3_math.h"
+#include <gtest/gtest.h>
 
+#include <Eigen/Geometry>
 #include <cmath>
 #include <initializer_list>
 #include <type_traits>
 
-#include <Eigen/Geometry>
-#include <gtest/gtest.h>
-
 #include "livo_atlas/common/math_types.h"
+#include "livo_atlas/common/so3_math.h"
 
 namespace livo_atlas {
 namespace {
@@ -15,9 +14,9 @@ namespace {
 static_assert(std::is_same<Vector2f, Eigen::Vector2f>::value);
 static_assert(std::is_same<Vector2d, Eigen::Vector2d>::value);
 static_assert(std::is_same<Vector3d, Eigen::Vector3d>::value);
-static_assert(std::is_same<Matrix3d, Eigen::Matrix3d>::value);
-static_assert(std::is_same<Vector3f, Eigen::Vector3f>::value);
-static_assert(std::is_same<Matrix3f, Eigen::Matrix3f>::value);
+static_assert(std::is_same<Matrix3d, Matrix3d>::value);
+static_assert(std::is_same<Eigen::Vector3f, Eigen::Vector3f>::value);
+static_assert(std::is_same<Matrix3f, Matrix3f>::value);
 
 template <typename T>
 class So3MathTest : public testing::Test {
@@ -58,12 +57,12 @@ TYPED_TEST(So3MathTest, RotatesAroundKnownAxis) {
   Matrix expected;
   expected << std::cos(angle), -std::sin(angle), 0, std::sin(angle),
       std::cos(angle), 0, 0, 0, 1;
-  EXPECT_TRUE(Exp(Vector(0, 0, angle))
-                  .isApprox(expected, TestFixture::kTolerance));
+  EXPECT_TRUE(
+      Exp(Vector(0, 0, angle)).isApprox(expected, TestFixture::kTolerance));
   EXPECT_TRUE(Exp(Vector::UnitZ().eval(), angle)
                   .isApprox(expected, TestFixture::kTolerance));
-  EXPECT_TRUE(Exp(T(0), T(0), angle)
-                  .isApprox(expected, TestFixture::kTolerance));
+  EXPECT_TRUE(
+      Exp(T(0), T(0), angle).isApprox(expected, TestFixture::kTolerance));
 }
 
 TYPED_TEST(So3MathTest, PreservesLogBranches) {
@@ -89,7 +88,7 @@ TYPED_TEST(So3MathTest, PreservesEulerSingularityConvention) {
   const Matrix yaw =
       Eigen::AngleAxis<T>(T(0.25), Vector::UnitZ()).toRotationMatrix();
   EXPECT_TRUE(RotationMatrixToEuler(yaw).isApprox(Vector(0, 0, T(0.25)),
-                                                TestFixture::kTolerance));
+                                                  TestFixture::kTolerance));
   const T half_pi = T(std::acos(-1.0) / 2);
   const Matrix pitch =
       Eigen::AngleAxis<T>(half_pi, Vector::UnitY()).toRotationMatrix();

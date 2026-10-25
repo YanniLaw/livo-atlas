@@ -4,17 +4,17 @@
 
 #include <memory>
 
-#include "livo_atlas/ros1/node_options.h"
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/ros1/node_options.h"
 namespace livo_atlas::ros1 {
 class LivoNode {
  public:
   LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
-                 LivoSystem& system);
+           LivoSystem& system);
   ~LivoNode();
   LivoNode(const LivoNode&) = delete;
   LivoNode& operator=(const LivoNode&) = delete;
-  SynchronizationResult ProcessNext();
+  SyncStatus ProcessNext();
   void ReportInputs();
 
  private:

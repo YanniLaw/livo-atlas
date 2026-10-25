@@ -26,7 +26,7 @@ livo_atlas_test(sensor_preprocess_test tests/sensor/preprocess_test.cc)
 livo_atlas_test(pcl_memory_compatibility_test tests/pcl_memory_compatibility_test.cc)
 livo_atlas_test(core_math_state_test tests/common/math_test.cc tests/common/filter_state_test.cc)
 livo_atlas_test(calibration_test tests/common/calibration_test.cc)
-livo_atlas_test(legacy_core_compatibility_test tests/legacy_core_compatibility_test.cc)
+livo_atlas_test(shared_math_contract_test tests/common/behavior_contract_test.cc)
 livo_atlas_test(vio_reference_patch_test tests/vio_reference_patch_test.cc)
 livo_atlas_test(vio_sampling_test tests/vio_sampling_test.cc)
 
@@ -51,10 +51,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Cla
   target_link_libraries(frontend_lifecycle_check PRIVATE livo_atlas::core -fsanitize=address)
 endif()
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
-  livo_atlas_test(measurement_conversions_test tests/measurement_conversions_test.cc)
+  livo_atlas_test(measurement_conversions_test tests/ros1/measurement_conversions_test.cc)
   target_link_libraries(measurement_conversions_test livo_atlas_ros1_conversions)
   catkin_add_executable_with_gtest(lidar_callback_test
-    tests/lidar_callback_test.cc tests/ros1/livo_publisher_test.cc tests/ros1/node_options_test.cc)
+    tests/ros1/node_test.cc tests/ros1/livo_publisher_test.cc tests/ros1/node_options_test.cc)
+  target_include_directories(lidar_callback_test PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_link_libraries(lidar_callback_test livo_atlas_ros1_node)
 endif()
 

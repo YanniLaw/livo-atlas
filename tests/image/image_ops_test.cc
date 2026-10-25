@@ -1,12 +1,13 @@
 #include "livo_atlas/image/image_ops.h"
 
+#include <gtest/gtest.h>
+
 #include <fstream>
 #include <limits>
+#include <opencv2/core/mat.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-
-#include <gtest/gtest.h>
 
 #include "test_images.h"
 
@@ -28,9 +29,9 @@ TEST(ImageOpsTest, MatchesFrozenContiguousAndRoiSamples) {
     std::getline(row, y, ',');
     std::getline(row, value, ',');
     const auto image = test_data::MakeImage(128, 64, 1, std::stoi(roi));
-    const float actual = operation == "I"
-        ? InterpolateGray8(image, std::stof(x), std::stof(y))
-        : ShiTomasiScore(image, std::stoi(x), std::stoi(y));
+    const float actual =
+        operation == "I" ? InterpolateGray8(image, std::stof(x), std::stof(y))
+                         : ShiTomasiScore(image, std::stoi(x), std::stoi(y));
     // Native FMA changes the frozen score by at most 2 ULP. Interpolation
     // and the old source compiled for the baseline ISA are bit exact.
     EXPECT_FLOAT_EQ(actual, std::stof(value));

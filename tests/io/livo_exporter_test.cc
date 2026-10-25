@@ -1,11 +1,13 @@
 #include "livo_atlas/io/livo_exporter.h"
 
+#include <Eigen/Geometry>
 #include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <opencv2/core/mat.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -15,8 +17,9 @@
 #endif
 
 #include <gtest/gtest.h>
-#include <opencv2/imgcodecs.hpp>
 #include <pcl/io/pcd_io.h>
+
+#include <opencv2/imgcodecs.hpp>
 
 namespace livo_atlas {
 namespace {
@@ -74,7 +77,8 @@ class ResultWriterTest : public testing::Test {
     PreparedOutput output;
     output.has_cloud = true;
     ColoredCloud::Ptr cloud(new ColoredCloud);
-    pcl::PointXYZRGB point(std::uint8_t{10}, std::uint8_t{20}, std::uint8_t{30});
+    pcl::PointXYZRGB point(std::uint8_t{10}, std::uint8_t{20},
+                           std::uint8_t{30});
     point.x = 1;
     point.y = 2;
     point.z = 3;
@@ -142,10 +146,10 @@ TEST_F(ResultWriterTest, NegativeIntervalWritesAllPlainPointsOnlyAtFinish) {
   EXPECT_FALSE(fs::exists(options_.directory / "pcd/all_raw_points.pcd"));
   writer.Finish();
   PointCloud cloud;
-  ASSERT_EQ(pcl::io::loadPCDFile(
-                (options_.directory / "pcd/all_raw_points.pcd").string(),
-                cloud),
-            0);
+  ASSERT_EQ(
+      pcl::io::loadPCDFile(
+          (options_.directory / "pcd/all_raw_points.pcd").string(), cloud),
+      0);
   ASSERT_EQ(cloud.size(), 1);
   EXPECT_FLOAT_EQ(cloud[0].x, 1);
   EXPECT_FLOAT_EQ(cloud[0].intensity, 4);
@@ -253,11 +257,11 @@ TEST_F(ResultWriterTest, ColoredEofWritesDownsampleAndColmapPoints) {
   writer.Write(Result(UpdateKind::kVisual), Prepared());
   writer.Finish();
   ColoredCloud cloud;
-  ASSERT_EQ(pcl::io::loadPCDFile(
-                (options_.directory / "pcd/all_downsampled_points.pcd")
-                    .string(),
-                cloud),
-            0);
+  ASSERT_EQ(
+      pcl::io::loadPCDFile(
+          (options_.directory / "pcd/all_downsampled_points.pcd").string(),
+          cloud),
+      0);
   ASSERT_EQ(cloud.size(), 1);
   EXPECT_EQ(cloud[0].r, 10);
   EXPECT_EQ(cloud[0].g, 20);
@@ -336,8 +340,8 @@ TEST_F(ResultWriterTest, ColmapRejectsInvalidCameraCalibration) {
     if (variant == 2) camera.scale = std::numeric_limits<double>::infinity();
     if (variant == 3) camera.scale = 1e100;
     if (variant == 4) camera.fx = 0;
-    if (variant == 5) camera.distortion[0] =
-        std::numeric_limits<double>::quiet_NaN();
+    if (variant == 5)
+      camera.distortion[0] = std::numeric_limits<double>::quiet_NaN();
     EXPECT_THROW(ValidateExportOptions(options_), std::invalid_argument);
     EXPECT_FALSE(fs::exists(options_.directory));
   }
@@ -347,9 +351,9 @@ TEST_F(ResultWriterTest, InvalidColmapCameraPreservesExistingOutput) {
   options_.colmap = true;
   options_.pcd = true;
   options_.calibration.camera.width = 0;
-  const std::vector<fs::path> files = {
-      "mat_pre.txt", "mat_out.txt", "Colmap/images/keep.txt",
-      "Colmap/sparse/0/keep.txt"};
+  const std::vector<fs::path> files = {"mat_pre.txt", "mat_out.txt",
+                                       "Colmap/images/keep.txt",
+                                       "Colmap/sparse/0/keep.txt"};
   for (const auto& file : files) {
     const auto path = options_.directory / file;
     fs::create_directories(path.parent_path());
@@ -359,7 +363,8 @@ TEST_F(ResultWriterTest, InvalidColmapCameraPreservesExistingOutput) {
   for (const auto& file : files) {
     std::ifstream stream(options_.directory / file);
     EXPECT_EQ(std::string(std::istreambuf_iterator<char>(stream), {}),
-              "original") << file;
+              "original")
+        << file;
   }
 }
 
@@ -482,7 +487,8 @@ TEST_F(ResultWriterTest, InterleavedWritersKeepSeparatePcdAndImageCadences) {
   EXPECT_TRUE(fs::exists(first_options.directory / "image/100.562500.png"));
   EXPECT_TRUE(fs::exists(second_options.directory / "pcd/100.750000.pcd"));
   EXPECT_TRUE(fs::exists(second_options.directory / "image/100.812500.png"));
-  for (const auto& directory : {first_options.directory, second_options.directory}) {
+  for (const auto& directory :
+       {first_options.directory, second_options.directory}) {
     int clouds = 0;
     int images = 0;
     for (const auto& entry : fs::directory_iterator(directory / "pcd")) {
@@ -495,7 +501,6 @@ TEST_F(ResultWriterTest, InterleavedWritersKeepSeparatePcdAndImageCadences) {
     EXPECT_EQ(images, 1);
   }
 }
-
 
 }  // namespace
 }  // namespace livo_atlas

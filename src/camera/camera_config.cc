@@ -1,6 +1,7 @@
 #include "livo_atlas/camera/camera_config.h"
 
 #include <cmath>
+#include <cstddef>
 #include <limits>
 
 namespace livo_atlas {
@@ -26,10 +27,10 @@ std::string ValidateCameraConfig(const CameraConfig& config) {
   if (static_cast<int>(width) > kMaxIndex / static_cast<int>(height)) {
     return "scaled camera pixel count exceeds the image index range";
   }
-  const std::array<double, 4> intrinsics = {
-      config.fx, config.fy, config.cx, config.cy};
-  const std::array<const char*, 4> names = {
-      "cam_fx", "cam_fy", "cam_cx", "cam_cy"};
+  const std::array<double, 4> intrinsics = {config.fx, config.fy, config.cx,
+                                            config.cy};
+  const std::array<const char*, 4> names = {"cam_fx", "cam_fy", "cam_cx",
+                                            "cam_cy"};
   constexpr double kMaxFloat = std::numeric_limits<float>::max();
   for (std::size_t i = 0; i < intrinsics.size(); ++i) {
     const double scaled = intrinsics[i] * config.scale;

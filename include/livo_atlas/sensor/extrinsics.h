@@ -1,10 +1,9 @@
 #ifndef LIVO_ATLAS_SENSOR_EXTRINSICS_H_
 #define LIVO_ATLAS_SENSOR_EXTRINSICS_H_
 
+#include <Eigen/Core>
 #include <string>
 #include <vector>
-
-#include <Eigen/Core>
 
 namespace livo_atlas {
 
@@ -21,8 +20,8 @@ std::string ValidateExtrinsic(const RigidTransform& transform);
 // Rotation has nine row-major coefficients; translation has three coefficients.
 // On failure, result is unchanged.
 std::string ParseExtrinsic(const std::vector<double>& rotation,
-                          const std::vector<double>& translation,
-                          RigidTransform* result);
+                           const std::vector<double>& translation,
+                           RigidTransform* result);
 
 }  // namespace livo_atlas
 

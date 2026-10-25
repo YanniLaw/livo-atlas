@@ -1,14 +1,19 @@
 #include "livo_atlas/io/livo_exporter.h"
 
-#include <cmath>
-#include <fstream>
-#include <iomanip>
-#include <sstream>
-#include <stdexcept>
-
-#include <opencv2/imgcodecs.hpp>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
+
+#include <Eigen/Geometry>
+#include <cmath>
+#include <cstddef>
+#include <fstream>
+#include <iomanip>
+#include <opencv2/core/mat.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <ostream>
+#include <set>
+#include <sstream>
+#include <stdexcept>
 
 #include "livo_atlas/camera/camera_config.h"
 #include "livo_atlas/common/so3_math.h"
@@ -47,7 +52,8 @@ void Close(TextFile* file) {
   }
 }
 
-void WriteStateRow(std::ostream& stream, double time, const FilterState& state) {
+void WriteStateRow(std::ostream& stream, double time,
+                   const FilterState& state) {
   const Eigen::Vector3d euler = RotationMatrixToEuler(state.rot_end);
   stream << std::setw(20) << time << " " << euler.transpose() * 57.3 << " "
          << state.pos_end.transpose() << " " << state.vel_end.transpose() << " "
@@ -61,9 +67,8 @@ void WritePose(std::ostream& stream, const FrontendResult& result,
   const Eigen::Quaterniond orientation(state.rot_end);
   stream << std::fixed << std::setprecision(6) << result.timestamp << " "
          << state.pos_end[0] << " " << state.pos_end[1] << " "
-         << state.pos_end[2] << " " << orientation.x() << " "
-         << orientation.y() << " " << orientation.z() << " "
-         << orientation.w();
+         << state.pos_end[2] << " " << orientation.x() << " " << orientation.y()
+         << " " << orientation.z() << " " << orientation.w();
   if (trailing_space) stream << " ";
   stream << std::endl;
 }
@@ -160,21 +165,24 @@ class LivoExporter::Impl {
     fs::create_directories(Path("Colmap/images"));
     Open(Path("Colmap/sparse/0/points3D.txt"), &points_);
     Open(Path("Colmap/sparse/0/images.txt"), &colmap_poses_);
-    colmap_poses_.stream << "# Image list with two lines of data per image:\n"
-                  << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, "
-                     "NAME\n"
-                  << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
+    colmap_poses_.stream
+        << "# Image list with two lines of data per image:\n"
+        << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, "
+           "NAME\n"
+        << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
     Check(colmap_poses_);
     TextFile camera;
     Open(Path("Colmap/sparse/0/cameras.txt"), &camera);
     const auto& config = options_.calibration.camera;
     camera.stream << "# Camera list with one line of data per camera:\n"
-           << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n"
-           << "1 PINHOLE " << static_cast<int>(config.width * config.scale)
-           << " " << static_cast<int>(config.height * config.scale) << " "
-           << std::fixed << std::setprecision(6) << config.fx * config.scale
-           << " " << config.fy * config.scale << " " << config.cx * config.scale
-           << " " << config.cy * config.scale << std::endl;
+                  << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n"
+                  << "1 PINHOLE "
+                  << static_cast<int>(config.width * config.scale) << " "
+                  << static_cast<int>(config.height * config.scale) << " "
+                  << std::fixed << std::setprecision(6)
+                  << config.fx * config.scale << " " << config.fy * config.scale
+                  << " " << config.cx * config.scale << " "
+                  << config.cy * config.scale << std::endl;
     Close(&camera);
   }
 
@@ -189,8 +197,8 @@ class LivoExporter::Impl {
       }
       for (const auto& diagnostic : result.imu_diagnostics) {
         imu_.stream << std::setw(10) << diagnostic.relative_time << " "
-             << diagnostic.angular_velocity.transpose() << " "
-             << diagnostic.acceleration.transpose() << std::endl;
+                    << diagnostic.angular_velocity.transpose() << " "
+                    << diagnostic.acceleration.transpose() << std::endl;
         Check(imu_);
       }
       if (!result.updated) return;
@@ -224,12 +232,13 @@ class LivoExporter::Impl {
     const Eigen::Quaterniond orientation(
         result.camera_from_world_rotation.toRotationMatrix());
     const auto& translation = result.camera_from_world_translation;
-    colmap_poses_.stream << colmap_count_ << " " << std::fixed << std::setprecision(6)
-                  << orientation.w() << " " << orientation.x() << " "
-                  << orientation.y() << " " << orientation.z() << " "
-                  << translation.x() << " " << translation.y() << " "
-                  << translation.z() << " 1 " << name.str() << std::endl
-                  << "0.0 0.0 -1" << std::endl;
+    colmap_poses_.stream << colmap_count_ << " " << std::fixed
+                         << std::setprecision(6) << orientation.w() << " "
+                         << orientation.x() << " " << orientation.y() << " "
+                         << orientation.z() << " " << translation.x() << " "
+                         << translation.y() << " " << translation.z() << " 1 "
+                         << name.str() << std::endl
+                         << "0.0 0.0 -1" << std::endl;
     Check(colmap_poses_);
     ++colmap_count_;
   }
@@ -298,8 +307,8 @@ class LivoExporter::Impl {
     if (closed_) return;
     closed_ = true;
     try {
-      if (options_.pcd && options_.pcd_type == 0 &&
-          options_.pcd_interval < 0 && (!colored_->empty() || !plain_.empty())) {
+      if (options_.pcd && options_.pcd_type == 0 && options_.pcd_interval < 0 &&
+          (!colored_->empty() || !plain_.empty())) {
         WriteAccumulatedCloud();
       }
       for (auto* stream : {&pre_, &out_, &trajectory_, &imu_, &lidar_poses_,
@@ -329,14 +338,15 @@ class LivoExporter::Impl {
     WriteCloud(Path("pcd/all_downsampled_points.pcd"), downsampled);
     if (!options_.colmap) return;
     points_.stream << "# 3D point list with one line of data per point\n"
-            << "#  POINT_ID, X, Y, Z, R, G, B, ERROR\n";
+                   << "#  POINT_ID, X, Y, Z, R, G, B, ERROR\n";
     Check(points_);
     for (std::size_t i = 0; i < downsampled.size(); ++i) {
       const auto& point = downsampled[i];
-      points_.stream << i << " " << std::fixed << std::setprecision(6) << point.x
-              << " " << point.y << " " << point.z << " "
-              << static_cast<int>(point.r) << " " << static_cast<int>(point.g)
-              << " " << static_cast<int>(point.b) << " 0" << std::endl;
+      points_.stream << i << " " << std::fixed << std::setprecision(6)
+                     << point.x << " " << point.y << " " << point.z << " "
+                     << static_cast<int>(point.r) << " "
+                     << static_cast<int>(point.g) << " "
+                     << static_cast<int>(point.b) << " 0" << std::endl;
       Check(points_);
     }
   }

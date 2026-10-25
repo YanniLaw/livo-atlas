@@ -8,11 +8,12 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "core/fixtures.h"
 #include "livo_atlas/ros1/livo_node.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
-#include "core/fixtures.h"
 namespace livo_atlas::ros1 {
 namespace {
 bool WaitFor(const std::function<bool()>& condition) {
@@ -120,19 +121,19 @@ void VerifyRollbackPipeline(int lidar_type) {
   publish(90, 44, 1);
   publish(91, 44, 2);
   PumpCallbacks();
-  ASSERT_EQ(adapter.ProcessNext(), SynchronizationResult::kReady);
+  ASSERT_EQ(adapter.ProcessNext(), SyncStatus::kReady);
   ASSERT_TRUE(WaitFor([&] { return poses.size() == 1 && clouds.size() == 1; }));
   ASSERT_FALSE(clouds.back().empty());
   for (const auto& p : clouds.back()) EXPECT_FLOAT_EQ(p.intensity, 23);
   publish(200, 55);
   publish(199, 77);
   PumpCallbacks();
-  ASSERT_EQ(adapter.ProcessNext(), SynchronizationResult::kReady);
+  ASSERT_EQ(adapter.ProcessNext(), SyncStatus::kReady);
   ASSERT_TRUE(WaitFor([&] { return poses.size() == 2 && clouds.size() == 2; }));
   for (const auto& p : clouds.back()) EXPECT_FLOAT_EQ(p.intensity, 77);
   for (const auto& p : poses)
     EXPECT_TRUE(std::isfinite(p.pose.pose.position.x));
-  EXPECT_EQ(adapter.ProcessNext(), SynchronizationResult::kWaiting);
+  EXPECT_EQ(adapter.ProcessNext(), SyncStatus::kWaiting);
   session.Finish();
   testing::internal::CaptureStdout();
   adapter.ReportInputs();
@@ -140,8 +141,7 @@ void VerifyRollbackPipeline(int lidar_type) {
       testing::internal::GetCapturedStdout().find("lidar=5 imu=0 image=0"),
       std::string::npos);
 }
-TEST(Ros1NodeTest,
-     LivoxTransportRejectsBadRollbackWithoutErasingPendingInput) {
+TEST(Ros1NodeTest, LivoxTransportRejectsBadRollbackWithoutErasingPendingInput) {
   VerifyRollbackPipeline(kLivox);
 }
 TEST(Ros1NodeTest,
@@ -161,7 +161,7 @@ TEST(Ros1NodeTest, PublishesFromTheInjectedSystem) {
       });
   ASSERT_TRUE(WaitFor([&] { return sub.getNumPublishers() > 0; }));
   ASSERT_TRUE(session.AddLidar(test::Scan(100)));
-  ASSERT_EQ(adapter.ProcessNext(), SynchronizationResult::kReady);
+  ASSERT_EQ(adapter.ProcessNext(), SyncStatus::kReady);
   ASSERT_TRUE(WaitFor([&] { return poses == 1; }));
   session.Finish();
 }

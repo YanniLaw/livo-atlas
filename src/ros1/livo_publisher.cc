@@ -1,10 +1,5 @@
 #include "livo_atlas/ros1/livo_publisher.h"
 
-#include <algorithm>
-#include <cmath>
-#include <cstdint>
-#include <vector>
-
 #include <cv_bridge/cv_bridge.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <image_transport/image_transport.h>
@@ -16,6 +11,12 @@
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_datatypes.h>
 #include <visualization_msgs/MarkerArray.h>
+
+#include <Eigen/Geometry>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <vector>
 
 #include "livo_atlas/common/so3_math.h"
 
@@ -111,15 +112,15 @@ class LivoPublisher::Impl {
     path_publisher_ = node.advertise<nav_msgs::Path>("/path", 10);
     mavros_ = node.advertise<geometry_msgs::PoseStamped>(
         "/mavros/vision_pose/pose", 10);
-    propagation_ = node.advertise<nav_msgs::Odometry>(
-        "/LIVO2/imu_propagate", 10000);
+    propagation_ =
+        node.advertise<nav_msgs::Odometry>("/LIVO2/imu_propagate", 10000);
     planes_ = node.advertise<visualization_msgs::MarkerArray>("/planes", 10000);
     image_ = transport.advertise("/rgb_img", 1);
     compatibility_ = {
         node.advertise<visualization_msgs::MarkerArray>("visualization_marker",
-                                                       100),
+                                                        100),
         node.advertise<sensor_msgs::PointCloud2>("/cloud_visual_sub_map_before",
-                                               100),
+                                                 100),
         node.advertise<sensor_msgs::PointCloud2>("/Laser_map", 100),
         node.advertise<visualization_msgs::Marker>("/planner_normal", 1),
         node.advertise<visualization_msgs::MarkerArray>("/voxels", 1),
@@ -131,7 +132,7 @@ class LivoPublisher::Impl {
   }
 
   void PublishCloud(const FrontendResult& result,
-                     const PreparedOutput& prepared) {
+                    const PreparedOutput& prepared) {
     if (!prepared.has_cloud) return;
     sensor_msgs::PointCloud2 message;
     if (mode_ == FrontendMode::kLidarInertialVisual) {
@@ -195,7 +196,8 @@ class LivoPublisher::Impl {
     mavros_.publish(pose);
   }
 
-  void PublishImuPropagation(const FilterState& state, const ros::Time& timestamp) {
+  void PublishImuPropagation(const FilterState& state,
+                             const ros::Time& timestamp) {
     nav_msgs::Odometry message;
     message.header.frame_id = "world";
     message.header.stamp = timestamp;
@@ -225,15 +227,15 @@ LivoPublisher::LivoPublisher(FrontendMode mode)
     : impl_(std::make_unique<Impl>(mode)) {}
 LivoPublisher::~LivoPublisher() = default;
 void LivoPublisher::Initialize(ros::NodeHandle& node,
-                                 image_transport::ImageTransport& transport) {
+                               image_transport::ImageTransport& transport) {
   impl_->Initialize(node, transport);
 }
 void LivoPublisher::Publish(const FrontendResult& result,
-                              const PreparedOutput& prepared) {
+                            const PreparedOutput& prepared) {
   impl_->Publish(result, prepared);
 }
 void LivoPublisher::PublishImuPropagation(const FilterState& state,
-                                            const ros::Time& timestamp) {
+                                          const ros::Time& timestamp) {
   impl_->PublishImuPropagation(state, timestamp);
 }
 

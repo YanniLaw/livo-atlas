@@ -1,4 +1,4 @@
-/* 
+/*
 This file is part of FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry.
 
 Developer: Chunran Zheng <zhengcr@connect.hku.hk>
@@ -13,22 +13,26 @@ which is included as part of this source code package.
 #ifndef LIVO_ATLAS_MAPPING_VISUAL_POINT_H_
 #define LIVO_ATLAS_MAPPING_VISUAL_POINT_H_
 
-#include "livo_atlas/internal/legacy/common.h"
-#include "livo_atlas/frontend/vision/frame.h"
+#include <Eigen/Core>
+#include <list>
 
-class Feature;
+#include "livo_atlas/common/math_types.h"
+
+namespace livo_atlas {
+
+struct Feature;
 
 /// A visual map point on the surface of the scene.
-class VisualPoint
-{
-public:
+class VisualPoint {
+ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  Vector3d pos_;                //!< 3d pos of the point in the world coordinate frame.
-  Vector3d normal_;             //!< Surface normal at point.
-  Matrix3d normal_information_; //!< Inverse covariance matrix of normal estimation.
+  Vector3d pos_;     //!< 3d pos of the point in the world coordinate frame.
+  Vector3d normal_;  //!< Surface normal at point.
+  Matrix3d
+      normal_information_;  //!< Inverse covariance matrix of normal estimation.
   Vector3d previous_normal_;    //!< Last updated normal vector.
-  list<Feature *> obs_;         //!< Reference patches which observe the point.
+  std::list<Feature *> obs_;    //!< Reference patches which observe the point.
   Eigen::Matrix3d covariance_;  //!< Covariance of the point.
   bool is_converged_;           //!< True if the point is converged.
   bool is_normal_initialized_;  //!< True if the normal is initialized.
@@ -37,13 +41,16 @@ public:
 
   VisualPoint(const Vector3d &pos);
   ~VisualPoint();
-  VisualPoint(const VisualPoint&) = delete;
-  VisualPoint& operator=(const VisualPoint&) = delete;
-  void findMinScoreFeature(const Vector3d &framepos, Feature *&ftr) const;
-  void deleteNonRefPatchFeatures();
-  void deleteFeatureRef(Feature *ftr);
-  void addFrameRef(Feature *ftr);
-  bool getCloseViewObs(const Vector3d &pos, Feature *&obs, const Vector2d &cur_px) const;
+  VisualPoint(const VisualPoint &) = delete;
+  VisualPoint &operator=(const VisualPoint &) = delete;
+  void FindMinimumScoreFeature(const Vector3d &framepos, Feature *&ftr) const;
+  void DeleteNonReferencePatchFeatures();
+  void RemoveFeatureObservation(Feature *ftr);
+  void AddFeatureObservation(Feature *ftr);
+  bool FindCloseViewObservation(const Vector3d &pos, Feature *&obs,
+                                const Vector2d &cur_px) const;
 };
 
-#endif // LIVO_ATLAS_MAPPING_VISUAL_POINT_H_
+}  // namespace livo_atlas
+
+#endif  // LIVO_ATLAS_MAPPING_VISUAL_POINT_H_

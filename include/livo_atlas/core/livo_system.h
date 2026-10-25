@@ -4,8 +4,8 @@
 #include <memory>
 #include <optional>
 
-#include "livo_atlas/frontend/frontend.h"
 #include "livo_atlas/core/system_options.h"
+#include "livo_atlas/frontend/frontend.h"
 #include "livo_atlas/sensor/lidar_scan.h"
 #include "livo_atlas/sensor/measurements.h"
 #include "livo_atlas/sensor/synchronizer.h"
@@ -30,7 +30,7 @@ class LivoSystem {
   // IMU timestamps precede the configured IMU offset and driver correction.
   bool AddImu(Imu measurement);
   bool AddImage(TimedImage measurement);
-  SynchronizationResult ProcessNext(const ResultCallback& callback);
+  SyncStatus ProcessNext(const ResultCallback& callback);
   void ProcessAvailable(const ResultCallback& callback);
   std::optional<PropagationResult> PropagateLatest();
   void Finish();

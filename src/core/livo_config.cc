@@ -148,28 +148,33 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
                                   error.what());
     }
   }
-  auto& map = front.voxel_map;
-  map.is_pub_plane_map_ =
-      reader.Boolean("publish.pub_plane_en", map.is_pub_plane_map_);
-  map.max_layer_ = reader.Integer("lio.max_layer", map.max_layer_);
-  map.max_voxel_size_ = reader.Number("lio.voxel_size", map.max_voxel_size_);
-  map.planner_threshold_ =
-      reader.Number("lio.min_eigen_value", map.planner_threshold_);
-  map.sigma_num_ = reader.Number("lio.sigma_num", map.sigma_num_);
-  map.beam_err_ = reader.Number("lio.beam_err", map.beam_err_);
-  map.dept_err_ = reader.Number("lio.dept_err", map.dept_err_);
-  map.layer_init_num_ =
-      reader.IntegerArray("lio.layer_init_num", map.layer_init_num_);
-  map.max_points_num_ =
-      reader.Integer("lio.max_points_num", map.max_points_num_);
-  map.max_iterations_ =
-      reader.Integer("lio.max_iterations", map.max_iterations_);
-  map.map_sliding_en =
-      reader.Boolean("local_map.map_sliding_en", map.map_sliding_en);
-  map.half_map_size =
-      reader.Integer("local_map.half_map_size", map.half_map_size);
-  map.sliding_thresh =
-      reader.Number("local_map.sliding_thresh", map.sliding_thresh);
+  auto& voxel_options = front.voxel_map;
+  voxel_options.is_pub_plane_map_ =
+      reader.Boolean("publish.pub_plane_en", voxel_options.is_pub_plane_map_);
+  voxel_options.max_layer_ =
+      reader.Integer("lio.max_layer", voxel_options.max_layer_);
+  voxel_options.max_voxel_size_ =
+      reader.Number("lio.voxel_size", voxel_options.max_voxel_size_);
+  voxel_options.planner_threshold_ =
+      reader.Number("lio.min_eigen_value", voxel_options.planner_threshold_);
+  voxel_options.sigma_num_ =
+      reader.Number("lio.sigma_num", voxel_options.sigma_num_);
+  voxel_options.beam_err_ =
+      reader.Number("lio.beam_err", voxel_options.beam_err_);
+  voxel_options.dept_err_ =
+      reader.Number("lio.dept_err", voxel_options.dept_err_);
+  voxel_options.layer_init_num_ =
+      reader.IntegerArray("lio.layer_init_num", voxel_options.layer_init_num_);
+  voxel_options.max_points_num_ =
+      reader.Integer("lio.max_points_num", voxel_options.max_points_num_);
+  voxel_options.max_iterations_ =
+      reader.Integer("lio.max_iterations", voxel_options.max_iterations_);
+  voxel_options.map_sliding_en =
+      reader.Boolean("local_map.map_sliding_en", voxel_options.map_sliding_en);
+  voxel_options.half_map_size =
+      reader.Integer("local_map.half_map_size", voxel_options.half_map_size);
+  voxel_options.sliding_thresh =
+      reader.Number("local_map.sliding_thresh", voxel_options.sliding_thresh);
   if (config.lidar_topic.empty())
     throw std::invalid_argument(reader.Name("common.lid_topic") +
                                 " must not be empty");

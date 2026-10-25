@@ -4,7 +4,7 @@
 #include "livo_atlas/io/livo_exporter.h"
 #include "livo_atlas/sensor/point_types.h"
 namespace livo_atlas {
-struct PreprocessOptions {
+struct LidarPreprocessorOptions {
   int lidar_type = kLivox;
   int scan_lines = 6;
   int point_filter = 3;
@@ -19,7 +19,7 @@ struct SystemOptions {
   FrontendOptions frontend;
   ExportOptions exporter;
   OutputProcessorOptions processor;
-  PreprocessOptions preprocess;
+  LidarPreprocessorOptions preprocess;
   bool lidar_enabled = true;
   bool image_enabled = true;
   bool hilti = false;

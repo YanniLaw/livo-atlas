@@ -28,29 +28,30 @@ TEST(FrontendTest, OrdinaryCallerRunsRepeatedLidarInertialWithoutPublisher) {
 }
 
 TEST(FrontendTest, OrdinaryCallerRunsRepeatedTrackedVisualWithoutPublisher) {
-  EXPECT_TRUE(test_data::RunFrontendScenario(FrontendMode::kLidarInertialVisual));
+  EXPECT_TRUE(
+      test_data::RunFrontendScenario(FrontendMode::kLidarInertialVisual));
 }
 
-SynchronizedMeasurements MakeScan(
-    double time = 100.0, UpdateKind kind = UpdateKind::kLidarOnly) {
+SynchronizedMeasurements MakeScan(double time = 100.0,
+                                  UpdateKind kind = UpdateKind::kLidarOnly) {
   SynchronizedMeasurements input;
-  input.lio_vio_flg = kind;
-  input.lidar_frame_beg_time = time;
-  input.lidar_frame_end_time = time + 0.125;
+  input.update_kind = kind;
+  input.scan_start_time = time;
+  input.scan_end_time = time + 0.125;
   for (int i = 0; i < 2; ++i) {
     Point point{};
     point.x = 2 + i;
     point.intensity = 10;
     point.curvature = 125 * i;
-    input.lidar->push_back(point);
+    input.lidar_cloud->push_back(point);
   }
-  input.pcl_proc_cur = input.lidar;
-  input.measures.emplace_back();
-  input.measures.back().lio_time = time + 0.125;
+  input.current_cloud = input.lidar_cloud;
+  input.updates.emplace_back();
+  input.updates.back().lidar_update_time = time + 0.125;
   if (kind == UpdateKind::kLidarInertial) {
-    input.last_lio_update_time = time;
+    input.last_lidar_update_time = time;
     for (double timestamp : {time + 0.0625, time + 0.125}) {
-      input.measures.back().imu.push_back(
+      input.updates.back().imu.push_back(
           {timestamp, Eigen::Vector3d::Zero(), Eigen::Vector3d(0, 0, -9.81)});
     }
   }
@@ -61,7 +62,7 @@ TEST(FrontendTest, WaitingAndEmptyGroupsDoNotStartFirstFrame) {
   Frontend frontend(MakeOptions());
   SynchronizedMeasurements input;
   EXPECT_FALSE(frontend.Process(&input).updated);
-  input.lio_vio_flg = UpdateKind::kLidarOnly;
+  input.update_kind = UpdateKind::kLidarOnly;
   EXPECT_FALSE(frontend.Process(&input).updated);
   input = MakeScan();
   const auto result = frontend.Process(&input);
@@ -147,10 +148,10 @@ TEST(FrontendTest, EmptyVisualInputDoesNotUpdate) {
   Frontend frontend(options);
   auto input = MakeScan(100, UpdateKind::kLidarInertial);
   frontend.Process(&input);
-  input.measures.clear();
-  input.measures.emplace_back();
-  input.measures.back().vio_time = 100.125;
-  input.lio_vio_flg = UpdateKind::kVisual;
+  input.updates.clear();
+  input.updates.emplace_back();
+  input.updates.back().visual_update_time = 100.125;
+  input.update_kind = UpdateKind::kVisual;
   const auto result = frontend.Process(&input);
   EXPECT_FALSE(result.updated);
   EXPECT_FALSE(result.first_frame);
@@ -173,8 +174,8 @@ TEST(FrontendTest, ImuDiagnosticsExposeOriginalUncorrectedMeans) {
   EXPECT_DOUBLE_EQ(result.imu_diagnostics[1].relative_time, 0.3125);
   for (const auto& diagnostic : result.imu_diagnostics) {
     EXPECT_TRUE(diagnostic.angular_velocity.isZero(0));
-    EXPECT_TRUE(diagnostic.acceleration.isApprox(
-        Eigen::Vector3d(0, 0, -9.81), 0));
+    EXPECT_TRUE(
+        diagnostic.acceleration.isApprox(Eigen::Vector3d(0, 0, -9.81), 0));
   }
 }
 
@@ -185,7 +186,7 @@ TEST(FrontendTest, OptionalMapSnapshotsExposePlanesAndEffectivePoints) {
   options.voxel_map.max_voxel_size_ = 10;
   Frontend frontend(options);
   auto input = MakeScan();
-  input.lidar->clear();
+  input.lidar_cloud->clear();
   for (float x : {1, 2, 3}) {
     for (float y : {1, 2, 3}) {
       Point point;
@@ -193,7 +194,7 @@ TEST(FrontendTest, OptionalMapSnapshotsExposePlanesAndEffectivePoints) {
       point.y = y;
       point.z = 0;
       point.curvature = 125;
-      input.lidar->push_back(point);
+      input.lidar_cloud->push_back(point);
     }
   }
   const auto result = frontend.Process(&input);

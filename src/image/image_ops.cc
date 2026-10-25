@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <opencv2/core/mat.hpp>
 #include <stdexcept>
 
 namespace livo_atlas {
@@ -39,8 +40,8 @@ float ShiTomasiScore(const cv::Mat& image, int u, int v) {
   constexpr int kBoxSize = 8;
   constexpr int kBoxArea = kBoxSize * kBoxSize;
   // Check before adding offsets, including for extreme integer coordinates.
-  if (u < kHalfBox + 1 || v < kHalfBox + 1 ||
-      u >= image.cols - kHalfBox - 1 || v >= image.rows - kHalfBox - 1) {
+  if (u < kHalfBox + 1 || v < kHalfBox + 1 || u >= image.cols - kHalfBox - 1 ||
+      v >= image.rows - kHalfBox - 1) {
     return 0;
   }
   float dxx = 0;
@@ -60,8 +61,9 @@ float ShiTomasiScore(const cv::Mat& image, int u, int v) {
   dxx = dxx / (2.0 * kBoxArea);
   dyy = dyy / (2.0 * kBoxArea);
   dxy = dxy / (2.0 * kBoxArea);
-  return 0.5 * (dxx + dyy - std::sqrt((dxx + dyy) * (dxx + dyy) -
-                                      4 * (dxx * dyy - dxy * dxy)));
+  return 0.5 *
+         (dxx + dyy -
+          std::sqrt((dxx + dyy) * (dxx + dyy) - 4 * (dxx * dyy - dxy * dxy)));
 }
 
 }  // namespace livo_atlas

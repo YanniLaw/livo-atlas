@@ -1,18 +1,18 @@
 #include "livo_atlas/ros1/livo_publisher.h"
 
-#include <cmath>
-#include <functional>
-#include <vector>
-
 #include <geometry_msgs/PoseStamped.h>
 #include <gtest/gtest.h>
 #include <image_transport/image_transport.h>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
-#include <opencv2/core.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>
 #include <visualization_msgs/MarkerArray.h>
+
+#include <cmath>
+#include <functional>
+#include <opencv2/core.hpp>
+#include <vector>
 
 namespace livo_atlas {
 namespace {
@@ -41,9 +41,8 @@ TEST(RosOutputTest, PublishesOrdinarySnapshotsWithLegacySchemasAndPoses) {
         clouds.push_back(*msg);
       });
   auto image_sub = node.subscribe<sensor_msgs::Image>(
-      "/rgb_img", 10, [&](const sensor_msgs::Image::ConstPtr& msg) {
-        images.push_back(*msg);
-      });
+      "/rgb_img", 10,
+      [&](const sensor_msgs::Image::ConstPtr& msg) { images.push_back(*msg); });
   auto odom_sub = node.subscribe<nav_msgs::Odometry>(
       "/aft_mapped_to_init", 10, [&](const nav_msgs::Odometry::ConstPtr& msg) {
         odometry.push_back(*msg);
@@ -53,9 +52,8 @@ TEST(RosOutputTest, PublishesOrdinarySnapshotsWithLegacySchemasAndPoses) {
         propagation.push_back(*msg);
       });
   auto path_sub = node.subscribe<nav_msgs::Path>(
-      "/path", 10, [&](const nav_msgs::Path::ConstPtr& msg) {
-        paths.push_back(*msg);
-      });
+      "/path", 10,
+      [&](const nav_msgs::Path::ConstPtr& msg) { paths.push_back(*msg); });
   auto pose_sub = node.subscribe<geometry_msgs::PoseStamped>(
       "/mavros/vision_pose/pose", 10,
       [&](const geometry_msgs::PoseStamped::ConstPtr& msg) {

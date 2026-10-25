@@ -3,8 +3,8 @@
 #include <cmath>
 #include <limits>
 
-#include "livo_atlas/frontend/image_options.h"
-#include "livo_atlas/frontend/imu_propagation.h"
+#include "livo_atlas/frontend/imu/imu_propagation.h"
+#include "livo_atlas/frontend/vision/image_options.h"
 
 namespace livo_atlas {
 namespace {

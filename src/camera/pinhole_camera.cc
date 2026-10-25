@@ -1,10 +1,10 @@
 #include "livo_atlas/camera/pinhole_camera.h"
 
 #include <cmath>
-#include <stdexcept>
-
 #include <opencv2/calib3d.hpp>
+#include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc.hpp>
+#include <stdexcept>
 
 namespace livo_atlas {
 
@@ -20,10 +20,10 @@ PinholeCamera::PinholeCamera(const CameraConfig& config)
   intrinsics_ =
       (cv::Mat_<float>(3, 3) << fx(), 0, cx(), 0, fy(), cy(), 0, 0, 1);
   coefficients_ = (cv::Mat_<float>(1, 5) << distortion_[0], distortion_[1],
-                    distortion_[2], distortion_[3], distortion_[4]);
-  cv::initUndistortRectifyMap(intrinsics_, coefficients_,
-      cv::Mat_<double>::eye(3, 3), intrinsics_, cv::Size(width(), height()),
-      CV_16SC2, map_x_, map_y_);
+                   distortion_[2], distortion_[3], distortion_[4]);
+  cv::initUndistortRectifyMap(
+      intrinsics_, coefficients_, cv::Mat_<double>::eye(3, 3), intrinsics_,
+      cv::Size(width(), height()), CV_16SC2, map_x_, map_y_);
 }
 
 Eigen::Vector2d PinholeCamera::Project(const Eigen::Vector2d& point) const {
@@ -36,8 +36,8 @@ Eigen::Vector2d PinholeCamera::Project(const Eigen::Vector2d& point) const {
   const double a1 = 2 * x * y;
   const double a2 = r2 + 2 * x * x;
   const double a3 = r2 + 2 * y * y;
-  const double radial = 1 + distortion_[0] * r2 + distortion_[1] * r4 +
-                        distortion_[4] * r6;
+  const double radial =
+      1 + distortion_[0] * r2 + distortion_[1] * r4 + distortion_[4] * r6;
   const double xd = x * radial + distortion_[2] * a1 + distortion_[3] * a2;
   const double yd = y * radial + distortion_[2] * a3 + distortion_[3] * a1;
   return {xd * fx() + cx(), yd * fy() + cy()};

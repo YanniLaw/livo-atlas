@@ -17,12 +17,7 @@ struct SensorBuffers {
   double latest_imu_time = -1.0;
 };
 
-enum class SynchronizationResult {
-  kWaiting,
-  kReady,
-  kImageDropped,
-  kInvalidCloud
-};
+enum class SyncStatus { kWaiting, kReady, kImageDropped, kInvalidCloud };
 
 class SensorSynchronizer {
  public:
@@ -34,8 +29,8 @@ class SensorSynchronizer {
   // buffer/output access. Queues contain measurements in acquisition order.
   // LIVO retains the legacy three-queue readiness gate, even for pending VIO;
   // this interface does not drain the final visual update at end of input.
-  SynchronizationResult TrySynchronize(
-      SensorBuffers* buffers, SynchronizedMeasurements* measurements) const;
+  SyncStatus TrySynchronize(SensorBuffers* buffers,
+                            SynchronizedMeasurements* measurements) const;
 
  private:
   FrontendMode mode_;

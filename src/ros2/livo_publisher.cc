@@ -1,8 +1,11 @@
+#include "livo_atlas/ros2/livo_publisher.h"
+
 #include <cv_bridge/cv_bridge.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/transform_broadcaster.h>
 
+#include <Eigen/Geometry>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -16,7 +19,6 @@
 
 #include "livo_atlas/common/so3_math.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "livo_atlas/ros2/livo_publisher.h"
 
 namespace livo_atlas::ros2 {
 namespace {
@@ -86,7 +88,8 @@ visualization_msgs::msg::MarkerArray PlaneMarkers(
 }
 
 geometry_msgs::msg::Pose Pose(
-    const FilterState& state, const geometry_msgs::msg::Quaternion& orientation) {
+    const FilterState& state,
+    const geometry_msgs::msg::Quaternion& orientation) {
   geometry_msgs::msg::Pose pose;
   pose.position.x = state.pos_end.x();
   pose.position.y = state.pos_end.y();
@@ -223,11 +226,11 @@ LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode)
     : impl_(std::make_unique<Impl>(node, mode)) {}
 LivoPublisher::~LivoPublisher() = default;
 void LivoPublisher::Publish(const FrontendResult& result,
-                              const PreparedOutput& prepared) {
+                            const PreparedOutput& prepared) {
   impl_->Publish(result, prepared);
 }
 void LivoPublisher::PublishImuPropagation(const FilterState& state,
-                                            double timestamp) {
+                                          double timestamp) {
   impl_->PublishImuPropagation(state, timestamp);
 }
 }  // namespace livo_atlas::ros2

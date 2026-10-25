@@ -1,10 +1,10 @@
-#include "livo_atlas/frontend/vision/vio.h"
+#include <gtest/gtest.h>
+#include <sophus/se3.h>
 
 #include <unordered_map>
 
-#include <gtest/gtest.h>
-
 #include "livo_atlas/frontend/vision/feature.h"
+#include "livo_atlas/frontend/vision/vio.h"
 
 namespace livo_atlas {
 namespace {
@@ -17,16 +17,16 @@ class VioReferencePatchTest : public ::testing::Test {
     manager_.patch_size_total = 4;
     manager_.update_flag = {1};
     manager_.visual_submap->voxel_points.push_back(&point_);
-    point_.normal_ = V3D(0, 0, 1);
+    point_.normal_ = Vector3d(0, 0, 1);
     point_.is_normal_initialized_ = true;
   }
 
   void AddObservations(bool cached) {
     for (int index = 0; index < 6; ++index) {
       const float mean = 10 * (index + 1);
-      auto* feature = new Feature(
-          &point_, new float[4]{mean, mean + 2, mean, mean - 2}, V2D::Zero(),
-          V3D(0, 0, 1), SE3(), 0);
+      auto* feature =
+          new Feature(&point_, new float[4]{mean, mean + 2, mean, mean - 2},
+                      Vector2d::Zero(), Vector3d(0, 0, 1), Sophus::SE3(), 0);
       feature->id_ = index;
       feature->mean_ = cached ? mean : 0;
       point_.obs_.push_back(feature);
@@ -43,22 +43,22 @@ class VioReferencePatchTest : public ::testing::Test {
     }
   }
 
-  VisualPoint point_{V3D(0, 0, 1)};
+  VisualPoint point_{Vector3d(0, 0, 1)};
   VIOManager manager_;
-  const std::unordered_map<VOXEL_LOCATION, VoxelOctoTree*> plane_map_;
+  const std::unordered_map<VOXEL_LOCATION, VoxelOctreeNode*> plane_map_;
 };
 
 TEST_F(VioReferencePatchTest, UsesCachedPatchMeans) {
   AddObservations(true);
-  manager_.updateReferencePatch(plane_map_);
+  manager_.UpdateReferencePatches(plane_map_);
   ExpectCenteredScores();
 }
 
 TEST_F(VioReferencePatchTest, ScoresStayEqualAfterMeansAreCached) {
   AddObservations(false);
-  manager_.updateReferencePatch(plane_map_);
+  manager_.UpdateReferencePatches(plane_map_);
   ExpectCenteredScores();
-  manager_.updateReferencePatch(plane_map_);
+  manager_.UpdateReferencePatches(plane_map_);
   ExpectCenteredScores();
 }
 

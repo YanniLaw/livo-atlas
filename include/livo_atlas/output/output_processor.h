@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_OUTPUT_OUTPUT_PROCESSOR_H_
 
 #include <memory>
+#include <opencv2/core/mat.hpp>
 
 #include "livo_atlas/frontend/calibration.h"
 #include "livo_atlas/frontend/frontend_result.h"

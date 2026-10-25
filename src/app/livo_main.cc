@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     ros::Rate rate(5000);
     while (ros::ok()) {
       ros::spinOnce();
-      if (ros_node.ProcessNext() != livo_atlas::SynchronizationResult::kReady)
+      if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady)
         rate.sleep();
     }
 #else

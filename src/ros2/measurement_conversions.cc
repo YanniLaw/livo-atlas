@@ -1,3 +1,5 @@
+#include "livo_atlas/ros2/measurement_conversions.h"
+
 #include <cv_bridge/cv_bridge.h>
 #include <pcl/common/io.h>
 #include <pcl_conversions/pcl_conversions.h>
@@ -5,31 +7,31 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <opencv2/core/mat.hpp>
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
 #include <utility>
-
-#include "livo_atlas/ros2/measurement_conversions.h"
+#include <vector>
 
 namespace livo_atlas::ros2 {
 namespace {
 
-template <typename PointType>
+template <typename Point>
 bool IsOptionalField(std::string_view name) {
   // Match legacy PCL zero defaults, including single-line input without ring.
   if (name == "ring") return true;
-  if constexpr (std::is_same_v<PointType, VelodynePoint>) {
+  if constexpr (std::is_same_v<Point, VelodynePoint>) {
     return name == "time";  // Preprocess estimates timing from yaw.
-  } else if constexpr (std::is_same_v<PointType, Xt32Point>) {
+  } else if constexpr (std::is_same_v<Point, Xt32Point>) {
     return name == "timestamp";  // The feature branch has a yaw fallback.
-  } else if constexpr (std::is_same_v<PointType, OusterPoint>) {
+  } else if constexpr (std::is_same_v<Point, OusterPoint>) {
     return name == "reflectivity" || name == "ambient" || name == "range";
   }
   return false;
 }
 
-template <typename PointType>
+template <typename Point>
 std::string ValidateCloudLayout(const sensor_msgs::msg::PointCloud2& message) {
   if (message.is_bigendian) {
     return "PointCloud2: big-endian data is unsupported";
@@ -49,7 +51,7 @@ std::string ValidateCloudLayout(const sensor_msgs::msg::PointCloud2& message) {
   if (count == 0) return {};
   if (message.point_step == 0) return "PointCloud2: zero point_step";
 
-  const auto expected_fields = pcl::getFields<PointType>();
+  const auto expected_fields = pcl::getFields<Point>();
   for (const auto& expected : expected_fields) {
     const sensor_msgs::msg::PointField* matched = nullptr;
     for (const auto& field : message.fields) {
@@ -61,7 +63,7 @@ std::string ValidateCloudLayout(const sensor_msgs::msg::PointCloud2& message) {
       matched = &field;
     }
     if (matched == nullptr) {
-      if (IsOptionalField<PointType>(expected.name)) continue;
+      if (IsOptionalField<Point>(expected.name)) continue;
       return "PointCloud2: missing field " + expected.name;
     }
     // PCL accepts rgb/FLOAT32, rgb/UINT32 and rgba/UINT32.
@@ -80,12 +82,12 @@ std::string ValidateCloudLayout(const sensor_msgs::msg::PointCloud2& message) {
   return {};
 }
 
-template <typename PointType>
+template <typename Point>
 std::string DecodeCloud(const sensor_msgs::msg::PointCloud2& message,
                         double time_offset, LidarScan* output) {
-  const std::string error = ValidateCloudLayout<PointType>(message);
+  const std::string error = ValidateCloudLayout<Point>(message);
   if (!error.empty()) return error;
-  pcl::PointCloud<PointType> points;
+  pcl::PointCloud<Point> points;
   // PCL 1.10 indexes points[0] even when its input is empty.
   if (message.width != 0 && message.height != 0) {
     pcl::fromROSMsg(message, points);
@@ -160,7 +162,7 @@ std::string ConvertImage(const sensor_msgs::msg::Image& message,
   try {
     cv::Mat image = cv_bridge::toCvCopy(message, "bgr8")->image;
     *output = TimedImage{ToSeconds(message.header.stamp) + time_offset,
-                               std::move(image)};
+                         std::move(image)};
     return {};
   } catch (const cv_bridge::Exception& error) {
     return std::string("Image: ") + error.what();

@@ -1,8 +1,8 @@
 #include "livo_atlas/sensor/extrinsics.h"
 
-#include <cmath>
-
 #include <Eigen/LU>
+#include <cmath>
+#include <vector>
 
 namespace livo_atlas {
 namespace {
@@ -30,8 +30,8 @@ std::string ValidateExtrinsic(const RigidTransform& transform) {
 }
 
 std::string ParseExtrinsic(const std::vector<double>& rotation,
-                          const std::vector<double>& translation,
-                          RigidTransform* result) {
+                           const std::vector<double>& translation,
+                           RigidTransform* result) {
   if (rotation.size() != 9) {
     return "rotation must contain 9 row-major coefficients";
   }

@@ -1,7 +1,7 @@
 #include <iostream>
 
-#include "system_scenario.h"
 #include "scenario.h"
+#include "system_scenario.h"
 
 int main() {
   for (auto mode : {livo_atlas::FrontendMode::kLidarOnly,

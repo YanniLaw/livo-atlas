@@ -1,9 +1,9 @@
 #ifndef LIVO_ATLAS_ROS1_LIVO_PUBLISHER_H_
 #define LIVO_ATLAS_ROS1_LIVO_PUBLISHER_H_
 
-#include <memory>
-
 #include <ros/time.h>
+
+#include <memory>
 
 #include "livo_atlas/output/output_processor.h"
 
@@ -27,7 +27,8 @@ class LivoPublisher {
   void Initialize(ros::NodeHandle& node,
                   image_transport::ImageTransport& transport);
   void Publish(const FrontendResult& result, const PreparedOutput& prepared);
-  void PublishImuPropagation(const FilterState& state, const ros::Time& timestamp);
+  void PublishImuPropagation(const FilterState& state,
+                             const ros::Time& timestamp);
 
  private:
   class Impl;

@@ -6,10 +6,10 @@
 #include <exception>
 #include <utility>
 
+#include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/ros2/livo_publisher.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "livo_atlas/ros2/node_options.h"
-#include "livo_atlas/ros2/livo_publisher.h"
-#include "livo_atlas/core/livo_system.h"
 
 namespace livo_atlas::ros2 {
 namespace {
@@ -21,8 +21,7 @@ rclcpp::QoS SensorQos(const NodeOptions& parameters, int depth) {
 }  // namespace
 class LivoNode::Impl {
  public:
-  Impl(rclcpp::Node& node, const NodeOptions& parameters,
-       LivoSystem& system)
+  Impl(rclcpp::Node& node, const NodeOptions& parameters, LivoSystem& system)
       : node_(node),
         parameters_(parameters),
         system_(system),
@@ -81,7 +80,7 @@ class LivoNode::Impl {
             Warn(error);
         });
     processing_ = node.create_wall_timer(std::chrono::milliseconds(1), [this] {
-      while (ProcessNext() != SynchronizationResult::kWaiting) {
+      while (ProcessNext() != SyncStatus::kWaiting) {
       }
     });
     propagation_ = node.create_wall_timer(std::chrono::milliseconds(4), [this] {
@@ -91,9 +90,9 @@ class LivoNode::Impl {
     });
     RCLCPP_INFO(node.get_logger(), "livo_atlas frontend ready");
   }
-  SynchronizationResult ProcessNext() {
+  SyncStatus ProcessNext() {
     return system_.ProcessNext([this](const auto& result, const auto& prepared,
-                                       double elapsed) {
+                                      double elapsed) {
       publisher_.Publish(result, prepared);
       const char* stage =
           result.kind == UpdateKind::kVisual ? "VIO Time" : "LIO Mapping Time";
@@ -120,13 +119,10 @@ class LivoNode::Impl {
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_;
   rclcpp::TimerBase::SharedPtr processing_, propagation_;
 };
-LivoNode::LivoNode(rclcpp::Node& node,
-                               const NodeOptions& parameters,
-                               LivoSystem& system)
+LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
+                   LivoSystem& system)
     : impl_(std::make_unique<Impl>(node, parameters, system)) {}
 LivoNode::~LivoNode() = default;
-SynchronizationResult LivoNode::ProcessNext() {
-  return impl_->ProcessNext();
-}
+SyncStatus LivoNode::ProcessNext() { return impl_->ProcessNext(); }
 void LivoNode::ReportInputs() { impl_->ReportInputs(); }
 }  // namespace livo_atlas::ros2

@@ -112,9 +112,8 @@ NodeOptions ReadNodeOptions(ros::NodeHandle& node) {
   NodeOptions result;
   result.livo = LoadLivoConfig(reader);
   result.livo.system.imu_time_range = {0, 4294967296.0};
-  for (const auto& topic :
-       {result.livo.lidar_topic, result.livo.imu_topic,
-        result.livo.image_topic})
+  for (const auto& topic : {result.livo.lidar_topic, result.livo.imu_topic,
+                            result.livo.image_topic})
     node.resolveName(topic);
   return result;
 }

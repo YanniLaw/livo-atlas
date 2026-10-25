@@ -3,14 +3,16 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <rclcpp/node_interfaces/node_topics_interface.hpp>
+#include <vector>
 
-#include "livo_atlas/ros2/livo_node.h"
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/ros2/livo_node.h"
 #include "ros2/fixtures.h"
 namespace livo_atlas::ros2 {
 
@@ -48,15 +50,13 @@ TEST(Ros2ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
 }
 
 TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
-  auto params =
-      test::Parameters("/tmp/livo_atlas_naming/tests/parameter-test");
+  auto params = test::Parameters("/tmp/livo_atlas_naming/tests/parameter-test");
   params.emplace_back("common.imu_topic", "~/imu");
   auto options = rclcpp::NodeOptions().parameter_overrides(params);
   options.arguments({"--ros-args", "-r", "/parameter_test/imu:=/review/imu"});
   rclcpp::Node node("parameter_test", options);
   const auto config = ReadNodeOptions(node);
-  EXPECT_EQ(config.livo.system.frontend.calibration.camera.model,
-            "Pinhole");
+  EXPECT_EQ(config.livo.system.frontend.calibration.camera.model, "Pinhole");
   EXPECT_EQ(node.get_node_topics_interface()->resolve_topic_name(
                 config.livo.imu_topic),
             "/review/imu");
@@ -170,7 +170,7 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   params.emplace_back("time_offset.imu_time_offset", .03);
   params.emplace_back("time_offset.img_time_offset", -.01);
   params.emplace_back("lio.max_layer", 2);
-  params.emplace_back("lio.layer_init_num", std::vector<int64_t>{3, 6, 9});
+  params.emplace_back("lio.layer_init_num", std::vector<std::int64_t>{3, 6, 9});
   params.emplace_back("publish.pub_scan_num", 3);
   params.emplace_back("scale", .5);
   rclcpp::Node node("shared_parameters_test",

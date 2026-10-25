@@ -1,9 +1,9 @@
 #include "livo_atlas/frontend/calibration.h"
 
+#include <gtest/gtest.h>
+
 #include <limits>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace livo_atlas {
 namespace {
@@ -13,8 +13,9 @@ const std::vector<double> kZeroTranslation = {0, 0, 0};
 
 TEST(ExtrinsicsTest, ParsesRowMajorRotationAndTranslationDirection) {
   RigidTransform transform;
-  ASSERT_TRUE(ParseExtrinsic({0, -1, 0, 1, 0, 0, 0, 0, 1}, {1, 2, 3},
-                            &transform).empty());
+  ASSERT_TRUE(
+      ParseExtrinsic({0, -1, 0, 1, 0, 0, 0, 0, 1}, {1, 2, 3}, &transform)
+          .empty());
   const Eigen::Vector3d point =
       transform.rotation * Eigen::Vector3d(2, 0, 0) + transform.translation;
   EXPECT_TRUE(point.isApprox(Eigen::Vector3d(1, 4, 3), 0));
@@ -25,23 +26,26 @@ TEST(ExtrinsicsTest, RejectsWrongArrayLengthsWithoutChangingOutput) {
   transform.translation = Eigen::Vector3d(4, 5, 6);
   for (int length : {0, 8, 10}) {
     EXPECT_FALSE(ParseExtrinsic(std::vector<double>(length, 0),
-                               kZeroTranslation, &transform).empty());
+                                kZeroTranslation, &transform)
+                     .empty());
   }
   for (int length : {0, 2, 4}) {
-    EXPECT_FALSE(ParseExtrinsic(kIdentity, std::vector<double>(length, 0),
-                               &transform).empty());
+    EXPECT_FALSE(
+        ParseExtrinsic(kIdentity, std::vector<double>(length, 0), &transform)
+            .empty());
   }
   EXPECT_TRUE(transform.rotation.isIdentity(0));
   EXPECT_TRUE(transform.translation.isApprox(Eigen::Vector3d(4, 5, 6), 0));
 }
 
 TEST(ExtrinsicsTest, PreservesRoundedAviaCalibrationExactly) {
-  const std::vector<double> rotation = {
-      0.00610193, -0.999863, -0.0154172, -0.00615449, 0.0153796,
-      -0.999863, 0.999962, 0.00619598, -0.0060598};
+  const std::vector<double> rotation = {0.00610193,  -0.999863,  -0.0154172,
+                                        -0.00615449, 0.0153796,  -0.999863,
+                                        0.999962,    0.00619598, -0.0060598};
   RigidTransform transform;
-  ASSERT_TRUE(ParseExtrinsic(rotation, {0.0194384, 0.104689, -0.0251952},
-                            &transform).empty());
+  ASSERT_TRUE(
+      ParseExtrinsic(rotation, {0.0194384, 0.104689, -0.0251952}, &transform)
+          .empty());
   for (int row = 0; row < 3; ++row) {
     for (int col = 0; col < 3; ++col) {
       EXPECT_DOUBLE_EQ(transform.rotation(row, col), rotation[3 * row + col]);
@@ -123,9 +127,9 @@ TEST(CameraValidationTest, RejectsNonPositiveDimensions) {
 }
 
 TEST(CameraValidationTest, RejectsInvalidScaleAndEmptyScaledImages) {
-  for (double scale : {0.0, -1.0, 0.0001,
-                       std::numeric_limits<double>::infinity(),
-                       std::numeric_limits<double>::quiet_NaN()}) {
+  for (double scale :
+       {0.0, -1.0, 0.0001, std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN()}) {
     CameraConfig config = PinholeConfig();
     config.scale = scale;
     EXPECT_FALSE(ValidateCameraConfig(config).empty());
@@ -183,9 +187,8 @@ TEST(CameraValidationTest, AcceptsFinitePrincipalPointsOutsideImage) {
 }
 
 TEST(CameraValidationTest, RejectsUnrepresentableScaledIntrinsics) {
-  for (double CameraConfig::* member :
-       {&CameraConfig::fx, &CameraConfig::fy, &CameraConfig::cx,
-        &CameraConfig::cy}) {
+  for (double CameraConfig::*member : {&CameraConfig::fx, &CameraConfig::fy,
+                                       &CameraConfig::cx, &CameraConfig::cy}) {
     CameraConfig config = PinholeConfig();
     config.scale = 2;
     config.*member = std::numeric_limits<double>::max();

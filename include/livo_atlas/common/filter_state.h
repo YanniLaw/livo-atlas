@@ -25,8 +25,7 @@ inline constexpr double kInitialCovariance = 0.01;
 inline constexpr double kGravityMetersPerSecondSquared = 9.81;
 
 using StateIncrement = Eigen::Matrix<double, kStateDimension, 1>;
-using StateCovariance =
-    Eigen::Matrix<double, kStateDimension, kStateDimension>;
+using StateCovariance = Eigen::Matrix<double, kStateDimension, kStateDimension>;
 
 // Shared FAST-LIVO2 state. Field names and order retain legacy compatibility.
 struct FilterState {
@@ -45,8 +44,8 @@ struct FilterState {
 
   FilterState operator+(const StateIncrement& increment) const {
     FilterState result;
-    result.rot_end = rot_end * Exp(increment(0, 0), increment(1, 0),
-                                  increment(2, 0));
+    result.rot_end =
+        rot_end * Exp(increment(0, 0), increment(1, 0), increment(2, 0));
     result.pos_end = pos_end + increment.block<3, 1>(3, 0);
     result.inv_expo_time = inv_expo_time + increment(6, 0);
     result.vel_end = vel_end + increment.block<3, 1>(7, 0);
@@ -88,16 +87,13 @@ struct FilterState {
     vel_end = Vector3d::Zero();
   }
 
-  // Compatibility entry point for existing FAST-LIVO2 callers.
-  void resetpose() { ResetPose(); }
-
-  Matrix3d rot_end;       // Attitude at the end of the LiDAR scan.
-  Vector3d pos_end;       // Position in the world frame.
-  Vector3d vel_end;       // Velocity in the world frame.
-  double inv_expo_time;   // Inverse exposure time, without scale.
-  Vector3d bias_g;        // Gyroscope bias.
-  Vector3d bias_a;        // Accelerometer bias.
-  Vector3d gravity;       // Gravity acceleration in the world frame.
+  Matrix3d rot_end;      // Attitude at the end of the LiDAR scan.
+  Vector3d pos_end;      // Position in the world frame.
+  Vector3d vel_end;      // Velocity in the world frame.
+  double inv_expo_time;  // Inverse exposure time, without scale.
+  Vector3d bias_g;       // Gyroscope bias.
+  Vector3d bias_a;       // Accelerometer bias.
+  Vector3d gravity;      // Gravity acceleration in the world frame.
   StateCovariance cov;   // State covariance.
 };
 

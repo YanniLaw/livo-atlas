@@ -21,14 +21,16 @@ struct LivoxPoint {
 
 // Preserve driver field precision and point order. Unit conversion, filtering
 // and sorting belong to preprocessing, not message decoding.
-using LidarPoints = std::variant<
-    std::vector<LivoxPoint>, pcl::PointCloud<VelodynePoint>,
-    pcl::PointCloud<OusterPoint>, pcl::PointCloud<pcl::PointXYZRGB>,
-    pcl::PointCloud<Xt32Point>, pcl::PointCloud<Pandar128Point>,
-    pcl::PointCloud<RobosensePoint>>;
+using LidarPoints =
+    std::variant<std::vector<LivoxPoint>, pcl::PointCloud<VelodynePoint>,
+                 pcl::PointCloud<OusterPoint>,
+                 pcl::PointCloud<pcl::PointXYZRGB>, pcl::PointCloud<Xt32Point>,
+                 pcl::PointCloud<Pandar128Point>,
+                 pcl::PointCloud<RobosensePoint>>;
 
 struct LidarScan {
-  double timestamp = 0.0;  // Sensor header time in seconds, not bag receipt time.
+  double timestamp =
+      0.0;  // Sensor header time in seconds, not bag receipt time.
   LidarPoints points;
 };
 

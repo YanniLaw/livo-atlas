@@ -1,14 +1,16 @@
+#include "livo_atlas/core/livo_system.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <fstream>
 #include <functional>
 #include <limits>
 #include <stdexcept>
 #include <vector>
 
-#include "livo_atlas/core/livo_system.h"
 #include "core/fixtures.h"
 #include "test_images.h"
 namespace livo_atlas {
@@ -148,10 +150,10 @@ TEST(SystemStepTest, LidarOnlyStepPreservesAnchorAndProducesFiniteWorldCloud) {
       EXPECT_FALSE(result.world_cloud->empty());
       EXPECT_TRUE(result.estimate.pos_end.allFinite());
     }),
-              SynchronizationResult::kReady);
+              SyncStatus::kReady);
   }
   EXPECT_EQ(updates, 2);
-  EXPECT_EQ(session.ProcessNext({}), SynchronizationResult::kWaiting);
+  EXPECT_EQ(session.ProcessNext({}), SyncStatus::kWaiting);
   session.Finish();
 }
 
@@ -161,10 +163,10 @@ TEST(SystemStepTest, CoverageUsesTimeBeforeSecondNanosecondQuantization) {
   LivoSystem session(options);
   ASSERT_TRUE(session.AddLidar(test::Scan(.975)));
   ASSERT_TRUE(session.AddImu({100.1, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
-  EXPECT_EQ(session.ProcessNext({}), SynchronizationResult::kWaiting);
+  EXPECT_EQ(session.ProcessNext({}), SyncStatus::kWaiting);
   ASSERT_TRUE(session.AddImu({100.25, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
   EXPECT_FALSE(session.AddImu({100., Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
-  EXPECT_EQ(session.ProcessNext({}), SynchronizationResult::kReady);
+  EXPECT_EQ(session.ProcessNext({}), SyncStatus::kReady);
   session.Finish();
 }
 
@@ -199,7 +201,7 @@ TEST(SystemStepTest, EmptyCloudCannotErasePendingScanBeforeRollback) {
   const auto collect = [&](const auto& result, const auto&, double) {
     timestamps.push_back(result.timestamp);
   };
-  EXPECT_EQ(session.ProcessNext(collect), SynchronizationResult::kReady);
+  EXPECT_EQ(session.ProcessNext(collect), SyncStatus::kReady);
   ASSERT_EQ(timestamps.size(), 1u);
   EXPECT_DOUBLE_EQ(timestamps.back(), 100.125);
   ASSERT_TRUE(session.AddLidar(test::Scan(200)));
@@ -219,7 +221,7 @@ TEST(SystemStepTest, InitialImuWindowDoesNotPublishAnEstimate) {
   int updates = 0;
   EXPECT_EQ(
       session.ProcessNext([&](const auto&, const auto&, double) { ++updates; }),
-      SynchronizationResult::kReady);
+      SyncStatus::kReady);
   EXPECT_EQ(updates, 0);
   session.Finish();
 }
@@ -257,7 +259,8 @@ TEST(SystemStepTest, RepeatedVisualUpdatesConsumeCloudsWithoutRosPublishers) {
                           [](auto size) { return size > 0; }));
   session.Finish();
   EXPECT_GT(
-      std::filesystem::file_size(options.exporter.directory / "mat_out.txt"), 0u);
+      std::filesystem::file_size(options.exporter.directory / "mat_out.txt"),
+      0u);
 }
 
 TEST(SystemTest, RejectsEarlyAndReverseDataWithoutBlockingValidScan) {
@@ -405,8 +408,7 @@ TEST(SystemTest, AppliesImuOffsetAndDriverCorrectionAtActualIngress) {
       reference.AddLidar(test::Scan(t));
       actual.AddLidar(test::Scan(t));
       for (double offset : {.0625, .125, .1875}) {
-        Imu imu{
-            t + offset, Eigen::Vector3d::Zero(), {frame * .01, 0, -9.81}};
+        Imu imu{t + offset, Eigen::Vector3d::Zero(), {frame * .01, 0, -9.81}};
         ASSERT_TRUE(reference.AddImu(imu));
         imu.timestamp = (t + offset + c.raw_delta);
         ASSERT_TRUE(actual.AddImu(imu));

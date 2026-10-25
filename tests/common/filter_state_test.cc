@@ -1,10 +1,10 @@
 #include "livo_atlas/common/filter_state.h"
 
-#include <array>
-#include <cmath>
+#include <gtest/gtest.h>
 
 #include <Eigen/Geometry>
-#include <gtest/gtest.h>
+#include <array>
+#include <cmath>
 
 namespace livo_atlas {
 namespace {
@@ -70,15 +70,14 @@ TEST(StateTest, PreservesNineteenStateIndices) {
     }
     EXPECT_TRUE(result.rot_end.isApprox(expected_rotation, 1e-12));
     const std::array<double, 16> values = {
-        result.pos_end.x(), result.pos_end.y(), result.pos_end.z(),
+        result.pos_end.x(),       result.pos_end.y(), result.pos_end.z(),
         result.inv_expo_time - 1, result.vel_end.x(), result.vel_end.y(),
-        result.vel_end.z(), result.bias_g.x(), result.bias_g.y(),
-        result.bias_g.z(), result.bias_a.x(), result.bias_a.y(),
-        result.bias_a.z(), result.gravity.x(), result.gravity.y(),
+        result.vel_end.z(),       result.bias_g.x(),  result.bias_g.y(),
+        result.bias_g.z(),        result.bias_a.x(),  result.bias_a.y(),
+        result.bias_a.z(),        result.gravity.x(), result.gravity.y(),
         result.gravity.z()};
     for (int component = 0; component < 16; ++component) {
-      EXPECT_NEAR(values[component], index == component + 3 ? 0.01 : 0,
-                  1e-12);
+      EXPECT_NEAR(values[component], index == component + 3 ? 0.01 : 0, 1e-12);
     }
     FilterState in_place = original;
     in_place += increment;

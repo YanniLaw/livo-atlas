@@ -1,4 +1,4 @@
-/* 
+/*
 This file is part of FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry.
 
 Developer: Chunran Zheng <zhengcr@connect.hku.hk>
@@ -14,65 +14,76 @@ which is included as part of this source code package.
 #define LIVO_ATLAS_FRONTEND_IMU_IMU_PROCESSOR_H_
 
 #include <Eigen/Eigen>
-#include "livo_atlas/internal/legacy/common.h"
-#include "livo_atlas/internal/legacy/so3_math.h"
+#include <vector>
+
+#include "livo_atlas/common/filter_state.h"
+#include "livo_atlas/common/math_types.h"
+#include "livo_atlas/common/so3_math.h"
 #include "livo_atlas/frontend/diagnostics.h"
+#include "livo_atlas/frontend/imu/pose6d.h"
+#include "livo_atlas/frontend/synchronized_measurements.h"
+#include "livo_atlas/sensor/point_types.h"
+
+namespace livo_atlas {
 
 /// *************IMU Process and undistortion
-class ImuProcess
-{
-public:
+class ImuProcessor {
+ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  ImuProcess();
-  ~ImuProcess();
+  ImuProcessor();
+  ~ImuProcessor();
 
   void Reset();
-  void set_extrinsic(const V3D &transl, const M3D &rot);
-  void set_extrinsic(const V3D &transl);
-  void set_extrinsic(const MD(4, 4) & T);
-  void set_gyr_cov_scale(const V3D &scaler);
-  void set_acc_cov_scale(const V3D &scaler);
-  void set_gyr_bias_cov(const V3D &b_g);
-  void set_acc_bias_cov(const V3D &b_a);
-  void set_inv_expo_cov(const double &inv_expo);
-  void set_imu_init_frame_num(const int &num);
-  void disable_imu();
-  void disable_gravity_est();
-  void disable_bias_est();
-  void disable_exposure_est();
-  void Process2(LidarMeasureGroup &lidar_meas, StatesGroup &stat, PointCloudXYZI::Ptr cur_pcl_un_);
-  void UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_inout, PointCloudXYZI &pcl_out);
+  void SetExtrinsic(const Vector3d &transl, const Matrix3d &rot);
+  void SetExtrinsic(const Vector3d &transl);
+  void SetExtrinsic(const Eigen::Matrix<double, (4), (4)> &T);
+  void SetGyroscopeCovariance(const Vector3d &scaler);
+  void SetAccelerometerCovariance(const Vector3d &scaler);
+  void SetGyroscopeBiasCovariance(const Vector3d &b_g);
+  void SetAccelerometerBiasCovariance(const Vector3d &b_a);
+  void SetInverseExposureCovariance(const double &inv_expo);
+  void SetInitializationFrames(const int &num);
+  void DisableImu();
+  void DisableGravityEstimation();
+  void DisableBiasEstimation();
+  void DisableExposureEstimation();
+  void Process(SynchronizedMeasurements &lidar_meas, FilterState &stat,
+               PointCloud::Ptr cur_pcl_un_);
+  void UndistortCloud(SynchronizedMeasurements &lidar_meas,
+                      FilterState &state_inout, PointCloud &pcl_out);
 
   std::vector<livo_atlas::ImuDiagnostic> diagnostics_;
   double IMU_mean_acc_norm;
-  V3D unbiased_gyr;
+  Vector3d unbiased_gyr;
 
-  V3D cov_acc;
-  V3D cov_gyr;
-  V3D cov_bias_gyr;
-  V3D cov_bias_acc;
+  Vector3d cov_acc;
+  Vector3d cov_gyr;
+  Vector3d cov_bias_gyr;
+  Vector3d cov_bias_acc;
   double cov_inv_expo;
   double first_lidar_time;
   bool imu_time_init = false;
   bool imu_need_init = true;
-  M3D Eye3d;
-  V3D Zero3d;
-  int lidar_type = AVIA;
+  Matrix3d Eye3d;
+  Vector3d Zero3d;
+  int lidar_type = kLivox;
 
-private:
-  void IMU_init(const MeasureGroup &meas, StatesGroup &state, int &N);
-  void Forward_without_imu(LidarMeasureGroup &meas, StatesGroup &state_inout, PointCloudXYZI &pcl_out);
-  PointCloudXYZI pcl_wait_proc;
+ private:
+  void InitializeImu(const UpdateMeasurements &meas, FilterState &state,
+                     int &N);
+  void PredictWithoutImu(SynchronizedMeasurements &meas,
+                         FilterState &state_inout, PointCloud &pcl_out);
+  PointCloud pcl_wait_proc;
   livo_atlas::Imu last_imu;
-  PointCloudXYZI::Ptr cur_pcl_un_;
-  vector<Pose6D> IMUpose;
-  M3D Lid_rot_to_IMU;
-  V3D Lid_offset_to_IMU;
-  V3D mean_acc;
-  V3D mean_gyr;
-  V3D angvel_last;
-  V3D acc_s_last;
+  PointCloud::Ptr cur_pcl_un_;
+  std::vector<Pose6D> IMUpose;
+  Matrix3d Lid_rot_to_IMU;
+  Vector3d Lid_offset_to_IMU;
+  Vector3d mean_acc;
+  Vector3d mean_gyr;
+  Vector3d angvel_last;
+  Vector3d acc_s_last;
   double last_prop_end_time = 0.0;
   double time_last_scan;
   int init_iter_num = 1, MAX_INI_COUNT = 20;
@@ -82,5 +93,7 @@ private:
   bool ba_bg_est_en = true;
   bool exposure_estimate_en = true;
 };
-typedef std::shared_ptr<ImuProcess> ImuProcessPtr;
+
+}  // namespace livo_atlas
+
 #endif

@@ -43,7 +43,7 @@ target_link_libraries(livo_atlas_camera PUBLIC livo_atlas_calibration
   opencv_core opencv_imgproc opencv_calib3d)
 livo_atlas_library(synchronization src/sensor/synchronizer.cc)
 target_link_libraries(livo_atlas_synchronization PUBLIC Eigen3::Eigen pcl_common opencv_core)
-livo_atlas_library(preprocess src/sensor/preprocess.cc)
+livo_atlas_library(preprocess src/sensor/lidar_preprocessor.cc)
 target_link_libraries(livo_atlas_preprocess PUBLIC Eigen3::Eigen pcl_common)
 livo_atlas_library(imu src/frontend/imu/imu_processor.cc)
 target_link_libraries(livo_atlas_imu PUBLIC Eigen3::Eigen pcl_common opencv_core Sophus::Sophus)
@@ -68,7 +68,7 @@ if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
   endforeach()
 endif()
 livo_atlas_library(frontend src/frontend/frontend.cc
-  src/frontend/image_options.cc src/frontend/imu_propagation.cc)
+  src/frontend/vision/image_options.cc src/frontend/imu/imu_propagation.cc)
 target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
   livo_atlas_vio livo_atlas_lio livo_atlas_imu pcl_filters)
 livo_atlas_library(output src/output/output_processor.cc)

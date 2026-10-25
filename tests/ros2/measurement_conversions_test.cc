@@ -1,34 +1,37 @@
+#include "livo_atlas/ros2/measurement_conversions.h"
+
 #include <gtest/gtest.h>
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <opencv2/core/mat.hpp>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
-#include "livo_atlas/ros2/measurement_conversions.h"
-#include "livo_atlas/sensor/preprocess.h"
+#include "livo_atlas/sensor/lidar_preprocessor.h"
 
 namespace livo_atlas::ros2 {
 namespace {
 
-template <typename PointType>
+template <typename Point>
 sensor_msgs::msg::PointCloud2 MakeCloudMessage(
-    const pcl::PointCloud<PointType>& cloud) {
+    const pcl::PointCloud<Point>& cloud) {
   sensor_msgs::msg::PointCloud2 message;
   pcl::toROSMsg(cloud, message);
   message.header.stamp = FromSeconds(17.123456789);
   return message;
 }
 
-template <typename PointType>
-sensor_msgs::msg::PointCloud2 MakeCloudMessage(const PointType& point) {
-  pcl::PointCloud<PointType> cloud;
+template <typename Point>
+sensor_msgs::msg::PointCloud2 MakeCloudMessage(const Point& point) {
+  pcl::PointCloud<Point> cloud;
   cloud.push_back(point);
   return MakeCloudMessage(cloud);
 }
@@ -213,8 +216,8 @@ TEST(MeasurementConversionsTest, MissingVelodyneTimeRetainsYawFallback) {
   RemoveField("time", &message);
   LidarScan scan;
   ASSERT_TRUE(ConvertPointCloud(message, kVelodyne, 0, &scan).empty());
-  Preprocess preprocess;
-  preprocess.set(false, kVelodyne, 1, 1);
+  LidarPreprocessor preprocess;
+  preprocess.Configure(false, kVelodyne, 1, 1);
   preprocess.blind_sqr = 1;
   PointCloud result;
   preprocess.Process(scan, &result);
@@ -237,8 +240,8 @@ TEST(MeasurementConversionsTest, OusterAcceptsUnusedFieldsAndRingOmitted) {
   EXPECT_EQ(decoded.reflectivity, 0);
   EXPECT_EQ(decoded.ambient, 0);
   EXPECT_EQ(decoded.range, 0);
-  Preprocess preprocess;
-  preprocess.set(false, kOuster, 1, 1);
+  LidarPreprocessor preprocess;
+  preprocess.Configure(false, kOuster, 1, 1);
   preprocess.blind_sqr = 1;
   PointCloud result;
   preprocess.Process(scan, &result);

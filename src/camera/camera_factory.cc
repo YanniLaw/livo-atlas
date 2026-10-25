@@ -1,5 +1,7 @@
 #include "livo_atlas/camera/camera_factory.h"
 
+#include <memory>
+
 #include "livo_atlas/camera/equidistant_camera.h"
 #include "livo_atlas/camera/pinhole_camera.h"
 

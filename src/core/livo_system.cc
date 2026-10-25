@@ -8,9 +8,9 @@
 #include <stdexcept>
 #include <utility>
 
-#include "livo_atlas/frontend/image_options.h"
-#include "livo_atlas/frontend/imu_propagation.h"
-#include "livo_atlas/sensor/preprocess.h"
+#include "livo_atlas/frontend/imu/imu_propagation.h"
+#include "livo_atlas/frontend/vision/image_options.h"
+#include "livo_atlas/sensor/lidar_preprocessor.h"
 #include "livo_atlas/sensor/synchronizer.h"
 
 namespace livo_atlas {
@@ -44,13 +44,14 @@ class LivoSystem::Impl {
         processor_(options_.processor),
         writer_(options_.exporter) {
     const auto& pre = options_.preprocess;
-    preprocess_.set(pre.features, pre.lidar_type, pre.blind, pre.point_filter);
+    preprocess_.Configure(pre.features, pre.lidar_type, pre.blind,
+                          pre.point_filter);
     preprocess_.N_SCANS = pre.scan_lines;
   }
   bool AddLidar(const LidarScan& scan) {
     if (!options_.lidar_enabled || !std::isfinite(scan.timestamp)) return false;
     TimedPointCloud measurement{scan.timestamp,
-                                      PointCloud::Ptr(new PointCloud)};
+                                PointCloud::Ptr(new PointCloud)};
     preprocess_.Process(scan, measurement.cloud.get());
     if (measurement.cloud->empty()) return false;
     if (scan.timestamp < last_lidar_) buffers_.point_clouds.clear();
@@ -93,9 +94,9 @@ class LivoSystem::Impl {
     last_image_ = timestamp;
     return true;
   }
-  SynchronizationResult ProcessNext(const ResultCallback& callback) {
+  SyncStatus ProcessNext(const ResultCallback& callback) {
     const auto status = synchronizer_.TrySynchronize(&buffers_, &measurements_);
-    if (status != SynchronizationResult::kReady) return status;
+    if (status != SyncStatus::kReady) return status;
     const auto start = std::chrono::steady_clock::now();
     const auto result = frontend_.Process(&measurements_);
     const double elapsed =
@@ -112,7 +113,7 @@ class LivoSystem::Impl {
     return status;
   }
   void ProcessAvailable(const ResultCallback& callback) {
-    while (ProcessNext(callback) != SynchronizationResult::kWaiting) {
+    while (ProcessNext(callback) != SyncStatus::kWaiting) {
     }
   }
   std::optional<PropagationResult> PropagateLatest() {
@@ -142,7 +143,7 @@ class LivoSystem::Impl {
     last_from_end_ = from_end;
   }
   SystemOptions options_;
-  Preprocess preprocess_;
+  LidarPreprocessor preprocess_;
   SensorBuffers buffers_;
   SensorSynchronizer synchronizer_;
   SynchronizedMeasurements measurements_;
@@ -169,8 +170,7 @@ bool LivoSystem::AddImu(Imu measurement) {
 bool LivoSystem::AddImage(TimedImage measurement) {
   return impl_->AddImage(std::move(measurement));
 }
-SynchronizationResult LivoSystem::ProcessNext(
-    const ResultCallback& callback) {
+SyncStatus LivoSystem::ProcessNext(const ResultCallback& callback) {
   return impl_->ProcessNext(callback);
 }
 void LivoSystem::ProcessAvailable(const ResultCallback& callback) {

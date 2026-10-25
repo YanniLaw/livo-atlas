@@ -1,15 +1,16 @@
-#include "livo_atlas/camera/camera_factory.h"
+#include <gtest/gtest.h>
 
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <memory>
+#include <opencv2/core/mat.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-
+#include "livo_atlas/camera/camera_factory.h"
 #include "livo_atlas/camera/equidistant_camera.h"
 #include "livo_atlas/camera/pinhole_camera.h"
 #include "test_images.h"
@@ -27,7 +28,8 @@ std::vector<std::string> Fields(const std::string& line) {
 }
 
 CameraConfig Config() {
-  return {"Pinhole", 1281, 1025, 0.5, 1293.56944, 1293.3155,
+  return {"Pinhole", 1281,       1025,
+          0.5,       1293.56944, 1293.3155,
           626.91359, 522.799224, {-0.076160, 0.123001, -0.00113, 0.000251}};
 }
 

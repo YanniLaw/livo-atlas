@@ -25,11 +25,11 @@ inline bool RunFrontendScenario(FrontendMode mode) {
   for (int frame = 0; frame < 4; ++frame) {
     const double begin = 100 + frame * 0.25;
     SynchronizedMeasurements input;
-    input.lio_vio_flg =
+    input.update_kind =
         inertial ? UpdateKind::kLidarInertial : UpdateKind::kLidarOnly;
-    input.last_lio_update_time = begin;
-    input.lidar_frame_beg_time = begin;
-    input.lidar_frame_end_time = begin + 0.125;
+    input.last_lidar_update_time = begin;
+    input.scan_start_time = begin;
+    input.scan_end_time = begin + 0.125;
     for (int y = 0; y < 8; ++y) {
       for (int x = 0; x < 8; ++x) {
         Point point{};
@@ -37,17 +37,17 @@ inline bool RunFrontendScenario(FrontendMode mode) {
         point.y = (y - 3.5) * 0.25;
         point.z = 4;
         point.curvature = 125;
-        input.lidar->push_back(point);
+        input.lidar_cloud->push_back(point);
       }
     }
-    input.pcl_proc_cur = input.lidar;
-    input.measures.emplace_back();
-    auto& group = input.measures.back();
-    group.lio_time = begin + 0.125;
+    input.current_cloud = input.lidar_cloud;
+    input.updates.emplace_back();
+    auto& group = input.updates.back();
+    group.lidar_update_time = begin + 0.125;
     if (inertial) {
       for (double timestamp : {begin + 0.0625, begin + 0.125}) {
-        group.imu.push_back({timestamp, Eigen::Vector3d::Zero(),
-                            Eigen::Vector3d(0, 0, -9.81)});
+        group.imu.push_back(
+            {timestamp, Eigen::Vector3d::Zero(), Eigen::Vector3d(0, 0, -9.81)});
       }
     }
     const auto lidar = frontend.Process(&input);
@@ -62,14 +62,14 @@ inline bool RunFrontendScenario(FrontendMode mode) {
     }
     ++lidar_updates;
     if (!visual) continue;
-    input.lio_vio_flg = UpdateKind::kVisual;
-    group.vio_time = group.lio_time;
+    input.update_kind = UpdateKind::kVisual;
+    group.visual_update_time = group.lidar_update_time;
     group.imu.clear();
-    group.img = cv::Mat(512, 512, CV_8UC3);
-    for (int y = 0; y < group.img.rows; ++y) {
-      for (int x = 0; x < group.img.cols; ++x) {
+    group.image = cv::Mat(512, 512, CV_8UC3);
+    for (int y = 0; y < group.image.rows; ++y) {
+      for (int x = 0; x < group.image.cols; ++x) {
         const unsigned char gray = (x * 31 + y * 17 + x * y * 13) % 256;
-        group.img.at<cv::Vec3b>(y, x) = {gray, gray, gray};
+        group.image.at<cv::Vec3b>(y, x) = {gray, gray, gray};
       }
     }
     const auto image = frontend.Process(&input);

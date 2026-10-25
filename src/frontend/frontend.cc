@@ -12,6 +12,9 @@ which is included as part of this source code package.
 
 #include "livo_atlas/frontend/frontend.h"
 
+#include <pcl/filters/voxel_grid.h>
+
+#include <Eigen/Geometry>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -19,9 +22,6 @@ which is included as part of this source code package.
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
-
-#include <Eigen/Geometry>
-#include <pcl/filters/voxel_grid.h>
 
 #include "livo_atlas/camera/camera_factory.h"
 #include "livo_atlas/frontend/imu/imu_processor.h"
@@ -33,11 +33,11 @@ class Frontend::Impl {
  public:
   explicit Impl(const FrontendOptions& options)
       : options_(options),
-        imu_(new ImuProcess),
+        imu_(new ImuProcessor),
         camera_(CreateCamera(options.calibration.camera)),
         visual_(new VIOManager) {
     if (!camera_) throw std::invalid_argument("Invalid camera calibration");
-    std::unordered_map<VOXEL_LOCATION, VoxelOctoTree*> empty_map;
+    std::unordered_map<VOXEL_LOCATION, VoxelOctreeNode*> empty_map;
     map_.reset(new VoxelMapManager(options_.voxel_map, empty_map));
     const auto& extrinsics = options_.calibration.imu_from_lidar;
     map_->extT_ = extrinsics.translation;
@@ -51,10 +51,9 @@ class Frontend::Impl {
     visual_->grid_size = visual.grid_size;
     visual_->patch_size = visual.patch_size;
     visual_->outlier_threshold = visual.outlier_threshold;
-    visual_->setImuToLidarExtrinsic(
-        extrinsics.translation, extrinsics.rotation);
-    visual_->SetLidarToCameraExtrinsic(
-        options_.calibration.camera_from_lidar);
+    visual_->SetImuToLidarExtrinsic(extrinsics.translation,
+                                    extrinsics.rotation);
+    visual_->SetLidarToCameraExtrinsic(options_.calibration.camera_from_lidar);
     visual_->state = &state_;
     visual_->state_propagat = &propagated_;
     visual_->max_iterations = visual.max_iterations;
@@ -63,24 +62,24 @@ class Frontend::Impl {
     visual_->inverse_composition_en = visual.inverse_composition;
     visual_->raycast_en = visual.raycast;
     visual_->grid_n_height = visual.grid_rows;
-    visual_->patch_pyrimid_level = visual.patch_pyramid_levels;
+    visual_->patch_pyramid_level = visual.patch_pyramid_levels;
     visual_->exposure_estimate_en = visual.estimate_exposure;
-    visual_->initializeVIO();
+    visual_->InitializeVio();
 
     const auto& imu = options_.imu;
-    imu_->set_extrinsic(extrinsics.translation, extrinsics.rotation);
-    imu_->set_gyr_cov_scale(
+    imu_->SetExtrinsic(extrinsics.translation, extrinsics.rotation);
+    imu_->SetGyroscopeCovariance(
         Eigen::Vector3d::Constant(imu.gyroscope_covariance));
-    imu_->set_acc_cov_scale(
+    imu_->SetAccelerometerCovariance(
         Eigen::Vector3d::Constant(imu.accelerometer_covariance));
-    imu_->set_inv_expo_cov(imu.inverse_exposure_covariance);
-    imu_->set_gyr_bias_cov(Eigen::Vector3d::Constant(0.0001));
-    imu_->set_acc_bias_cov(Eigen::Vector3d::Constant(0.0001));
-    imu_->set_imu_init_frame_num(imu.initialization_frames);
-    if (!imu.enabled) imu_->disable_imu();
-    if (!imu.estimate_gravity) imu_->disable_gravity_est();
-    if (!imu.estimate_bias) imu_->disable_bias_est();
-    if (!visual.estimate_exposure) imu_->disable_exposure_est();
+    imu_->SetInverseExposureCovariance(imu.inverse_exposure_covariance);
+    imu_->SetGyroscopeBiasCovariance(Eigen::Vector3d::Constant(0.0001));
+    imu_->SetAccelerometerBiasCovariance(Eigen::Vector3d::Constant(0.0001));
+    imu_->SetInitializationFrames(imu.initialization_frames);
+    if (!imu.enabled) imu_->DisableImu();
+    if (!imu.estimate_gravity) imu_->DisableGravityEstimation();
+    if (!imu.estimate_bias) imu_->DisableBiasEstimation();
+    if (!visual.estimate_exposure) imu_->DisableExposureEstimation();
   }
 
   ~Impl() {
@@ -93,24 +92,24 @@ class Frontend::Impl {
   FrontendResult Process(SynchronizedMeasurements* measurements) {
     assert(measurements != nullptr);
     FrontendResult result;
-    result.kind = measurements->lio_vio_flg;
-    if (measurements->measures.empty() || result.kind == UpdateKind::kWaiting) {
+    result.kind = measurements->update_kind;
+    if (measurements->updates.empty() || result.kind == UpdateKind::kWaiting) {
       return result;
     }
     if (!started_) {
-      first_lidar_time_ = measurements->last_lio_update_time;
+      first_lidar_time_ = measurements->last_lidar_update_time;
       imu_->first_lidar_time = first_lidar_time_;
       started_ = true;
       result.first_frame = true;
     }
-    imu_->Process2(*measurements, state_, undistorted_);
+    imu_->Process(*measurements, state_, undistorted_);
     result.imu_initialized = options_.imu.enabled && !imu_->imu_need_init;
     result.imu_diagnostics = imu_->diagnostics_;
     if (options_.align_gravity) AlignGravity();
     propagated_ = state_;
     map_->state_ = state_;
     map_->feats_undistort_ = undistorted_;
-    result.timestamp = measurements->last_lio_update_time;
+    result.timestamp = measurements->last_lidar_update_time;
     result.relative_time = result.timestamp - first_lidar_time_;
     result.prediction = state_;
     result.undistorted_cloud = undistorted_;
@@ -182,7 +181,8 @@ class Frontend::Impl {
     for (const auto& point : input->points) {
       Eigen::Vector3d position(point.x, point.y, point.z);
       position = (state_.rot_end * (extrinsics.rotation * position +
-                                   extrinsics.translation) + state_.pos_end);
+                                    extrinsics.translation) +
+                  state_.pos_end);
       Point transformed;
       transformed.x = position(0);
       transformed.y = position(1);
@@ -204,7 +204,7 @@ class Frontend::Impl {
       map_initialized_ = true;
       map_->BuildVoxelMap();
     }
-    map_->StateEstimation(propagated_);
+    map_->EstimateState(propagated_);
     state_ = map_->state_;
     points_ = map_->pv_list_;
 
@@ -216,15 +216,16 @@ class Frontend::Impl {
       map_->pv_list_[i].point_w << point.x, point.y, point.z;
       Eigen::Matrix3d cross = map_->cross_mat_list_[i];
       Eigen::Matrix3d variance = map_->body_cov_list_[i];
-      variance = (state_.rot_end * extrinsics.rotation) * variance *
-                     (state_.rot_end * extrinsics.rotation).transpose() +
-                 (-cross) * state_.cov.block<3, 3>(0, 0) * (-cross).transpose() +
-                 state_.cov.block<3, 3>(3, 3);
+      variance =
+          (state_.rot_end * extrinsics.rotation) * variance *
+              (state_.rot_end * extrinsics.rotation).transpose() +
+          (-cross) * state_.cov.block<3, 3>(0, 0) * (-cross).transpose() +
+          state_.cov.block<3, 3>(3, 3);
       map_->pv_list_[i].var = variance;
     }
     map_->UpdateVoxelMap(map_->pv_list_);
     points_ = map_->pv_list_;
-    if (map_->config_setting_.map_sliding_en) map_->mapSliding();
+    if (map_->config_setting_.map_sliding_en) map_->SlideMap();
 
     const PointCloud::Ptr input =
         options_.dense_cloud ? undistorted_ : down_body_;
@@ -233,8 +234,9 @@ class Frontend::Impl {
       const auto& point = input->points[i];
       const Eigen::Vector3d body(point.x, point.y, point.z);
       const Eigen::Vector3d global(
-          state_.rot_end * (extrinsics.rotation * body +
-                            extrinsics.translation) + state_.pos_end);
+          state_.rot_end *
+              (extrinsics.rotation * body + extrinsics.translation) +
+          state_.pos_end);
       auto& transformed = world->points[i];
       transformed.x = global(0);
       transformed.y = global(1);
@@ -248,10 +250,9 @@ class Frontend::Impl {
   bool ProcessVisual(SynchronizedMeasurements& measurements,
                      double relative_time) {
     if (world_->empty()) return false;
-    visual_->plot_flag =
-        std::fabs(relative_time - options_.visual.plot_time) <
-        (options_.visual.plot_frame_count / 2 * 0.1);
-    visual_->processFrame(measurements.measures.back().img, points_,
+    visual_->plot_flag = std::fabs(relative_time - options_.visual.plot_time) <
+                         (options_.visual.plot_frame_count / 2 * 0.1);
+    visual_->ProcessFrame(measurements.updates.back().image, points_,
                           map_->voxel_map_, relative_time);
     return true;
   }
@@ -259,7 +260,7 @@ class Frontend::Impl {
   FrontendOptions options_;
   FilterState state_;
   FilterState propagated_;
-  std::unique_ptr<ImuProcess> imu_;
+  std::unique_ptr<ImuProcessor> imu_;
   std::unique_ptr<VoxelMapManager> map_;
   // Camera outlives VIO's non-owning pointer.
   std::unique_ptr<livo_atlas::Camera> camera_;
@@ -268,7 +269,7 @@ class Frontend::Impl {
   PointCloud::Ptr down_body_{new PointCloud};
   PointCloud::Ptr down_world_{new PointCloud};
   PointCloud::Ptr world_{new PointCloud};
-  std::vector<pointWithVar> points_;
+  std::vector<PointWithCovariance> points_;
   pcl::VoxelGrid<Point> filter_;
   bool started_ = false;
   bool map_initialized_ = false;

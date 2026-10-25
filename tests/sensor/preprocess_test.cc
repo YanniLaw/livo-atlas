@@ -1,4 +1,4 @@
-#include "livo_atlas/sensor/preprocess.h"
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -8,8 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
-
+#include "livo_atlas/sensor/lidar_preprocessor.h"
 #include "livo_atlas/sensor/lidar_scan.h"
 
 namespace livo_atlas {
@@ -23,10 +22,11 @@ class SensorPreprocessTest : public ::testing::Test {
     preprocess_.point_filter_num = 1;
   }
 
-  Preprocess preprocess_;
+  LidarPreprocessor preprocess_;
 };
 
-TEST_F(SensorPreprocessTest, LivoxKeepsFilteringTimingRepairAndOutputOwnership) {
+TEST_F(SensorPreprocessTest,
+       LivoxKeepsFilteringTimingRepairAndOutputOwnership) {
   std::vector<LivoxPoint> points(4);
   for (auto& point : points) {
     point.x = 2;
@@ -77,10 +77,10 @@ TEST_F(SensorPreprocessTest, VelodyneRetainsOriginalTimeDivision) {
   EXPECT_FLOAT_EQ(result[0].curvature, 2.5);
 }
 
-template <typename PointType>
-PointCloud ProcessTimestampCloud(Preprocess* preprocess) {
-  pcl::PointCloud<PointType> points;
-  PointType point{};
+template <typename Point>
+PointCloud ProcessTimestampCloud(LidarPreprocessor* preprocess) {
+  pcl::PointCloud<Point> points;
+  Point point{};
   point.x = 2;
   point.timestamp = 1000;
   point.intensity = 255;
@@ -133,9 +133,9 @@ TEST_F(SensorPreprocessTest, DepthCloudKeepsRgbAndHasZeroOffsets) {
 
 TEST_F(SensorPreprocessTest, EmptyInputClearsPreviousOutputForEveryLayout) {
   std::vector<LidarPoints> layouts = {
-      std::vector<LivoxPoint>{}, pcl::PointCloud<VelodynePoint>{},
-      pcl::PointCloud<OusterPoint>{}, pcl::PointCloud<pcl::PointXYZRGB>{},
-      pcl::PointCloud<Xt32Point>{}, pcl::PointCloud<Pandar128Point>{},
+      std::vector<LivoxPoint>{},        pcl::PointCloud<VelodynePoint>{},
+      pcl::PointCloud<OusterPoint>{},   pcl::PointCloud<pcl::PointXYZRGB>{},
+      pcl::PointCloud<Xt32Point>{},     pcl::PointCloud<Pandar128Point>{},
       pcl::PointCloud<RobosensePoint>{}};
   for (auto& points : layouts) {
     PointCloud result;
@@ -146,15 +146,15 @@ TEST_F(SensorPreprocessTest, EmptyInputClearsPreviousOutputForEveryLayout) {
 }
 
 TEST(SensorPreprocessDefaultsTest, BlindRadiusIgnoresPreviousStorageBytes) {
-  alignas(Preprocess) std::byte storage[sizeof(Preprocess)];
+  alignas(LidarPreprocessor) std::byte storage[sizeof(LidarPreprocessor)];
   std::fill(std::begin(storage), std::end(storage), std::byte{0x7f});
-  auto* preprocess = new (storage) Preprocess;
+  auto* preprocess = new (storage) LidarPreprocessor;
   EXPECT_DOUBLE_EQ(preprocess->blind_sqr, 0.0001);
-  preprocess->~Preprocess();
+  preprocess->~LidarPreprocessor();
 }
 
 TEST_F(SensorPreprocessTest, SetUpdatesBlindRadiusUsedForFiltering) {
-  preprocess_.set(false, kOuster, 3, 1);
+  preprocess_.Configure(false, kOuster, 3, 1);
   pcl::PointCloud<OusterPoint> points;
   OusterPoint point{};
   point.x = 2;
@@ -169,65 +169,73 @@ TEST_F(SensorPreprocessTest, SetUpdatesBlindRadiusUsedForFiltering) {
 
 TEST_F(SensorPreprocessTest, InvalidRingsCannotIndexYawFallbackArrays) {
   for (bool feature_enabled : {false, true}) {
-    EXPECT_EXIT({
-      preprocess_.feature_enabled = feature_enabled;
-      preprocess_.N_SCANS = 128;
-      pcl::PointCloud<VelodynePoint> points;
-      VelodynePoint point{};
-      point.x = 2;
-      point.ring = feature_enabled ? 80 : 65535;
-      points.push_back(point);
-      point.ring = 0;
-      points.push_back(point);
-      point.y = -1;
-      points.push_back(point);
-      PointCloud result;
-      preprocess_.Process(LidarScan{17, points}, &result);
-      const bool valid = feature_enabled ? preprocess_.pl_buff[80].empty()
-                                         : result.size() == 1;
-      std::_Exit(valid ? 0 : 1);
-    }, ::testing::ExitedWithCode(0), "");
+    EXPECT_EXIT(
+        {
+          preprocess_.feature_enabled = feature_enabled;
+          preprocess_.N_SCANS = 128;
+          pcl::PointCloud<VelodynePoint> points;
+          VelodynePoint point{};
+          point.x = 2;
+          point.ring = feature_enabled ? 80 : 65535;
+          points.push_back(point);
+          point.ring = 0;
+          points.push_back(point);
+          point.y = -1;
+          points.push_back(point);
+          PointCloud result;
+          preprocess_.Process(LidarScan{17, points}, &result);
+          const bool valid = feature_enabled ? preprocess_.pl_buff[80].empty()
+                                             : result.size() == 1;
+          std::_Exit(valid ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
   }
   // XT32 uses the same fixed-size yaw fallback when timestamp is absent.
-  EXPECT_EXIT({
-    preprocess_.feature_enabled = true;
-    preprocess_.N_SCANS = 128;
-    pcl::PointCloud<Xt32Point> points;
-    Xt32Point point{};
-    point.x = 2;
-    point.ring = 80;
-    points.push_back(point);
-    PointCloud result;
-    preprocess_.Process(LidarScan{17, points}, &result);
-    std::_Exit(preprocess_.pl_buff[80].empty() ? 0 : 1);
-  }, ::testing::ExitedWithCode(0), "");
+  EXPECT_EXIT(
+      {
+        preprocess_.feature_enabled = true;
+        preprocess_.N_SCANS = 128;
+        pcl::PointCloud<Xt32Point> points;
+        Xt32Point point{};
+        point.x = 2;
+        point.ring = 80;
+        points.push_back(point);
+        PointCloud result;
+        preprocess_.Process(LidarScan{17, points}, &result);
+        std::_Exit(preprocess_.pl_buff[80].empty() ? 0 : 1);
+      },
+      ::testing::ExitedWithCode(0), "");
 }
 
 TEST_F(SensorPreprocessTest, SparseOusterFeatureLinesReturnSafely) {
-  EXPECT_EXIT({
-    preprocess_.feature_enabled = true;
-    pcl::PointCloud<OusterPoint> points;
-    OusterPoint point{};
-    point.x = 2;
-    points.push_back(point);
-    PointCloud result;
-    preprocess_.Process(LidarScan{17, points}, &result);
-    std::_Exit(result.empty() ? 0 : 1);
-  }, ::testing::ExitedWithCode(0), "");
+  EXPECT_EXIT(
+      {
+        preprocess_.feature_enabled = true;
+        pcl::PointCloud<OusterPoint> points;
+        OusterPoint point{};
+        point.x = 2;
+        points.push_back(point);
+        PointCloud result;
+        preprocess_.Process(LidarScan{17, points}, &result);
+        std::_Exit(result.empty() ? 0 : 1);
+      },
+      ::testing::ExitedWithCode(0), "");
 }
 
 TEST_F(SensorPreprocessTest, AllBlindFeatureLineReturnsSafely) {
-  EXPECT_EXIT({
-    preprocess_.feature_enabled = true;
-    std::vector<LivoxPoint> points(10);
-    for (std::size_t i = 0; i < points.size(); ++i) {
-      points[i].x = 0.01f * (i + 1);
-      points[i].tag = 0x10;
-    }
-    PointCloud result;
-    preprocess_.Process(LidarScan{17, points}, &result);
-    std::_Exit(result.empty() ? 0 : 1);
-  }, ::testing::ExitedWithCode(0), "");
+  EXPECT_EXIT(
+      {
+        preprocess_.feature_enabled = true;
+        std::vector<LivoxPoint> points(10);
+        for (std::size_t i = 0; i < points.size(); ++i) {
+          points[i].x = 0.01f * (i + 1);
+          points[i].tag = 0x10;
+        }
+        PointCloud result;
+        preprocess_.Process(LidarScan{17, points}, &result);
+        std::_Exit(result.empty() ? 0 : 1);
+      },
+      ::testing::ExitedWithCode(0), "");
 }
 
 }  // namespace

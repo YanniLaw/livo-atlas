@@ -1,12 +1,12 @@
 #ifndef LIVO_ATLAS_ROS1_MEASUREMENT_CONVERSIONS_H_
 #define LIVO_ATLAS_ROS1_MEASUREMENT_CONVERSIONS_H_
 
-#include <string>
-
 #include <livox_ros_driver/CustomMsg.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud2.h>
+
+#include <string>
 
 #include "livo_atlas/sensor/lidar_scan.h"
 #include "livo_atlas/sensor/measurements.h"
@@ -22,8 +22,8 @@ std::string ConvertImage(const sensor_msgs::Image& message, double time_offset,
 std::string ConvertLivox(const livox_ros_driver::CustomMsg& message,
                          LidarScan* output);
 std::string ConvertPointCloud(const sensor_msgs::PointCloud2& message,
-                             int lidar_type, double time_offset,
-                             LidarScan* output);
+                              int lidar_type, double time_offset,
+                              LidarScan* output);
 
 }  // namespace livo_atlas::ros1
 

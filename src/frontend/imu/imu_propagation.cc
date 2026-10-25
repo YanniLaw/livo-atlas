@@ -1,4 +1,4 @@
-#include "livo_atlas/frontend/imu_propagation.h"
+#include "livo_atlas/frontend/imu/imu_propagation.h"
 
 namespace livo_atlas {
 void PropagateImu(FilterState* state, double dt, Eigen::Vector3d acceleration,

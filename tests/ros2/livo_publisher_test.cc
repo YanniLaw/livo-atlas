@@ -1,3 +1,5 @@
+#include "livo_atlas/ros2/livo_publisher.h"
+
 #include <gtest/gtest.h>
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -8,12 +10,12 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <opencv2/core/mat.hpp>
 #include <thread>
 #include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "livo_atlas/ros2/livo_publisher.h"
 namespace livo_atlas::ros2 {
 namespace {
 

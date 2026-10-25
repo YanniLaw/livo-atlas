@@ -1,7 +1,7 @@
+#include "livo_atlas/frontend/vision/image_options.h"
+
 #include <cstdint>
 #include <limits>
-
-#include "livo_atlas/frontend/image_options.h"
 
 namespace livo_atlas {
 std::string ValidateImageOptions(const CameraConfig& camera,

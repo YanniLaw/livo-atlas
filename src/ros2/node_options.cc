@@ -83,9 +83,8 @@ NodeOptions ReadNodeOptions(rclcpp::Node& node) {
   RosParameterReader reader(node);
   NodeOptions result;
   result.livo = LoadLivoConfig(reader);
-  for (const auto& topic :
-       {result.livo.lidar_topic, result.livo.imu_topic,
-        result.livo.image_topic})
+  for (const auto& topic : {result.livo.lidar_topic, result.livo.imu_topic,
+                            result.livo.image_topic})
     node.get_node_topics_interface()->resolve_topic_name(topic);
   result.reliability = reader.String("qos.reliability", result.reliability);
   result.imu_depth = reader.Integer("qos.imu_depth", result.imu_depth);

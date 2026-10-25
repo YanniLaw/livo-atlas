@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <stdexcept>
 
-#include "livo_atlas/frontend/image_options.h"
+#include "livo_atlas/frontend/vision/image_options.h"
 #include "livo_atlas/sensor/extrinsics.h"
 
 namespace livo_atlas {
@@ -13,7 +13,7 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
   const auto& front = options.frontend;
   const auto& imu = front.imu;
   const auto& visual = front.visual;
-  const auto& map = front.voxel_map;
+  const auto& voxel_options = front.voxel_map;
   const auto& pre = options.preprocess;
   const auto error = ValidateImageOptions(front.calibration.camera, visual);
   if (!error.empty()) throw std::invalid_argument(error);
@@ -28,8 +28,10 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
         visual.outlier_threshold, visual.plot_time,
         options.processor.minimum_color_distance, pre.blind,
         front.surface_filter_size, options.imu_time_offset,
-        options.exposure_time, map.max_voxel_size_, map.planner_threshold_,
-        map.sigma_num_, map.beam_err_, map.dept_err_, map.sliding_thresh}) {
+        options.exposure_time, voxel_options.max_voxel_size_,
+        voxel_options.planner_threshold_, voxel_options.sigma_num_,
+        voxel_options.beam_err_, voxel_options.dept_err_,
+        voxel_options.sliding_thresh}) {
     if (!std::isfinite(value)) {
       throw std::invalid_argument("runtime configuration must be finite");
     }
@@ -43,14 +45,16 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
     throw std::invalid_argument("invalid preprocess configuration");
   }
   if (front.surface_filter_size <= 0 || imu.initialization_frames <= 0 ||
-      map.max_layer_ < 0 ||
-      static_cast<std::size_t>(map.max_layer_) >= map.layer_init_num_.size() ||
-      map.max_voxel_size_ <= 0 || map.max_points_num_ <= 0 ||
-      map.max_iterations_ <= 0 || visual.max_iterations <= 0 ||
-      map.half_map_size <= 0) {
+      voxel_options.max_layer_ < 0 ||
+      static_cast<std::size_t>(voxel_options.max_layer_) >=
+          voxel_options.layer_init_num_.size() ||
+      voxel_options.max_voxel_size_ <= 0 ||
+      voxel_options.max_points_num_ <= 0 ||
+      voxel_options.max_iterations_ <= 0 || visual.max_iterations <= 0 ||
+      voxel_options.half_map_size <= 0) {
     throw std::invalid_argument("invalid frontend or map bounds");
   }
-  for (int count : map.layer_init_num_) {
+  for (int count : voxel_options.layer_init_num_) {
     if (count <= 0) {
       throw std::invalid_argument(
           "lio.layer_init_num must contain positive integers");

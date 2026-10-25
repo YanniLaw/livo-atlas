@@ -1,9 +1,11 @@
-#include "livo_atlas/output/output_processor.h"
-
-#include <stdexcept>
-
 #include <gtest/gtest.h>
+
+#include <Eigen/Geometry>
 #include <opencv2/core.hpp>
+#include <stdexcept>
+#include <vector>
+
+#include "livo_atlas/output/output_processor.h"
 
 namespace livo_atlas {
 namespace {
@@ -56,8 +58,8 @@ TEST(OutputProcessorTest, BilinearColorUsesBgrAndRespectsImageStride) {
 
 TEST(OutputProcessorTest, RejectsBehindBorderAndNearPoints) {
   OutputProcessor processor(Options());
-  const auto output = processor.Process(Frame({{0, 0, 1}, {0, 0, -1},
-                                               {2, 0, 1}, {0, 0, 0.005}}));
+  const auto output = processor.Process(
+      Frame({{0, 0, 1}, {0, 0, -1}, {2, 0, 1}, {0, 0, 0.005}}));
   ASSERT_TRUE(output.colored_cloud);
   ASSERT_EQ(output.colored_cloud->size(), 1);
   EXPECT_FLOAT_EQ(output.colored_cloud->front().z, 1);

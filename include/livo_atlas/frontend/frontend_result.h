@@ -1,9 +1,9 @@
 #ifndef LIVO_ATLAS_FRONTEND_FRONTEND_RESULT_H_
 #define LIVO_ATLAS_FRONTEND_FRONTEND_RESULT_H_
 
-#include <vector>
-
 #include <Eigen/Geometry>
+#include <opencv2/core/mat.hpp>
+#include <vector>
 
 #include "livo_atlas/common/filter_state.h"
 #include "livo_atlas/frontend/diagnostics.h"

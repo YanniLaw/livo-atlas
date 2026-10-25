@@ -7,13 +7,12 @@
 #include <exception>
 #include <utility>
 
-#include "livo_atlas/ros1/measurement_conversions.h"
 #include "livo_atlas/ros1/livo_publisher.h"
+#include "livo_atlas/ros1/measurement_conversions.h"
 namespace livo_atlas::ros1 {
 class LivoNode::Impl {
  public:
-  Impl(ros::NodeHandle& node, const NodeOptions& parameters,
-       LivoSystem& system)
+  Impl(ros::NodeHandle& node, const NodeOptions& parameters, LivoSystem& system)
       : parameters_(parameters),
         system_(system),
         transport_(node),
@@ -80,9 +79,9 @@ class LivoNode::Impl {
         });
     ROS_INFO("livo_atlas frontend ready");
   }
-  SynchronizationResult ProcessNext() {
+  SyncStatus ProcessNext() {
     return system_.ProcessNext([this](const auto& result, const auto& prepared,
-                                       double elapsed) {
+                                      double elapsed) {
       publisher_.Publish(result, prepared);
       const char* stage =
           result.kind == UpdateKind::kVisual ? "VIO Time" : "LIO Mapping Time";
@@ -104,13 +103,10 @@ class LivoNode::Impl {
   ros::Timer propagation_;
   std::uint64_t lidar_count_ = 0, imu_count_ = 0, image_count_ = 0;
 };
-LivoNode::LivoNode(ros::NodeHandle& node,
-                               const NodeOptions& parameters,
-                               LivoSystem& system)
+LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
+                   LivoSystem& system)
     : impl_(std::make_unique<Impl>(node, parameters, system)) {}
 LivoNode::~LivoNode() = default;
-SynchronizationResult LivoNode::ProcessNext() {
-  return impl_->ProcessNext();
-}
+SyncStatus LivoNode::ProcessNext() { return impl_->ProcessNext(); }
 void LivoNode::ReportInputs() { impl_->ReportInputs(); }
 }  // namespace livo_atlas::ros1

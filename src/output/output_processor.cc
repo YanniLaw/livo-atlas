@@ -2,17 +2,18 @@
 
 #include <cmath>
 #include <limits>
+#include <memory>
+#include <opencv2/core/mat.hpp>
 #include <stdexcept>
 
-#include "livo_atlas/camera/pinhole_camera.h"
-
 #include "livo_atlas/camera/camera_factory.h"
+#include "livo_atlas/camera/pinhole_camera.h"
 
 namespace livo_atlas {
 namespace {
 
 Eigen::Vector3f SampleColor(const cv::Mat& image,
-                          const Eigen::Vector2d& pixel) {
+                            const Eigen::Vector2d& pixel) {
   const float u = pixel.x();
   const float v = pixel.y();
   const int x = std::floor(u);
@@ -85,13 +86,12 @@ class OutputProcessor::Impl {
     colored->reserve(pending_.size());
     for (const auto& point : pending_.points) {
       const Eigen::Vector3d world(point.x, point.y, point.z);
-      const Eigen::Vector3d local =
-          result.camera_from_world_rotation * world +
-          result.camera_from_world_translation;
+      const Eigen::Vector3d local = result.camera_from_world_rotation * world +
+                                    result.camera_from_world_translation;
       if (!local.allFinite() || local.z() <= 0) continue;
       const Eigen::Vector2d pixel = camera_->Project(local);
-      if (!pixel.allFinite() || pixel.cwiseAbs().maxCoeff() >
-                                    std::numeric_limits<int>::max()) {
+      if (!pixel.allFinite() ||
+          pixel.cwiseAbs().maxCoeff() > std::numeric_limits<int>::max()) {
         continue;
       }
       if (!camera_->IsInFrame(pixel.cast<int>(), 3)) continue;

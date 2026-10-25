@@ -1,12 +1,13 @@
-#include "livo_atlas/frontend/vision/vio.h"
+#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <memory>
+#include <opencv2/core/mat.hpp>
 #include <stdexcept>
 #include <vector>
 
-#include <gtest/gtest.h>
 #include "livo_atlas/camera/pinhole_camera.h"
+#include "livo_atlas/frontend/vision/vio.h"
 
 namespace livo_atlas {
 namespace {
@@ -20,14 +21,14 @@ class VioSamplingTest : public ::testing::Test {
     manager_.grid_size = 32;
     manager_.raycast_en = false;
     manager_.patch_size = 8;
-    manager_.patch_pyrimid_level = 4;
+    manager_.patch_pyramid_level = 4;
     manager_.max_iterations = 1;
     manager_.img_point_cov = 100;
     manager_.exposure_estimate_en = true;
     manager_.inverse_composition_en = false;
-    manager_.setImuToLidarExtrinsic(V3D::Zero(), M3D::Identity());
+    manager_.SetImuToLidarExtrinsic(Vector3d::Zero(), Matrix3d::Identity());
     manager_.SetLidarToCameraExtrinsic(RigidTransform{});
-    manager_.initializeVIO();
+    manager_.InitializeVio();
     manager_.total_points = 1;
     manager_.visual_submap->voxel_points = {&point_};
     manager_.visual_submap->search_levels = {2};
@@ -37,11 +38,11 @@ class VioSamplingTest : public ::testing::Test {
     manager_.G.setZero();
   }
 
-  StatesGroup Update(int pixel, int level, std::uint8_t padding,
-               bool update_covariance = false) {
-    state_ = StatesGroup();
+  FilterState Update(int pixel, int level, std::uint8_t padding,
+                     bool update_covariance = false) {
+    state_ = FilterState();
     prior_ = state_;
-    point_.pos_ = V3D((pixel - 256.0) / 200, (pixel - 256.0) / 200, 1);
+    point_.pos_ = Vector3d((pixel - 256.0) / 200, (pixel - 256.0) / 200, 1);
     // Defined adjacent storage exposes reads beyond the logical image without
     // relying on a particular allocator or an actual out-of-allocation read.
     constexpr int kPadding = 192 * 512;
@@ -50,56 +51,59 @@ class VioSamplingTest : public ::testing::Test {
     image.setTo(20);
     if (update_covariance) {
       manager_.new_frame_ = std::make_unique<Frame>(&camera_, image);
-      manager_.computeJacobianAndUpdateEKF(image);
+      manager_.ComputeJacobianAndUpdateEkf(image);
     } else {
-      manager_.updateState(image, level);
+      manager_.UpdateState(image, level);
     }
     return state_;
   }
 
-  livo_atlas::PinholeCamera camera_{{"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}}};
-  VisualPoint point_{V3D(0, 0, 1)};
-  StatesGroup state_;
-  StatesGroup prior_;
+  livo_atlas::PinholeCamera camera_{
+      {"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}}};
+  VisualPoint point_{Vector3d(0, 0, 1)};
+  FilterState state_;
+  FilterState prior_;
   VIOManager manager_;
 };
 
 TEST_F(VioSamplingTest, UnsafeCoarsePatchIgnoresAdjacentStorage) {
   for (std::uint8_t padding : {0, 255}) {
     SCOPED_TRACE(static_cast<int>(padding));
-    const StatesGroup result = Update(96, 3, padding);
+    const FilterState result = Update(96, 3, padding);
     EXPECT_TRUE(result.rot_end.isIdentity(0));
     EXPECT_TRUE(result.pos_end.isZero(0));
     EXPECT_TRUE(result.vel_end.isZero(0));
     EXPECT_DOUBLE_EQ(result.inv_expo_time, 1);
-    EXPECT_TRUE(result.cov.isApprox(StatesGroup().cov, 0));
+    EXPECT_TRUE(result.cov.isApprox(FilterState().cov, 0));
   }
 }
 
 TEST_F(VioSamplingTest, ProcessesFineLevelForSamePoint) {
-  const StatesGroup result = Update(96, 0, 255);
+  const FilterState result = Update(96, 0, 255);
   EXPECT_GT(result.inv_expo_time, 0.5);
   EXPECT_LT(result.inv_expo_time, 1);
 }
 
 TEST_F(VioSamplingTest, ProcessesSafeCoarsePatch) {
-  const StatesGroup result = Update(256, 3, 255);
+  const FilterState result = Update(256, 3, 255);
   EXPECT_GT(result.inv_expo_time, 0.5);
   EXPECT_LT(result.inv_expo_time, 1);
 }
 
 TEST_F(VioSamplingTest, AllInvalidPatchesPreserveCovariance) {
-  manager_.patch_pyrimid_level = 1;
-  manager_.G.setIdentity();  // A previous frame's information must not be reused.
-  const StatesGroup result = Update(-144, 0, 255, true);
+  manager_.patch_pyramid_level = 1;
+  manager_.G
+      .setIdentity();  // A previous frame's information must not be reused.
+  const FilterState result = Update(-144, 0, 255, true);
   EXPECT_TRUE(result.rot_end.isIdentity(0));
   EXPECT_TRUE(result.pos_end.isZero(0));
   EXPECT_DOUBLE_EQ(result.inv_expo_time, 1);
-  EXPECT_TRUE(result.cov.isApprox(StatesGroup().cov, 0));
+  EXPECT_TRUE(result.cov.isApprox(FilterState().cov, 0));
 }
 
 TEST(VioSamplingConfigTest, RejectsNonPositiveAndOddPatchSizes) {
-  livo_atlas::PinholeCamera camera({"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}});
+  livo_atlas::PinholeCamera camera(
+      {"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}});
   for (int patch_size : {-2, 0, 1, 7, 9}) {
     SCOPED_TRACE(patch_size);
     VIOManager manager;
@@ -107,12 +111,12 @@ TEST(VioSamplingConfigTest, RejectsNonPositiveAndOddPatchSizes) {
     manager.grid_size = 32;
     manager.raycast_en = false;
     manager.patch_size = patch_size;
-    manager.patch_pyrimid_level = 4;
-    manager.Rli = M3D::Identity();
-    manager.Rcl = M3D::Identity();
-    manager.Pli = V3D::Zero();
-    manager.Pcl = V3D::Zero();
-    EXPECT_THROW(manager.initializeVIO(), std::invalid_argument);
+    manager.patch_pyramid_level = 4;
+    manager.Rli = Matrix3d::Identity();
+    manager.Rcl = Matrix3d::Identity();
+    manager.Pli = Vector3d::Zero();
+    manager.Pcl = Vector3d::Zero();
+    EXPECT_THROW(manager.InitializeVio(), std::invalid_argument);
     EXPECT_EQ(manager.visual_submap, nullptr);
   }
 }

@@ -5,11 +5,12 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <tf2_msgs/msg/tf_message.hpp>
 #include <thread>
+#include <vector>
 
+#include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/ros2/livo_node.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "livo_atlas/ros2/node_options.h"
-#include "livo_atlas/core/livo_system.h"
 #include "ros2/fixtures.h"
 namespace livo_atlas::ros2 {
 TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
