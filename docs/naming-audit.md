@@ -22,20 +22,28 @@
 目录迁移要同步处理构建目标：当前 `livo_atlas::core` 是前端/同步/预处理聚合目标，
 不能因目录改名就把整个目标称作common。整理后core应代表完整普通核心，common仍只承载基础定义。
 
+## 用户明确保留的名称
+
+以下六个类型保留原有名称、拼写和大小写，此约束优先于通用命名建议：
+
+- `VIOManager`
+- `Frame`
+- `Feature`
+- `Pose6D`
+- `SubSparseMap`
+- `VOXEL_LOCATION`
+
+整理文件归属、命名空间和兼容头时仍保留这些类型名。职责通过目录和注释说明，
+例如SubSparseMap仍表示当前视觉跟踪使用的数据，不因此将其定义为后端持久子地图。
+
 ## 补充建议：主要组件和数据类型
 
 | 当前名称 | 建议名称 | 根据实际职责判断的原因 |
 |---|---|---|
 | `Preprocess` | `LidarPreprocessor` | 处理雷达点云过滤、按线组织和特征分类 |
 | `ImuProcess` | `ImuProcessor` | IMU初始化、传播和点云去畸变；与当前文件名一致 |
-| `VIOManager` | `VisualFrontend` | 视觉跟踪、视觉地图和视觉状态更新；IMU传播由其他组件承担 |
-| `Frame` | `VisualFrame` | 图像、相机、观测和该图像对应位姿，区别于坐标系frame |
-| `Feature` | `PatchObservation` | 存储地图点对应的图像块、像素、观测位姿和金字塔层级 |
 | `pointWithVar` | `PointWithCovariance` | 携带多个坐标系中的点和协方差，不是单个标量方差 |
-| `Pose6D` | `DeskewState` | IMU去畸变轨迹采样，实际还含时间偏移、速度、加速度和角速度 |
-| `SubSparseMap` | `VisualTrackingBuffer` | 当前视觉跟踪的误差、图像块、搜索层级和点集合，非持久子地图 |
 | `Warp` | `PatchWarp` | 图像块仿射变换及搜索层级 |
-| `VOXEL_LOCATION` | `VoxelKey` | 整数体素索引，用作哈希键 |
 | `VOXEL_POINTS` | `VisualVoxel` | 体素内的视觉地图点集合及其现有所有权 |
 | `VoxelOctoTree` | `VoxelOctreeNode` | 实例表示八叉树节点，包含八个子节点和平面 |
 | `orgtype` | `LidarPointAttributes` | 雷达点的距离、邻域几何和特征分类 |
@@ -66,7 +74,8 @@
 `frontend/image_options.*` 的视觉配置校验归入 `frontend/vision/`。
 ROS1根测试目录中的节点/转换测试移入 `tests/ros1/`，与ROS2的对应测试保持一致。
 
-类名对应同名snake_case头/源；配置读取函数、成员名、测试和安装消费示例一同迁移。
+新增或实际重命名的类使用对应snake_case头/源；明确保留的类型不会因这一通用规则机械改动文件名。
+配置读取函数、成员名、测试和安装消费示例随实际迁移一同更新。
 `LivoConfig` 的命名表示完整应用配置；`SystemOptions` 等Options表示具体组件的构造选项。
 ROS参数键、话题、消息字段、坐标系及现有运行入口属于外部运行接口，单独于C++名称迁移管理。
 
@@ -85,7 +94,7 @@ LiDAR更新组件与局部体素地图的边界，避免本轮命名整理演变
 保留时间切分、游标更新和消费顺序。
 
 `Frame` 的坐标转换方法还有值得明确的缩写：`w2c` 返回的是像素，`w2f` 才返回相机三维坐标。
-建议随VisualFrame迁移将前者改为 `WorldToPixel`，后者改为 `WorldToCamera`；
+保留Frame类名；方法命名的补充建议是将前者改为 `WorldToPixel`，后者改为 `WorldToCamera`；
 `c2f` 对应 `PixelToBearing`，`f2w` 对应 `CameraToWorld`，`pos` 对应 `CameraPositionInWorld`。
 保留矩阵方向与运算正文，避免后续后端、COLMAP或3DGS接入时混用像素与三维坐标。
 
