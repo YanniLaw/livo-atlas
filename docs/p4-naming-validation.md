@@ -81,6 +81,10 @@ IMU传播和视觉配置校验分别归入 `frontend/imu` 与 `frontend/vision`�
 `{candidate,humble}-{products,full}-comparison.json`、源码与实际运行库摘要。
 执行记录、独立评审及恢复记录在阶段收尾时归档至同一证据目录。
 
+整阶段独立只读评审覆盖 `32b5892..7b2459a`，逐项核对保留类型/宏展开、空云语义、
+COLMAP生命周期和安装依赖；Critical、Important、Minor均无，无搁置判断或延期问题。
+评审后的提交只补充本段记录，算法、测试和构建输入保持。
+
 ## 在其他电脑上继续
 
 构建命令见[独立核心](core-build.md)和[Noetic/Humble](ros-builds.md)，Noetic隔离回放步骤见[验证指南](validation.md)。
