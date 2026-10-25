@@ -123,12 +123,12 @@ class LivoPublisher::Impl {
   }
 
   void PublishCloud(const FrontendResult& result,
-                    const PreparedOutput& prepared) {
-    if (!prepared.has_cloud) return;
+                    const ColoredCloud::ConstPtr& colored_cloud) {
+    if (!colored_cloud) return;
     sensor_msgs::msg::PointCloud2 message;
     if (mode_ == FrontendMode::kLidarInertialVisual) {
       if (result.kind == UpdateKind::kVisual) {
-        pcl::toROSMsg(*prepared.colored_cloud, message);
+        pcl::toROSMsg(*colored_cloud, message);
       }
     } else {
       pcl::toROSMsg(*result.world_cloud, message);
@@ -138,10 +138,11 @@ class LivoPublisher::Impl {
     cloud_->publish(message);
   }
 
-  void Publish(const FrontendResult& result, const PreparedOutput& prepared) {
+  void Publish(const FrontendResult& result,
+               const ColoredCloud::ConstPtr& colored_cloud) {
     if (!result.updated) return;
     if (result.kind == UpdateKind::kVisual) {
-      PublishCloud(result, prepared);
+      PublishCloud(result, colored_cloud);
       cv_bridge::CvImage image;
       image.header.stamp = node_.now();
       image.encoding = sensor_msgs::image_encodings::BGR8;
@@ -172,7 +173,7 @@ class LivoPublisher::Impl {
     transform.transform.rotation = orientation;
     broadcaster_.sendTransform(transform);
     odometry_->publish(odometry);
-    PublishCloud(result, prepared);
+    PublishCloud(result, colored_cloud);
     if (result.effective_cloud) {
       sensor_msgs::msg::PointCloud2 message;
       pcl::toROSMsg(*result.effective_cloud, message);
@@ -226,8 +227,8 @@ LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode)
     : impl_(std::make_unique<Impl>(node, mode)) {}
 LivoPublisher::~LivoPublisher() = default;
 void LivoPublisher::Publish(const FrontendResult& result,
-                            const PreparedOutput& prepared) {
-  impl_->Publish(result, prepared);
+                            const ColoredCloud::ConstPtr& colored_cloud) {
+  impl_->Publish(result, colored_cloud);
 }
 void LivoPublisher::PublishImuPropagation(const FilterState& state,
                                           double timestamp) {

@@ -80,13 +80,14 @@ class LivoNode::Impl {
     ROS_INFO("livo_atlas frontend ready");
   }
   SyncStatus ProcessNext() {
-    return system_.ProcessNext([this](const auto& result, const auto& prepared,
-                                      double elapsed) {
-      publisher_.Publish(result, prepared);
-      const char* stage =
-          result.kind == UpdateKind::kVisual ? "VIO Time" : "LIO Mapping Time";
-      std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
-    });
+    return system_.ProcessNext(
+        [this](const auto& result, const auto& colored_cloud, double elapsed) {
+          publisher_.Publish(result, colored_cloud);
+          const char* stage = result.kind == UpdateKind::kVisual
+                                  ? "VIO Time"
+                                  : "LIO Mapping Time";
+          std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
+        });
   }
   void ReportInputs() {
     std::printf("livo_atlas inputs: lidar=%llu imu=%llu image=%llu\n",

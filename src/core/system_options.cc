@@ -26,7 +26,7 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
        {imu.gyroscope_covariance, imu.accelerometer_covariance,
         imu.inverse_exposure_covariance, visual.image_point_covariance,
         visual.outlier_threshold, visual.plot_time,
-        options.processor.minimum_color_distance, pre.blind,
+        options.colorizer.minimum_color_distance, pre.blind,
         front.surface_filter_size, options.imu_time_offset,
         options.exposure_time, voxel_options.max_voxel_size_,
         voxel_options.planner_threshold_, voxel_options.sigma_num_,
@@ -67,17 +67,16 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
       std::floor(range.maximum) != range.maximum) {
     throw std::invalid_argument("invalid IMU timestamp range");
   }
-  if (options.processor.scan_interval <= 0) {
+  if (options.colorizer.scan_interval <= 0) {
     throw std::invalid_argument("publish/pub_scan_num must be positive");
   }
   const auto mode = options.image_enabled && options.lidar_enabled
                         ? FrontendMode::kLidarInertialVisual
                     : imu.enabled ? FrontendMode::kLidarInertial
                                   : FrontendMode::kLidarOnly;
-  options.exporter.mode = options.processor.mode = mode;
-  options.exporter.calibration = options.processor.calibration =
-      front.calibration;
-  options.processor.colmap = options.exporter.colmap;
+  options.exporter.mode = options.colorizer.mode = mode;
+  options.exporter.calibration = front.calibration;
+  options.colorizer.camera = front.calibration.camera;
   ValidateExportOptions(options.exporter);
   return options;
 }

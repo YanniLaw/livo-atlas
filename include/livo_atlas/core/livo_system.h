@@ -18,8 +18,8 @@ struct PropagationResult {
 // passed to the callback must be consumed before the next ProcessNext call.
 class LivoSystem {
  public:
-  using ResultCallback =
-      std::function<void(const FrontendResult&, const PreparedOutput&, double)>;
+  using ResultCallback = std::function<void(
+      const FrontendResult&, const ColoredCloud::ConstPtr&, double)>;
   explicit LivoSystem(SystemOptions options);
   ~LivoSystem();
   LivoSystem(const LivoSystem&) = delete;

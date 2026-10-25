@@ -132,12 +132,12 @@ class LivoPublisher::Impl {
   }
 
   void PublishCloud(const FrontendResult& result,
-                    const PreparedOutput& prepared) {
-    if (!prepared.has_cloud) return;
+                    const ColoredCloud::ConstPtr& colored_cloud) {
+    if (!colored_cloud) return;
     sensor_msgs::PointCloud2 message;
     if (mode_ == FrontendMode::kLidarInertialVisual) {
       if (result.kind == UpdateKind::kVisual) {
-        pcl::toROSMsg(*prepared.colored_cloud, message);
+        pcl::toROSMsg(*colored_cloud, message);
       }
     } else {
       pcl::toROSMsg(*result.world_cloud, message);
@@ -147,10 +147,11 @@ class LivoPublisher::Impl {
     cloud_.publish(message);
   }
 
-  void Publish(const FrontendResult& result, const PreparedOutput& prepared) {
+  void Publish(const FrontendResult& result,
+               const ColoredCloud::ConstPtr& colored_cloud) {
     if (!result.updated) return;
     if (result.kind == UpdateKind::kVisual) {
-      PublishCloud(result, prepared);
+      PublishCloud(result, colored_cloud);
       cv_bridge::CvImage image;
       image.header.stamp = ros::Time::now();
       image.encoding = sensor_msgs::image_encodings::BGR8;
@@ -175,7 +176,7 @@ class LivoPublisher::Impl {
     broadcaster_.sendTransform(tf::StampedTransform(
         transform, odometry.header.stamp, "camera_init", "aft_mapped"));
     odometry_.publish(odometry);
-    PublishCloud(result, prepared);
+    PublishCloud(result, colored_cloud);
     if (result.effective_cloud) {
       sensor_msgs::PointCloud2 message;
       pcl::toROSMsg(*result.effective_cloud, message);
@@ -231,8 +232,8 @@ void LivoPublisher::Initialize(ros::NodeHandle& node,
   impl_->Initialize(node, transport);
 }
 void LivoPublisher::Publish(const FrontendResult& result,
-                            const PreparedOutput& prepared) {
-  impl_->Publish(result, prepared);
+                            const ColoredCloud::ConstPtr& colored_cloud) {
+  impl_->Publish(result, colored_cloud);
 }
 void LivoPublisher::PublishImuPropagation(const FilterState& state,
                                           const ros::Time& timestamp) {

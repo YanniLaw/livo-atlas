@@ -16,6 +16,8 @@
 #include <stdexcept>
 
 #include "livo_atlas/camera/camera_config.h"
+#include "livo_atlas/camera/camera_factory.h"
+#include "livo_atlas/camera/pinhole_camera.h"
 #include "livo_atlas/common/so3_math.h"
 
 namespace livo_atlas {
@@ -142,6 +144,10 @@ class LivoExporter::Impl {
  public:
   explicit Impl(const ExportOptions& options) : options_(options) {
     ValidateExportOptions(options_);
+    if (options_.colmap) {
+      colmap_camera_ = CreateCamera(options_.calibration.camera);
+      if (!colmap_camera_) throw std::invalid_argument("Invalid COLMAP camera");
+    }
     Open(Path("mat_pre.txt"), &pre_);
     Open(Path("mat_out.txt"), &out_);
     if (options_.trajectory) {
@@ -186,7 +192,8 @@ class LivoExporter::Impl {
     Close(&camera);
   }
 
-  void Write(const FrontendResult& result, const PreparedOutput& prepared) {
+  void Write(const FrontendResult& result,
+             const ColoredCloud::ConstPtr& colored_cloud) {
     if (closed_) throw std::logic_error("Output writer is closed");
     try {
       WriteStateRow(pre_.stream, result.relative_time, result.prediction);
@@ -207,9 +214,14 @@ class LivoExporter::Impl {
         Check(trajectory_);
       }
       if (result.kind == UpdateKind::kVisual && options_.colmap) {
-        WriteColmap(result, prepared.colmap_image);
+        cv::Mat image;
+        if (result.world_cloud && !result.world_cloud->empty()) {
+          static_cast<PinholeCamera*>(colmap_camera_.get())
+              ->UndistortImage(result.color_image, &image);
+        }
+        WriteColmap(result, image);
       }
-      if (prepared.has_cloud) WriteProducts(result, prepared);
+      if (colored_cloud) WriteProducts(result, colored_cloud);
       for (const auto& debug : result.debug_images) {
         fs::create_directories(Path("ref_cur_combine"));
         WriteImage(Path("ref_cur_combine") / debug.name, debug.image);
@@ -244,13 +256,13 @@ class LivoExporter::Impl {
   }
 
   void WriteProducts(const FrontendResult& result,
-                     const PreparedOutput& prepared) {
+                     const ColoredCloud::ConstPtr& colored_cloud) {
     const bool visual = result.kind == UpdateKind::kVisual;
     const std::string name = Timestamp(result.timestamp);
     if (options_.pcd) {
       if (options_.pcd_type == 0) {
         if (options_.mode == FrontendMode::kLidarInertialVisual) {
-          if (prepared.colored_cloud) *colored_ += *prepared.colored_cloud;
+          if (colored_cloud) *colored_ += *colored_cloud;
         } else {
           plain_ += *result.world_cloud;
         }
@@ -352,6 +364,7 @@ class LivoExporter::Impl {
   }
 
   ExportOptions options_;
+  std::unique_ptr<Camera> colmap_camera_;
   TextFile pre_;
   TextFile out_;
   TextFile trajectory_;
@@ -373,8 +386,8 @@ LivoExporter::LivoExporter(const ExportOptions& options)
     : impl_(std::make_unique<Impl>(options)) {}
 LivoExporter::~LivoExporter() = default;
 void LivoExporter::Write(const FrontendResult& result,
-                         const PreparedOutput& prepared) {
-  impl_->Write(result, prepared);
+                         const ColoredCloud::ConstPtr& colored_cloud) {
+  impl_->Write(result, colored_cloud);
 }
 void LivoExporter::Finish() { impl_->Finish(); }
 

@@ -15,15 +15,15 @@
 namespace livo_atlas::ros2 {
 namespace {
 std::vector<float> Points(const FrontendResult& result,
-                          const PreparedOutput& prepared) {
+                          const ColoredCloud::ConstPtr& prepared) {
   std::vector<float> values;
   if (result.world_cloud)
     for (const auto& point : *result.world_cloud) {
       values.insert(values.end(), {point.x, point.y, point.z, point.intensity,
                                    point.curvature});
     }
-  if (prepared.colored_cloud)
-    for (const auto& point : *prepared.colored_cloud) {
+  if (prepared)
+    for (const auto& point : *prepared) {
       values.insert(values.end(), {point.x, point.y, point.z, float(point.r),
                                    float(point.g), float(point.b)});
     }
@@ -32,7 +32,7 @@ std::vector<float> Points(const FrontendResult& result,
 void CompareSessions(FrontendMode mode) {
   auto options = test::Options(mode);
   // The legacy processor starts its counter at one and counts LIO and VIO.
-  options.processor.scan_interval = 4;
+  options.colorizer.scan_interval = 4;
   LivoSystem native(options);
   options.exporter.directory /= "converted";
   LivoSystem converted(options);
@@ -43,15 +43,14 @@ void CompareSessions(FrontendMode mode) {
   std::vector<std::size_t> visual_cloud_sizes;
   auto first = [&](const auto& r, const auto& p, double) {
     a.push_back(r);
-    clouds_a.push_back(p.has_cloud);
-    if (r.kind == UpdateKind::kVisual)
-      visual_cloud_sizes.push_back(p.colored_cloud->size());
+    clouds_a.push_back(static_cast<bool>(p));
+    if (r.kind == UpdateKind::kVisual) visual_cloud_sizes.push_back(p->size());
     points_a.push_back(Points(r, p));
     images_a.push_back(test_data::ImageHash(r.tracking_image));
   };
   auto second = [&](const auto& r, const auto& p, double) {
     b.push_back(r);
-    clouds_b.push_back(p.has_cloud);
+    clouds_b.push_back(static_cast<bool>(p));
     points_b.push_back(Points(r, p));
     images_b.push_back(test_data::ImageHash(r.tracking_image));
   };

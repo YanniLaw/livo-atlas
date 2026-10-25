@@ -5,7 +5,9 @@
 #include <memory>
 #include <string>
 
-#include "livo_atlas/output/output_processor.h"
+#include "livo_atlas/frontend/calibration.h"
+#include "livo_atlas/frontend/frontend_result.h"
+#include "livo_atlas/sensor/point_types.h"
 
 namespace livo_atlas {
 
@@ -34,7 +36,8 @@ class LivoExporter {
   LivoExporter(const LivoExporter&) = delete;
   LivoExporter& operator=(const LivoExporter&) = delete;
 
-  void Write(const FrontendResult& result, const PreparedOutput& prepared);
+  void Write(const FrontendResult& result,
+             const ColoredCloud::ConstPtr& colored_cloud);
   // Explicit completion reports I/O failures. Destruction only closes streams.
   void Finish();
 

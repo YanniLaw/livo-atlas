@@ -87,19 +87,16 @@ TEST(RosOutputTest, PublishesOrdinarySnapshotsWithLegacySchemasAndPoses) {
   plane.eigenvalues << 0.01, 0.04, 0.09;
   plane.valid = true;
   result.planes.push_back(plane);
-  PreparedOutput prepared;
-  prepared.has_cloud = true;
   ColoredCloud::Ptr colored(new ColoredCloud);
   pcl::PointXYZRGB point(11, 22, 33);
   point.x = 1;
   point.y = 2;
   point.z = 3;
   colored->push_back(point);
-  prepared.colored_cloud = colored;
-  publisher.Publish(result, prepared);
+  publisher.Publish(result, colored);
   result.kind = UpdateKind::kVisual;
   result.tracking_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(44, 55, 66));
-  publisher.Publish(result, prepared);
+  publisher.Publish(result, colored);
   publisher.PublishImuPropagation(result.estimate, ros::Time(123, 456));
   ASSERT_TRUE(WaitFor([&] {
     return clouds.size() == 2 && images.size() == 1 && odometry.size() == 1 &&

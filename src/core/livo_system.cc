@@ -41,7 +41,7 @@ class LivoSystem::Impl {
       : options_(PrepareSystemOptions(std::move(options))),
         synchronizer_(options_.exporter.mode, options_.exposure_time),
         frontend_(options_.frontend),
-        processor_(options_.processor),
+        colorizer_(options_.colorizer),
         writer_(options_.exporter) {
     const auto& pre = options_.preprocess;
     preprocess_.Configure(pre.features, pre.lidar_type, pre.blind,
@@ -107,9 +107,9 @@ class LivoSystem::Impl {
       latest_time_ = result.timestamp;
       state_updated_ = have_estimate_ = true;
     }
-    const auto prepared = processor_.Process(result);
-    writer_.Write(result, prepared);
-    if (result.updated && callback) callback(result, prepared, elapsed);
+    const auto colored_cloud = colorizer_.Process(result);
+    writer_.Write(result, colored_cloud);
+    if (result.updated && callback) callback(result, colored_cloud, elapsed);
     return status;
   }
   void ProcessAvailable(const ResultCallback& callback) {
@@ -148,7 +148,7 @@ class LivoSystem::Impl {
   SensorSynchronizer synchronizer_;
   SynchronizedMeasurements measurements_;
   Frontend frontend_;
-  OutputProcessor processor_;
+  CloudColorizer colorizer_;
   LivoExporter writer_;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
   std::uint64_t image_count_ = 0;

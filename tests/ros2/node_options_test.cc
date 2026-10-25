@@ -183,7 +183,7 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   EXPECT_DOUBLE_EQ(config.livo.image_time_offset, -.01);
   EXPECT_EQ(options.frontend.voxel_map.layer_init_num_,
             (std::vector<int>{3, 6, 9}));
-  EXPECT_EQ(options.processor.scan_interval, 3);
+  EXPECT_EQ(options.colorizer.scan_interval, 3);
   EXPECT_EQ(options.preprocess.point_filter, 3);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.scale, .5);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.fx, 200);

@@ -1,11 +1,11 @@
 #ifndef LIVO_ATLAS_SENSOR_POINT_TYPES_H_
 #define LIVO_ATLAS_SENSOR_POINT_TYPES_H_
 
-#include <cstdint>
-
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/register_point_struct.h>
+
+#include <cstdint>
 
 namespace livo_atlas {
 // Values of the existing preprocess/lidar_type parameter.
@@ -21,6 +21,7 @@ enum LidarType {
 
 using Point = pcl::PointXYZINormal;
 using PointCloud = pcl::PointCloud<Point>;
+using ColoredCloud = pcl::PointCloud<pcl::PointXYZRGB>;
 }  // namespace livo_atlas
 
 // Driver field layouts. Time units follow the original preprocessing branches;
@@ -36,12 +37,8 @@ struct EIGEN_ALIGN16 VelodynePoint {
 }  // namespace livo_atlas
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     livo_atlas::VelodynePoint,
-    (float, x, x)
-    (float, y, y)
-    (float, z, z)
-    (float, intensity, intensity)
-    (float, time, time)
-    (std::uint16_t, ring, ring))
+    (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(
+        float, time, time)(std::uint16_t, ring, ring))
 
 namespace livo_atlas {
 struct EIGEN_ALIGN16 OusterPoint {
@@ -57,15 +54,10 @@ struct EIGEN_ALIGN16 OusterPoint {
 }  // namespace livo_atlas
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     livo_atlas::OusterPoint,
-    (float, x, x)
-    (float, y, y)
-    (float, z, z)
-    (float, intensity, intensity)
-    (std::uint32_t, t, t)
-    (std::uint16_t, reflectivity, reflectivity)
-    (std::uint8_t, ring, ring)
-    (std::uint16_t, ambient, ambient)
-    (std::uint32_t, range, range))
+    (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(
+        std::uint32_t, t, t)(std::uint16_t, reflectivity, reflectivity)(
+        std::uint8_t, ring, ring)(std::uint16_t, ambient,
+                                  ambient)(std::uint32_t, range, range))
 
 namespace livo_atlas {
 struct EIGEN_ALIGN16 Xt32Point {
@@ -78,12 +70,8 @@ struct EIGEN_ALIGN16 Xt32Point {
 }  // namespace livo_atlas
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     livo_atlas::Xt32Point,
-    (float, x, x)
-    (float, y, y)
-    (float, z, z)
-    (float, intensity, intensity)
-    (double, timestamp, timestamp)
-    (std::uint16_t, ring, ring))
+    (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(
+        double, timestamp, timestamp)(std::uint16_t, ring, ring))
 
 namespace livo_atlas {
 struct EIGEN_ALIGN16 Pandar128Point {
@@ -96,12 +84,8 @@ struct EIGEN_ALIGN16 Pandar128Point {
 }  // namespace livo_atlas
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     livo_atlas::Pandar128Point,
-    (float, x, x)
-    (float, y, y)
-    (float, z, z)
-    (std::uint8_t, intensity, intensity)
-    (double, timestamp, timestamp)
-    (std::uint16_t, ring, ring))
+    (float, x, x)(float, y, y)(float, z, z)(std::uint8_t, intensity, intensity)(
+        double, timestamp, timestamp)(std::uint16_t, ring, ring))
 
 namespace livo_atlas {
 struct EIGEN_ALIGN16 RobosensePoint {
@@ -114,11 +98,7 @@ struct EIGEN_ALIGN16 RobosensePoint {
 }  // namespace livo_atlas
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     livo_atlas::RobosensePoint,
-    (float, x, x)
-    (float, y, y)
-    (float, z, z)
-    (float, intensity, intensity)
-    (double, timestamp, timestamp)
-    (std::uint16_t, ring, ring))
+    (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(
+        double, timestamp, timestamp)(std::uint16_t, ring, ring))
 
 #endif  // LIVO_ATLAS_SENSOR_POINT_TYPES_H_

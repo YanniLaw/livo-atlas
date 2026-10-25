@@ -38,7 +38,7 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   auto& imu = front.imu;
   auto& pre = options.preprocess;
   auto& output = options.exporter;
-  auto& processor = options.processor;
+  auto& colorizer = options.colorizer;
   config.lidar_topic = reader.String("common.lid_topic", config.lidar_topic);
   config.imu_topic = reader.String("common.imu_topic", config.imu_topic);
   options.driver_fix =
@@ -115,10 +115,10 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   visual.plot_time = reader.Number("debug.plot_time", visual.plot_time);
   visual.plot_frame_count =
       reader.Integer("debug.frame_cnt", visual.plot_frame_count);
-  processor.minimum_color_distance = reader.Number(
-      "publish.blind_rgb_points", processor.minimum_color_distance);
-  processor.scan_interval =
-      reader.Integer("publish.pub_scan_num", processor.scan_interval);
+  colorizer.minimum_color_distance = reader.Number(
+      "publish.blind_rgb_points", colorizer.minimum_color_distance);
+  colorizer.scan_interval =
+      reader.Integer("publish.pub_scan_num", colorizer.scan_interval);
   front.output_effective_points = reader.Boolean("publish.pub_effect_point_en",
                                                  front.output_effective_points);
   front.dense_cloud = reader.Boolean("publish.dense_map_en", front.dense_cloud);

@@ -5,7 +5,9 @@
 
 #include <memory>
 
-#include "livo_atlas/output/output_processor.h"
+#include "livo_atlas/common/filter_state.h"
+#include "livo_atlas/frontend/frontend_result.h"
+#include "livo_atlas/sensor/point_types.h"
 
 namespace ros {
 class NodeHandle;
@@ -26,7 +28,8 @@ class LivoPublisher {
 
   void Initialize(ros::NodeHandle& node,
                   image_transport::ImageTransport& transport);
-  void Publish(const FrontendResult& result, const PreparedOutput& prepared);
+  void Publish(const FrontendResult& result,
+               const ColoredCloud::ConstPtr& colored_cloud);
   void PublishImuPropagation(const FilterState& state,
                              const ros::Time& timestamp);
 

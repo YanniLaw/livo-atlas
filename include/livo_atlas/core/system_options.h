@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_CORE_SYSTEM_OPTIONS_H_
 #include "livo_atlas/frontend/frontend_options.h"
 #include "livo_atlas/io/livo_exporter.h"
+#include "livo_atlas/mapping/cloud_colorizer.h"
 #include "livo_atlas/sensor/point_types.h"
 namespace livo_atlas {
 struct LidarPreprocessorOptions {
@@ -18,7 +19,7 @@ struct TimestampRange {
 struct SystemOptions {
   FrontendOptions frontend;
   ExportOptions exporter;
-  OutputProcessorOptions processor;
+  CloudColorizerOptions colorizer;
   LidarPreprocessorOptions preprocess;
   bool lidar_enabled = true;
   bool image_enabled = true;

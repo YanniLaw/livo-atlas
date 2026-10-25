@@ -1,4 +1,4 @@
-#include "livo_atlas/output/output_processor.h"
+#include "livo_atlas/mapping/cloud_colorizer.h"
 
 #include <cmath>
 #include <limits>
@@ -7,7 +7,6 @@
 #include <stdexcept>
 
 #include "livo_atlas/camera/camera_factory.h"
-#include "livo_atlas/camera/pinhole_camera.h"
 
 namespace livo_atlas {
 namespace {
@@ -37,28 +36,22 @@ Eigen::Vector3f SampleColor(const cv::Mat& image,
 
 }  // namespace
 
-class OutputProcessor::Impl {
+class CloudColorizer::Impl {
  public:
-  explicit Impl(const OutputProcessorOptions& options) : options_(options) {
+  explicit Impl(const CloudColorizerOptions& options) : options_(options) {
     if (options_.scan_interval <= 0) {
       throw std::invalid_argument("publish/pub_scan_num must be positive");
     }
-    if (options_.colmap && options_.calibration.camera.model != "Pinhole") {
-      throw std::invalid_argument("COLMAP output requires a Pinhole camera");
-    }
-    if (options_.mode == FrontendMode::kLidarInertialVisual ||
-        options_.colmap) {
-      camera_ = CreateCamera(options_.calibration.camera);
+    if (options_.mode == FrontendMode::kLidarInertialVisual) {
+      camera_ = CreateCamera(options_.camera);
       if (!camera_) throw std::invalid_argument("Invalid output camera");
     }
   }
 
-  PreparedOutput Process(const FrontendResult& result) {
-    PreparedOutput output;
+  ColoredCloud::ConstPtr Process(const FrontendResult& result) {
     if (!result.updated || !result.world_cloud || result.world_cloud->empty()) {
-      return output;
+      return {};
     }
-    output.has_cloud = true;
     ColoredCloud::Ptr colored(new ColoredCloud);
     ++scan_count_;
     if (result.kind == UpdateKind::kVisual) {
@@ -72,14 +65,9 @@ class OutputProcessor::Impl {
         scan_count_ = 1;
         Colorize(result, colored.get());
       }
-      if (options_.colmap) {
-        auto* pinhole = static_cast<livo_atlas::PinholeCamera*>(camera_.get());
-        pinhole->UndistortImage(result.color_image, &output.colmap_image);
-      }
     }
     if (!colored->empty()) PointCloud().swap(pending_);
-    output.colored_cloud = colored;
-    return output;
+    return colored;
   }
 
   void Colorize(const FrontendResult& result, ColoredCloud* colored) {
@@ -109,16 +97,16 @@ class OutputProcessor::Impl {
     }
   }
 
-  OutputProcessorOptions options_;
-  std::unique_ptr<livo_atlas::Camera> camera_;
+  CloudColorizerOptions options_;
+  std::unique_ptr<Camera> camera_;
   PointCloud pending_;
   int scan_count_ = 1;
 };
 
-OutputProcessor::OutputProcessor(const OutputProcessorOptions& options)
+CloudColorizer::CloudColorizer(const CloudColorizerOptions& options)
     : impl_(std::make_unique<Impl>(options)) {}
-OutputProcessor::~OutputProcessor() = default;
-PreparedOutput OutputProcessor::Process(const FrontendResult& result) {
+CloudColorizer::~CloudColorizer() = default;
+ColoredCloud::ConstPtr CloudColorizer::Process(const FrontendResult& result) {
   return impl_->Process(result);
 }
 

@@ -40,7 +40,7 @@ TEST(SystemOptionsTest, RejectsInvalidDirectOptionsBeforeTouchingOutput) {
             std::numeric_limits<double>::infinity();
       },
       [](auto& options) {
-        options.processor.minimum_color_distance =
+        options.colorizer.minimum_color_distance =
             std::numeric_limits<double>::quiet_NaN();
       }};
   for (bool existing : {false, true}) {
@@ -228,7 +228,7 @@ TEST(SystemStepTest, InitialImuWindowDoesNotPublishAnEstimate) {
 
 TEST(SystemStepTest, RepeatedVisualUpdatesConsumeCloudsWithoutRosPublishers) {
   auto options = test::Options(FrontendMode::kLidarInertialVisual);
-  options.processor.scan_interval = 4;
+  options.colorizer.scan_interval = 4;
   LivoSystem session(options);
   int visual = 0, lidar = 0;
   std::vector<std::size_t> cloud_sizes;
@@ -245,7 +245,7 @@ TEST(SystemStepTest, RepeatedVisualUpdatesConsumeCloudsWithoutRosPublishers) {
           EXPECT_TRUE(result.estimate.cov.allFinite());
           if (result.kind == UpdateKind::kVisual) {
             ++visual;
-            cloud_sizes.push_back(prepared.colored_cloud->size());
+            cloud_sizes.push_back(prepared->size());
           } else {
             ++lidar;
           }

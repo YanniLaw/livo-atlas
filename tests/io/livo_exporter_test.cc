@@ -7,7 +7,7 @@
 #include <functional>
 #include <iterator>
 #include <limits>
-#include <opencv2/core/mat.hpp>
+#include <opencv2/core.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -40,7 +40,7 @@ std::vector<std::vector<double>> ReadRows(const fs::path& path) {
   return rows;
 }
 
-class ResultWriterTest : public testing::Test {
+class LivoExporterTest : public testing::Test {
  protected:
   void SetUp() override {
     const auto id = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -70,12 +70,17 @@ class ResultWriterTest : public testing::Test {
     cloud->push_back(point);
     result.world_cloud = cloud;
     result.undistorted_cloud = cloud;
+    if (kind == UpdateKind::kVisual) {
+      const auto& camera = options_.calibration.camera;
+      result.color_image =
+          cv::Mat(static_cast<int>(camera.height * camera.scale),
+                  static_cast<int>(camera.width * camera.scale), CV_8UC3,
+                  cv::Scalar(7, 8, 9));
+    }
     return result;
   }
 
-  PreparedOutput Prepared() {
-    PreparedOutput output;
-    output.has_cloud = true;
+  ColoredCloud::Ptr Colors() {
     ColoredCloud::Ptr cloud(new ColoredCloud);
     pcl::PointXYZRGB point(std::uint8_t{10}, std::uint8_t{20},
                            std::uint8_t{30});
@@ -83,16 +88,14 @@ class ResultWriterTest : public testing::Test {
     point.y = 2;
     point.z = 3;
     cloud->push_back(point);
-    output.colored_cloud = cloud;
-    output.colmap_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(7, 8, 9));
-    return output;
+    return cloud;
   }
 
   fs::path root_;
   ExportOptions options_;
 };
 
-TEST_F(ResultWriterTest, FailedUpdateWritesOnlyPrediction) {
+TEST_F(LivoExporterTest, FailedUpdateWritesOnlyPrediction) {
   LivoExporter writer(options_);
   auto result = Result();
   result.updated = false;
@@ -106,13 +109,13 @@ TEST_F(ResultWriterTest, FailedUpdateWritesOnlyPrediction) {
   EXPECT_TRUE(ReadRows(options_.directory / "mat_out.txt").empty());
 }
 
-TEST_F(ResultWriterTest, WritesSensorTrajectoryPosteriorAndImuMeans) {
+TEST_F(LivoExporterTest, WritesSensorTrajectoryPosteriorAndImuMeans) {
   options_.trajectory = true;
   LivoExporter writer(options_);
   auto result = Result();
   result.imu_initialized = true;
   result.imu_diagnostics.push_back({0.125, {1, 2, 3}, {4, 5, 6}});
-  writer.Write(result, Prepared());
+  writer.Write(result, Colors());
   writer.Finish();
   const auto trajectory = ReadRows(options_.directory / "result/01.txt");
   ASSERT_EQ(trajectory.size(), 1);
@@ -127,7 +130,7 @@ TEST_F(ResultWriterTest, WritesSensorTrajectoryPosteriorAndImuMeans) {
   EXPECT_EQ(imu[0], (std::vector<double>{0.125, 1, 2, 3, 4, 5, 6}));
 }
 
-TEST_F(ResultWriterTest, OpensImuLogAtInitializationCompletion) {
+TEST_F(LivoExporterTest, OpensImuLogAtInitializationCompletion) {
   LivoExporter writer(options_);
   auto result = Result();
   result.updated = false;
@@ -139,10 +142,10 @@ TEST_F(ResultWriterTest, OpensImuLogAtInitializationCompletion) {
   EXPECT_TRUE(fs::exists(options_.directory / "imu.txt"));
 }
 
-TEST_F(ResultWriterTest, NegativeIntervalWritesAllPlainPointsOnlyAtFinish) {
+TEST_F(LivoExporterTest, NegativeIntervalWritesAllPlainPointsOnlyAtFinish) {
   options_.pcd = true;
   LivoExporter writer(options_);
-  writer.Write(Result(), Prepared());
+  writer.Write(Result(), Colors());
   EXPECT_FALSE(fs::exists(options_.directory / "pcd/all_raw_points.pcd"));
   writer.Finish();
   PointCloud cloud;
@@ -158,17 +161,17 @@ TEST_F(ResultWriterTest, NegativeIntervalWritesAllPlainPointsOnlyAtFinish) {
   EXPECT_EQ(poses[0], (std::vector<double>{100.25, 2, 3, 4, 0, 0, 0, 1}));
 }
 
-TEST_F(ResultWriterTest, PositiveIntervalPreservesPartialTailBehavior) {
+TEST_F(LivoExporterTest, PositiveIntervalPreservesPartialTailBehavior) {
   options_.pcd = true;
   options_.pcd_interval = 2;
   LivoExporter writer(options_);
   auto result = Result();
-  writer.Write(result, Prepared());
+  writer.Write(result, Colors());
   EXPECT_FALSE(fs::exists(options_.directory / "pcd/100.250000.pcd"));
   result.timestamp = 100.5;
-  writer.Write(result, Prepared());
+  writer.Write(result, Colors());
   result.timestamp = 100.75;
-  writer.Write(result, Prepared());
+  writer.Write(result, Colors());
   writer.Finish();
   PointCloud cloud;
   ASSERT_EQ(pcl::io::loadPCDFile(
@@ -179,13 +182,13 @@ TEST_F(ResultWriterTest, PositiveIntervalPreservesPartialTailBehavior) {
   EXPECT_FALSE(fs::exists(options_.directory / "pcd/all_raw_points.pcd"));
 }
 
-TEST_F(ResultWriterTest, BodyPcdUsesImuFromLidarAndForcesSingleScan) {
+TEST_F(LivoExporterTest, BodyPcdUsesImuFromLidarAndForcesSingleScan) {
   options_.pcd = true;
   options_.pcd_type = 1;
   options_.calibration.imu_from_lidar.rotation << 0, -1, 0, 1, 0, 0, 0, 0, 1;
   options_.calibration.imu_from_lidar.translation << 1, 2, 3;
   LivoExporter writer(options_);
-  writer.Write(Result(), Prepared());
+  writer.Write(Result(), Colors());
   writer.Finish();
   PointCloud cloud;
   ASSERT_EQ(pcl::io::loadPCDFile(
@@ -198,17 +201,17 @@ TEST_F(ResultWriterTest, BodyPcdUsesImuFromLidarAndForcesSingleScan) {
   EXPECT_FLOAT_EQ(cloud[0].intensity, 4);
 }
 
-TEST_F(ResultWriterTest, ImageCadenceWritesRawPixelsAndVisualPose) {
+TEST_F(LivoExporterTest, ImageCadenceWritesRawPixelsAndVisualPose) {
   options_.images = true;
   options_.image_interval = 2;
   LivoExporter writer(options_);
   auto result = Result(UpdateKind::kVisual);
   result.color_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(11, 22, 33));
   result.tracking_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(44, 55, 66));
-  writer.Write(result, Prepared());
+  writer.Write(result, Colors());
   EXPECT_FALSE(fs::exists(options_.directory / "image/100.250000.png"));
   result.timestamp = 100.5;
-  writer.Write(result, Prepared());
+  writer.Write(result, Colors());
   writer.Finish();
   const auto image =
       cv::imread((options_.directory / "image/100.500000.png").string());
@@ -219,7 +222,20 @@ TEST_F(ResultWriterTest, ImageCadenceWritesRawPixelsAndVisualPose) {
   EXPECT_EQ(poses[0], (std::vector<double>{100.5, 2, 3, 4, 0, 0, 0, 1}));
 }
 
-TEST_F(ResultWriterTest, ColmapUsesCameraFromWorldAndPerInstanceImageIds) {
+TEST_F(LivoExporterTest, ColmapImageUsesExistingCameraUndistortion) {
+  options_.colmap = true;
+  LivoExporter writer(options_);
+  const auto result = Result(UpdateKind::kVisual);
+  writer.Write(result, Colors());
+  writer.Finish();
+  const auto image =
+      cv::imread((options_.directory / "Colmap/images/00001.png").string());
+  ASSERT_FALSE(image.empty());
+  EXPECT_EQ(image.size(), result.color_image.size());
+  EXPECT_EQ(cv::norm(image, result.color_image, cv::NORM_INF), 0);
+}
+
+TEST_F(LivoExporterTest, ColmapUsesCameraFromWorldAndPerInstanceImageIds) {
   options_.colmap = true;
   options_.calibration.camera.scale = 0.5;
   auto result = Result(UpdateKind::kVisual);
@@ -228,7 +244,7 @@ TEST_F(ResultWriterTest, ColmapUsesCameraFromWorldAndPerInstanceImageIds) {
   for (const auto& name : {"first", "second"}) {
     options_.directory = root_ / name;
     LivoExporter writer(options_);
-    writer.Write(result, Prepared());
+    writer.Write(result, Colors());
     writer.Finish();
     EXPECT_TRUE(fs::exists(options_.directory / "Colmap/images/00001.png"));
     EXPECT_FALSE(fs::exists(options_.directory / "Colmap/images/00002.png"));
@@ -249,12 +265,12 @@ TEST_F(ResultWriterTest, ColmapUsesCameraFromWorldAndPerInstanceImageIds) {
   }
 }
 
-TEST_F(ResultWriterTest, ColoredEofWritesDownsampleAndColmapPoints) {
+TEST_F(LivoExporterTest, ColoredEofWritesDownsampleAndColmapPoints) {
   options_.pcd = true;
   options_.colmap = true;
   options_.mode = FrontendMode::kLidarInertialVisual;
   LivoExporter writer(options_);
-  writer.Write(Result(UpdateKind::kVisual), Prepared());
+  writer.Write(Result(UpdateKind::kVisual), Colors());
   writer.Finish();
   ColoredCloud cloud;
   ASSERT_EQ(
@@ -272,12 +288,12 @@ TEST_F(ResultWriterTest, ColoredEofWritesDownsampleAndColmapPoints) {
   EXPECT_EQ(points[0], (std::vector<double>{0, 1, 2, 3, 10, 20, 30, 0}));
 }
 
-TEST_F(ResultWriterTest, DebugImagesAreWrittenOutsideTheFrontend) {
+TEST_F(LivoExporterTest, DebugImagesAreWrittenOutsideTheFrontend) {
   LivoExporter writer(options_);
   auto result = Result();
   result.debug_images.push_back(
       {"7_0_normal.png", cv::Mat(2, 3, CV_8UC1, cv::Scalar(42))});
-  writer.Write(result, Prepared());
+  writer.Write(result, Colors());
   writer.Finish();
   const auto image = cv::imread(
       (options_.directory / "ref_cur_combine/7_0_normal.png").string(),
@@ -286,15 +302,15 @@ TEST_F(ResultWriterTest, DebugImagesAreWrittenOutsideTheFrontend) {
   EXPECT_EQ(image.at<unsigned char>(0, 0), 42);
 }
 
-TEST_F(ResultWriterTest, FinishIsIdempotentAndRejectsFurtherWrites) {
+TEST_F(LivoExporterTest, FinishIsIdempotentAndRejectsFurtherWrites) {
   LivoExporter writer(options_);
-  writer.Write(Result(), Prepared());
+  writer.Write(Result(), Colors());
   writer.Finish();
   EXPECT_NO_THROW(writer.Finish());
-  EXPECT_THROW(writer.Write(Result(), Prepared()), std::logic_error);
+  EXPECT_THROW(writer.Write(Result(), Colors()), std::logic_error);
 }
 
-TEST_F(ResultWriterTest, InvalidOptionsNeverCreateOutputDirectories) {
+TEST_F(LivoExporterTest, InvalidOptionsNeverCreateOutputDirectories) {
   std::vector<ExportOptions> invalid;
   auto add = [&](const ExportOptions& options) { invalid.push_back(options); };
   auto options = options_;
@@ -329,7 +345,7 @@ TEST_F(ResultWriterTest, InvalidOptionsNeverCreateOutputDirectories) {
   }
 }
 
-TEST_F(ResultWriterTest, ColmapRejectsInvalidCameraCalibration) {
+TEST_F(LivoExporterTest, ColmapRejectsInvalidCameraCalibration) {
   options_.colmap = true;
   const auto valid = options_.calibration.camera;
   for (int variant = 0; variant < 6; ++variant) {
@@ -347,7 +363,7 @@ TEST_F(ResultWriterTest, ColmapRejectsInvalidCameraCalibration) {
   }
 }
 
-TEST_F(ResultWriterTest, InvalidColmapCameraPreservesExistingOutput) {
+TEST_F(LivoExporterTest, InvalidColmapCameraPreservesExistingOutput) {
   options_.colmap = true;
   options_.pcd = true;
   options_.calibration.camera.width = 0;
@@ -368,39 +384,39 @@ TEST_F(ResultWriterTest, InvalidColmapCameraPreservesExistingOutput) {
   }
 }
 
-TEST_F(ResultWriterTest, ReportsDirectoryCreationFailure) {
+TEST_F(LivoExporterTest, ReportsDirectoryCreationFailure) {
   std::ofstream(options_.directory) << "blocking file";
   EXPECT_THROW(LivoExporter writer(options_), std::runtime_error);
 }
 
-TEST_F(ResultWriterTest, ReportsImageWriteFailureAndRejectsLaterWrites) {
+TEST_F(LivoExporterTest, ReportsImageWriteFailureAndRejectsLaterWrites) {
   options_.images = true;
   LivoExporter writer(options_);
   fs::remove_all(options_.directory / "image");
   auto result = Result(UpdateKind::kVisual);
   result.color_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(1, 2, 3));
-  EXPECT_THROW(writer.Write(result, Prepared()), std::runtime_error);
-  EXPECT_THROW(writer.Write(result, Prepared()), std::logic_error);
+  EXPECT_THROW(writer.Write(result, Colors()), std::runtime_error);
+  EXPECT_THROW(writer.Write(result, Colors()), std::logic_error);
   EXPECT_THROW(writer.Finish(), std::runtime_error);
 }
 
-TEST_F(ResultWriterTest, ColmapRestartClearsOnlyGeneratedReconstruction) {
+TEST_F(LivoExporterTest, ColmapRestartClearsOnlyGeneratedReconstruction) {
   options_.pcd = true;
   options_.colmap = true;
   options_.mode = FrontendMode::kLidarInertialVisual;
   auto result = Result(UpdateKind::kVisual);
   {
     LivoExporter writer(options_);
-    writer.Write(result, Prepared());
+    writer.Write(result, Colors());
     result.timestamp = 100.5;
-    writer.Write(result, Prepared());
+    writer.Write(result, Colors());
     writer.Finish();
   }
   ASSERT_TRUE(fs::exists(options_.directory / "Colmap/images/00002.png"));
   std::ofstream(options_.directory / "keep.txt") << "keep this file";
   {
     LivoExporter writer(options_);
-    writer.Write(result, Prepared());
+    writer.Write(result, Colors());
     writer.Finish();
   }
   EXPECT_TRUE(fs::exists(options_.directory / "Colmap/images/00001.png"));
@@ -419,21 +435,21 @@ void ExpectFileFailure(const std::function<void()>& operation,
   }
 }
 
-TEST_F(ResultWriterTest, ReportsSpecificFileOnActualTextWriteFailure) {
+TEST_F(LivoExporterTest, ReportsSpecificFileOnActualTextWriteFailure) {
 #ifdef __linux__
   fs::create_directories(options_.directory);
   const auto path = options_.directory / "mat_out.txt";
   fs::create_symlink("/dev/full", path);
   LivoExporter writer(options_);
-  ExpectFileFailure([&] { writer.Write(Result(), Prepared()); }, path);
-  EXPECT_THROW(writer.Write(Result(), Prepared()), std::logic_error);
+  ExpectFileFailure([&] { writer.Write(Result(), Colors()); }, path);
+  EXPECT_THROW(writer.Write(Result(), Colors()), std::logic_error);
   EXPECT_THROW(writer.Finish(), std::runtime_error);
 #else
   GTEST_SKIP() << "Requires the Linux /dev/full device";
 #endif
 }
 
-TEST_F(ResultWriterTest, ReportsSpecificFileOnActualTextCloseFailure) {
+TEST_F(LivoExporterTest, ReportsSpecificFileOnActualTextCloseFailure) {
 #ifdef __linux__
   LivoExporter writer(options_);
   const auto path = options_.directory / "mat_out.txt";
@@ -454,7 +470,7 @@ TEST_F(ResultWriterTest, ReportsSpecificFileOnActualTextCloseFailure) {
 #endif
 }
 
-TEST_F(ResultWriterTest, InterleavedWritersKeepSeparatePcdAndImageCadences) {
+TEST_F(LivoExporterTest, InterleavedWritersKeepSeparatePcdAndImageCadences) {
   auto first_options = options_;
   first_options.directory = root_ / "first";
   first_options.mode = FrontendMode::kLidarInertialVisual;
@@ -468,8 +484,8 @@ TEST_F(ResultWriterTest, InterleavedWritersKeepSeparatePcdAndImageCadences) {
   second_options.image_interval = 3;
   LivoExporter first(first_options);
   LivoExporter second(second_options);
-  auto lidar_output = Prepared();
-  lidar_output.colored_cloud.reset(new ColoredCloud);
+  auto lidar_output = Colors();
+  lidar_output.reset(new ColoredCloud);
   for (int frame = 1; frame <= 3; ++frame) {
     auto lidar = Result(UpdateKind::kLidarInertial);
     lidar.timestamp = 100 + frame * 0.25;
@@ -478,8 +494,8 @@ TEST_F(ResultWriterTest, InterleavedWritersKeepSeparatePcdAndImageCadences) {
     visual.color_image = cv::Mat(2, 3, CV_8UC3, cv::Scalar(7, 8, 9));
     first.Write(lidar, lidar_output);
     second.Write(lidar, lidar_output);
-    first.Write(visual, Prepared());
-    second.Write(visual, Prepared());
+    first.Write(visual, Colors());
+    second.Write(visual, Colors());
   }
   first.Finish();
   second.Finish();
