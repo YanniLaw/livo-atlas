@@ -9,6 +9,11 @@ namespace livo_atlas {
 namespace {
 void ValidateCloud(const PointCloud& cloud) {
   if (cloud.empty()) throw std::invalid_argument("Keyframe cloud is empty");
+  if (!cloud.width || !cloud.height ||
+      std::uint64_t{cloud.width} * cloud.height != cloud.size()) {
+    throw std::invalid_argument(
+        "Keyframe cloud dimensions do not match points");
+  }
   for (const auto& point : cloud) {
     if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
         !std::isfinite(point.z) || !std::isfinite(point.intensity)) {

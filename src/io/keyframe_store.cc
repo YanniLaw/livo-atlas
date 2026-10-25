@@ -211,6 +211,10 @@ void CheckPcdHeader(const fs::path& path, std::uint64_t expected_points) {
   std::ifstream file(path, std::ios::binary);
   if (!file) Fail(path, "Missing point cloud");
   std::vector<std::string> fields, sizes, types, counts;
+  static const std::set<std::string> kHeaderFields = {
+      "VERSION", "FIELDS", "SIZE",      "TYPE",   "COUNT",
+      "WIDTH",   "HEIGHT", "VIEWPOINT", "POINTS", "DATA"};
+  std::set<std::string> seen;
   std::uint64_t width = 0, height = 0, points = 0, header_size = 0;
   bool binary = false;
   std::string line;
@@ -224,6 +228,16 @@ void CheckPcdHeader(const fs::path& path, std::uint64_t expected_points) {
     std::istringstream input(line);
     std::string key, value;
     input >> key;
+    if (key.empty() || key.front() == '#') {
+      line.clear();
+      continue;
+    }
+    // PCL recognizes keyword prefixes. Accept only the exact schema emitted
+    // by our writer so aliases cannot bypass the pre-allocation check.
+    if (!kHeaderFields.count(key))
+      Fail(path, "Unsupported PCD header keyword: " + key);
+    if (!seen.insert(key).second)
+      Fail(path, "Duplicate PCD header field: " + key);
     if (key == "DATA") {
       input >> value;
       binary = value == "binary";

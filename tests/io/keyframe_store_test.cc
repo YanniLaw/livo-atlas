@@ -2,15 +2,23 @@
 
 #include <gtest/gtest.h>
 
+#if defined(__unix__)
+#include <sys/resource.h>
+#endif
+
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <opencv2/imgcodecs.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include "mapping/keyframe_fixtures.h"
 
@@ -183,6 +191,27 @@ TEST_F(KeyframeStoreTest, InvalidFrameDoesNotAdvanceIdsOrCreatePartialFiles) {
   EXPECT_EQ(writer.ids().size(), 2u);
 }
 
+TEST_F(KeyframeStoreTest, RejectsInconsistentCloudShapeBeforeWriting) {
+  KeyframeStore writer(directory_, calibration_);
+  auto frame = Frame(0, false);
+  PointCloud::Ptr cloud(new PointCloud(*frame.cloud));
+  frame.cloud = cloud;
+  for (const auto& shape : {std::pair<std::uint32_t, std::uint32_t>{0, 0},
+                            {2, 1},
+                            {1, 0},
+                            {4294967295U, 4294967295U}}) {
+    cloud->width = shape.first;
+    cloud->height = shape.second;
+    EXPECT_THROW(ValidateKeyframe(frame), std::invalid_argument);
+    ASSERT_THROW(writer.Append(frame), std::invalid_argument);
+    EXPECT_TRUE(writer.ids().empty());
+    EXPECT_TRUE(fs::is_empty(directory_ / "frames"));
+  }
+  cloud->width = cloud->height = 1;
+  writer.Append(frame);
+  EXPECT_EQ(writer.Read(0).cloud->size(), 1u);
+}
+
 TEST_F(KeyframeStoreTest,
        PoseVersionsRequireExactlyTheCommittedIdsAndValidPoses) {
   KeyframeStore writer(directory_, calibration_);
@@ -286,6 +315,44 @@ TEST_F(KeyframeStoreTest, OversizedCloudHeaderFailsBeforePointAllocation) {
   file.close();
   EXPECT_THROW(writer.Read(0), std::runtime_error);
 }
+
+#if defined(__unix__) && GTEST_HAS_DEATH_TEST
+TEST_F(KeyframeStoreTest, RejectsAmbiguousPcdHeadersWithBoundedMemory) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0, false));
+  const auto path = directory_ / "frames/0/cloud.pcd";
+  const auto original = Contents(path);
+  for (const std::string key :
+       {"POINTS", "POINTS_suffix", "WIDTH", "HEIGHT", "COLUMNS"}) {
+    const auto marker = key == "POINTS_suffix" ? "POINTS"
+                        : key == "COLUMNS"     ? "FIELDS"
+                                               : key;
+    auto contents = original;
+    contents.insert(contents.find(marker), key + " 1000000000\n");
+    std::ofstream(path, std::ios::binary) << contents;
+    // A tiny file must fail in our header check, rather than reach PCL's
+    // allocation at every POINTS prefix. The child cannot allocate 32 GB.
+    EXPECT_EXIT(
+        {
+          rlimit limit{};
+          if (getrlimit(RLIMIT_AS, &limit)) std::_Exit(2);
+          limit.rlim_cur =
+              std::min(limit.rlim_cur, rlim_t{4} * 1024 * 1024 * 1024);
+          if (setrlimit(RLIMIT_AS, &limit)) std::_Exit(2);
+          try {
+            writer.Read(0);
+          } catch (const std::exception& error) {
+            std::cerr << error.what();
+            std::_Exit(0);
+          }
+          std::_Exit(1);
+        },
+        testing::ExitedWithCode(0), "PCD header (field|keyword)");
+  }
+  std::ofstream(path, std::ios::binary) << original;
+  EXPECT_EQ(writer.Read(0).cloud->size(), 1u);
+}
+#endif
 
 TEST_F(KeyframeStoreTest,
        WriteFailurePreservesCommittedFramesAndLatchesWriter) {
