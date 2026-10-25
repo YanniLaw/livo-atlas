@@ -38,13 +38,13 @@ KeyframeOptions{enabled=false,translation_threshold=.5,rotation_threshold_deg=10
 ValidateKeyframeOptions(const KeyframeOptions&)->void；KeyframeSelector(FrontendMode,const KeyframeOptions&)，bool Select(const FrontendResult&)。
 FrontendResult新增double cloud_timestamp=0与optional<double> image_timestamp；新livo_atlas::keyframes目标。
 
-- [ ] Step1: 写行为测试后实际编译RED：ROI图像逐字节及云深复制；90度绕Z旋转、t=(1,2,3)、world=(1,3,3)得到body=(1,0,0)，
+- [x] Step1: 写行为测试后实际编译RED：ROI图像逐字节及云深复制；90度绕Z旋转、t=(1,2,3)、world=(1,3,3)得到body=(1,0,0)，
   新parent旋转单位、t=(10,0,0)重建(11,0,0)；timestamp10.25/cloud10.2/image10.24分别保持。
-- [ ] Step2: 写选择测试：默认关/首帧、LIVO仅Visual与LO/LIO门槛；相对上次选中累积位移>=.5、旋转>=10度、间隔>=2秒的独立触发，
+- [x] Step2: 写选择测试：默认关/首帧、LIVO仅Visual与LO/LIO门槛；相对上次选中累积位移>=.5、旋转>=10度、间隔>=2秒的独立触发，
   同时刻不重选，回退重设选择基准；NaN/负阈值、无效变换与图像不推进状态。先看到缺少头/符号失败。
-- [ ] Step3: 按原世界云和原状态只生成独立body快照，保存实际相机位姿；加输出元数据，不改同步器。
+- [x] Step3: 按原世界云和原状态只生成独立body快照，保存实际相机位姿；加输出元数据，不改同步器。
   编译keyframes物理库并补catkin/安装传递依赖，含公共头检查。
-- [ ] Step4: 全部普通测试GREEN，核对旧152行为仍在，Google格式和diff检查，提交。
+- [x] Step4: 全部普通测试GREEN，核对旧152行为仍在，Google格式和diff检查，提交。
 
 Expected: 新接口RED→GREEN；选中快照独立且坐标/时间字面值正确，旧数值测试通过。
 Commit: feat: capture independent keyframes and select motion updates。
@@ -59,13 +59,13 @@ Append(const Keyframe&)、Read(uint64_t)->Keyframe、ids()->const vector<uint64_
 KeyframePose{id,map_from_body}；WritePoses(uint64_t,const vector<KeyframePose>&)、ReadPoses(uint64_t)->vector<KeyframePose>。
 旧集禁止Append，允许写新优化版本。原始位姿在Keyframe中，版本0不写文件。
 
-- [ ] Step1: 写实际I/O测试并RED：BGR/无图像两种快照，旋转/标定/双精度时间和超32位版本ID精确往返；
+- [x] Step1: 写实际I/O测试并RED：BGR/无图像两种快照，旋转/标定/双精度时间和超32位版本ID精确往返；
   新版本重建世界点(11,0,0)，原帧文件摘要及原body云保持。
-- [ ] Step2: 写保护/损坏测试并RED：已有根目录及哨兵不覆盖，ID不连续/重复，未知schema，缺图/坏PCD/字段或点数不符，
+- [x] Step2: 写保护/损坏测试并RED：已有根目录及哨兵不覆盖，ID不连续/重复，未知schema，缺图/坏PCD/字段或点数不符，
   校准图像尺寸不符，重复/缺ID的版本与既有版本不覆盖；.pending目录忽略；写入中失败保留已提交帧并阻止后续写。
-- [ ] Step3: 按设计实现schema1、固定资产名、严格数值解析与17位字符串；PCD readHeader后才读数据；PNG验证BGR/标定尺寸。
+- [x] Step3: 按设计实现schema1、固定资产名、严格数值解析与17位字符串；PCD readHeader后才读数据；PNG验证BGR/标定尺寸。
   使用临时资产目录和rename提交，错误带路径，不自动删除既有数据。新store源归现有io库并依赖keyframes。
-- [ ] Step4: 全部普通测试GREEN、公共头与格式检查，提交。
+- [x] Step4: 全部普通测试GREEN、公共头与格式检查，提交。
 
 Expected: 实际写/读/版本修正与失败保护全部GREEN，前端状态不受影响。
 Commit: feat: persist keyframes and version optimized poses。
@@ -79,13 +79,13 @@ tests/ros1/node_options_test.cc、tests/ros2/node_options_test.cc、tests/instal
 **Interfaces:** SystemOptions.keyframes；四个keyframes.*参数；数据集exporter.directory/keyframes。
 LivoSystem仍使用原ResultCallback，只有新功能开启时选择、快照并Append。
 
-- [ ] Step1: 写真实系统测试并RED：同一LO/LIO/LIVO序列开/关的状态、云、时间和更新次数一致；
+- [x] Step1: 写真实系统测试并RED：同一LO/LIO/LIVO序列开/关的状态、云、时间和更新次数一致；
   默认无keyframes目录、开启得到可重读快照；后续多次更新不改首帧；已有目录启动不截断mat哨兵。
-- [ ] Step2: 扩展两端既有参数行为断言，四键默认关闭并读取同样值；直接SystemOptions非法阈值在任何I/O前失败。
+- [x] Step2: 扩展两端既有参数行为断言，四键默认关闭并读取同样值；直接SystemOptions非法阈值在任何I/O前失败。
   安装消费者通过完整core实际调用保存/打开/版本修正接口，保持旧三模式场景。
-- [ ] Step3: PrepareSystemOptions先验证，Store先于Exporter构造；按原消费链加入选择和保存，Append成功后递增ID。
+- [x] Step3: PrepareSystemOptions先验证，Store先于Exporter构造；按原消费链加入选择和保存，Append成功后递增ID。
   不增加ROS私有流程或库依赖，不改变发布与已有导出；失败向上报告。
-- [ ] Step4: 普通全套、Noetic全套与真实ROS、Humble全套GREEN，安装消费者构建运行通过，提交。
+- [x] Step4: 普通全套、Noetic全套与真实ROS、Humble全套GREEN，安装消费者构建运行通过，提交。
 
 Expected: 默认关与启用均保持前端原行为，新目录可重读；所有功能仅在完整普通core组合一次。
 Commit: feat: record keyframes through the shared LIVO system。
@@ -98,11 +98,11 @@ Task gate: check_phase.py integration。
 
 **Interfaces:** schema1跨电脑重读与版本化几何；实际节点源码+新运行库摘要绑定。
 
-- [ ] Step1: shared/static/无OMP独立SDK及Humble ament安装移动后实际LO/LIO/VIO和存储消费通过，所有普通头独立编译。
-- [ ] Step2: Noetic/Humble完整单元、真实ROS/DDS与启动保护、Python工具回归；默认关/非法选项无副作用。
-- [ ] Step3: 两端各短3秒与全136秒bag，开启P5；检查所有帧资产可读、有效时间/校准/有限位姿/图像与局部几何关联，
+- [x] Step1: shared/static/无OMP独立SDK及Humble ament安装移动后实际LO/LIO/VIO和存储消费通过，所有普通头独立编译。
+- [x] Step2: Noetic/Humble完整单元、真实ROS/DDS与启动保护、Python工具回归；默认关/非法选项无副作用。
+- [x] Step3: 两端各短3秒与全136秒bag，开启P5；检查所有帧资产可读、有效时间/校准/有限位姿/图像与局部几何关联，
   冻结P4-naming四数组与发布精确一致、短段各57旧产品逐字节一致。保存输入与实际源码/节点/库摘要。
-- [ ] Step4: 更新格式、参数、启用/重读和跨电脑命令；核对原Log/无vikit/tag/master保持，提交完整验收。
+- [x] Step4: 更新格式、参数、启用/重读和跨电脑命令；核对原Log/无vikit/tag/master保持，提交完整验收。
 
 Expected: 四次开启P5的真实回放保留前端结果，关键帧数据可消费，所有安装模式通过。
 Commit: docs: validate portable keyframe datasets across ROS versions。
