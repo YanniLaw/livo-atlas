@@ -24,7 +24,10 @@ class MappingSession {
   ~MappingSession();
   MappingSession(const MappingSession&) = delete;
   MappingSession& operator=(const MappingSession&) = delete;
+  // The caller applies LiDAR/image time offsets. Nonfinite timestamps are
+  // rejected before queues, cursors or sampling counters change.
   bool AddLidar(const LidarScan& scan);
+  // IMU timestamps precede the configured IMU offset and driver correction.
   bool AddImu(ImuMeasurement measurement);
   bool AddImage(ImageMeasurement measurement);
   SynchronizationResult ProcessNext(const ResultCallback& callback);

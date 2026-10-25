@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include "livo_atlas/frontend/image_options.h"
+#include "livo_atlas/sensor/extrinsics.h"
 
 namespace livo_atlas {
 
@@ -16,10 +17,17 @@ SessionOptions PrepareSessionOptions(SessionOptions options) {
   const auto& pre = options.preprocess;
   const auto error = ValidateImageOptions(front.calibration.camera, visual);
   if (!error.empty()) throw std::invalid_argument(error);
+  for (const auto* transform : {&front.calibration.imu_from_lidar,
+                                &front.calibration.camera_from_lidar}) {
+    const auto transform_error = ValidateExtrinsic(*transform);
+    if (!transform_error.empty()) throw std::invalid_argument(transform_error);
+  }
   for (double value :
        {imu.gyroscope_covariance, imu.accelerometer_covariance,
         imu.inverse_exposure_covariance, visual.image_point_covariance,
-        pre.blind, front.surface_filter_size, options.imu_time_offset,
+        visual.outlier_threshold, visual.plot_time,
+        options.processor.minimum_color_distance, pre.blind,
+        front.surface_filter_size, options.imu_time_offset,
         options.exposure_time, map.max_voxel_size_, map.planner_threshold_,
         map.sigma_num_, map.beam_err_, map.dept_err_, map.sliding_thresh}) {
     if (!std::isfinite(value)) {

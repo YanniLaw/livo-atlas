@@ -48,7 +48,7 @@ class MappingSession::Impl {
     preprocess_.N_SCANS = pre.scan_lines;
   }
   bool AddLidar(const LidarScan& scan) {
-    if (!options_.lidar_enabled) return false;
+    if (!options_.lidar_enabled || !std::isfinite(scan.timestamp)) return false;
     PointCloudMeasurement measurement{scan.timestamp,
                                       PointCloud::Ptr(new PointCloud)};
     preprocess_.Process(scan, measurement.cloud.get());
@@ -82,7 +82,8 @@ class MappingSession::Impl {
     return true;
   }
   bool AddImage(ImageMeasurement measurement) {
-    if (!options_.image_enabled) return false;
+    if (!options_.image_enabled || !std::isfinite(measurement.timestamp))
+      return false;
     if (options_.hilti && ++image_count_ % 4 != 0) return false;
     const double timestamp = measurement.timestamp;
     if (std::abs(timestamp - last_image_) < 0.001 || last_lidar_ < 0 ||
