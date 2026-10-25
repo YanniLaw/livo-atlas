@@ -30,7 +30,7 @@ P2-01 已完成普通 C++ 同步器、ROS1 成对缓冲和独立审阅；98 项�
 上一轮入口修正统一main并完成职责目录和规范头迁移，其Noetic158/Humble176等历史结果见[入口修正报告](p4-layout-validation.md)。
 
 本轮进一步收敛为一份普通MappingSession、一份参数清单和两个各含四类职责的ROS适配器。
-Noetic169项单元/8项真实ROS/50项启动、Humble185项C++/16项启动通过；普通shared/static各149项与40个公开头检查通过。
+Noetic172项单元/8项真实ROS/50项启动、Humble188项C++/16项启动通过；普通shared/static各152项与40个公开头检查通过。
 三种普通SDK和ament安装实际消费runtime成功；两端全包各1351位姿、四数组与发布精确保持，短段各57个产品逐字节一致。
 详细迁移和证据见[接入收敛报告](p4-convergence-validation.md)。
 

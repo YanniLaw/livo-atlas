@@ -92,18 +92,18 @@ Humble迁移工具和消息定义来源沿用[双版本说明](ros-builds.md)。
 PCD/图像/COLMAP文件均精确比较。工具核验原始输入与节点接收计数，
 回放前后绑定实际程序及13个库的SHA256。
 
-安装与代码检查结果：mode0 shared/static各149项普通测试、40个普通头独立编译；
+安装与代码检查结果：mode0 shared/static各152项普通测试、40个普通头独立编译；
 关闭OpenMP实际运行相同安装消费者，编译命令没有OpenMP标志/宏。三种安装前缀移动后，
 Frontend和runtime的LO/LIO/连续VIO均通过，运行链接不含ROS/vikit或原源码/构建目录。
 本轮27个新增或实质修改C++文件通过clang-format14 Google只读复核；两个仅修改include
 路径的原发布源/测试保留原正文格式。宿主Python工具13项通过、1项按Python版本跳过；
 Humble迁移工具5项实际运行通过。
 
-Noetic最终构建169项单元测试、8项真实ROS接入/参数/发布测试通过，启动检查50项通过。
+Noetic最终构建172项单元测试、8项真实ROS接入/参数/发布测试通过，启动检查50项通过。
 3秒短段26个位姿、57个产品文件精确一致；136秒全包1351个位姿，四数组尺寸分别为
 1351×8、2707×19、2701×20、27365×7，所有数值和发布语义与Noetic的P4-layout参考精确一致。
 
-Humble最终构建185项C++测试通过，包含真实DDS接入；启动检查16项通过。
+Humble最终构建188项C++测试通过，包含真实DDS接入；启动检查16项通过。
 ament安装移动后通过同一Frontend/runtime消费示例，运行不链接ROS/vikit；
 实际colcon构建另外生成回放节点，动态链接检查确认它加载本次安装的13个库。
 Humble短段26个位姿、四数组/发布语义及57个产品文件均与自己的P4-layout参考精确一致。
@@ -114,5 +114,48 @@ Humble完整回放1351个位姿，四数组尺寸同上，所有数值与发布�
 最终软件验收汇总在 `acceptance.json`：四次严格回放全部通过，55个原算法源/头、
 31个原Log文件和旁边rpg_vikit的提交/工作区均保持不变。两端回放绑定最终源码与实际
 节点/13个库；Noetic真实接入测试也绑定同一源码及运行文件。
+
+## 独立评审与边界修复
+
+一次fresh-context只读整阶段评审发现2个Important、1个Minor，没有Critical。
+两项Important在提交 `12a4916` 中一次修复，没有二次评审；三项新增测试均先失败再通过：
+
+- `SessionOptionsTest.RejectsInvalidDirectOptionsBeforeTouchingOutput`：直接配置的两组外参、
+  视觉阈值/调试时间和颜色距离先校验；7类非法值在新目录/既有哨兵目录中均不能产生写入副作用。
+- `SessionTest.NonfiniteLidarTimesCannotChangeSubsequentValidEstimates`：NaN/±Infinity雷达时间
+  在预处理/队列之前拒绝，随后有效序列的时间、位姿和协方差与未注入实例一致。
+- `SessionTest.NonfiniteImageTimesCannotBlockEstimatesOrAdvanceHiltiPhase`：无效图像时间
+  在游标和Hilti计数之前拒绝，正常及Hilti模式下的后续有效序列保持一致。
+
+公开接口注明时间契约：LiDAR/图像offset由调用方处理，IMU传入尚未应用Session IMU offset
+及driver fix的时间。普通shared/static各152项、Noetic172项/真实ROS8项/启动50项、
+Humble188项/启动16项，以及三种普通SDK和ament安装消费者在修复后再次通过。
+评审前完整证据保存在 `before-review-fixes`，最终回放使用修复后的实际程序重新采集。
+修复后四组回放再次全部通过：两端各1351个位姿，四数组/发布精确一致；短段各57个产品
+逐字节一致。最终 `acceptance.json` 的数量为普通152、Noetic172/真实ROS8、Humble188。
+
+延期Minor：ROS1 Hilti先转换图像、再计数；损坏图像转换失败后，其抽帧相位与原实现的
+先计数后转换不同。有效图像流不受影响。旧错误流相位兼容及专项测试留待后续。
+
+本轮取舍按评审记录保留：负纪元输入仍需先规范化时间；写入故障/异常退出沿用原writer行为，
+可能保留部分文件或未写完累计PCD；执行记录、bundle及空仓库恢复在软件验收后收尾，
+恢复目标必须是最终提交。这些边界没有扩展到估计实现。
+
+## 源码迁移
+
+最终迁移包位于工作区根目录 `livo-atlas-p4-convergence-20261025.bundle`。
+`recovery.json` 记录其SHA256、最终提交、全部引用/历史数量与空bare仓库恢复结果；
+`completion.json` 关联最终源码、评审修复和实际回放。包外证据与bag按需另行复制。
+
+在另一台电脑用实际路径替换示例路径：
+
+```bash
+git clone --branch refactor-fast_livo2 \
+  /path/to/livo-atlas-p4-convergence-20261025.bundle \
+  /path/to/workspace/src/livo-atlas
+```
+
+随后按构建文档准备该电脑的Noetic/Humble与兼容Sophus，重新构建。bundle包含全部Git引用
+和历史，恢复校验使用空bare仓库fetch全部refs并执行fsck；二进制库在目标平台重新生成。
 
 GTSAM、持久关键帧和3DGS仍属于后续阶段；本轮提供同一个普通运行边界供后续接入。
