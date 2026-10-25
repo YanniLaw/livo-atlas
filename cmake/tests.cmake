@@ -17,6 +17,7 @@ livo_atlas_test(camera_image_test tests/camera/camera_test.cc tests/image/image_
 target_compile_definitions(camera_image_test PRIVATE TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/tests")
 livo_atlas_test(camera_config_test tests/camera_config_test.cc)
 livo_atlas_test(livo_exporter_test tests/io/livo_exporter_test.cc)
+livo_atlas_test(keyframe_store_test tests/io/keyframe_store_test.cc)
 livo_atlas_test(cloud_colorizer_test tests/mapping/cloud_colorizer_test.cc)
 livo_atlas_test(keyframe_test tests/mapping/keyframe_test.cc tests/mapping/keyframe_selector_test.cc)
 livo_atlas_test(adapter_contract_test tests/frontend/adapter_contract_test.cc)

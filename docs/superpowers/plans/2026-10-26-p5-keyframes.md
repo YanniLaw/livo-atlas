@@ -59,7 +59,7 @@ Append(const Keyframe&)、Read(uint64_t)->Keyframe、ids()->const vector<uint64_
 KeyframePose{id,map_from_body}；WritePoses(uint64_t,const vector<KeyframePose>&)、ReadPoses(uint64_t)->vector<KeyframePose>。
 旧集禁止Append，允许写新优化版本。原始位姿在Keyframe中，版本0不写文件。
 
-- [ ] Step1: 写实际I/O测试并RED：BGR/无图像两种快照，旋转/标定/19位时间和超32位版本ID精确往返；
+- [ ] Step1: 写实际I/O测试并RED：BGR/无图像两种快照，旋转/标定/双精度时间和超32位版本ID精确往返；
   新版本重建世界点(11,0,0)，原帧文件摘要及原body云保持。
 - [ ] Step2: 写保护/损坏测试并RED：已有根目录及哨兵不覆盖，ID不连续/重复，未知schema，缺图/坏PCD/字段或点数不符，
   校准图像尺寸不符，重复/缺ID的版本与既有版本不覆盖；.pending目录忽略；写入中失败保留已提交帧并阻止后续写。
