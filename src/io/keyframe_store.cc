@@ -456,7 +456,8 @@ void KeyframeStore::WritePoses(std::uint64_t version,
     if (fs::exists(pending))
       Fail(pending, "Uncommitted pose version already exists");
     WriteYaml(pending, [&](auto& yaml) {
-      yaml << "version" << std::to_string(version) << "poses"
+      yaml << "version" << std::to_string(version) << "frame_count"
+           << std::to_string(ids_.size()) << "poses"
            << "[";
       for (const auto& pose : poses) {
         yaml << "{"
@@ -484,11 +485,15 @@ std::vector<KeyframePose> KeyframeStore::ReadPoses(
     if (!yaml.isOpened() || Id(yaml["version"]) != version)
       Fail(path, "Pose version mismatch");
     const auto nodes = yaml["poses"];
-    Sequence(nodes, ids_.size());
+    const auto count = Id(yaml["frame_count"]);
+    if (!count || count > ids_.size())
+      Fail(path, "Unknown pose version frame frontier");
+    Sequence(nodes, count);
     std::vector<KeyframePose> poses;
     for (const auto& node : nodes)
       poses.push_back({Id(node["id"]), ReadTransform(node["map_from_body"])});
-    ValidatePoses(poses, ids_);
+    ValidatePoses(
+        poses, std::vector<std::uint64_t>(ids_.begin(), ids_.begin() + count));
     return poses;
   } catch (const std::exception& error) {
     Fail(path, error.what());

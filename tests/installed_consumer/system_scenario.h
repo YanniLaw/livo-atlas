@@ -3,6 +3,7 @@
 
 #include <Eigen/Core>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <opencv2/core.hpp>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/io/keyframe_store.h"
 
 namespace livo_atlas::test_data {
 
@@ -47,6 +49,8 @@ inline bool RunSystemScenario(FrontendMode mode) {
   options.frontend.visual.normal_enabled = false;
   options.image_enabled = visual;
   options.preprocess.point_filter = 1;
+  options.keyframes.enabled = true;
+  options.keyframes.time_threshold = 0;
   options.exporter.directory =
       std::filesystem::temp_directory_path() /
       ("livo_atlas_consumer_" +
@@ -98,6 +102,21 @@ inline bool RunSystemScenario(FrontendMode mode) {
     session.Finish();
   }
   valid &= std::filesystem::file_size(directory / "mat_out.txt") > 0;
+  KeyframeStore dataset(directory / "keyframes");
+  valid &= dataset.ids().size() ==
+           static_cast<std::size_t>(visual ? visual_updates : lidar_updates);
+  std::vector<KeyframePose> poses;
+  for (auto id : dataset.ids()) {
+    const auto frame = dataset.Read(id);
+    auto corrected = frame.odom_from_body;
+    corrected.translation.x() += 10;
+    poses.push_back({id, corrected});
+    const auto cloud = TransformKeyframeCloud(frame, corrected);
+    valid &= !cloud.empty() && std::isfinite(cloud.front().x);
+    if (visual) valid &= !frame.image.empty();
+  }
+  dataset.WritePoses(1, poses);
+  valid &= dataset.ReadPoses(1).size() == dataset.ids().size();
   std::filesystem::remove_all(directory);
   return valid && lidar_updates > 2 &&
          (!visual || (visual_updates > 2 && tracked));

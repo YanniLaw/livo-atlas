@@ -78,6 +78,7 @@ TEST_F(Ros1ParametersTest, ReadsPrivateCameraNumericArraysAndSharedDefaults) {
             (std::vector<int>{5, 5, 5, 5, 5}));
   EXPECT_EQ(options.exporter.mode, FrontendMode::kLidarInertialVisual);
   EXPECT_EQ(options.exporter.directory, directory_);
+  EXPECT_FALSE(options.keyframes.enabled);
   EXPECT_DOUBLE_EQ(options.imu_time_range.minimum, 0);
   EXPECT_DOUBLE_EQ(options.imu_time_range.maximum, 4294967296.0);
   EXPECT_FALSE(std::filesystem::exists(directory_));
@@ -93,6 +94,10 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   node_->setParam("lio/layer_init_num", std::vector<int>{3, 6, 9});
   node_->setParam("preprocess/point_filter_num", 1);
   node_->setParam("publish/pub_scan_num", 3);
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("keyframes/translation_threshold", .7);
+  node_->setParam("keyframes/rotation_threshold_deg", 15.);
+  node_->setParam("keyframes/time_threshold", 3.);
   camera_.setParam("scale", .5);
   const auto config = ReadNodeOptions(*node_);
   const auto& options = config.livo.system;
@@ -103,6 +108,10 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   EXPECT_EQ(options.frontend.voxel_map.layer_init_num_,
             (std::vector<int>{3, 6, 9}));
   EXPECT_EQ(options.colorizer.scan_interval, 3);
+  EXPECT_TRUE(options.keyframes.enabled);
+  EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
+  EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);
+  EXPECT_DOUBLE_EQ(options.keyframes.time_threshold, 3);
   EXPECT_EQ(options.preprocess.point_filter, 1);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.scale, .5);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.fx, 200);
@@ -119,7 +128,9 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
       std::ofstream(sentinel) << "keep existing output";
     }
     for (const auto& key :
-         {"vio/img_point_cov", "imu/acc_cov", "preprocess/point_filter_num"}) {
+         {"vio/img_point_cov", "imu/acc_cov", "preprocess/point_filter_num",
+          "keyframes/translation_threshold", "keyframes/rotation_threshold_deg",
+          "keyframes/time_threshold"}) {
       node_->setParam(key, -1);
       EXPECT_THROW(
           {

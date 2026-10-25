@@ -39,6 +39,14 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   auto& pre = options.preprocess;
   auto& output = options.exporter;
   auto& colorizer = options.colorizer;
+  auto& keyframes = options.keyframes;
+  keyframes.enabled = reader.Boolean("keyframes.enabled", keyframes.enabled);
+  keyframes.translation_threshold = reader.Number(
+      "keyframes.translation_threshold", keyframes.translation_threshold);
+  keyframes.rotation_threshold_deg = reader.Number(
+      "keyframes.rotation_threshold_deg", keyframes.rotation_threshold_deg);
+  keyframes.time_threshold =
+      reader.Number("keyframes.time_threshold", keyframes.time_threshold);
   config.lidar_topic = reader.String("common.lid_topic", config.lidar_topic);
   config.imu_topic = reader.String("common.imu_topic", config.imu_topic);
   options.driver_fix =

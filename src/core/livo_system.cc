@@ -10,6 +10,7 @@
 
 #include "livo_atlas/frontend/imu/imu_propagation.h"
 #include "livo_atlas/frontend/vision/image_options.h"
+#include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/sensor/lidar_preprocessor.h"
 #include "livo_atlas/sensor/synchronizer.h"
 
@@ -42,6 +43,12 @@ class LivoSystem::Impl {
         synchronizer_(options_.exporter.mode, options_.exposure_time),
         frontend_(options_.frontend),
         colorizer_(options_.colorizer),
+        keyframe_selector_(options_.exporter.mode, options_.keyframes),
+        keyframe_store_(options_.keyframes.enabled
+                            ? std::make_unique<KeyframeStore>(
+                                  options_.exporter.directory / "keyframes",
+                                  options_.frontend.calibration)
+                            : nullptr),
         writer_(options_.exporter) {
     const auto& pre = options_.preprocess;
     preprocess_.Configure(pre.features, pre.lidar_type, pre.blind,
@@ -109,6 +116,10 @@ class LivoSystem::Impl {
     }
     const auto colored_cloud = colorizer_.Process(result);
     writer_.Write(result, colored_cloud);
+    if (keyframe_store_ && keyframe_selector_.Select(result)) {
+      keyframe_store_->Append(CaptureKeyframe(next_keyframe_id_, result));
+      ++next_keyframe_id_;
+    }
     if (result.updated && callback) callback(result, colored_cloud, elapsed);
     return status;
   }
@@ -149,7 +160,10 @@ class LivoSystem::Impl {
   SynchronizedMeasurements measurements_;
   Frontend frontend_;
   CloudColorizer colorizer_;
+  KeyframeSelector keyframe_selector_;
+  std::unique_ptr<KeyframeStore> keyframe_store_;
   LivoExporter writer_;
+  std::uint64_t next_keyframe_id_ = 0;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
   std::uint64_t image_count_ = 0;
   std::deque<Imu> propagation_buffer_;

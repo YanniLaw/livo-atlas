@@ -140,6 +140,18 @@ TEST_F(KeyframeStoreTest,
   EXPECT_FLOAT_EQ(frame.cloud->front().x, 1);
 }
 
+TEST_F(KeyframeStoreTest, PoseVersionsKeepTheirCommittedFrameFrontier) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0, false));
+  writer.WritePoses(1, Poses(1));
+  writer.Append(Frame(1, false));
+  writer.WritePoses(2, Poses(2));
+  KeyframeStore reader(directory_);
+  EXPECT_EQ(reader.ids().size(), 2u);
+  EXPECT_EQ(reader.ReadPoses(1).size(), 1u);
+  EXPECT_EQ(reader.ReadPoses(2).size(), 2u);
+}
+
 TEST_F(KeyframeStoreTest,
        ExistingDirectoryAndInvalidCalibrationHaveNoSideEffects) {
   fs::create_directory(directory_);

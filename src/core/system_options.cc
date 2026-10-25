@@ -10,6 +10,7 @@
 namespace livo_atlas {
 
 SystemOptions PrepareSystemOptions(SystemOptions options) {
+  ValidateKeyframeOptions(options.keyframes);
   const auto& front = options.frontend;
   const auto& imu = front.imu;
   const auto& visual = front.visual;
