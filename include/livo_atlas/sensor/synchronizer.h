@@ -9,9 +9,9 @@
 namespace livo_atlas {
 
 struct SensorBuffers {
-  std::deque<PointCloudMeasurement> point_clouds;
-  std::deque<ImuMeasurement> imu;
-  std::deque<ImageMeasurement> images;
+  std::deque<TimedPointCloud> point_clouds;
+  std::deque<Imu> imu;
+  std::deque<TimedImage> images;
   // LiDAR-inertial coverage time before any final adapter timestamp rounding.
   // An offline reader can use the latest IMU sample's timestamp.
   double latest_imu_time = -1.0;

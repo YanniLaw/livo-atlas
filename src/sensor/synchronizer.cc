@@ -6,7 +6,7 @@
 namespace livo_atlas {
 namespace {
 
-bool IsEmpty(const PointCloudMeasurement& measurement) {
+bool IsEmpty(const TimedPointCloud& measurement) {
   return !measurement.cloud || measurement.cloud->empty();
 }
 

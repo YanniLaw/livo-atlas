@@ -10,9 +10,9 @@
 namespace livo_atlas {
 namespace {
 
-PointCloudMeasurement MakeCloud(double time,
+TimedPointCloud MakeCloud(double time,
                                 std::initializer_list<float> offsets) {
-  PointCloudMeasurement measurement;
+  TimedPointCloud measurement;
   measurement.timestamp = time;
   measurement.cloud.reset(new PointCloud);
   for (float offset : offsets) {
@@ -27,7 +27,7 @@ PointCloudMeasurement MakeCloud(double time,
 class SynchronizerTest : public ::testing::Test {
  protected:
   void AddImu(double time) {
-    ImuMeasurement measurement;
+    Imu measurement;
     measurement.timestamp = time;
     buffers_.imu.push_back(measurement);
     buffers_.latest_imu_time = time;

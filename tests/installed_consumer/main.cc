@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "runtime_scenario.h"
+#include "system_scenario.h"
 #include "scenario.h"
 
 int main() {
@@ -8,8 +8,8 @@ int main() {
                     livo_atlas::FrontendMode::kLidarInertial,
                     livo_atlas::FrontendMode::kLidarInertialVisual}) {
     if (!livo_atlas::test_data::RunFrontendScenario(mode)) return 1;
-    if (!livo_atlas::test_data::RunRuntimeScenario(mode)) return 1;
+    if (!livo_atlas::test_data::RunSystemScenario(mode)) return 1;
   }
-  std::cout << "Installed core and runtime: repeated LO, LIO and tracked VIO "
+  std::cout << "Installed core: repeated LO, LIO and tracked VIO "
                "passed\n";
 }

@@ -70,7 +70,7 @@ TEST(MeasurementConversionsTest, RgbImageOwnsBgrPixelsAndIgnoresRowPadding) {
   message.encoding = "rgb8";
   message.step = 5;
   message.data = {1, 2, 3, 99, 99, 4, 5, 6, 99, 99};
-  ImageMeasurement result;
+  TimedImage result;
   ASSERT_TRUE(ConvertImage(message, 0.1, &result).empty());
   message.data.assign(10, 0);
   EXPECT_DOUBLE_EQ(result.timestamp, 17.223456789);
@@ -80,7 +80,7 @@ TEST(MeasurementConversionsTest, RgbImageOwnsBgrPixelsAndIgnoresRowPadding) {
 }
 
 TEST(MeasurementConversionsTest, MonoImageSurvivesMessageDestruction) {
-  ImageMeasurement result;
+  TimedImage result;
   {
     sensor_msgs::Image message;
     message.width = 2;
@@ -101,14 +101,14 @@ TEST(MeasurementConversionsTest, BgrImageDoesNotAliasMessageStorage) {
   message.step = 3;
   message.encoding = "bgr8";
   message.data = {7, 8, 9};
-  ImageMeasurement result;
+  TimedImage result;
   ASSERT_TRUE(ConvertImage(message, 0, &result).empty());
   message.data[0] = 99;
   EXPECT_EQ(result.bgr.at<cv::Vec3b>(0, 0), cv::Vec3b(7, 8, 9));
 }
 
 TEST(MeasurementConversionsTest, InvalidImageLeavesOutputUnchanged) {
-  ImageMeasurement result{42, cv::Mat(1, 1, CV_8UC3, cv::Scalar(7, 8, 9))};
+  TimedImage result{42, cv::Mat(1, 1, CV_8UC3, cv::Scalar(7, 8, 9))};
   sensor_msgs::Image message;
   message.width = 1;
   message.height = 1;

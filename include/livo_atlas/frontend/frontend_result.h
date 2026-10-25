@@ -5,7 +5,7 @@
 
 #include <Eigen/Geometry>
 
-#include "livo_atlas/core/state.h"
+#include "livo_atlas/common/filter_state.h"
 #include "livo_atlas/frontend/diagnostics.h"
 #include "livo_atlas/frontend/synchronized_measurements.h"
 
@@ -17,8 +17,8 @@ struct FrontendResult {
   bool updated = false;
   double timestamp = 0.0;
   double relative_time = 0.0;
-  State prediction;
-  State estimate;
+  FilterState prediction;
+  FilterState estimate;
   // Read-only views valid until the next Process call. States are values.
   PointCloud::ConstPtr world_cloud;
   PointCloud::ConstPtr undistorted_cloud;

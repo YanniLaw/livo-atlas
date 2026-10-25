@@ -12,17 +12,17 @@ find_package(GTest REQUIRED)
 enable_testing()
 
 get_filename_component(PACKAGE_INCLUDE_DIR "../../include" ABSOLUTE)
-add_library(result_writer STATIC ../../src/io/result_writer.cc)
+add_library(result_writer STATIC ../../src/io/livo_exporter.cc)
 target_include_directories(result_writer PUBLIC
   "${PACKAGE_INCLUDE_DIR}" ${PCL_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(result_writer PUBLIC Eigen3::Eigen
   ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
-add_executable(result_writer_test result_writer_test.cc ../core/test_main.cc)
-target_link_libraries(result_writer_test PRIVATE result_writer GTest::GTest)
-add_test(NAME result_writer_test COMMAND result_writer_test)
+add_executable(livo_exporter_test livo_exporter_test.cc ../test_main.cc)
+target_link_libraries(livo_exporter_test PRIVATE result_writer GTest::GTest)
+add_test(NAME livo_exporter_test COMMAND livo_exporter_test)
 
 foreach(HEADER frontend/diagnostics frontend/frontend_result
-    output/output_processor io/result_writer)
+    output/output_processor io/livo_exporter)
   string(REPLACE "/" "_" CHECK_NAME "${HEADER}")
   set(CHECK_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${CHECK_NAME}_header_check.cc")
   file(WRITE "${CHECK_SOURCE}" "#include \"livo_atlas/${HEADER}.h\"\n")

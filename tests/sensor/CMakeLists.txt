@@ -19,7 +19,7 @@ target_include_directories(sensor_preprocess PUBLIC
   "${PACKAGE_INCLUDE_DIR}" ${PCL_INCLUDE_DIRS})
 target_link_libraries(sensor_preprocess PUBLIC Eigen3::Eigen
   ${PCL_COMMON_LIBRARIES} OpenMP::OpenMP_CXX)
-add_executable(sensor_preprocess_test preprocess_test.cc ../core/test_main.cc)
+add_executable(sensor_preprocess_test preprocess_test.cc ../test_main.cc)
 target_link_libraries(sensor_preprocess_test PRIVATE
   sensor_preprocess GTest::GTest)
 add_test(NAME sensor_preprocess_test COMMAND sensor_preprocess_test)

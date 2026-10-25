@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "livo_atlas/ros1/mapping_adapter.h"
+#include "livo_atlas/ros1/livo_node.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
-#include "runtime/fixtures.h"
+#include "core/fixtures.h"
 namespace livo_atlas::ros1 {
 namespace {
 bool WaitFor(const std::function<bool()>& condition) {
@@ -31,23 +31,23 @@ void PumpCallbacks() {
     ros::WallDuration(.002).sleep();
   }
 }
-NodeParameters Options(int lidar_type) {
-  NodeParameters params;
-  params.mapping.session =
-      PrepareSessionOptions(test::Options(FrontendMode::kLidarOnly));
-  params.mapping.session.preprocess.lidar_type = lidar_type;
+NodeOptions Options(int lidar_type) {
+  NodeOptions params;
+  params.livo.system =
+      PrepareSystemOptions(test::Options(FrontendMode::kLidarOnly));
+  params.livo.system.preprocess.lidar_type = lidar_type;
   const auto name =
       "/convergence_adapter_" + std::to_string(ros::WallTime::now().toNSec());
-  params.mapping.lidar_topic = name + "/lidar";
-  params.mapping.imu_topic = name + "/imu";
-  params.mapping.image_topic = name + "/image";
+  params.livo.lidar_topic = name + "/lidar";
+  params.livo.imu_topic = name + "/imu";
+  params.livo.image_topic = name + "/image";
   return params;
 }
 void VerifyRollbackPipeline(int lidar_type) {
   ros::NodeHandle node;
   auto parameters = Options(lidar_type);
-  MappingSession session(parameters.mapping.session);
-  MappingAdapter adapter(node, parameters, session);
+  LivoSystem session(parameters.livo.system);
+  LivoNode adapter(node, parameters, session);
   std::vector<nav_msgs::Odometry> poses;
   std::vector<PointCloud> clouds;
   auto odom = node.subscribe<nav_msgs::Odometry>(
@@ -62,9 +62,9 @@ void VerifyRollbackPipeline(int lidar_type) {
       });
   ros::Publisher publisher = lidar_type == kLivox
                                  ? node.advertise<livox_ros_driver::CustomMsg>(
-                                       parameters.mapping.lidar_topic, 10)
+                                       parameters.livo.lidar_topic, 10)
                                  : node.advertise<sensor_msgs::PointCloud2>(
-                                       parameters.mapping.lidar_topic, 10);
+                                       parameters.livo.lidar_topic, 10);
   ASSERT_TRUE(WaitFor([&] {
     return publisher.getNumSubscribers() == 1 && odom.getNumPublishers() &&
            cloud.getNumPublishers();
@@ -140,19 +140,19 @@ void VerifyRollbackPipeline(int lidar_type) {
       testing::internal::GetCapturedStdout().find("lidar=5 imu=0 image=0"),
       std::string::npos);
 }
-TEST(Ros1AdapterTest,
+TEST(Ros1NodeTest,
      LivoxTransportRejectsBadRollbackWithoutErasingPendingInput) {
   VerifyRollbackPipeline(kLivox);
 }
-TEST(Ros1AdapterTest,
+TEST(Ros1NodeTest,
      StandardTransportRejectsBadRollbackWithoutErasingPendingInput) {
   VerifyRollbackPipeline(kVelodyne);
 }
-TEST(Ros1AdapterTest, PublishesFromTheInjectedRuntime) {
+TEST(Ros1NodeTest, PublishesFromTheInjectedSystem) {
   ros::NodeHandle node;
   auto parameters = Options(kLivox);
-  MappingSession session(parameters.mapping.session);
-  MappingAdapter adapter(node, parameters, session);
+  LivoSystem session(parameters.livo.system);
+  LivoNode adapter(node, parameters, session);
   int poses = 0;
   auto sub = node.subscribe<nav_msgs::Odometry>(
       "/aft_mapped_to_init", 10, [&](const nav_msgs::Odometry::ConstPtr& msg) {

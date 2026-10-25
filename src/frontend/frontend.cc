@@ -257,8 +257,8 @@ class Frontend::Impl {
   }
 
   FrontendOptions options_;
-  State state_;
-  State propagated_;
+  FilterState state_;
+  FilterState propagated_;
   std::unique_ptr<ImuProcess> imu_;
   std::unique_ptr<VoxelMapManager> map_;
   // Camera outlives VIO's non-owning pointer.
@@ -284,7 +284,7 @@ FrontendResult Frontend::Process(SynchronizedMeasurements* measurements) {
   return impl_->Process(measurements);
 }
 
-const State& Frontend::state() const { return impl_->state_; }
+const FilterState& Frontend::state() const { return impl_->state_; }
 bool Frontend::imu_needs_initialization() const {
   return impl_->imu_->imu_need_init;
 }

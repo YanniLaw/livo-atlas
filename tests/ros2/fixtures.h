@@ -7,8 +7,8 @@
 #include <utility>
 #include <vector>
 
-#include "livo_atlas/runtime/mapping_session.h"
-#include "runtime/fixtures.h"
+#include "livo_atlas/core/livo_system.h"
+#include "core/fixtures.h"
 namespace livo_atlas::ros2::test {
 using livo_atlas::test::Options;
 using livo_atlas::test::Scan;

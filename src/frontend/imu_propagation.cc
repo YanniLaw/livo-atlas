@@ -1,7 +1,7 @@
 #include "livo_atlas/frontend/imu_propagation.h"
 
 namespace livo_atlas {
-void PropagateImu(State* state, double dt, Eigen::Vector3d acceleration,
+void PropagateImu(FilterState* state, double dt, Eigen::Vector3d acceleration,
                   Eigen::Vector3d angular_velocity,
                   double mean_acceleration_norm) {
   acceleration =

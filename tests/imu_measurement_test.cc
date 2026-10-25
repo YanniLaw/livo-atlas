@@ -11,7 +11,7 @@
 namespace livo_atlas {
 namespace {
 
-ImuMeasurement MakeImu(double timestamp, double yaw_rate = 0) {
+Imu MakeImu(double timestamp, double yaw_rate = 0) {
   return {timestamp, Eigen::Vector3d(0, 0, yaw_rate),
           Eigen::Vector3d(0, 0, -2)};
 }

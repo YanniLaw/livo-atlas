@@ -14,11 +14,11 @@
 namespace livo_atlas::ros1 {
 
 // The caller applies the existing ROS Time offset/driver correction first.
-ImuMeasurement ConvertImu(const sensor_msgs::Imu& message);
+Imu ConvertImu(const sensor_msgs::Imu& message);
 
 // Empty error means success. On failure, *output is unchanged.
 std::string ConvertImage(const sensor_msgs::Image& message, double time_offset,
-                         ImageMeasurement* output);
+                         TimedImage* output);
 std::string ConvertLivox(const livox_ros_driver::CustomMsg& message,
                          LidarScan* output);
 std::string ConvertPointCloud(const sensor_msgs::PointCloud2& message,

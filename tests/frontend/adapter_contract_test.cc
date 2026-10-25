@@ -59,7 +59,7 @@ TEST(ImageOptionsTest, RejectsUncoveredTail) {
   EXPECT_FALSE(ValidateImageOptions(Camera(), visual).empty());
 }
 TEST(ImuPropagationTest, StationaryWithGravityAndBiases) {
-  State state;
+  FilterState state;
   state.gravity.z() = -9.81;
   state.bias_a << 1, 2, 3;
   state.bias_g << 0.1, 0.2, 0.3;
@@ -69,7 +69,7 @@ TEST(ImuPropagationTest, StationaryWithGravityAndBiases) {
   EXPECT_TRUE(state.rot_end.isIdentity());
 }
 TEST(ImuPropagationTest, UsesUpdatedRotationAndRetainsOtherState) {
-  State state;
+  FilterState state;
   state.pos_end << 1, 2, 3;
   state.vel_end << 2, 0, 0;
   const auto covariance = state.cov;
@@ -82,7 +82,7 @@ TEST(ImuPropagationTest, UsesUpdatedRotationAndRetainsOtherState) {
   EXPECT_DOUBLE_EQ(state.inv_expo_time, 1);
 }
 TEST(ImuPropagationTest, IndependentStatesAndRepeatedSteps) {
-  State first, second;
+  FilterState first, second;
   PropagateImu(&first, 0.5, Eigen::Vector3d(2, 0, 0), Eigen::Vector3d::Zero(),
                9.81);
   PropagateImu(&first, 0.5, Eigen::Vector3d(2, 0, 0), Eigen::Vector3d::Zero(),

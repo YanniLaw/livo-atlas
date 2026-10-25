@@ -19,11 +19,11 @@ builtin_interfaces::msg::Time FromSeconds(double seconds);
 
 // Copies the supplied sensor time. Rejects non-finite vectors with
 // std::invalid_argument; the caller controls offset/driver correction policy.
-ImuMeasurement ConvertImu(const sensor_msgs::msg::Imu& message);
+Imu ConvertImu(const sensor_msgs::msg::Imu& message);
 
 // Empty error means success. On failure, *output is unchanged.
 std::string ConvertImage(const sensor_msgs::msg::Image& message,
-                         double time_offset, ImageMeasurement* output);
+                         double time_offset, TimedImage* output);
 std::string ConvertLivox(const livox_ros_driver2::msg::CustomMsg& message,
                          LidarScan* output);
 std::string ConvertPointCloud(const sensor_msgs::msg::PointCloud2& message,

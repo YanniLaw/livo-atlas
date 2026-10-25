@@ -21,7 +21,7 @@ which is included as part of this source code package.
 
 #include <deque>
 
-#include "livo_atlas/core/state.h"
+#include "livo_atlas/common/filter_state.h"
 #include "livo_atlas/frontend/synchronized_measurements.h"
 #include "livo_atlas/sensor/measurements.h"
 
@@ -85,7 +85,7 @@ typedef struct pointWithVar
 } pointWithVar;
 
 
-using StatesGroup = livo_atlas::State;
+using StatesGroup = livo_atlas::FilterState;
 
 template <typename T>
 auto set_pose6d(const double t, const Matrix<T, 3, 1> &a, const Matrix<T, 3, 1> &g, const Matrix<T, 3, 1> &v, const Matrix<T, 3, 1> &p,

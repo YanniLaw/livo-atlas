@@ -5,7 +5,7 @@
 #include <limits>
 
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "livo_atlas/runtime/mapping_session.h"
+#include "livo_atlas/core/livo_system.h"
 #include "ros2/fixtures.h"
 #include "test_images.h"
 namespace livo_atlas::ros2 {
@@ -29,9 +29,9 @@ void CompareSessions(FrontendMode mode) {
   auto options = test::Options(mode);
   // The legacy processor starts its counter at one and counts LIO and VIO.
   options.processor.scan_interval = 4;
-  MappingSession native(options);
-  options.output.directory /= "converted";
-  MappingSession converted(options);
+  LivoSystem native(options);
+  options.exporter.directory /= "converted";
+  LivoSystem converted(options);
   std::vector<FrontendResult> a, b;
   std::vector<bool> clouds_a, clouds_b;
   std::vector<std::vector<float>> points_a, points_b;
@@ -73,7 +73,7 @@ void CompareSessions(FrontendMode mode) {
     ASSERT_TRUE(ConvertLivox(msg, &decoded).empty());
     ASSERT_TRUE(converted.AddLidar(decoded));
     for (double timestamp : {t + .0625, t + .125, t + .1875}) {
-      ImuMeasurement imu{timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}};
+      Imu imu{timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}};
       native.AddImu(imu);
       sensor_msgs::msg::Imu m;
       m.header.stamp = FromSeconds(timestamp);
@@ -87,7 +87,7 @@ void CompareSessions(FrontendMode mode) {
       bridge.header.stamp = FromSeconds(t + .125);
       bridge.encoding = "bgr8";
       bridge.image = image;
-      ImageMeasurement decoded_image;
+      TimedImage decoded_image;
       ASSERT_TRUE(
           ConvertImage(*bridge.toImageMsg(), 0, &decoded_image).empty());
       converted.AddImage(std::move(decoded_image));
@@ -123,13 +123,13 @@ void CompareSessions(FrontendMode mode) {
   native.Finish();
   converted.Finish();
 }
-TEST(SessionTest, NativeAndConvertedLidarOnlyMatch) {
+TEST(SystemTest, NativeAndConvertedLidarOnlyMatch) {
   CompareSessions(FrontendMode::kLidarOnly);
 }
-TEST(SessionTest, NativeAndConvertedLidarInertialMatch) {
+TEST(SystemTest, NativeAndConvertedLidarInertialMatch) {
   CompareSessions(FrontendMode::kLidarInertial);
 }
-TEST(SessionTest, NativeAndConvertedRepeatedVisualMatch) {
+TEST(SystemTest, NativeAndConvertedRepeatedVisualMatch) {
   CompareSessions(FrontendMode::kLidarInertialVisual);
 }
 }  // namespace

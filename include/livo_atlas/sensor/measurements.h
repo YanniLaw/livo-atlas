@@ -10,7 +10,7 @@ namespace livo_atlas {
 
 // Sensor header time in seconds after adapter-specific time correction.
 // Acceleration retains the input units; IMU initialization normalizes it.
-struct ImuMeasurement {
+struct Imu {
   double timestamp = 0.0;
   Eigen::Vector3d angular_velocity = Eigen::Vector3d::Zero();
   Eigen::Vector3d linear_acceleration = Eigen::Vector3d::Zero();
@@ -18,14 +18,14 @@ struct ImuMeasurement {
 
 // Owns BGR8 pixels independently of the incoming message. Mat copies share
 // storage; the sequential frontend is the only writer after enqueueing.
-struct ImageMeasurement {
+struct TimedImage {
   double timestamp = 0.0;
   cv::Mat bgr;
 };
 
 // The adapter transfers a separate cloud to the sequential frontend. Curvature
 // stores the offset from timestamp in milliseconds, not surface curvature.
-struct PointCloudMeasurement {
+struct TimedPointCloud {
   double timestamp = 0.0;
   PointCloud::Ptr cloud;
 };

@@ -6,23 +6,23 @@
 #include <tf2_msgs/msg/tf_message.hpp>
 #include <thread>
 
-#include "livo_atlas/ros2/mapping_adapter.h"
+#include "livo_atlas/ros2/livo_node.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
-#include "livo_atlas/ros2/parameters.h"
-#include "livo_atlas/runtime/mapping_session.h"
+#include "livo_atlas/ros2/node_options.h"
+#include "livo_atlas/core/livo_system.h"
 #include "ros2/fixtures.h"
 namespace livo_atlas::ros2 {
 TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
-  auto params = test::Parameters("/tmp/livo_atlas_convergence/tests/dds");
+  auto params = test::Parameters("/tmp/livo_atlas_naming/tests/dds");
   params.emplace_back("common.img_en", 0);
   params.emplace_back("common.imu_topic", "/p4_test/imu");
   params.emplace_back("common.lid_topic", "/p4_test/lidar");
   params.emplace_back("preprocess.point_filter_num", 1);
   auto node = std::make_shared<rclcpp::Node>(
       "laserMapping", rclcpp::NodeOptions().parameter_overrides(params));
-  const auto config = ReadParameters(*node);
-  MappingSession session(config.mapping.session);
-  MappingAdapter mapper(*node, config, session);
+  const auto config = ReadNodeOptions(*node);
+  LivoSystem session(config.livo.system);
+  LivoNode mapper(*node, config, session);
   auto peer = std::make_shared<rclcpp::Node>("p4_dds_peer");
   int poses = 0, clouds = 0, transforms = 0;
   auto odom = peer->create_subscription<nav_msgs::msg::Odometry>(
@@ -93,15 +93,15 @@ TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
 }  // namespace livo_atlas::ros2
 
 namespace livo_atlas::ros2 {
-TEST(Ros2NodeTest, PublishesFromTheInjectedRuntime) {
-  auto params = test::Parameters("/tmp/livo_atlas_convergence/tests/injected");
+TEST(Ros2NodeTest, PublishesFromTheInjectedSystem) {
+  auto params = test::Parameters("/tmp/livo_atlas_naming/tests/injected");
   params.emplace_back("common.img_en", 0);
   params.emplace_back("preprocess.point_filter_num", 1);
   auto node = std::make_shared<rclcpp::Node>(
       "injected_runtime", rclcpp::NodeOptions().parameter_overrides(params));
-  const auto config = ReadParameters(*node);
-  MappingSession session(config.mapping.session);
-  MappingAdapter adapter(*node, config, session);
+  const auto config = ReadNodeOptions(*node);
+  LivoSystem session(config.livo.system);
+  LivoNode adapter(*node, config, session);
   auto peer = std::make_shared<rclcpp::Node>("injected_peer");
   int poses = 0;
   auto sub = peer->create_subscription<nav_msgs::msg::Odometry>(

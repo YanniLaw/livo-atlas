@@ -7,7 +7,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include "livo_atlas/core/math_types.h"
+#include "livo_atlas/common/math_types.h"
 #include "livo_atlas/sensor/point_types.h"
 
 using PointType = livo_atlas::Point;

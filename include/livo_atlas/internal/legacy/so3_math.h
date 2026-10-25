@@ -3,7 +3,7 @@
 
 #include <math.h>
 
-#include "livo_atlas/core/so3_math.h"
+#include "livo_atlas/common/so3_math.h"
 
 // Compatibility entry points for the existing algorithm consumers.
 #define SKEW_SYM_MATRX(v) \

@@ -130,8 +130,8 @@ builtin_interfaces::msg::Time FromSeconds(double seconds) {
   return stamp;
 }
 
-ImuMeasurement ConvertImu(const sensor_msgs::msg::Imu& message) {
-  ImuMeasurement measurement{
+Imu ConvertImu(const sensor_msgs::msg::Imu& message) {
+  Imu measurement{
       ToSeconds(message.header.stamp),
       Eigen::Vector3d(message.angular_velocity.x, message.angular_velocity.y,
                       message.angular_velocity.z),
@@ -147,7 +147,7 @@ ImuMeasurement ConvertImu(const sensor_msgs::msg::Imu& message) {
 }
 
 std::string ConvertImage(const sensor_msgs::msg::Image& message,
-                         double time_offset, ImageMeasurement* output) {
+                         double time_offset, TimedImage* output) {
   if (output == nullptr) return "Image: null output";
   if (message.header.stamp.nanosec >= 1000000000u)
     return "Image: invalid timestamp";
@@ -159,7 +159,7 @@ std::string ConvertImage(const sensor_msgs::msg::Image& message,
   }
   try {
     cv::Mat image = cv_bridge::toCvCopy(message, "bgr8")->image;
-    *output = ImageMeasurement{ToSeconds(message.header.stamp) + time_offset,
+    *output = TimedImage{ToSeconds(message.header.stamp) + time_offset,
                                std::move(image)};
     return {};
   } catch (const cv_bridge::Exception& error) {

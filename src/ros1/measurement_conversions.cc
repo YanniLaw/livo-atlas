@@ -96,7 +96,7 @@ std::string DecodeCloud(const sensor_msgs::PointCloud2& message,
 
 }  // namespace
 
-ImuMeasurement ConvertImu(const sensor_msgs::Imu& message) {
+Imu ConvertImu(const sensor_msgs::Imu& message) {
   return {message.header.stamp.toSec(),
           Eigen::Vector3d(message.angular_velocity.x,
                           message.angular_velocity.y,
@@ -107,7 +107,7 @@ ImuMeasurement ConvertImu(const sensor_msgs::Imu& message) {
 }
 
 std::string ConvertImage(const sensor_msgs::Image& message, double time_offset,
-                         ImageMeasurement* output) {
+                         TimedImage* output) {
   if (output == nullptr) return "Image: null output";
   if (message.width == 0 || message.height == 0 ||
       message.width > std::numeric_limits<int>::max() / 3 ||
@@ -117,7 +117,7 @@ std::string ConvertImage(const sensor_msgs::Image& message, double time_offset,
   }
   try {
     cv::Mat image = cv_bridge::toCvCopy(message, "bgr8")->image;
-    *output = ImageMeasurement{message.header.stamp.toSec() + time_offset,
+    *output = TimedImage{message.header.stamp.toSec() + time_offset,
                                std::move(image)};
     return {};
   } catch (const cv_bridge::Exception& error) {

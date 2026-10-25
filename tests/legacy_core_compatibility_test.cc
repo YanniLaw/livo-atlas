@@ -5,12 +5,12 @@
 
 #include <gtest/gtest.h>
 
-#include "livo_atlas/core/state.h"
+#include "livo_atlas/common/filter_state.h"
 
 namespace livo_atlas {
 namespace {
 
-static_assert(std::is_same<StatesGroup, State>::value);
+static_assert(std::is_same<StatesGroup, FilterState>::value);
 static_assert(std::is_same<V2F, Vector2f>::value);
 static_assert(std::is_same<V2D, Vector2d>::value);
 static_assert(std::is_same<V3D, Vector3d>::value);

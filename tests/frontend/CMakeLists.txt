@@ -18,7 +18,7 @@ target_include_directories(synchronization PUBLIC
   "${PACKAGE_INCLUDE_DIR}" ${PCL_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(synchronization PUBLIC Eigen3::Eigen
   ${PCL_COMMON_LIBRARIES} ${OpenCV_LIBRARIES})
-add_executable(synchronizer_test synchronizer_test.cc ../core/test_main.cc)
+add_executable(synchronizer_test synchronizer_test.cc ../test_main.cc)
 target_link_libraries(synchronizer_test PRIVATE synchronization GTest::GTest)
 add_test(NAME synchronizer_test COMMAND synchronizer_test)
 

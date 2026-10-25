@@ -25,7 +25,7 @@ enum class UpdateKind {
 struct MeasurementGroup {
   double vio_time = 0.0;
   double lio_time = 0.0;
-  std::deque<ImuMeasurement> imu;
+  std::deque<Imu> imu;
   cv::Mat img;
 };
 
