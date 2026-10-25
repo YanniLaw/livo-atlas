@@ -118,6 +118,7 @@ class Frontend::Impl {
       case UpdateKind::kLidarInertial:
       case UpdateKind::kLidarOnly:
         result.updated = ProcessLidar();
+        if (result.updated) cloud_timestamp_ = result.timestamp;
         break;
       case UpdateKind::kVisual:
         result.updated = ProcessVisual(*measurements, result.relative_time);
@@ -127,6 +128,11 @@ class Frontend::Impl {
     }
     result.estimate = state_;
     if (result.updated) {
+      result.cloud_timestamp = cloud_timestamp_;
+      if (result.kind == UpdateKind::kVisual) {
+        result.image_timestamp =
+            measurements->updates.back().visual_update_time;
+      }
       result.world_cloud = world_;
       CaptureOutput(&result);
       // Consumption belongs to the frontend, even if the caller skips output.
@@ -258,6 +264,7 @@ class Frontend::Impl {
   }
 
   FrontendOptions options_;
+  double cloud_timestamp_ = 0;
   FilterState state_;
   FilterState propagated_;
   std::unique_ptr<ImuProcessor> imu_;

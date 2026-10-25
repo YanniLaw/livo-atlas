@@ -37,6 +37,8 @@ endfunction()
 
 livo_atlas_library(calibration src/sensor/extrinsics.cc src/camera/camera_config.cc)
 target_link_libraries(livo_atlas_calibration PUBLIC Eigen3::Eigen)
+livo_atlas_library(keyframes src/mapping/keyframe.cc src/mapping/keyframe_selector.cc)
+target_link_libraries(livo_atlas_keyframes PUBLIC livo_atlas_calibration pcl_common opencv_core)
 livo_atlas_library(camera src/camera/camera.cc src/camera/camera_factory.cc
   src/camera/pinhole_camera.cc src/camera/equidistant_camera.cc src/image/image_ops.cc)
 target_link_libraries(livo_atlas_camera PUBLIC livo_atlas_calibration
@@ -78,9 +80,9 @@ target_link_libraries(livo_atlas_io PUBLIC livo_atlas_camera Eigen3::Eigen
   pcl_io pcl_filters opencv_core opencv_imgcodecs)
 livo_atlas_library(core src/core/livo_system.cc src/core/system_options.cc src/core/livo_config.cc)
 target_link_libraries(livo_atlas_core PUBLIC livo_atlas_frontend
-  livo_atlas_synchronization livo_atlas_preprocess livo_atlas_colorizer livo_atlas_io)
+  livo_atlas_synchronization livo_atlas_preprocess livo_atlas_colorizer livo_atlas_io livo_atlas_keyframes)
 
-install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camera
+install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camera livo_atlas_keyframes
   livo_atlas_synchronization livo_atlas_preprocess livo_atlas_imu livo_atlas_lio
   livo_atlas_vio livo_atlas_frontend livo_atlas_colorizer livo_atlas_io livo_atlas_core
   EXPORT livo_atlasTargets

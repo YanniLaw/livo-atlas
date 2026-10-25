@@ -3,6 +3,7 @@
 
 #include <Eigen/Geometry>
 #include <opencv2/core/mat.hpp>
+#include <optional>
 #include <vector>
 
 #include "livo_atlas/common/filter_state.h"
@@ -17,6 +18,9 @@ struct FrontendResult {
   bool updated = false;
   double timestamp = 0.0;
   double relative_time = 0.0;
+  // Effective sensor times after the existing synchronization corrections.
+  double cloud_timestamp = 0.0;
+  std::optional<double> image_timestamp;
   FilterState prediction;
   FilterState estimate;
   // Read-only views valid until the next Process call. States are values.
