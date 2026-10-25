@@ -138,6 +138,8 @@ python3 src/livo-atlas/tools/run_ros2_baseline.py \
 ```
 
 `--save-products` 保存 PCD、图像和 COLMAP；`--default-threads` 检查默认并行配置。
+`--save-keyframes` 启用并保存独立关键帧数据集；Noetic 工具支持相同选项。
+默认值、两端节点启用方式及重读命令见[关键帧数据集](keyframe-dataset.md)。
 工具保留输入字节摘要、观察者与节点接收计数、轨迹、发布摘要、文件摘要及退出状态，
 失败返回非零。输出目录必须不存在。默认输出目录仍遵循 ROS_HOME/HOME，显式指定目录
 便于迁移和保存运行证据。
@@ -150,4 +152,4 @@ python3 src/livo-atlas/tools/run_ros2_baseline.py \
 作为隐含前提。P4 用同环境离线 session 与实际接入对照定位差异，同时保留跨环境量化结果；
 没有修改估计公式或以新容差掩盖接入差异。
 
-GTSAM、持久关键帧和 3DGS 仍属于后续阶段。
+P5-01 已提供关键帧选择、快照和版本化位姿存储；GTSAM、子地图和新的 3DGS 导出仍待实现。

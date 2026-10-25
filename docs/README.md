@@ -21,6 +21,7 @@
 17. [接入进一步收敛设计](superpowers/specs/2026-10-25-ros-convergence-design.md)、[实施计划](superpowers/plans/2026-10-25-ros-convergence.md)及[实测与迁移](p4-convergence-validation.md)：main注入同一普通MappingSession、共用参数清单、对称ROS接入职责与独立runtime安装。
 18. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
 19. [命名与职责整理设计](superpowers/specs/2026-10-25-naming-cleanup-design.md)、[实施计划](superpowers/plans/2026-10-25-naming-cleanup.md)、[迁移清单](naming-audit.md)及[当前验证](p4-naming-validation.md)：core/common、LivoSystem与对称ROS节点、旧兼容层移除、着色和导出职责归类；保留六个指定类型名。
+20. [P5-01 关键帧设计](superpowers/specs/2026-10-26-p5-keyframes-design.md)、[实施计划](superpowers/plans/2026-10-26-p5-keyframes.md)、[数据集与使用说明](keyframe-dataset.md)及[验证记录](p5-01-validation.md)：独立快照、目录式存储与原始/优化位姿版本。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
@@ -39,6 +40,12 @@ Noetic172项单元/8项真实ROS/50项启动、Humble188项C++/16项启动通过
 普通152、Noetic172单元/8真实ROS/50启动、Humble188单元/16启动及39个普通头通过；
 三种普通SDK和ament安装消费通过，两端完整bag各1351位姿、四数组/发布精确保持，短段各57文件逐字节一致。
 当前入口与跨电脑迁移见[命名整理报告](p4-naming-validation.md)。历史报告中的runtime等名称保留其原始记录。
+
+P5-01 已加入默认关闭的关键帧选择、独立快照、数据集保存/重读和优化位姿版本。
+普通178、Noetic198单元/8真实ROS、Humble214项及42个普通公开头通过，三种SDK及ament迁移消费通过。
+两端开启关键帧的完整bag各1351位姿、172个带图像关键帧；四数组/发布保持精确一致，短段各57个原有产品逐字节一致。
+Humble数据集经Noetic构建的C++读者完整消费。格式和操作见[数据集说明](keyframe-dataset.md)，
+具体证据见[P5-01报告](p5-01-validation.md)。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
 2026-10-11 的原版采集结果位于工作区 `validation/P0-noetic-20261011/`。

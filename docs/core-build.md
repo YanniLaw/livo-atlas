@@ -12,7 +12,7 @@ C++17 库。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Hu
 - 兼容 `sophus/se3.h` 的旧版 Sophus（原工程所用的非模板版本）。通过
   `Sophus_DIR` 或 `CMAKE_PREFIX_PATH` 指定实际安装配置；不硬编码库名。
 - OpenMP 可选。`LIVO_ATLAS_USE_OPENMP=OFF` 同时关闭编译选项和并行宏。
-- GTest 仅测试需要。`BUILD_TESTING=OFF` 可以只构建独立库。
+- GTest 仅测试需要。`BUILD_TESTING=OFF` 构建独立库及数据集检查工具。
 
 算法目标使用编译器默认指令集，不加 native ISA 或 fast-math。使用单任务编译，
 并在构建完成后回放 bag，避免同时占用大量内存。
@@ -52,6 +52,8 @@ target_link_libraries(my_frontend PRIVATE livo_atlas::core)
 `livo_atlas/core/livo_system.h`。`livo_atlas::core` 提供完整输入、同步、估计与输出组合；
 仅需自己调度前端时可使用 `livo_atlas/frontend/frontend.h` 和 `livo_atlas::frontend`。
 `livo_atlas::camera`、`livo_atlas::colorizer`、`livo_atlas::io` 可以分别链接。
+`livo_atlas::keyframes` 提供快照、选择及几何操作，`io` 提供数据集读写；
+格式、位姿版本和检查工具见[关键帧数据集](keyframe-dataset.md)。
 `common/` 只有共享定义，没有单独的物理库或聚合目标。
 `tests/installed_consumer` 实际通过 Frontend 和 LivoSystem 两种接口执行连续
 LO/LIO/VIO，并检查视觉跟踪、有限状态和文件写入。它只依赖安装头和导出目标。
@@ -89,7 +91,7 @@ build-catkin-consumer/catkin_consumer
 
 `LIVO_ATLAS_ROS_VERSION=2` 提供 Humble 接入，要求已 source Humble 环境。
 其 ament 安装导出同一套 namespaced core target；mode 0 不需要 ROS。
-GTSAM 后端、持久关键帧和 3DGS 仍属于后续阶段。
+关键帧基础存储已提供；GTSAM 后端、子地图管理和新的 3DGS 导出属于后续阶段。
 
 ## 数值与接口约定
 
@@ -110,7 +112,7 @@ ROS 层仅对成功更新打印一次整体 LIO/VIO 耗时；LivoSystem测量耗
 Noetic 与 Humble 的可执行文件都从 `src/app/livo_main.cc` 编译。公共
 `cmake/node.cmake` 创建一次 `fastlivo_mapping`；目标私有宏
 `LIVO_ATLAS_ROS_VERSION=1|2` 只选择入口里的初始化、适配器、执行器与退出处理。
-mode0 仅提供普通库。`cmake/ros1.cmake` / `cmake/ros2.cmake` 保留各自接入库和包导出。
+mode0 提供普通库及离线数据集检查工具。`cmake/ros1.cmake` / `cmake/ros2.cmake` 保留各自接入库和包导出。
 
 ```text
 src/
@@ -120,11 +122,11 @@ src/
 │   ├── frontend.cc                   # 估计流程与状态所有权
 │   ├── imu/{imu_processor,imu_propagation}.cc
 │   └── vision/{vio,frame,image_options}.cc
-├── mapping/{voxel_map,visual_point,cloud_colorizer}.cc
+├── mapping/                         # 体素/视觉地图、着色、关键帧快照与选择
 ├── sensor/{lidar_preprocessor,synchronizer,extrinsics}.cc
 ├── camera/                          # 相机模型
 ├── image/                           # 图像基础操作
-├── io/livo_exporter.cc               # 记录、轨迹、PCD、图像、COLMAP
+├── io/                              # 原有导出与 keyframe_store 数据集
 ├── ros1/                            # 四对接入源/头
 └── ros2/                            # 同样四类职责
 ```
@@ -148,4 +150,4 @@ visual_point 归 mapping，Frame/Feature 归视觉前端；目录不强制对应
 `CloudColorizer::Process(result)` 返回 `ColoredCloud::ConstPtr`；空指针表示没有有效云，
 非空空云保留原发布节奏。`LivoPublisher` 负责 ROS 消息与 TF；`LivoExporter` 负责文件，
 COLMAP 相机和去畸变图像也由导出器管理。跳过发布不影响同步消费与文件导出。
-未来关键帧/GTSAM/3DGS 从普通结果和 I/O 边界继续接入。
+关键帧从普通结果与 I/O 边界接入，后续 GTSAM/3DGS 可消费独立数据集和位姿版本。
