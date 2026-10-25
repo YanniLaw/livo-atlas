@@ -1,0 +1,4 @@
+# Process-level retention reproduced by the no-map and map probes: 3 allocations
+# of 4104 bytes from libtbb.so.2+0x2766f on the recorded Noetic host.
+# No livo-atlas, map, camera or estimator allocation site is suppressed.
+leak:libtbb.so.2

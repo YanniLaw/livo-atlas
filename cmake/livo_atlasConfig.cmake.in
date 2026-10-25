@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Eigen3)
+find_dependency(PCL COMPONENTS common filters io)
+find_dependency(OpenCV COMPONENTS core imgproc calib3d imgcodecs)
+find_dependency(Sophus)
+find_dependency(Threads)
+if(@LIVO_ATLAS_CONFIG_OPENMP@)
+  find_dependency(OpenMP COMPONENTS CXX)
+endif()
+include(${CMAKE_CURRENT_LIST_DIR}/sophus_target.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/livo_atlasTargets.cmake)
+check_required_components(livo_atlas)

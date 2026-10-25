@@ -1,5 +1,14 @@
 # FAST-LIVO2
 
+本工程以 `livo-atlas` 为包目录开展重构。[重构文档](docs/README.md)包含目标架构、阶段验收、跨电脑验证步骤及 C++ 编码约定。
+
+当前提供普通 C++17 核心库、ROS1 Noetic 和 ROS2 Humble；两个 ROS 版本共用
+`src/app/livo_main.cc` 入口、`LivoSystem` 处理流程和参数清单，接入层只负责
+各自的 ROS API。构建操作见
+[双版本说明](docs/ros-builds.md)，职责目录和旧头路径迁移见
+[源码组织](docs/core-build.md#源码组织与-include-迁移)。
+当前命名迁移、职责边界与验证见 [整理记录](docs/p4-naming-validation.md)。
+
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 
 ### 📢 News
@@ -50,7 +59,8 @@ The [**FAST-Calib**](https://github.com/hku-mars/FAST-Calib) toolkit is recommen
 
 ### 2.1 Ubuntu and ROS
 
-Ubuntu 18.04~20.04.  [ROS Installation](http://wiki.ros.org/ROS/Installation).
+本分支已验证 Ubuntu 20.04 / ROS1 Noetic 与 Ubuntu 22.04 / ROS2 Humble。
+依赖和构建命令见 [双版本说明](docs/ros-builds.md)。
 
 ### 2.2 PCL && Eigen && OpenCV
 
@@ -73,26 +83,22 @@ make
 sudo make install
 ```
 
-### 2.4 Vikit
+### 2.4 livo-atlas core
 
-Vikit contains camera models, some math and interpolation functions that we need. Vikit is a catkin project, therefore, download it into your catkin workspace source folder.
-
-```bash
-# Different from the one used in fast-livo1
-cd catkin_ws/src
-git clone https://github.com/xuankuzcr/rpg_vikit.git 
-```
+livo-atlas provides its own camera models and image operations. Vikit is no
+longer required. See [standalone C++ / Noetic build instructions](docs/core-build.md)
+for the current build entry points and supported dependencies.
 
 ## 3. Build
 
-Clone the repository and catkin_make:
+For this refactored package, follow [core / Noetic builds](docs/core-build.md).
+In an existing Noetic workspace containing `src/livo-atlas`:
 
 ```
-cd ~/catkin_ws/src
-git clone https://github.com/hku-mars/FAST-LIVO2
-cd ../
-catkin_make
-source ~/catkin_ws/devel/setup.bash
+source /opt/ros/noetic/setup.bash
+cd ~/livo-atlas_ws
+catkin_make -DCATKIN_BLACKLIST_PACKAGES="vikit_common;vikit_ros" -j1
+source devel/setup.bash
 ```
 
 ## 4. Run our examples
