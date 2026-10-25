@@ -5,17 +5,24 @@
 两套 ROS 使用各自的构建目录和依赖；已验证的平台是 Ubuntu20.04/Noetic 与
 Ubuntu22.04/Humble。跨系统需要重新编译。
 
-算法库、相机、同步器和文件输出共用；`src/ros1` 与 `src/ros2` 处理各自的参数、消息与发布。
-ROS2 的 `mapping_session` 是接入实现中的普通 C++ 组合对象，不是另一套估计器，也不是新公开 SDK。
+算法库、相机、同步器、文件输出和运行调度共用；`src/runtime` 的公开 `MappingSession`
+统一处理普通测量，`LoadMappingOptions` 统一参数键、默认值、标定装配和校验。
+`src/ros1` 与 `src/ros2` 各自只处理参数来源、消息转换、订阅/定时器与发布。
 核心安装与外部 CMake 消费见 [core-build.md](core-build.md)。
 
 两个版本共用 `src/app/mapping_main.cc` 中唯一的 main，按 OpenVINS 的
 [统一入口组织方式](https://github.com/rpng/open_vins/blob/master/ov_msckf/src/run_subscribe_msckf.cpp)
 选择 ROS 初始化、适配器和执行器。`cmake/node.cmake` 创建一次节点目标，
-仅给它定义 `LIVO_ATLAS_ROS_VERSION=1|2`；普通算法库没有这个宏。Noetic 分支创建
-LIVMapper，Humble 分支创建 MapperNode 并在单线程 executor 退出后 Finish/shutdown。
+仅给它定义 `LIVO_ATLAS_ROS_VERSION=1|2`；普通算法库没有这个宏。共同路径创建一次
+MappingSession，再将引用注入所选的 MappingAdapter，正常退出时共同 Finish/报告输入。
+Noetic保留 spinOnce/5000Hz空闲等待，Humble保留单线程executor/1ms处理定时器。
 `src/ros1` / `src/ros2` 保存各自的接入实现；源码与头文件的职责目录和 include 迁移表见
 [源码组织](core-build.md#源码组织与-include-迁移)。
+
+两个ROS目录均为 `mapping_adapter`、`parameters`、`measurement_conversions`、
+`result_publisher` 四对源/头。两端算法流程相同，API差异仍留在各自适配器：Noetic的
+NodeHandle、XmlRpc、ImageTransport与无符号时间范围，Humble的rclcpp、DDS QoS和有符号时间范围。
+设计和实际验证见 [接入收敛记录](p4-convergence-validation.md)。
 
 ## 依赖
 
@@ -88,6 +95,10 @@ launch 直接读取既有 `config/avia.yaml` 与 `config/camera_pinhole.yaml`，
 `extrin_calib.extrinsic_R`、`vio.patch_size`、`output.directory`。标定数组支持整数或浮点数。
 自定义参数在启动后只读；内建 `use_sim_time` 由 rclcpp 管理。
 
+两端配置均由公共清单读取。Noetic保留斜杠键和私有相机参数，Humble使用点号键；
+整数/浮点标定统一接受。普通配置先校验，话题先解析，随后才创建Session与输出文件。
+Noetic现在也会拒绝非法协方差/地图/预处理配置和非有限IMU；合法数据维持原结果。
+
 输入 QoS 默认为 best_effort/volatile；IMU、云、图像队列默认 2000/100/20。
 回放 bag 时使用 launch 的 `reliability:=reliable`，大图像的可靠传输已实测核验。
 直接启动可执行文件时可用 `--ros-args -p qos.reliability:=reliable`，以及
@@ -133,7 +144,8 @@ python3 src/livo-atlas/tools/run_ros2_baseline.py \
 
 ## 数值复现范围
 
-相同环境和相同输入要求严格一致。Noetic 回归继续对照冻结的 P3 结果。
+相同环境和相同输入要求严格一致。本次接入收敛逐环境对照冻结的P4-layout结果；
+之前Noetic对P3、Humble对同环境P4的关系保存在历史报告中。
 不同编译器与 Eigen/PCL/OpenCV 版本之间存在实测数值差异，不能用跨系统逐字节相同
 作为隐含前提。P4 用同环境离线 session 与实际接入对照定位差异，同时保留跨环境量化结果；
 没有修改估计公式或以新容差掩盖接入差异。

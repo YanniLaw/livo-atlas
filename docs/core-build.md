@@ -1,7 +1,7 @@
 # 独立核心与 ROS 构建
 
-P3 把相机模型、图像基础操作、同步、预处理、前端和文件输出作为普通
-C++17 库构建。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Humble
+相机模型、图像基础操作、同步、预处理、前端、文件输出与运行调度均为普通
+C++17 库。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Humble
 接入库；公共 `cmake/node.cmake` 从同一个 `src/app/mapping_main.cc` 创建节点。双版本操作见 [ros-builds.md](ros-builds.md)。
 `rpg_vikit` 不再是 livo-atlas 的构建或运行依赖；工作区里原有的依赖源码可以保留。
 
@@ -45,13 +45,16 @@ cmake_minimum_required(VERSION 3.16)
 project(my_frontend LANGUAGES C CXX)
 find_package(livo_atlas REQUIRED CONFIG)
 add_executable(my_frontend main.cc)
-target_link_libraries(my_frontend PRIVATE livo_atlas::core)
+target_link_libraries(my_frontend PRIVATE livo_atlas::runtime)
 ```
 
 配置外部工程时指定 `-DCMAKE_PREFIX_PATH=/实际/sdk/前缀`。公开入口为
-`livo_atlas/frontend/frontend.h`；`livo_atlas::core` 聚合前端、同步与预处理，
+`livo_atlas/runtime/mapping_session.h`。`livo_atlas::runtime` 提供完整输入、同步、估计与输出组合；
+仅需自己调度前端时可使用 `livo_atlas/frontend/frontend.h` 和 `livo_atlas::core`。
+`livo_atlas::core` 聚合前端、同步与预处理，
 `livo_atlas::camera`、`livo_atlas::output`、`livo_atlas::io` 可以分别链接。
-`tests/installed_consumer` 是实际执行连续 LO/LIO/VIO 的独立消费示例。
+`tests/installed_consumer` 实际通过 Frontend 和 MappingSession 两种接口执行连续
+LO/LIO/VIO，并检查视觉跟踪、有限状态和文件写入。它只依赖安装头和导出目标。
 
 ## ROS1 Noetic
 
@@ -85,7 +88,7 @@ build-catkin-consumer/catkin_consumer
 本机 shared/static 两种 catkin 消费均已验证。
 
 `LIVO_ATLAS_ROS_VERSION=2` 提供 Humble 接入，要求已 source Humble 环境。
-其 ament 安装导出同一套 namespaced core target；mode 0 不需要 ROS。
+其 ament 安装导出同一套 namespaced core/runtime target；mode 0 不需要 ROS。
 GTSAM 后端、持久关键帧和 3DGS 仍属于后续阶段。
 
 ## 数值与接口约定
@@ -96,8 +99,11 @@ GTSAM 后端、持久关键帧和 3DGS 仍属于后续阶段。
 单独记录，不用于放宽 bag 和导出比较。
 
 `FrontendResult` 的状态为值快照，图像和点云视图有效期到下一次 `Process`。
-文件写入和 ROS 发布由调用者处理，跳过发布也会正常消费视觉帧。
-ROS 层仅对成功更新打印一次整体 LIO/VIO 耗时，核心不读取墙上时间。
+直接使用 Frontend 时，文件写入和 ROS 发布由调用者处理，跳过发布也会正常消费视觉帧。
+MappingSession 组合输出处理和 ResultWriter；`ProcessNext` 处理一次同步结果，
+`ProcessAvailable` 处理到等待输入，回调可为空。调用方串行执行输入、处理和传播，
+正常退出调用 `Finish`。回调视图在下一次处理前消费。
+ROS 层仅对成功更新打印一次整体 LIO/VIO 耗时；runtime测量耗时，估计仍使用传感器时间。
 
 ## 源码组织与 include 迁移
 
@@ -109,6 +115,7 @@ mode0 仅提供普通库。`cmake/ros1.cmake` / `cmake/ros2.cmake` 保留各自�
 ```text
 src/
 ├── app/mapping_main.cc           # 唯一 ROS 节点入口
+├── runtime/                     # 共用 Session、参数清单与普通校验
 ├── frontend/
 │   ├── frontend.cc               # 估计流程与状态所有权
 │   ├── imu/imu_processor.cc      # IMU 初始化、传播、去畸变
@@ -119,15 +126,17 @@ src/
 ├── image/                       # 图像基础操作
 ├── output/                      # 普通结果处理
 ├── io/                          # 文件输出
-├── ros1/                        # LIVMapper、参数、转换、发布
-└── ros2/                        # MapperNode、session、参数、转换、发布
+├── ros1/                        # mapping_adapter、parameters、转换、发布
+└── ros2/                        # 同样四类职责，使用 ROS2 API
 ```
 
-头文件沿用同样职责目录，统一从 `include/livo_atlas` 进入；ROS2 私有组合对象的头留在
-`src/ros2`。visual_point 描述带世界坐标和观测关联的地图点，归 mapping；frame/feature
+头文件沿用同样职责目录，统一从 `include/livo_atlas` 进入。两个ROS目录都只有
+`mapping_adapter`、`parameters`、`measurement_conversions`、`result_publisher` 四对源/头。
+visual_point 描述带世界坐标和观测关联的地图点，归 mapping；frame/feature
 归视觉前端。库目标保留原名，视觉地图点仍由 `livo_atlas_vio` 编译，目录不要求一目录一库。
 
-旧源码使用方更新下表中的 include；类名和链接目标保持。安装里使用同一套新路径。
+旧算法源码使用方更新下表中的 include；算法类名和链接目标保持。
+ROS接入内部类已替换，详见下文。安装里使用同一套新路径。
 
 | 旧 include | 新 include |
 |---|---|
@@ -138,14 +147,24 @@ src/
 | `voxel_map.h` | `livo_atlas/mapping/voxel_map.h` |
 | `visual_point.h` | `livo_atlas/mapping/visual_point.h` |
 | `preprocess.h` | `livo_atlas/sensor/preprocess.h` |
-| `LIVMapper.h` | `livo_atlas/ros1/mapper.h`（仅 Noetic） |
+| `LIVMapper.h` / `livo_atlas/ros1/mapper.h` | `livo_atlas/ros1/mapping_adapter.h`，需更新构造调用 |
+| `ros2/mapper_node.h` | `livo_atlas/ros2/mapping_adapter.h`，需更新构造调用 |
+| `ros2/mapping_session.h` | `livo_atlas/runtime/mapping_session.h`，命名空间改为 `livo_atlas` |
+| `ros2/result_publisher.h` | `livo_atlas/ros2/result_publisher.h` |
 | `common_lib.h` | `livo_atlas/internal/legacy/common.h` |
 | `utils/types.h` | `livo_atlas/internal/legacy/types.h` |
 | `utils/so3_math.h` | `livo_atlas/internal/legacy/so3_math.h` |
 | `utils/color.h` | `livo_atlas/internal/legacy/color.h` |
 
-原根目录 `.cpp` 按上面的职责改为 `.cc`：IMU_Processing→imu_processor，LIVMapper→mapper，
+原根目录 `.cpp` 按上面的职责改为 `.cc`：IMU_Processing→imu_processor，LIVMapper的组合职责→runtime，
 其余实现保留基础文件名。新代码使用 `livo_atlas/frontend/frontend.h` 等普通接口；
 `internal/legacy` 集中旧宏、全局别名和兼容数学入口，供既有算法过渡，避免继续扩张。
 本轮保持旧算法正文和类型名称，按模块逐步消化旧实现，不进行整仓库格式化。
 未来关键帧快照/GTSAM/重建输出继续从普通前端结果和 I/O 边界接入。
+
+旧接入类不再拥有算法状态。调用方先 `ReadParameters(node)`，再创建
+`MappingSession(parameters.mapping.session)`，将其引用注入
+`MappingAdapter(node, parameters, session)`。Session先构造、后析构，适配器先析构。
+`NodeParameters` 的普通配置统一为 `.mapping`；ROS2 QoS仍在本地配置中。
+旧 `calibration_reader` / `voxel_options_reader` 的调用改走公共参数清单；不保留转发头。
+原 `livo_atlas_ros2_session` / `livo_atlas_ros1_output` 目标分别并入普通runtime / ROS1 mapper库。

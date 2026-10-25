@@ -2,10 +2,12 @@
 
 本工程以 `livo-atlas` 为包目录开展重构。[重构文档](docs/README.md)包含目标架构、阶段验收、跨电脑验证步骤及 C++ 编码约定。
 
-当前提供普通 C++17 核心、ROS1 Noetic 和 ROS2 Humble；两个 ROS 版本共用
-`src/app/mapping_main.cc` 入口，按构建版本选择接入库。构建操作见
+当前提供普通 C++17 核心与运行库、ROS1 Noetic 和 ROS2 Humble；两个 ROS 版本共用
+`src/app/mapping_main.cc` 入口、`MappingSession` 处理流程和参数清单，接入层只负责
+各自的 ROS API。构建操作见
 [双版本说明](docs/ros-builds.md)，职责目录和旧头路径迁移见
 [源码组织](docs/core-build.md#源码组织与-include-迁移)。
+本次进一步收敛的设计与验证见 [接入收敛记录](docs/p4-convergence-validation.md)。
 
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 

@@ -18,7 +18,8 @@
 14. [P3 核心独立设计](superpowers/specs/2026-10-24-p3-independent-core-design.md)、[执行计划](superpowers/plans/2026-10-24-p3-independent-core.md)、[实测记录](p3-validation.md)及[跨电脑构建说明](core-build.md)：普通相机/图像函数、core/Noetic 构建入口、外部消费与评审修复。
 15. [P4 Humble 设计](superpowers/specs/2026-10-24-p4-humble-design.md)、[执行计划](superpowers/plans/2026-10-24-p4-humble.md)、[双版本使用说明](ros-builds.md)和[实测记录](p4-validation.md)：共用核心、ROS2接入、完整DDS回放及跨环境差异归因。
 16. [统一入口与职责目录修正](superpowers/specs/2026-10-24-p4-unified-entry-layout-design.md)、[实施计划](superpowers/plans/2026-10-24-p4-unified-entry-layout.md)：同一 main、算法文件分类和规范 include 路径；当前目录见[源码组织](core-build.md#源码组织与-include-迁移)，结果见[修正验证记录](p4-layout-validation.md)。
-17. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
+17. [接入进一步收敛设计](superpowers/specs/2026-10-25-ros-convergence-design.md)、[实施计划](superpowers/plans/2026-10-25-ros-convergence.md)及[实测与迁移](p4-convergence-validation.md)：main注入同一普通MappingSession、共用参数清单、对称ROS接入职责与独立runtime安装。
+18. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
@@ -26,7 +27,12 @@ P1-02 已完成普通标定类型、ROS1 参数入口、相机接线、直接测
 P1-03 已完成内部测量类型、ROS1 转换、IMU 值输入、预处理独立构建、审阅问题闭环及最终完整回放；验证包括 78 项单元测试、2 项真实 ROS 回调、13 项 ASan 预处理、40 项启动检查和两组导出值零差异配对。
 P2-01 已完成普通 C++ 同步器、ROS1 成对缓冲和独立审阅；98 项单元、5 项真实 ROS、40 项启动检查、两组导出值零差异对照及默认并行回放通过，另有 1 项延期的 IMU 回调补测建议。P2-02 已完成前端状态/处理所有权、ROS1 结果消费及审阅修复；106单元、9真实ROS、40启动、地图生命周期泄漏检查和最终完整回放通过，配对导出值零差异。P2-03 完成发布/I/O 分离及独立 writer：132 单元、11 真实 ROS、50 启动检查、精确 bag/导出对照通过。P3 已去除 vikit 并提供独立核心：150 单元、shared/static 核心各130项、12真实ROS、50启动、23公开头检查通过；三种安装迁移消费及外部catkin消费通过，136秒回放精确一致，57个导出文件逐字节一致。整阶段评审问题已闭环，无延期 Minor。P4 已完成 Noetic/Humble 同源接入及一次独立评审修复：Noetic158单元/12真实ROS/50启动，Humble176单元/16实际启动、5项Python工具测试通过；shared/static核心各138项及25公开头通过。两套环境均完整回放1351位姿，Noetic对P3严格一致，Humble同环境离线/DDS严格一致，跨环境差异已量化。下一步为关键帧快照与存储边界，再接 GTSAM/重建导出。
 
-当前入口修正已经统一 main，并完成职责目录和规范头路径迁移。Noetic158、Humble176、36个普通头、三种独立SDK及双ROS完整回归通过；各自P4参考的数组/发布精确一致，短段各57个产品精确一致。评审和迁移包记录见[本阶段报告](p4-layout-validation.md)。
+上一轮入口修正统一main并完成职责目录和规范头迁移，其Noetic158/Humble176等历史结果见[入口修正报告](p4-layout-validation.md)。
+
+本轮进一步收敛为一份普通MappingSession、一份参数清单和两个各含四类职责的ROS适配器。
+Noetic169项单元/8项真实ROS/50项启动、Humble185项C++/16项启动通过；普通shared/static各149项与40个公开头检查通过。
+三种普通SDK和ament安装实际消费runtime成功；两端全包各1351位姿、四数组与发布精确保持，短段各57个产品逐字节一致。
+详细迁移和证据见[接入收敛报告](p4-convergence-validation.md)。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
 2026-10-11 的原版采集结果位于工作区 `validation/P0-noetic-20261011/`。
