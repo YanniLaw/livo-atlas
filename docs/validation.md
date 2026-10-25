@@ -1,11 +1,11 @@
 # ROS1 基线与回归验证
 
 本文命令从包含 `src/livo-atlas`、`src/rpg_vikit` 和 `Retail_Street.bag` 的工作区根目录执行。
-所有路径根据当前目录生成，不依赖本机用户名。目标环境是 ROS1 Noetic；Humble 验证流程在 P4 实施时增加。
+所有路径根据当前目录生成，不依赖本机用户名。目标环境是 ROS1 Noetic；Humble 流程见 [ros-builds.md](ros-builds.md)。
 
 ## 1. 准备环境和记录版本
 
-需要已可用的 Noetic、C++17 编译器、CMake、Eigen、Google Test、PCL、OpenCV、Sophus 和现有 vikit。
+需要已可用的 Noetic、C++17 编译器、CMake、Eigen、Google Test、PCL、OpenCV、Sophus；保留的 vikit 源码仅用于记录历史，不是当前依赖。
 独立数学/状态测试只需要 CMake、C++17、Eigen 和 Google Test，不需要加载 ROS 环境。
 验证脚本使用系统 Python3 的 `rosbag`、`rospy`、`numpy`、`psutil` 及 ROS 标准消息模块。
 先使用与原工程兼容的依赖版本；本工程当前使用 `<sophus/se3.h>` 和 `libSophus.so`，不能未经构建验证直接替换成不同接口的 Sophus。
@@ -40,7 +40,7 @@ sha256sum "$WS_ROOT/Retail_Street.bag" > "$RUN_ROOT/bag.sha256"
 
 P2-03 起通过 `output/directory` 写入本次证据目录，不再依赖源码路径。P2-02 及更早的节点仍向编译时 `ROOT_DIR` 下的 `Log/` 写文件，使用当前 `run_baseline.py` 验证这些旧节点时必须加 `--legacy-output`。
 为固定实际测试源码与二进制，`run_baseline.py` 继续要求源码副本，拒绝直接使用开发包自身。本文后半的历史命令复现旧版本时，也应使用对应版本的工具或添加该兼容开关，不能覆盖冻结证据。
-vikit 只通过符号链接参与构建，不修改其源码。
+当前包不依赖 vikit；下面的链接仅保留历史工作区形态，不修改其源码。
 
 ```bash
 /usr/bin/python3 - "$PACKAGE_ROOT" "$RUN_ROOT/ws/src/livo-atlas" <<'PY'
@@ -65,7 +65,7 @@ ln -s /opt/ros/noetic/share/catkin/cmake/toplevel.cmake "$RUN_ROOT/ws/src/CMakeL
 下面的 `core_header_checks` 为每个核心头生成并编译一个只包含该头的源文件；用例使用同一份实现。
 
 ```bash
-cmake -S "$PACKAGE_ROOT/tests/core" -B "$RUN_ROOT/core-build" \
+cmake -S "$PACKAGE_ROOT/tests/common" -B "$RUN_ROOT/core-build" \
   -DCMAKE_BUILD_TYPE=Release > "$RUN_ROOT/core-configure.log" 2>&1
 nice -n 10 cmake --build "$RUN_ROOT/core-build" -- -j1 \
   > "$RUN_ROOT/core-build.log" 2>&1
@@ -73,7 +73,7 @@ nice -n 10 cmake --build "$RUN_ROOT/core-build" -- -j1 \
 ```
 
 检查 `core-build/compile_commands.json` 中头文件检查的命令：只应有工程 include 和 Eigen 路径，不能出现 ROS、PCL 或 vikit 路径。
-该独立入口覆盖数学、状态和标定；sensor、synchronization、writer 的独立入口及最新计数见 [P2-03 复现记录](p2-03-validation.md)。完整前端仍通过下方 catkin 构建。
+该独立入口覆盖数学、状态和标定；sensor、synchronization、writer 的独立入口及最新计数见 [P2-03 复现记录](p2-03-validation.md)。完整独立核心与安装消费见 [core-build.md](core-build.md)。
 头文件检查直接读取 Eigen target 的包含路径，兼容独立入口声明的 CMake 3.10 下限；
 object library 的链接支持在 [CMake 3.12](https://cmake.org/cmake/help/v3.12/release/3.12.html#commands) 才加入。
 本文命令使用 Noetic 自带的 CMake 3.16，未单独实测旧版工具链。
@@ -87,7 +87,7 @@ cmake -S "$RUN_ROOT/ws/src" -B "$RUN_ROOT/ws/build" \
 
 nice -n 10 cmake --build "$RUN_ROOT/ws/build" \
   --target fastlivo_mapping pcl_memory_compatibility_test \
-    core_math_state_test legacy_core_compatibility_test \
+    core_math_state_test shared_math_contract_test \
     vio_reference_patch_test vio_sampling_test -- -j1 \
   > "$RUN_ROOT/build.log" 2>&1
 
@@ -102,7 +102,7 @@ cd "$WS_ROOT"
 
 依次检查每条命令的退出码，构建或测试失败时停止回放并保留日志。
 PCL 内存用例实际调用系统 `VoxelGrid` 分配点云并释放它，可捕获 native 编译引起的分配约定不兼容。
-核心用例覆盖数学分支与 19 维状态行为，兼容用例检查旧名称是否转发到同一个实现。
+核心用例覆盖数学分支与 19 维状态行为，行为契约用例检查原 Euler 约定及 ResetPose 保留状态/协方差。
 VIO 回归用例调用真实参考 patch 评分，验证新计算和已缓存的均值产生相同的正确评分。
 采样用例调用真实 VIO 更新，覆盖粗层边界、安全细层和全部测量无效时的协方差。
 Python 用例校验轨迹比较的位移、旋转、四元数符号和时间序列检查。

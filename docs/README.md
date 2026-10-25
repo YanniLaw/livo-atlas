@@ -20,6 +20,7 @@
 16. [统一入口与职责目录修正](superpowers/specs/2026-10-24-p4-unified-entry-layout-design.md)、[实施计划](superpowers/plans/2026-10-24-p4-unified-entry-layout.md)：同一 main、算法文件分类和规范 include 路径；当前目录见[源码组织](core-build.md#源码组织与-include-迁移)，结果见[修正验证记录](p4-layout-validation.md)。
 17. [接入进一步收敛设计](superpowers/specs/2026-10-25-ros-convergence-design.md)、[实施计划](superpowers/plans/2026-10-25-ros-convergence.md)及[实测与迁移](p4-convergence-validation.md)：main注入同一普通MappingSession、共用参数清单、对称ROS接入职责与独立runtime安装。
 18. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
+19. [命名与职责整理设计](superpowers/specs/2026-10-25-naming-cleanup-design.md)、[实施计划](superpowers/plans/2026-10-25-naming-cleanup.md)、[迁移清单](naming-audit.md)及[当前验证](p4-naming-validation.md)：core/common、LivoSystem与对称ROS节点、旧兼容层移除、着色和导出职责归类；保留六个指定类型名。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
@@ -29,10 +30,15 @@ P2-01 已完成普通 C++ 同步器、ROS1 成对缓冲和独立审阅；98 项�
 
 上一轮入口修正统一main并完成职责目录和规范头迁移，其Noetic158/Humble176等历史结果见[入口修正报告](p4-layout-validation.md)。
 
-本轮进一步收敛为一份普通MappingSession、一份参数清单和两个各含四类职责的ROS适配器。
+上一轮进一步收敛为一份普通MappingSession、一份参数清单和两个各含四类职责的ROS适配器。
 Noetic172项单元/8项真实ROS/50项启动、Humble188项C++/16项启动通过；普通shared/static各152项与40个公开头检查通过。
 三种普通SDK和ament安装实际消费runtime成功；两端全包各1351位姿、四数组与发布精确保持，短段各57个产品逐字节一致。
 详细迁移和证据见[接入收敛报告](p4-convergence-validation.md)。
+
+当前命名整理已采用core/common、LivoSystem和两端LivoNode，移除internal兼容层并拆分着色/导出职责，保留六个指定类型名。
+普通152、Noetic172单元/8真实ROS/50启动、Humble188单元/16启动及39个普通头通过；
+三种普通SDK和ament安装消费通过，两端完整bag各1351位姿、四数组/发布精确保持，短段各57文件逐字节一致。
+当前入口与跨电脑迁移见[命名整理报告](p4-naming-validation.md)。历史报告中的runtime等名称保留其原始记录。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
 2026-10-11 的原版采集结果位于工作区 `validation/P0-noetic-20261011/`。
