@@ -11,6 +11,9 @@ namespace livo_atlas {
 
 SystemOptions PrepareSystemOptions(SystemOptions options) {
   ValidateKeyframeOptions(options.keyframes);
+  ValidateSubmapOptions(options.submaps);
+  if (options.submaps.enabled && !options.keyframes.enabled)
+    throw std::invalid_argument("submaps.enabled requires keyframes.enabled");
   const auto& front = options.frontend;
   const auto& imu = front.imu;
   const auto& visual = front.visual;

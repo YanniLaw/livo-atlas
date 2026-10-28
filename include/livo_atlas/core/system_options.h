@@ -4,6 +4,7 @@
 #include "livo_atlas/io/livo_exporter.h"
 #include "livo_atlas/mapping/cloud_colorizer.h"
 #include "livo_atlas/mapping/keyframe_selector.h"
+#include "livo_atlas/mapping/submap.h"
 #include "livo_atlas/sensor/point_types.h"
 namespace livo_atlas {
 struct LidarPreprocessorOptions {
@@ -22,6 +23,7 @@ struct SystemOptions {
   ExportOptions exporter;
   CloudColorizerOptions colorizer;
   KeyframeOptions keyframes;
+  SubmapOptions submaps;
   LidarPreprocessorOptions preprocess;
   bool lidar_enabled = true;
   bool image_enabled = true;

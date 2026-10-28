@@ -86,4 +86,5 @@ endif()
 
 livo_atlas_test(livo_system_test tests/core/livo_system_test.cc)
 livo_atlas_test(keyframe_system_test tests/core/keyframe_system_test.cc)
+livo_atlas_test(submap_system_test tests/core/submap_system_test.cc)
 target_link_libraries(livo_system_test livo_atlas::core)

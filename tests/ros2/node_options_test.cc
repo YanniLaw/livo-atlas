@@ -59,6 +59,8 @@ TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
   rclcpp::Node node("parameter_test", options);
   const auto config = ReadNodeOptions(node);
   EXPECT_FALSE(config.livo.system.keyframes.enabled);
+  EXPECT_FALSE(config.livo.system.submaps.enabled);
+  EXPECT_EQ(config.livo.system.submaps.max_keyframes, 20);
   EXPECT_EQ(config.livo.system.frontend.calibration.camera.model, "Pinhole");
   EXPECT_EQ(node.get_node_topics_interface()->resolve_topic_name(
                 config.livo.imu_topic),
@@ -83,6 +85,8 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
            {"keyframes.translation_threshold", -.1},
            {"keyframes.rotation_threshold_deg", -1.},
            {"keyframes.time_threshold", -1.},
+           {"submaps.max_keyframes", 0},
+           {"submaps.enabled", true},
            {"qos.imu_depth", 0},
            {"qos.reliability", "invalid"},
            {"preprocess.point_filter_num", 0},
@@ -183,6 +187,8 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   params.emplace_back("keyframes.translation_threshold", .7);
   params.emplace_back("keyframes.rotation_threshold_deg", 15.);
   params.emplace_back("keyframes.time_threshold", 3.);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.max_keyframes", 3);
   params.emplace_back("scale", .5);
   rclcpp::Node node("shared_parameters_test",
                     rclcpp::NodeOptions().parameter_overrides(params));
@@ -199,6 +205,8 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
   EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);
   EXPECT_DOUBLE_EQ(options.keyframes.time_threshold, 3);
+  EXPECT_TRUE(options.submaps.enabled);
+  EXPECT_EQ(options.submaps.max_keyframes, 3);
   EXPECT_EQ(options.preprocess.point_filter, 3);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.scale, .5);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.fx, 200);

@@ -11,6 +11,7 @@
 #include "livo_atlas/frontend/imu/imu_propagation.h"
 #include "livo_atlas/frontend/vision/image_options.h"
 #include "livo_atlas/io/keyframe_store.h"
+#include "livo_atlas/io/submap_store.h"
 #include "livo_atlas/sensor/lidar_preprocessor.h"
 #include "livo_atlas/sensor/synchronizer.h"
 
@@ -49,6 +50,13 @@ class LivoSystem::Impl {
                                   options_.exporter.directory / "keyframes",
                                   options_.frontend.calibration)
                             : nullptr),
+        submap_builder_(options_.submaps.max_keyframes),
+        submap_store_(
+            options_.submaps.enabled
+                ? std::make_unique<SubmapStore>(
+                      options_.exporter.directory / "keyframes/submaps",
+                      *keyframe_store_, options_.submaps.max_keyframes)
+                : nullptr),
         writer_(options_.exporter) {
     const auto& pre = options_.preprocess;
     preprocess_.Configure(pre.features, pre.lidar_type, pre.blind,
@@ -118,6 +126,10 @@ class LivoSystem::Impl {
     writer_.Write(result, colored_cloud);
     if (keyframe_store_ && keyframe_selector_.Select(result)) {
       keyframe_store_->Append(CaptureKeyframe(next_keyframe_id_, result));
+      if (submap_store_) {
+        if (const auto submap = submap_builder_.AddKeyframe(next_keyframe_id_))
+          submap_store_->Append(*submap);
+      }
       ++next_keyframe_id_;
     }
     if (result.updated && callback) callback(result, colored_cloud, elapsed);
@@ -125,6 +137,13 @@ class LivoSystem::Impl {
   }
   void ProcessAvailable(const ResultCallback& callback) {
     while (ProcessNext(callback) != SyncStatus::kWaiting) {
+    }
+  }
+  void Finish() {
+    writer_.Finish();
+    if (submap_store_) {
+      if (const auto tail = submap_builder_.Finish())
+        submap_store_->Append(*tail);
     }
   }
   std::optional<PropagationResult> PropagateLatest() {
@@ -162,6 +181,8 @@ class LivoSystem::Impl {
   CloudColorizer colorizer_;
   KeyframeSelector keyframe_selector_;
   std::unique_ptr<KeyframeStore> keyframe_store_;
+  SubmapBuilder submap_builder_;
+  std::unique_ptr<SubmapStore> submap_store_;
   LivoExporter writer_;
   std::uint64_t next_keyframe_id_ = 0;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
@@ -193,5 +214,5 @@ void LivoSystem::ProcessAvailable(const ResultCallback& callback) {
 std::optional<PropagationResult> LivoSystem::PropagateLatest() {
   return impl_->PropagateLatest();
 }
-void LivoSystem::Finish() { impl_->writer_.Finish(); }
+void LivoSystem::Finish() { impl_->Finish(); }
 }  // namespace livo_atlas

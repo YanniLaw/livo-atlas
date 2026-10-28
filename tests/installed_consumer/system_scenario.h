@@ -13,6 +13,7 @@
 
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/io/keyframe_store.h"
+#include "livo_atlas/io/submap_store.h"
 
 namespace livo_atlas::test_data {
 
@@ -51,6 +52,7 @@ inline bool RunSystemScenario(FrontendMode mode) {
   options.preprocess.point_filter = 1;
   options.keyframes.enabled = true;
   options.keyframes.time_threshold = 0;
+  options.submaps = {true, 2};
   options.exporter.directory =
       std::filesystem::temp_directory_path() /
       ("livo_atlas_consumer_" +
@@ -117,6 +119,18 @@ inline bool RunSystemScenario(FrontendMode mode) {
   }
   dataset.WritePoses(1, poses);
   valid &= dataset.ReadPoses(1).size() == dataset.ids().size();
+  SubmapStore submaps(directory / "keyframes/submaps", dataset);
+  valid &= submaps.size() == (dataset.ids().size() + 1) / 2;
+  std::size_t grouped = 0;
+  for (std::size_t id = 0; id < submaps.size(); ++id) {
+    grouped += submaps.Read(id).keyframe_ids.size();
+    const auto raw = submaps.ReadCloud(id);
+    const auto corrected = submaps.ReadCloud(id, 1);
+    valid &= raw.cloud.size() == corrected.cloud.size() && !raw.cloud.empty();
+    valid &= std::abs(corrected.parent_from_submap.translation.x() -
+                      raw.parent_from_submap.translation.x() - 10) < 1e-9;
+  }
+  valid &= grouped == dataset.ids().size();
   std::filesystem::remove_all(directory);
   return valid && lidar_updates > 2 &&
          (!visual || (visual_updates > 2 && tracked));

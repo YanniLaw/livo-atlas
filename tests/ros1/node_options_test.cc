@@ -79,6 +79,8 @@ TEST_F(Ros1ParametersTest, ReadsPrivateCameraNumericArraysAndSharedDefaults) {
   EXPECT_EQ(options.exporter.mode, FrontendMode::kLidarInertialVisual);
   EXPECT_EQ(options.exporter.directory, directory_);
   EXPECT_FALSE(options.keyframes.enabled);
+  EXPECT_FALSE(options.submaps.enabled);
+  EXPECT_EQ(options.submaps.max_keyframes, 20);
   EXPECT_DOUBLE_EQ(options.imu_time_range.minimum, 0);
   EXPECT_DOUBLE_EQ(options.imu_time_range.maximum, 4294967296.0);
   EXPECT_FALSE(std::filesystem::exists(directory_));
@@ -98,6 +100,8 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   node_->setParam("keyframes/translation_threshold", .7);
   node_->setParam("keyframes/rotation_threshold_deg", 15.);
   node_->setParam("keyframes/time_threshold", 3.);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/max_keyframes", 3);
   camera_.setParam("scale", .5);
   const auto config = ReadNodeOptions(*node_);
   const auto& options = config.livo.system;
@@ -112,6 +116,8 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
   EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);
   EXPECT_DOUBLE_EQ(options.keyframes.time_threshold, 3);
+  EXPECT_TRUE(options.submaps.enabled);
+  EXPECT_EQ(options.submaps.max_keyframes, 3);
   EXPECT_EQ(options.preprocess.point_filter, 1);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.scale, .5);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.fx, 200);
@@ -130,7 +136,7 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
     for (const auto& key :
          {"vio/img_point_cov", "imu/acc_cov", "preprocess/point_filter_num",
           "keyframes/translation_threshold", "keyframes/rotation_threshold_deg",
-          "keyframes/time_threshold"}) {
+          "keyframes/time_threshold", "submaps/max_keyframes"}) {
       node_->setParam(key, -1);
       EXPECT_THROW(
           {
@@ -147,6 +153,9 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
         EXPECT_FALSE(std::filesystem::exists(directory_ / "new"));
       }
     }
+    node_->setParam("submaps/enabled", true);
+    EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+    node_->deleteParam("submaps/enabled");
     node_->setParam("common/imu_topic", "bad topic");
     EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
     node_->deleteParam("common/imu_topic");
