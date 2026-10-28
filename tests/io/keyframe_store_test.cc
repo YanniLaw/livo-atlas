@@ -46,6 +46,17 @@ void ReplaceValue(const fs::path& path, const std::string& key,
   std::ofstream(path) << output;
 }
 
+template <typename Operation>
+void ExpectInputErrorAt(const fs::path& path, Operation operation) {
+  try {
+    operation();
+    ADD_FAILURE() << "Expected invalid input at " << path;
+  } catch (const std::invalid_argument& error) {
+    EXPECT_NE(std::string(error.what()).find(path.string()), std::string::npos)
+        << error.what();
+  }
+}
+
 class KeyframeStoreTest : public testing::Test {
  protected:
   void SetUp() override {
@@ -170,6 +181,44 @@ TEST_F(KeyframeStoreTest,
   const auto fresh = root_ / "invalid";
   EXPECT_THROW(KeyframeStore(fresh, calibration_), std::invalid_argument);
   EXPECT_FALSE(fs::exists(fresh));
+}
+
+TEST_F(KeyframeStoreTest, InputErrorsIdentifyTargetsBeforeCreatingOutput) {
+  auto invalid = calibration_;
+  invalid.camera.fx = 0;
+  ExpectInputErrorAt(directory_,
+                     [&] { KeyframeStore store(directory_, invalid); });
+  EXPECT_FALSE(fs::exists(directory_));
+  KeyframeStore writer(directory_, calibration_);
+  auto frame = Frame(0);
+  frame.image = cv::Mat(4, 5, CV_8UC3);
+  const auto path = directory_ / "frames/0";
+  ExpectInputErrorAt(path, [&] { writer.Append(frame); });
+  frame = Frame(0);
+  PointCloud::Ptr cloud(new PointCloud(*frame.cloud));
+  cloud->front().intensity = std::numeric_limits<float>::quiet_NaN();
+  frame.cloud = cloud;
+  ExpectInputErrorAt(path, [&] { writer.Append(frame); });
+  EXPECT_TRUE(writer.ids().empty());
+  EXPECT_TRUE(fs::is_empty(directory_ / "frames"));
+  writer.Append(Frame(0));
+  EXPECT_EQ(writer.Read(0).id, 0u);
+}
+
+TEST_F(KeyframeStoreTest, PoseInputErrorsIdentifyVersionsWithoutWriting) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0, false));
+  writer.Append(Frame(1, false));
+  auto poses = Poses(2);
+  poses[1].id = 0;
+  ExpectInputErrorAt(directory_ / "poses/3.yml",
+                     [&] { writer.WritePoses(3, poses); });
+  ExpectInputErrorAt(directory_ / "poses/0.yml",
+                     [&] { writer.WritePoses(0, Poses(2)); });
+  ExpectInputErrorAt(directory_ / "poses/0.yml", [&] { writer.ReadPoses(0); });
+  EXPECT_TRUE(fs::is_empty(directory_ / "poses"));
+  writer.WritePoses(3, Poses(2));
+  EXPECT_EQ(writer.ReadPoses(3).size(), 2u);
 }
 
 TEST_F(KeyframeStoreTest, InvalidFrameDoesNotAdvanceIdsOrCreatePartialFiles) {

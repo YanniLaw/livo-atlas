@@ -75,7 +75,7 @@ target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
   livo_atlas_vio livo_atlas_lio livo_atlas_imu pcl_filters)
 livo_atlas_library(colorizer src/mapping/cloud_colorizer.cc)
 target_link_libraries(livo_atlas_colorizer PUBLIC livo_atlas_camera pcl_common)
-livo_atlas_library(io src/io/livo_exporter.cc src/io/keyframe_store.cc)
+livo_atlas_library(io src/io/livo_exporter.cc src/io/keyframe_store.cc src/io/dataset_metadata.cc)
 target_link_libraries(livo_atlas_io PUBLIC livo_atlas_keyframes livo_atlas_camera Eigen3::Eigen
   pcl_io pcl_filters opencv_core opencv_imgcodecs)
 livo_atlas_library(core src/core/livo_system.cc src/core/system_options.cc src/core/livo_config.cc)

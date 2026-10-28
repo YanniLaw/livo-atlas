@@ -4,12 +4,9 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <fstream>
-#include <iomanip>
 #include <limits>
-#include <locale>
 #include <opencv2/core/persistence.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <set>
@@ -18,105 +15,24 @@
 #include <string>
 #include <utility>
 
+#include "dataset_metadata.h"
+
 namespace livo_atlas {
 namespace {
 namespace fs = std::filesystem;
 
-[[noreturn]] void Fail(const fs::path& path, const std::string& message) {
-  throw std::runtime_error(path.string() + ": " + message);
-}
-
-std::string Decimal(double value) {
-  std::ostringstream text;
-  text.imbue(std::locale::classic());
-  text << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
-  return text.str();
-}
-
-std::uint64_t ParseId(const std::string& text) {
-  std::uint64_t value = 0;
-  const auto result =
-      std::from_chars(text.data(), text.data() + text.size(), value);
-  if (text.empty() || result.ec != std::errc() ||
-      result.ptr != text.data() + text.size() ||
-      std::to_string(value) != text) {
-    throw std::invalid_argument("Invalid unsigned identifier: " + text);
-  }
-  return value;
-}
-
-std::string String(const cv::FileNode& node) {
-  if (!node.isString()) throw std::invalid_argument("Expected a string field");
-  return static_cast<std::string>(node);
-}
-std::uint64_t Id(const cv::FileNode& node) { return ParseId(String(node)); }
-int Integer(const cv::FileNode& node) {
-  if (!node.isInt()) throw std::invalid_argument("Expected an integer field");
-  return static_cast<int>(node);
-}
-double Number(const cv::FileNode& node) {
-  std::istringstream text(String(node));
-  text.imbue(std::locale::classic());
-  double value = 0;
-  if (!(text >> value) || !std::isfinite(value)) {
-    throw std::invalid_argument("Expected a finite decimal string");
-  }
-  text >> std::ws;
-  if (!text.eof()) throw std::invalid_argument("Trailing decimal data");
-  return value;
-}
-void Sequence(const cv::FileNode& node, std::size_t size) {
-  if (!node.isSeq() || node.size() != size) {
-    throw std::invalid_argument("Incorrect sequence length");
-  }
-}
-
-void WriteTransform(cv::FileStorage& output, const std::string& name,
-                    const RigidTransform& pose) {
-  output << name << "{"
-         << "rotation"
-         << "[";
-  for (int row = 0; row < 3; ++row)
-    for (int col = 0; col < 3; ++col)
-      output << Decimal(pose.rotation(row, col));
-  output << "]"
-         << "translation"
-         << "[";
-  for (int i = 0; i < 3; ++i) output << Decimal(pose.translation[i]);
-  output << "]"
-         << "}";
-}
-RigidTransform ReadTransform(const cv::FileNode& node) {
-  RigidTransform pose;
-  const auto rotation = node["rotation"], translation = node["translation"];
-  Sequence(rotation, 9);
-  Sequence(translation, 3);
-  for (int row = 0; row < 3; ++row)
-    for (int col = 0; col < 3; ++col)
-      pose.rotation(row, col) = Number(rotation[row * 3 + col]);
-  for (int i = 0; i < 3; ++i) pose.translation[i] = Number(translation[i]);
-  const auto error = ValidateExtrinsic(pose);
-  if (!error.empty()) throw std::invalid_argument(error);
-  return pose;
-}
-
-template <typename Write>
-void WriteYaml(const fs::path& path, Write write) {
-  cv::FileStorage yaml("metadata.yml", cv::FileStorage::WRITE |
-                                           cv::FileStorage::MEMORY |
-                                           cv::FileStorage::FORMAT_YAML);
-  write(yaml);
-  const auto text = yaml.releaseAndGetString();
-  std::ofstream output;
-  output.exceptions(std::ios::badbit | std::ios::failbit);
-  try {
-    output.open(path, std::ios::binary);
-    output.write(text.data(), text.size());
-    output.close();
-  } catch (const std::exception& error) {
-    Fail(path, error.what());
-  }
-}
+using dataset_metadata::Decimal;
+using dataset_metadata::Fail;
+using dataset_metadata::Id;
+using dataset_metadata::Integer;
+using dataset_metadata::Number;
+using dataset_metadata::ParseId;
+using dataset_metadata::ReadTransform;
+using dataset_metadata::Sequence;
+using dataset_metadata::String;
+using dataset_metadata::ValidateInput;
+using dataset_metadata::WriteTransform;
+using dataset_metadata::WriteYaml;
 
 void ValidateCalibration(const Calibration& calibration) {
   for (const auto* pose :
@@ -211,7 +127,7 @@ void CheckPcdHeader(const fs::path& path, std::uint64_t expected_points) {
   std::ifstream file(path, std::ios::binary);
   if (!file) Fail(path, "Missing point cloud");
   std::vector<std::string> fields, sizes, types, counts;
-  static const std::set<std::string> kHeaderFields = {
+  constexpr std::array<const char*, 10> kHeaderFields = {
       "VERSION", "FIELDS", "SIZE",      "TYPE",   "COUNT",
       "WIDTH",   "HEIGHT", "VIEWPOINT", "POINTS", "DATA"};
   std::set<std::string> seen;
@@ -234,7 +150,8 @@ void CheckPcdHeader(const fs::path& path, std::uint64_t expected_points) {
     }
     // PCL recognizes keyword prefixes. Accept only the exact schema emitted
     // by our writer so aliases cannot bypass the pre-allocation check.
-    if (!kHeaderFields.count(key))
+    if (std::find(kHeaderFields.begin(), kHeaderFields.end(), key) ==
+        kHeaderFields.end())
       Fail(path, "Unsupported PCD header keyword: " + key);
     if (!seen.insert(key).second)
       Fail(path, "Duplicate PCD header field: " + key);
@@ -309,9 +226,11 @@ void ValidatePoses(const std::vector<KeyframePose>& poses,
 KeyframeStore::KeyframeStore(const fs::path& directory,
                              const Calibration& calibration)
     : directory_(directory), calibration_(calibration), append_enabled_(true) {
-  ValidateCalibration(calibration_);
-  if (directory_.empty())
-    throw std::invalid_argument("Empty keyframe directory");
+  ValidateInput(directory_, [&] {
+    ValidateCalibration(calibration_);
+    if (directory_.empty())
+      throw std::invalid_argument("Empty keyframe directory");
+  });
   try {
     if (!directory_.parent_path().empty())
       fs::create_directories(directory_.parent_path());
@@ -363,13 +282,14 @@ void KeyframeStore::Append(const Keyframe& frame) {
   if (!append_enabled_)
     throw std::logic_error(directory_.string() +
                            ": Reopened raw frames are read-only");
-  ValidateKeyframe(frame);
-  ValidateImage(frame, calibration_);
-  if (frame.id != ids_.size() || frame.calibration_id != 0) {
-    throw std::invalid_argument(directory_.string() +
-                                ": Unexpected frame or calibration identifier");
-  }
   const auto destination = directory_ / "frames" / std::to_string(frame.id);
+  ValidateInput(destination, [&] {
+    ValidateKeyframe(frame);
+    ValidateImage(frame, calibration_);
+    if (frame.id != ids_.size() || frame.calibration_id != 0) {
+      throw std::invalid_argument("Unexpected frame or calibration identifier");
+    }
+  });
   const auto pending =
       directory_ / "frames" / (".pending-" + std::to_string(frame.id));
   if (fs::exists(destination))
@@ -457,10 +377,12 @@ Keyframe KeyframeStore::Read(std::uint64_t id) const {
 void KeyframeStore::WritePoses(std::uint64_t version,
                                const std::vector<KeyframePose>& poses) {
   CheckWritable();
-  if (!version)
-    throw std::invalid_argument("Pose version zero is the raw frontend pose");
-  ValidatePoses(poses, ids_);
   const auto path = directory_ / "poses" / (std::to_string(version) + ".yml");
+  ValidateInput(path, [&] {
+    if (!version)
+      throw std::invalid_argument("Pose version zero is the raw frontend pose");
+    ValidatePoses(poses, ids_);
+  });
   const auto pending =
       directory_ / "poses" / (".pending-" + std::to_string(version) + ".yml");
   if (fs::exists(path))
@@ -490,9 +412,10 @@ void KeyframeStore::WritePoses(std::uint64_t version,
 
 std::vector<KeyframePose> KeyframeStore::ReadPoses(
     std::uint64_t version) const {
-  if (!version)
-    throw std::invalid_argument("Pose version zero is the raw frontend pose");
   const auto path = directory_ / "poses" / (std::to_string(version) + ".yml");
+  if (!version)
+    throw std::invalid_argument(path.string() +
+                                ": Pose version zero is the raw frontend pose");
   try {
     if (!fs::is_regular_file(path)) Fail(path, "Missing pose version");
     cv::FileStorage yaml(path.string(), cv::FileStorage::READ);
