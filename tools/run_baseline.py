@@ -56,9 +56,13 @@ def main():
                         help='Enable and capture world PCD, images and COLMAP output')
     parser.add_argument('--save-keyframes', action='store_true',
                         help='Capture and retain the P5 keyframe dataset')
+    parser.add_argument('--save-submaps', action='store_true',
+                        help='Enable keyframes and persistent submap membership')
     parser.add_argument('--legacy-output', action='store_true',
                         help='Read older node outputs from its source package Log directory')
     args = parser.parse_args()
+    if args.save_submaps:
+        args.save_keyframes = True
     if args.save_keyframes and args.legacy_output:
         parser.error('--save-keyframes requires the current standalone core')
     source_package = Path(__file__).resolve().parents[1]
@@ -181,6 +185,8 @@ def main():
             run(['rosparam', 'set', '/output/directory', str(node_output)])
         if args.save_keyframes:
             run(['rosparam', 'set', '/keyframes/enabled', 'true'])
+        if args.save_submaps:
+            run(['rosparam', 'set', '/submaps/enabled', 'true'])
         if args.save_products:
             for key, value in [('pcd_save/pcd_save_en', 'true'),
                                ('pcd_save/colmap_output_en', 'true'),
@@ -360,6 +366,7 @@ def main():
                                for key, values in timings.items()},
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
             'keyframes_enabled': args.save_keyframes,
+            'submaps_enabled': args.save_submaps,
             'gdb_enabled': args.gdb,
             'clean_shutdown': exited_cleanly(node.returncode, log, args.gdb),
             'player_returncode': player.returncode,

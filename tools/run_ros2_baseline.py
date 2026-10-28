@@ -82,8 +82,11 @@ def main():
     parser.add_argument('--domain', type=int, default=74)
     parser.add_argument('--save-products', action='store_true')
     parser.add_argument('--save-keyframes', action='store_true')
+    parser.add_argument('--save-submaps', action='store_true')
     parser.add_argument('--default-threads', action='store_true')
     args = parser.parse_args()
+    if args.save_submaps:
+        args.save_keyframes = True
     if not math.isfinite(args.duration) or not math.isfinite(args.rate) or args.duration <= 0 or args.rate <= 0:
         raise ValueError('Duration and playback rate must be finite and positive')
     output = args.output.resolve()
@@ -132,6 +135,8 @@ def main():
                        'output.directory': str(output / 'node-output')})
     if args.save_keyframes:
         parameters['keyframes.enabled'] = True
+    if args.save_submaps:
+        parameters['submaps.enabled'] = True
     if args.save_products:
         parameters.update({'pcd_save.pcd_save_en': True, 'pcd_save.colmap_output_en': True,
                            'pcd_save.interval': -1, 'image_save.img_save_en': True})
@@ -283,6 +288,7 @@ def main():
     summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues,
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
                    keyframes_enabled=args.save_keyframes,
+                   submaps_enabled=args.save_submaps,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
                    input_reliability='reliable', expected_input_counts=dict(expected), observed_counts=dict(received),
                    node_input_counts=node_counts, input_count_mismatches=mismatches,
