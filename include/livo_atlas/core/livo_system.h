@@ -33,6 +33,8 @@ class LivoSystem {
   SyncStatus ProcessNext(const ResultCallback& callback);
   void ProcessAvailable(const ResultCallback& callback);
   std::optional<PropagationResult> PropagateLatest();
+  // A submap persistence failure is terminal: subsequent processing and Finish
+  // rethrow the original error. Already committed data remains readable.
   void Finish();
 
  private:

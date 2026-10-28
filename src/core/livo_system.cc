@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -110,6 +111,7 @@ class LivoSystem::Impl {
     return true;
   }
   SyncStatus ProcessNext(const ResultCallback& callback) {
+    if (submap_error_) std::rethrow_exception(submap_error_);
     const auto status = synchronizer_.TrySynchronize(&buffers_, &measurements_);
     if (status != SyncStatus::kReady) return status;
     const auto start = std::chrono::steady_clock::now();
@@ -128,7 +130,7 @@ class LivoSystem::Impl {
       keyframe_store_->Append(CaptureKeyframe(next_keyframe_id_, result));
       if (submap_store_) {
         if (const auto submap = submap_builder_.AddKeyframe(next_keyframe_id_))
-          submap_store_->Append(*submap);
+          AppendSubmap(*submap);
       }
       ++next_keyframe_id_;
     }
@@ -140,10 +142,18 @@ class LivoSystem::Impl {
     }
   }
   void Finish() {
+    if (submap_error_) std::rethrow_exception(submap_error_);
     writer_.Finish();
     if (submap_store_) {
-      if (const auto tail = submap_builder_.Finish())
-        submap_store_->Append(*tail);
+      if (const auto tail = submap_builder_.Finish()) AppendSubmap(*tail);
+    }
+  }
+  void AppendSubmap(const Submap& submap) {
+    try {
+      submap_store_->Append(submap);
+    } catch (...) {
+      submap_error_ = std::current_exception();
+      throw;
     }
   }
   std::optional<PropagationResult> PropagateLatest() {
@@ -183,6 +193,7 @@ class LivoSystem::Impl {
   std::unique_ptr<KeyframeStore> keyframe_store_;
   SubmapBuilder submap_builder_;
   std::unique_ptr<SubmapStore> submap_store_;
+  std::exception_ptr submap_error_;
   LivoExporter writer_;
   std::uint64_t next_keyframe_id_ = 0;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;

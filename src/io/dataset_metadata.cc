@@ -1,15 +1,77 @@
 #include "dataset_metadata.h"
 
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <locale>
 #include <sstream>
+#include <string_view>
 
 namespace livo_atlas {
 namespace dataset_metadata {
 namespace fs = std::filesystem;
+namespace {
+// OpenCV narrows bare YAML integers to int before FileNode can validate them.
+// Dataset IDs and floating-point values are strings; only control fields use
+// bare integers. Check those tokens losslessly, preserving quoted data.
+void ValidateIntegerToken(std::string_view token) {
+  if (token.empty()) return;
+  const bool negative = token.front() == '-';
+  if (negative || token.front() == '+') token.remove_prefix(1);
+  int base = 10;
+  if (token.size() > 1 && token.front() == '0') {
+    base = 8;
+    if (token[1] == 'x' || token[1] == 'X') {
+      base = 16;
+      token.remove_prefix(2);
+    }
+  }
+  std::uint64_t value = 0;
+  const auto result =
+      std::from_chars(token.data(), token.data() + token.size(), value, base);
+  const auto limit =
+      static_cast<std::uint64_t>(std::numeric_limits<int>::max()) + negative;
+  if (result.ptr == token.data() + token.size() &&
+      (result.ec == std::errc::result_out_of_range || value > limit)) {
+    throw std::invalid_argument("YAML integer exceeds the supported int range");
+  }
+}
+
+void ValidateYamlIntegers(const std::string& text) {
+  const auto separator = [](char c) {
+    return std::isspace(static_cast<unsigned char>(c)) ||
+           std::string_view("[]{}:,<>").find(c) != std::string_view::npos;
+  };
+  for (std::size_t i = 0; i < text.size();) {
+    if (text[i] == '#') {
+      const auto end = text.find('\n', i);
+      if (end == std::string::npos) break;
+      i = end + 1;
+    } else if (text[i] == '"' || text[i] == '\'') {
+      const char quote = text[i++];
+      while (i < text.size()) {
+        if (quote == '"' && text[i] == '\\' && i + 1 < text.size()) {
+          i += 2;
+        } else if (text[i++] == quote) {
+          if (quote != '\'' || i == text.size() || text[i] != quote) break;
+          ++i;
+        }
+      }
+    } else if (separator(text[i])) {
+      ++i;
+    } else {
+      const auto start = i++;
+      while (i < text.size() && !separator(text[i]) && text[i] != '#' &&
+             text[i] != '"' && text[i] != '\'')
+        ++i;
+      ValidateIntegerToken(std::string_view(text).substr(start, i - start));
+    }
+  }
+}
+}  // namespace
 
 [[noreturn]] void Fail(const fs::path& path, const std::string& message) {
   throw std::runtime_error(path.string() + ": " + message);
@@ -42,6 +104,14 @@ std::uint64_t Id(const cv::FileNode& node) { return ParseId(String(node)); }
 int Integer(const cv::FileNode& node) {
   if (!node.isInt()) throw std::invalid_argument("Expected an integer field");
   return static_cast<int>(node);
+}
+cv::FileStorage ReadYaml(const fs::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) Fail(path, "Cannot open metadata");
+  const std::string text{std::istreambuf_iterator<char>(input), {}};
+  if (input.bad()) Fail(path, "Cannot read metadata");
+  ValidateYamlIntegers(text);
+  return cv::FileStorage(text, cv::FileStorage::READ | cv::FileStorage::MEMORY);
 }
 double Number(const cv::FileNode& node) {
   std::istringstream text(String(node));

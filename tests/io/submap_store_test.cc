@@ -157,6 +157,32 @@ TEST_F(SubmapStoreTest, IgnoresPendingFilesAndRefusesToOverwriteThem) {
   EXPECT_THROW(writer.Append({0, 0, {0, 1}}), std::logic_error);
 }
 
+TEST_F(SubmapStoreTest, RejectsOverflowAliasesOfSchemaAndGroupLimits) {
+  AddFrames(2);
+  SubmapStore writer(directory_, *keyframes_, 2);
+  writer.Append({0, 0, {0, 1}});
+  const auto path = directory_ / "dataset.yml";
+  const auto original = ReadBytes(path);
+  for (const auto* version : {"4294967297", "-4294967295"}) {
+    std::ofstream(path) << "%YAML:1.0\n---\nschema_version: " << version
+                        << "\nmax_keyframes: 2\n";
+    EXPECT_THROW(SubmapStore(directory_, *keyframes_), std::runtime_error);
+  }
+  for (const auto* limit : {"4294967298", "-4294967294"}) {
+    std::ofstream(path) << "%YAML:1.0\n---\nschema_version: 1\nmax_keyframes: "
+                        << limit << "\n";
+    EXPECT_THROW(SubmapStore(directory_, *keyframes_), std::runtime_error);
+  }
+  std::ofstream(path)
+      << "%YAML:1.0\n---\nschema_version: 01\n"
+         "max_keyframes: 0x2 # 4294967298 must stay a comment\n";
+  EXPECT_EQ(SubmapStore(directory_, *keyframes_).Read(0).keyframe_ids.size(),
+            2u);
+  std::ofstream(path) << original;
+  EXPECT_EQ(SubmapStore(directory_, *keyframes_).Read(0).keyframe_ids.size(),
+            2u);
+}
+
 TEST_F(SubmapStoreTest, WriteFailureKeepsCommittedGroupsAndLatchesWriter) {
   AddFrames(4);
   SubmapStore writer(directory_, *keyframes_, 2);

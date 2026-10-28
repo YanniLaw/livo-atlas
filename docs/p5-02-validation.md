@@ -35,11 +35,11 @@ nice/-j1 构建，构建与回放串行，无 RViz。
 | 项目 | 结果 |
 | --- | --- |
 | 修改前冻结二进制基线 | 180 项，XML/TMPDIR 写入新阶段 |
-| 最终普通核心 | 201 项通过 |
-| Noetic 单元 / 真实 ROS | 221 / 8 项通过 |
-| Humble C++，含真实 DDS | 237 项通过 |
+| 最终普通核心 | 205 项通过 |
+| Noetic 单元 / 真实 ROS | 225 / 8 项通过 |
+| Humble C++，含真实 DDS | 241 项通过 |
 | 普通公开头独立编译 | 44 个通过 |
-| shared / static SDK | 各 201 项，移动前缀后实际三模式及子地图消费通过 |
+| shared / static SDK | 各 205 项，移动前缀后实际三模式及子地图消费通过 |
 | 关闭 OpenMP SDK | 关闭测试构建，移动前缀后实际三模式及子地图消费通过 |
 | Humble ament SDK / 实际 colcon 节点 | 迁移消费与实际运行库检查通过 |
 | common / io 单独构建、catkin 外部消费 | 通过 |
@@ -47,14 +47,19 @@ nice/-j1 构建，构建与回放串行，无 RViz。
 | Python 工具 | 本机 13 项通过、1 项版本跳过；Humble 对应 5 项通过 |
 | 新检查 CLI | 字面 schema、原始/优化版本、错误参数/版本/成员和只读检查通过 |
 
-新增 21 项普通测试覆盖：输入错误上下文、分组/尾组/Finish、连续 ID 与超32位边界，
+新增 25 项普通测试覆盖：输入错误上下文、分组/尾组/Finish、连续 ID 与超32位边界，
 已有文件和失败保护，成员损坏、旧位姿前缀和实际修正几何，以及三模式开启/关闭的状态和原始资产逐字节对照。
 元数据、新模型、Store 和系统接口在实现前分别有真实 RED 记录；见 metadata-red.log、
 metadata-read-context-red.log、submaps-red.log、submap-store-red.log、integration-red.log。
 检查工具补充了空成员索引场景：显式指定的正版本即使无组可读也必须存在。
 该问题在 empty-index-version-red.log 复现，修复后字面数据和三种安装工具检查通过。
-此次工具入口修正前后，两端实际节点与各14个运行库的全部15项摘要逐字节一致（cli-followup.json），
-四组回放仍对应最终节点及库。
+此次工具入口修正前后，两端实际节点与各14个运行库的全部15项摘要逐字节一致（cli-followup.json）。
+独立评审另发现整数截断及保存失败被后续 Finish 隐藏的问题，补充了四项真实回归测试。
+review-red.log / review-integers-red.log 记录修复前的实际失败，review-green.log 记录定向通过。
+共享 ReadYaml 在 OpenCV 解析前检查裸整数的原始数值，保留字符串、注释和合法旧文件；
+LivoSystem 保留首次子地图保存异常，完整组或尾组失败后，后续处理和 Finish 持续报告同一异常，
+已提交前缀仍可重开读取。最终全部构建和四组回放均在这些共享库修改后重新执行；
+评审前证据保存在本阶段 pre-review 目录，旧 P5-01 证据始终只读。
 
 几何测试使用非平凡 Rz90 和平移，原始组内点为 (1,0,0)/(4,0,0)，
 倒序写入逐帧优化位姿后得到 (1,0,0)/(0,7,0)，返回的 anchor 位姿同时正确变化。
@@ -90,5 +95,7 @@ Humble 对应误差为 `6.091889178644142e-6` 米。两份副本只新增 poses/
 在目标机重编 SDK，并运行安装的 livo_atlas_inspect_submaps 检查指定版本。
 
 最终源码、配置、实际节点与14个自有运行库摘要随证据保存。
-完整历史 bundle、空 bare 仓库的全部引用恢复和一次独立评审将在收尾记录。
+整阶段仅一次独立评审，2 项 Important 已完成 RED→GREEN 修复，无遗留 Minor。
+完整历史 bundle 与空 bare 仓库的全部引用、历史数量、最终 HEAD 和 fsck 验证见本阶段 recovery.json；
+最终构建/回放摘要绑定见 acceptance.json。
 保留 refactor2，不自动合并、推送或修改 master/tag。

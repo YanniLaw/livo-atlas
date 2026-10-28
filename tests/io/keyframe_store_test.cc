@@ -317,6 +317,34 @@ TEST_F(KeyframeStoreTest, RejectsUnknownSchemaAndInvalidFloatingMetadata) {
   EXPECT_THROW(KeyframeStore{directory_}, std::runtime_error);
 }
 
+TEST_F(KeyframeStoreTest, RejectsYamlIntegersBeforeOpenCvCanNarrowThem) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0));
+  const auto metadata = directory_ / "dataset.yml";
+  const auto original = Contents(metadata);
+  for (const auto* value : {"4294967297", "-4294967295", "+4294967297",
+                            "0x100000001", "040000000001"}) {
+    ReplaceValue(metadata, "schema_version", value);
+    EXPECT_THROW(KeyframeStore{directory_}, std::runtime_error);
+    std::ofstream(metadata) << original;
+  }
+  const auto frame = directory_ / "frames/0/frame.yml";
+  const auto original_frame = Contents(frame);
+  for (const auto* value : {"4294967297", "-4294967295"}) {
+    ReplaceValue(frame, "has_image", value);
+    EXPECT_THROW(writer.Read(0), std::runtime_error);
+    std::ofstream(frame) << original_frame;
+  }
+  auto alias = original;
+  const auto width = alias.find("width: 12");
+  ASSERT_NE(width, std::string::npos);
+  alias.replace(width, std::string("width: 12").size(), "width: 4294967308");
+  std::ofstream(metadata) << alias;
+  EXPECT_THROW(KeyframeStore{directory_}, std::runtime_error);
+  std::ofstream(metadata) << original;
+  EXPECT_EQ(KeyframeStore(directory_).Read(0).id, 0u);
+}
+
 TEST_F(KeyframeStoreTest, RejectsMissingWrongTypeAndWrongSizedImageAssets) {
   KeyframeStore writer(directory_, calibration_);
   const auto frame = Frame(0);

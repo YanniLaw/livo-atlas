@@ -17,6 +17,7 @@ using dataset_metadata::Fail;
 using dataset_metadata::Id;
 using dataset_metadata::Integer;
 using dataset_metadata::ParseId;
+using dataset_metadata::ReadYaml;
 using dataset_metadata::ValidateInput;
 using dataset_metadata::WriteYaml;
 
@@ -60,7 +61,7 @@ SubmapStore::SubmapStore(const fs::path& directory,
     const auto metadata = directory_ / "dataset.yml";
     if (!fs::is_regular_file(metadata))
       Fail(metadata, "Missing submap metadata");
-    cv::FileStorage yaml(metadata.string(), cv::FileStorage::READ);
+    auto yaml = ReadYaml(metadata);
     if (!yaml.isOpened() || Integer(yaml["schema_version"]) != 1)
       Fail(metadata, "Unsupported submap schema");
     max_keyframes_ = Integer(yaml["max_keyframes"]);
@@ -111,7 +112,7 @@ Submap SubmapStore::ReadFile(std::uint64_t id) const {
   const auto path = directory_ / (std::to_string(id) + ".yml");
   try {
     if (!fs::is_regular_file(path)) Fail(path, "Missing committed submap");
-    cv::FileStorage yaml(path.string(), cv::FileStorage::READ);
+    auto yaml = ReadYaml(path);
     if (!yaml.isOpened()) Fail(path, "Cannot read submap");
     Submap result;
     result.id = Id(yaml["id"]);

@@ -112,5 +112,75 @@ TEST(SubmapSystemTest, EmptyFinishDoesNotCreateAnInventedGroup) {
       0u);
   fs::remove_all(options.exporter.directory);
 }
+
+template <typename Operation>
+std::string ExpectStorageError(Operation operation) {
+  try {
+    operation();
+    ADD_FAILURE() << "A failed submap save must remain visible";
+  } catch (const std::runtime_error& error) {
+    return error.what();
+  }
+  return {};
+}
+
+void CheckPersistentSaveFailure(bool tail) {
+  auto options = test::Options(FrontendMode::kLidarOnly);
+  options.keyframes.enabled = true;
+  options.keyframes.time_threshold = 0;
+  options.submaps = {true, 2};
+  const auto directory = options.exporter.directory;
+  const auto submaps = directory / "keyframes/submaps";
+  {
+    LivoSystem system(options);
+    int frame = 0;
+    const auto feed = [&] {
+      ASSERT_TRUE(system.AddLidar(test::Scan(100 + frame++ * .25)));
+      system.ProcessAvailable({});
+    };
+    while (!fs::exists(submaps / "0.yml") && frame < 8) feed();
+    ASSERT_TRUE(fs::exists(submaps / "0.yml"));
+    if (tail) {
+      while (KeyframeStore(directory / "keyframes").ids().size() < 3 &&
+             frame < 10)
+        feed();
+      ASSERT_EQ(KeyframeStore(directory / "keyframes").ids().size(), 3u);
+    }
+    const auto committed = Contents(submaps / "0.yml");
+    fs::rename(submaps, directory / "saved-submaps");
+    std::ofstream(submaps) << "blocked directory";
+    std::string error;
+    if (tail) {
+      error = ExpectStorageError([&] { system.Finish(); });
+    } else {
+      while (error.empty() && frame < 12) {
+        try {
+          feed();
+        } catch (const std::runtime_error& failure) {
+          error = failure.what();
+        }
+      }
+    }
+    ASSERT_FALSE(error.empty());
+    fs::remove(submaps);
+    fs::rename(directory / "saved-submaps", submaps);
+    EXPECT_EQ(ExpectStorageError([&] { system.Finish(); }), error);
+    EXPECT_EQ(ExpectStorageError([&] { system.Finish(); }), error);
+    EXPECT_EQ(ExpectStorageError([&] { system.ProcessAvailable({}); }), error);
+    EXPECT_EQ(Contents(submaps / "0.yml"), committed);
+    KeyframeStore frames(directory / "keyframes");
+    SubmapStore reader(submaps, frames);
+    EXPECT_EQ(reader.size(), 1u);
+    EXPECT_EQ(reader.Read(0).keyframe_ids, (std::vector<std::uint64_t>{0, 1}));
+  }
+  fs::remove_all(directory);
+}
+
+TEST(SubmapSystemTest, FailedTailSaveCannotBeHiddenByRepeatedFinish) {
+  CheckPersistentSaveFailure(true);
+}
+TEST(SubmapSystemTest, FailedFullGroupSaveCannotBeHiddenByFinish) {
+  CheckPersistentSaveFailure(false);
+}
 }  // namespace
 }  // namespace livo_atlas

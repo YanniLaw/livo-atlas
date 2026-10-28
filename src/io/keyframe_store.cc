@@ -28,6 +28,7 @@ using dataset_metadata::Integer;
 using dataset_metadata::Number;
 using dataset_metadata::ParseId;
 using dataset_metadata::ReadTransform;
+using dataset_metadata::ReadYaml;
 using dataset_metadata::Sequence;
 using dataset_metadata::String;
 using dataset_metadata::ValidateInput;
@@ -74,7 +75,7 @@ void WriteCalibration(const fs::path& path, const Calibration& calibration) {
 }
 Calibration ReadCalibration(const fs::path& path) {
   if (!fs::is_regular_file(path)) Fail(path, "Missing dataset metadata");
-  cv::FileStorage yaml(path.string(), cv::FileStorage::READ);
+  auto yaml = ReadYaml(path);
   if (!yaml.isOpened() || Integer(yaml["schema_version"]) != 1 ||
       Id(yaml["calibration_id"]) != 0) {
     Fail(path, "Unsupported keyframe dataset schema or calibration");
@@ -333,7 +334,7 @@ Keyframe KeyframeStore::Read(std::uint64_t id) const {
                             ": Unknown keyframe identifier");
   const auto path = directory_ / "frames" / std::to_string(id);
   try {
-    cv::FileStorage yaml((path / "frame.yml").string(), cv::FileStorage::READ);
+    auto yaml = ReadYaml(path / "frame.yml");
     if (!yaml.isOpened())
       Fail(path / "frame.yml", "Cannot read frame metadata");
     Keyframe frame;
@@ -418,7 +419,7 @@ std::vector<KeyframePose> KeyframeStore::ReadPoses(
                                 ": Pose version zero is the raw frontend pose");
   try {
     if (!fs::is_regular_file(path)) Fail(path, "Missing pose version");
-    cv::FileStorage yaml(path.string(), cv::FileStorage::READ);
+    auto yaml = ReadYaml(path);
     if (!yaml.isOpened() || Id(yaml["version"]) != version)
       Fail(path, "Pose version mismatch");
     const auto nodes = yaml["poses"];
