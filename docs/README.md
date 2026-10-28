@@ -22,6 +22,7 @@
 18. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
 19. [命名与职责整理设计](superpowers/specs/2026-10-25-naming-cleanup-design.md)、[实施计划](superpowers/plans/2026-10-25-naming-cleanup.md)、[迁移清单](naming-audit.md)及[当前验证](p4-naming-validation.md)：core/common、LivoSystem与对称ROS节点、旧兼容层移除、着色和导出职责归类；保留六个指定类型名。
 20. [P5-01 关键帧设计](superpowers/specs/2026-10-26-p5-keyframes-design.md)、[实施计划](superpowers/plans/2026-10-26-p5-keyframes.md)、[数据集与使用说明](keyframe-dataset.md)及[验证记录](p5-01-validation.md)：独立快照、目录式存储与原始/优化位姿版本。
+21. [P5-02 子地图设计](superpowers/specs/2026-10-29-p5-submaps-design.md)、[实施计划](superpowers/plans/2026-10-29-p5-submaps.md)、[子地图说明](submap-dataset.md)和[验证记录](p5-02-validation.md)：稳定分组、持久成员索引及按逐帧版本重建几何。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
@@ -46,6 +47,11 @@ P5-01 已加入默认关闭的关键帧选择、独立快照、数据集保存/�
 两端开启关键帧的完整bag各1351位姿、172个带图像关键帧；四数组/发布保持精确一致，短段各57个原有产品逐字节一致。
 Humble数据集经Noetic构建的C++读者完整消费。格式和操作见[数据集说明](keyframe-dataset.md)，
 具体证据见[P5-01报告](p5-01-validation.md)。
+
+P5-02 已完成默认关闭的子地图分组、成员索引和选定位姿版本下的几何重建，补齐前轮输入错误路径信息。
+普通201、Noetic221单元/8真实ROS、Humble237项及44个普通头通过；SDK和ament迁移消费通过。
+两端完整172个关键帧各形成9组，四数组/发布及原有关键帧资产保持一致，短段各57旧产品逐字节一致。
+实际副本的逐帧位姿修正改变组内几何且不修改原资产；使用与证据见[子地图说明](submap-dataset.md)和[P5-02报告](p5-02-validation.md)。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
 2026-10-11 的原版采集结果位于工作区 `validation/P0-noetic-20261011/`。

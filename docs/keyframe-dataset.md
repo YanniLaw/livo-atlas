@@ -2,7 +2,8 @@
 
 P5-01 在共用 `LivoSystem` 中加入关键帧选择和存储。功能默认关闭，Noetic、Humble
 和普通 C++ 接口使用同一实现。它提供后续后端与重建所需的数据基础；GTSAM、回环、
-子地图管理和新的 COLMAP/3DGS 导出仍待实现。现有 `Frame`、`SubSparseMap` 继续用于视觉跟踪。
+全局地图融合和新的 COLMAP/3DGS 导出仍待实现。子地图分组与版本重建见
+[子地图说明](submap-dataset.md)。现有 `Frame`、`SubSparseMap` 继续用于视觉跟踪。
 
 ## 启用
 
@@ -51,7 +52,7 @@ ros2 launch livo_atlas mapping_avia.launch.py \
 ```bash
 # Noetic，在工作区根目录且已 source devel/setup.bash。
 OMP_THREAD_LIMIT=1 python3 src/livo-atlas/tools/run_baseline.py \
-  --bag Retail_Street.bag --output validation/my-p5-noetic \
+  --workspace "$PWD" --bag Retail_Street.bag --output validation/my-p5-noetic \
   --duration 30 --rate 0.5 --save-keyframes
 
 # Humble，使用已转换的 bag 与实际安装的节点。

@@ -31,6 +31,8 @@ int main(int argc, char** argv) {
     const std::filesystem::path directory(argv[1]);
     livo_atlas::KeyframeStore keyframes(directory);
     livo_atlas::SubmapStore submaps(directory / "submaps", keyframes);
+    // An explicit version must exist even when no groups have been committed.
+    if (version) (void)keyframes.ReadPoses(version);
     std::uint64_t frames = 0, points = 0;
     for (std::size_t id = 0; id < submaps.size(); ++id) {
       frames += submaps.Read(id).keyframe_ids.size();

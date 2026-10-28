@@ -54,6 +54,7 @@ target_link_libraries(my_frontend PRIVATE livo_atlas::core)
 `livo_atlas::camera`、`livo_atlas::colorizer`、`livo_atlas::io` 可以分别链接。
 `livo_atlas::keyframes` 提供快照、选择及几何操作，`io` 提供数据集读写；
 格式、位姿版本和检查工具见[关键帧数据集](keyframe-dataset.md)。
+子地图成员与逐帧版本几何重建由同一 io 目标提供，见[子地图数据集](submap-dataset.md)。
 `common/` 只有共享定义，没有单独的物理库或聚合目标。
 `tests/installed_consumer` 实际通过 Frontend 和 LivoSystem 两种接口执行连续
 LO/LIO/VIO，并检查视觉跟踪、有限状态和文件写入。它只依赖安装头和导出目标。
@@ -91,7 +92,7 @@ build-catkin-consumer/catkin_consumer
 
 `LIVO_ATLAS_ROS_VERSION=2` 提供 Humble 接入，要求已 source Humble 环境。
 其 ament 安装导出同一套 namespaced core target；mode 0 不需要 ROS。
-关键帧基础存储已提供；GTSAM 后端、子地图管理和新的 3DGS 导出属于后续阶段。
+关键帧基础存储、子地图成员索引和版本重建已提供；GTSAM 后端、回环/全局融合和新的 3DGS 导出属于后续阶段。
 
 ## 数值与接口约定
 

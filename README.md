@@ -10,6 +10,7 @@
 当前命名迁移、职责边界与验证见 [整理记录](docs/p4-naming-validation.md)。
 关键帧选择、独立快照与位姿版本存储见[数据集说明](docs/keyframe-dataset.md)，
 两端默认关闭，启用方式和跨电脑读取命令均在该文档中。
+子地图成员索引与按位姿版本重建见[子地图说明](docs/submap-dataset.md)。
 
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 
