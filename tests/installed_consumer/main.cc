@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "export_scenario.h"
 #include "scenario.h"
 #include "system_scenario.h"
 
@@ -10,6 +11,7 @@ int main() {
     if (!livo_atlas::test_data::RunFrontendScenario(mode)) return 1;
     if (!livo_atlas::test_data::RunSystemScenario(mode)) return 1;
   }
+  if (!livo_atlas::test_data::RunColmapScenario()) return 1;
   std::cout << "Installed core: repeated LO, LIO and tracked VIO "
                "passed\n";
 }

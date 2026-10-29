@@ -19,6 +19,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "livo_atlas/io/keyframe_store.h"
@@ -26,6 +27,21 @@
 namespace livo_atlas {
 namespace {
 namespace fs = std::filesystem;
+
+class ScopedDirectory {
+ public:
+  explicit ScopedDirectory(const fs::path& path)
+      : previous_(fs::current_path()) {
+    fs::current_path(path);
+  }
+  ~ScopedDirectory() {
+    std::error_code ignored;
+    fs::current_path(previous_, ignored);
+  }
+
+ private:
+  fs::path previous_;
+};
 
 std::string Bytes(const fs::path& path) {
   std::ifstream file(path, std::ios::binary);
@@ -89,7 +105,7 @@ class ColmapExporterTest : public testing::Test {
     ASSERT_TRUE(fs::create_directory(root_));
     dataset_ = root_ / "dataset";
     output_ = root_ / "export";
-    calibration_.camera = {"Pinhole", 12, 8, .5, 8, 10, 6, 4, {0, 0, 0, 0}};
+    calibration_.camera = {"Pinhole", 12, 8, .5, 8, 10, 5, 3, {0, 0, 0, 0}};
     calibration_.imu_from_lidar.translation << 1, 0, 0;
     calibration_.camera_from_lidar = {Rotation(), Eigen::Vector3d(0, 1, 1)};
   }
@@ -354,6 +370,10 @@ TEST_F(ColmapExporterTest,
   EXPECT_THROW(ExportColmap(dataset_, dataset_ / "export"), std::exception);
   EXPECT_THROW(ExportColmap(dataset_, dataset_ / "frames/../export"),
                std::exception);
+  {
+    ScopedDirectory directory(dataset_);
+    EXPECT_THROW(ExportColmap(".", "relative-output"), std::exception);
+  }
 #if defined(__unix__)
   const auto alias = root_ / "alias";
   fs::create_directory_symlink(dataset_, alias);

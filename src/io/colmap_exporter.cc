@@ -70,6 +70,10 @@ void WriteMetadata(const fs::path& path, const Calibration& calibration,
          << (options.pose_version ? "map" : "odom") << "images_undistorted" << 1
          << "camera_model"
          << "PINHOLE"
+         << "pixel_convention"
+         << "colmap_corner"
+         << "rectification"
+         << "centered_pinhole"
          << "images" << std::to_string(summary.images) << "points"
          << std::to_string(summary.points) << "max_points_per_image"
          << std::to_string(options.max_points_per_image);
@@ -105,7 +109,7 @@ ColmapExportSummary ExportColmap(const fs::path& dataset,
     if (fs::exists(output) || fs::is_symlink(output))
       Fail(output, "Export output already exists");
     const auto source = fs::canonical(dataset);
-    const auto destination = fs::weakly_canonical(output);
+    const auto destination = fs::weakly_canonical(fs::absolute(output));
     if (Inside(destination, source) || Inside(source, destination))
       Fail(output, "Export output must be separate from the source dataset");
     KeyframeStore keyframes(source);

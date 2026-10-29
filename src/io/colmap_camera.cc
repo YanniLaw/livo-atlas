@@ -48,24 +48,29 @@ ColmapCamera::ColmapCamera(const CameraConfig& config) : pinhole_(config) {
   pinhole_.height = static_cast<int>(config.height * config.scale);
   pinhole_.fx *= config.scale;
   pinhole_.fy *= config.scale;
-  pinhole_.cx *= config.scale;
-  pinhole_.cy *= config.scale;
+  pinhole_.cx = pinhole_.width / 2.0;
+  pinhole_.cy = pinhole_.height / 2.0;
   pinhole_.model = "Pinhole";
   pinhole_.scale = 1;
   pinhole_.distortion = {};
   const cv::Mat intrinsics =
-      (cv::Mat_<double>(3, 3) << pinhole_.fx, 0, pinhole_.cx, 0, pinhole_.fy,
-       pinhole_.cy, 0, 0, 1);
+      (cv::Mat_<double>(3, 3) << pinhole_.fx, 0, config.cx * config.scale, 0,
+       pinhole_.fy, config.cy * config.scale, 0, 0, 1);
+  // OpenCV pixel centers are integers; COLMAP centers are offset by (0.5,0.5).
+  // Centering the virtual camera also supports 3DGS's symmetric FOV projection.
+  const cv::Mat target =
+      (cv::Mat_<double>(3, 3) << pinhole_.fx, 0, pinhole_.cx - .5, 0,
+       pinhole_.fy, pinhole_.cy - .5, 0, 0, 1);
   cv::Mat distortion(4, 1, CV_64F);
   for (int i = 0; i < 4; ++i) distortion.at<double>(i) = config.distortion[i];
   const cv::Size size(pinhole_.width, pinhole_.height);
   if (config.model == "Pinhole") {
     cv::initUndistortRectifyMap(intrinsics, distortion,
-                                cv::Mat::eye(3, 3, CV_64F), intrinsics, size,
+                                cv::Mat::eye(3, 3, CV_64F), target, size,
                                 CV_32FC1, map_x_, map_y_);
   } else {
     cv::fisheye::initUndistortRectifyMap(intrinsics, distortion,
-                                         cv::Mat::eye(3, 3, CV_64F), intrinsics,
+                                         cv::Mat::eye(3, 3, CV_64F), target,
                                          size, CV_32FC1, map_x_, map_y_);
   }
   valid_ = cv::Mat::zeros(size, CV_8UC1);

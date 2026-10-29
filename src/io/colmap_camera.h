@@ -23,6 +23,7 @@ struct ColmapView {
 class ColmapCamera {
  public:
   explicit ColmapCamera(const CameraConfig& config);
+  // Already scaled; principal point and observations use COLMAP corner pixels.
   const CameraConfig& pinhole() const { return pinhole_; }
   ColmapView MakeView(const Keyframe& frame,
                       const RigidTransform& parent_from_body,

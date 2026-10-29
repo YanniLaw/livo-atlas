@@ -39,7 +39,7 @@ ColmapCamera(const CameraConfig&)、pinhole()->const CameraConfig&（已缩放�
 MakeView(const Keyframe&, const RigidTransform& parent_from_body, uint32_t max_points)->ColmapView。
 私有头不安装，测试只给该目标增加 src include 路径；不导出通用相机基类。
 
-- [ ] Step1：写相机/几何 RED。原始相机配置12×8、scale0.5、fx8/fy10/cx6/cy4，输出6×4、4/5/3/2。
+- [ ] Step1：写相机/几何 RED。原始相机配置12×8、scale0.5、fx8/fy10/cx5/cy3，输出6×4、4/5/3/2。
   原body Rz90,t=(1,2,3)，相机body Rz90,t=(0,0,1)，因此快照相机world为I,t=(-1,-2,-2)。
   body点(.5,0,3)导出world=(1,2.5,6)，pixel=(3,2.625)，图像BGR(x,y)=(10+x,20+y,30+x+y)，种子RGB=(35,22,13)。
   优化body为I,t=(10,0,0)，新相机world应Rz90,t=(0,-10,1)，点为(10.5,0,3)，投影与颜色保持。
@@ -47,7 +47,7 @@ MakeView(const Keyframe&, const RigidTransform& parent_from_body, uint32_t max_p
 - [ ] Step2：添加图像/采样 RED：Pinhole k1=0而k2/p1/p2非0与独立OpenCV参考图像一致；fisheye四系数及光轴有限；
   11×9按0.5缩放为5×4；同像素近点遮挡远点、深度相等取前者、负深度/出界/整流边缘不产生种子；上限1/2确定且不超限。
   原图/原云不修改，返回图像独立；零或保留的最大uint32上限、错图像形状/类型、无图帧、不合法/溢出的变换拒绝。
-- [ ] Step3：实现私有相机，使用double K、全部畸变系数和CV_32FC1映射；每帧世界点先变换，使用最终归一化相机姿态投影。
+- [ ] Step3：实现私有相机，使用double源K、全部畸变系数和CV_32FC1映射；整流目标OpenCV主点(size-1)/2，输出COLMAP主点size/2；每帧世界点先变换，使用最终归一化相机姿态投影。
   双线性源有效性独立于像素颜色。可见像素只存深度/点索引，行优先按规定步长取点，转换整数前检查范围。
 - [ ] Step4：Google格式，普通全套（原205项及新测试）GREEN，44个普通头保持。task gate camera；提交。
 
@@ -90,6 +90,9 @@ Commit：feat: export versioned keyframes as COLMAP datasets。
 - [ ] Step1：先用字面数据和安装路径写CLI RED：目标不存在或安装缺失失败；记录 cli-red.log。
   raw/优化版本及上限1成功；负数/非规范前导零/尾字符/溢出/上限0或UINT32_MAX/错误参数数量返回2且无输出。
   输入缺失/输出已有/无视觉帧/不存在版本返回1，无图时不能吞掉不存在版本错误。
+- [ ] Step1b：实际3DGS读取约束修订：先运行 CentersOffsetCalibrationWithCornerBasedObservationPixels，
+  原实现应在主点、投影及半像素整流上失败；记录 convention-red.log。随后按修订Spec居中整流、
+  明确COLMAP/OpenCV半像素转换，原居中图像夹具使用正确的OpenCV主点，新增回归GREEN。重建所有初始SDK及两端验证，旧证据归档本阶段pre-convention。
 - [ ] Step2：实现薄CLI，复用ExportColmap，不另写数学/路径策略；CMake在普通/Noetic/Humble均构建安装。
   安装消费者创建自己的小数据集，调用公共接口，读完成标记和PNG/模型确认原始/优化导出；不依赖源目录。
 - [ ] Step3：shared/static/无OMP三种SDK迁移消费与45头、Noetic/Humble完整构建/测试和ament迁移消费。

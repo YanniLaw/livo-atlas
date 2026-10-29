@@ -66,10 +66,13 @@ COLMAP images.txt 保存 T_C_P，四元数为 Hamilton w,x,y,z；归一化后输
 ## 图像、标定与颜色
 
 统一输出去畸变 PINHOLE 图像，RGB PNG 通过 OpenCV BGR8 编码，不手工交换图像通道。
-输出尺寸与源快照的已缩放尺寸相同：int(width*scale)、int(height*scale)；fx/fy/cx/cy 各乘 scale 一次。
-不裁剪，不再次缩放；输出内参正好对应这些像素。Pinhole 使用 OpenCV 常规四系数，EquidistantCamera 使用 fisheye 四系数。
+输出尺寸与源快照的已缩放尺寸相同：int(width*scale)、int(height*scale)。源 fx/fy/cx/cy 按既有契约乘 scale 一次。
+输出 fx/fy 保持缩放后的值，主点居中：OpenCV 整流目标为((width-1)/2,(height-1)/2)，
+COLMAP 的角点坐标约定下写为(width/2,height/2)，两者相差半个像素。观测坐标使用 COLMAP 约定，取 floor 后对应图像数组索引。
+官方3DGS相机路径只从焦距和图像尺寸计算FOV，不消费主点偏移；居中的虚拟相机使该路径的射线与输出图像一致。
+不裁剪，不再次缩放；主点重映射可能改变边缘可见范围，源图像/标定保持。Pinhole 使用 OpenCV 常规四系数，EquidistantCamera 使用 fisheye 四系数。
 所有系数都参与整流，不沿用前端历史 k1 阈值分支；这项离线图像处理不改变前端。
-预计算 float 映射，以相同 K 和单位整流旋转 remap；无法从原图取得完整双线性邻域的像素视为无效，不用于点云着色。
+预计算 float 映射，以缩放后的源 K、居中的 OpenCV 目标 K 和单位整流旋转 remap；无法从原图取得完整双线性邻域的像素视为无效，不用于点云着色。
 原 BGR 图像保持只读；点的 RGB 由去畸变图像中 BGR 像素按 2,1,0 取出。
 逆曝光估计仅原值记录，不假定它等于物理快门时间，不自动修改图像亮度。
 
@@ -104,7 +107,8 @@ output/
 
 浮点输出用 classic locale 和 max_digits10。CSV 文件名只有数字和 .png，数值字段保持可无歧义读取。
 export.yml 使用独立 schema 1；pose_version/images/points/max_points_per_image 为规范十进制字符串，
-parent_frame 为 odom/map，images_undistorted=1，camera_model=PINHOLE，source_camera 含原相机全部配置，
+parent_frame 为 odom/map，images_undistorted=1，camera_model=PINHOLE，pixel_convention=colmap_corner，
+rectification=centered_pinhole，source_camera 含原相机全部配置，
 imu_from_lidar/camera_from_lidar 保留原始外参；数字/变换复用现有私有元数据格式。
 清单不记录机器绝对路径。它只在全部图像、模型、关联文件关闭成功后写临时文件再 rename 为 export.yml。
 没有 PLY 或深度文件的重复存储；官方 3DGS 读取器可从 points3D.txt 生成自己的 PLY。
@@ -140,6 +144,9 @@ Noetic/Humble/普通 SDK 均构建和安装；只链接 io，不增加订阅/参
    所有原数据资产 SHA 不变；优化改变相机/几何，图像与来源关联稳定。外部读取器版本/SHA/许可记入新证据。
 5. 最终两端官方 bag 回归与冻结 P5-02 配对，原数组/发布及原始关键帧资产保持；短段旧产品逐字节一致。
 6. 跨电脑说明、完整历史 bundle/空 bare 全引用恢复；一轮独立评审，重要问题一次 RED→GREEN 修复，全套相关验证。
+
+主点/像素约定修订依据：[COLMAP与OpenCV标定转换](https://colmap.github.io/faq.html#using-calibration-from-opencv-kalibr-or-other-tools)、
+[3DGS相机读取](https://github.com/graphdeco-inria/gaussian-splatting/blob/54c035f7834b564019656c3e3fcc3646292f727d/scene/dataset_readers.py)。
 
 参考：[COLMAP格式](https://colmap.github.io/format.html)、
 [3DGS相机/数据读取](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/dataset_readers.py)、

@@ -11,7 +11,7 @@
 namespace livo_atlas {
 namespace {
 CameraConfig Config() {
-  return {"Pinhole", 12, 8, .5, 8, 10, 6, 4, {0, 0, 0, 0}};
+  return {"Pinhole", 12, 8, .5, 8, 10, 5, 3, {0, 0, 0, 0}};
 }
 Eigen::Matrix3d Rz90() {
   Eigen::Matrix3d rotation;
@@ -115,8 +115,10 @@ TEST(ColmapCameraTest, RectifiesAllPinholeCoefficientsEvenWhenK1IsZero) {
   const cv::Mat intrinsics =
       (cv::Mat_<double>(3, 3) << 8, 0, 8, 0, 9.5, 6, 0, 0, 1);
   const cv::Mat distortion = (cv::Mat_<double>(4, 1) << 0, .3, .04, -.03);
+  const cv::Mat target =
+      (cv::Mat_<double>(3, 3) << 8, 0, 7.5, 0, 9.5, 5.5, 0, 0, 1);
   cv::Mat expected;
-  cv::undistort(frame.image, expected, intrinsics, distortion, intrinsics);
+  cv::undistort(frame.image, expected, intrinsics, distortion, target);
   ASSERT_GT(cv::norm(expected, frame.image, cv::NORM_INF), 4);
   const auto view =
       ColmapCamera(config).MakeView(frame, frame.odom_from_body, 2000);
@@ -134,7 +136,7 @@ TEST(ColmapCameraTest, RectifiesFisheyeIncludingTheOpticalAxis) {
   cloud->front().x = 0;
   frame.cloud = cloud;
   const cv::Mat intrinsics =
-      (cv::Mat_<double>(3, 3) << 4, 0, 3, 0, 5, 2, 0, 0, 1);
+      (cv::Mat_<double>(3, 3) << 4, 0, 2.5, 0, 5, 1.5, 0, 0, 1);
   const cv::Mat distortion = (cv::Mat_<double>(4, 1) << .1, -.02, .003, -.0004);
   cv::Mat expected;
   cv::fisheye::undistortImage(frame.image, expected, intrinsics, distortion,
@@ -158,7 +160,7 @@ TEST(ColmapCameraTest, TruncatesScaledDimensionsWithoutScalingTwice) {
   EXPECT_EQ(view.image.cols, 5);
   EXPECT_EQ(view.image.rows, 4);
   ASSERT_EQ(view.samples.size(), 1u);
-  EXPECT_TRUE(view.samples[0].pixel.isApprox(Eigen::Vector2d(3, 2.625)));
+  EXPECT_TRUE(view.samples[0].pixel.isApprox(Eigen::Vector2d(2.5, 2.625)));
 }
 
 TEST(ColmapCameraTest,
@@ -235,6 +237,30 @@ TEST(ColmapCameraTest, RejectsInvalidViewsLimitsAndOverflowingComposition) {
   frame.camera_from_odom->translation.setConstant(
       std::numeric_limits<double>::max());
   EXPECT_THROW(camera.MakeView(frame, {}, 1), std::invalid_argument);
+}
+
+TEST(ColmapCameraTest,
+     CentersOffsetCalibrationWithCornerBasedObservationPixels) {
+  auto config = Config();
+  config.cx = 4;
+  config.cy = 2;
+  auto frame = Frame();
+  for (int y = 0; y < frame.image.rows; ++y) {
+    for (int x = 0; x < frame.image.cols; ++x)
+      frame.image.at<cv::Vec3b>(y, x)[0] = (x + y) % 2 ? 255 : 0;
+  }
+  const ColmapCamera camera(config);
+  const auto view = camera.MakeView(frame, frame.odom_from_body, 2000);
+  EXPECT_EQ(camera.pinhole().cx, 3);
+  EXPECT_EQ(camera.pinhole().cy, 2);
+  ASSERT_EQ(view.samples.size(), 1u);
+  EXPECT_TRUE(view.samples[0].pixel.isApprox(Eigen::Vector2d(3, 2.625)));
+  // OpenCV's target center is (2.5,1.5), a half-pixel shift from (2,1).
+  const cv::Mat shift = (cv::Mat_<double>(2, 3) << 1, 0, .5, 0, 1, .5);
+  cv::Mat expected;
+  cv::warpAffine(frame.image, expected, shift, frame.image.size(),
+                 cv::INTER_LINEAR, cv::BORDER_CONSTANT);
+  EXPECT_LE(cv::norm(view.image, expected, cv::NORM_INF), 1);
 }
 }  // namespace
 }  // namespace livo_atlas
