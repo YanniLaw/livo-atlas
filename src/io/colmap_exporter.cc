@@ -74,6 +74,8 @@ void WriteMetadata(const fs::path& path, const Calibration& calibration,
          << "colmap_corner"
          << "rectification"
          << "centered_pinhole"
+         << "rotation_projection"
+         << "nearest_so3"
          << "images" << std::to_string(summary.images) << "points"
          << std::to_string(summary.points) << "max_points_per_image"
          << std::to_string(options.max_points_per_image);

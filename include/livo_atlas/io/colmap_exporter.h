@@ -16,6 +16,7 @@ struct ColmapExportSummary {
 
 // Reads a stopped keyframe dataset and writes a new, independent export.
 // Version zero uses odom; positive versions use their frozen map-frame prefix.
+// Accepted rounded rotations are projected onto SO(3) inside this export only.
 // A successful export has export.yml. Failures retain an incomplete directory
 // without this marker; existing outputs and source assets are never replaced.
 ColmapExportSummary ExportColmap(const std::filesystem::path& dataset,

@@ -112,6 +112,9 @@ Commit：feat: install the offline COLMAP export tool。
 - [ ] Step1：官方读取代码实际解析每个导出目录；核对相机/所有PNG/点/双向关联、正深度、重投影和相机中心、版本/时间/曝光。
   完整数据各172图像，短段各2；优化前后相机及点改变，PNG/时间关联稳定，所有冻结和原始副本资产摘要不变。
   记录外部真实读取范围，准确区分数据消费和训练；不得用自己编写的解析器冒充第三方读取。
+- [ ] Step1b：真实数据揭示历史相机旋转存在约1e-7量级非正交误差。先运行 UsesOneRigidRepresentationForRoundedPosesAndBodyCorrections，
+  记录rigid-red.log的平移/点/像素失败；按修订Spec将已验证输入旋转投影到最近SO(3)，统一相机/点/版本变换，源记录保持。
+  普通全套GREEN后重建SDK/两端并重跑全部真实外部导出，保持既定严格重投影误差界限。
 - [ ] Step2：最终Noetic/Humble各short/full官方bag串行回归；原四数组/发布与冻结P5-02精确保持、短段各57旧产品字节一致，
   原始关键帧资产保持。只写本阶段，绑定实际源码/15运行产物摘要。task gate acceptance。
 - [ ] Step3：写使用/布局/坐标/图像/种子与单视角限制/版本/完成标记及跨电脑复现，校正文档总索引旧P5-02计数。

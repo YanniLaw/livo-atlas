@@ -262,5 +262,31 @@ TEST(ColmapCameraTest,
                  cv::INTER_LINEAR, cv::BORDER_CONSTANT);
   EXPECT_LE(cv::norm(view.image, expected, cv::NORM_INF), 1);
 }
+TEST(ColmapCameraTest,
+     UsesOneRigidRepresentationForRoundedPosesAndBodyCorrections) {
+  auto frame = Frame();
+  frame.odom_from_body = {};
+  frame.odom_from_body.rotation(0, 0) += 2e-7;
+  frame.camera_from_odom = RigidTransform{};
+  frame.camera_from_odom->rotation(0, 0) += 1e-7;
+  auto optimized = frame.odom_from_body;
+  optimized.translation << 10, 0, 0;
+  const ColmapCamera camera(Config());
+  const auto raw = camera.MakeView(frame, frame.odom_from_body, 2000);
+  const auto view = camera.MakeView(frame, optimized, 2000);
+  EXPECT_TRUE(view.camera_from_parent.rotation.isApprox(
+      Eigen::Matrix3d::Identity(), 1e-12));
+  EXPECT_TRUE(view.camera_from_parent.translation.isApprox(
+      Eigen::Vector3d(-10, 0, 0), 1e-12));
+  ASSERT_EQ(view.samples.size(), 1u);
+  ASSERT_EQ(raw.samples.size(), 1u);
+  EXPECT_TRUE(
+      view.samples[0].position.isApprox(Eigen::Vector3d(10.5, 0, 3), 1e-12));
+  EXPECT_TRUE(
+      view.samples[0].pixel.isApprox(Eigen::Vector2d(11.0 / 3, 2), 1e-12));
+  EXPECT_TRUE(view.samples[0].pixel.isApprox(raw.samples[0].pixel, 1e-12));
+  EXPECT_EQ(frame.odom_from_body.rotation(0, 0), 1 + 2e-7);
+  EXPECT_EQ(frame.camera_from_odom->rotation(0, 0), 1 + 1e-7);
+}
 }  // namespace
 }  // namespace livo_atlas

@@ -51,6 +51,9 @@ ColmapExportSummary ExportColmap(const std::filesystem::path& dataset,
 所有被选中前缀的原始资产在创建输出前预检；写出时仍按帧读取，不把整个序列图像和云留在内存。
 
 图像实测位姿 camera_from_odom 是原始快照的一部分，应保持其相机坐标约定和相机/机体关联。
+历史记录允许标定/四元数舍入导致的微小非正交误差。仅在导出内部，将已通过原校验的每个相机/原body/选定body旋转
+通过SVD/polar投影到最近SO(3)，平移保持；以下T均使用这一刚体表示，再一致地组合相机和点。
+源记录不变，导出清单声明rotation_projection=nearest_so3，不宣称输出矩阵与原近似矩阵逐元素相同。
 T_A_B 将 B 映射到 A；对每帧先恢复 T_C_B = T_C_O(raw) * T_O_B(raw)，再计算：
 
 ```text
@@ -108,7 +111,7 @@ output/
 浮点输出用 classic locale 和 max_digits10。CSV 文件名只有数字和 .png，数值字段保持可无歧义读取。
 export.yml 使用独立 schema 1；pose_version/images/points/max_points_per_image 为规范十进制字符串，
 parent_frame 为 odom/map，images_undistorted=1，camera_model=PINHOLE，pixel_convention=colmap_corner，
-rectification=centered_pinhole，source_camera 含原相机全部配置，
+rectification=centered_pinhole，rotation_projection=nearest_so3，source_camera 含原相机全部配置，
 imu_from_lidar/camera_from_lidar 保留原始外参；数字/变换复用现有私有元数据格式。
 清单不记录机器绝对路径。它只在全部图像、模型、关联文件关闭成功后写临时文件再 rename 为 export.yml。
 没有 PLY 或深度文件的重复存储；官方 3DGS 读取器可从 points3D.txt 生成自己的 PLY。

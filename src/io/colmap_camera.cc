@@ -1,5 +1,6 @@
 #include "colmap_camera.h"
 
+#include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -25,6 +26,12 @@ RigidTransform Compose(const RigidTransform& a, const RigidTransform& b) {
 RigidTransform Inverse(const RigidTransform& pose) {
   const Eigen::Matrix3d rotation = pose.rotation.transpose();
   return {rotation, -rotation * pose.translation};
+}
+RigidTransform RigidPose(const RigidTransform& pose) {
+  CheckPose(pose);
+  const Eigen::JacobiSVD<Eigen::Matrix3d> svd(
+      pose.rotation, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  return {svd.matrixU() * svd.matrixV().transpose(), pose.translation};
 }
 Eigen::Vector3d Position(const Point& point, const RigidTransform& pose) {
   const Eigen::Vector3d result =
@@ -95,12 +102,13 @@ ColmapView ColmapCamera::MakeView(const Keyframe& frame,
   if (!frame.image_timestamp || frame.image.cols != pinhole_.width ||
       frame.image.rows != pinhole_.height)
     throw std::invalid_argument("Export requires a calibrated visual keyframe");
-  CheckPose(parent_from_body);
-  const auto camera_from_body =
-      Compose(*frame.camera_from_odom, frame.odom_from_body);
+  // Historical snapshots allow small calibration/rotation roundoff. Project
+  // each accepted rotation once before composing either points or cameras.
+  const auto parent_pose = RigidPose(parent_from_body);
+  const auto camera_from_body = Compose(RigidPose(*frame.camera_from_odom),
+                                        RigidPose(frame.odom_from_body));
   ColmapView view;
-  view.camera_from_parent =
-      Compose(camera_from_body, Inverse(parent_from_body));
+  view.camera_from_parent = Compose(camera_from_body, Inverse(parent_pose));
   // Use the same normalized rotation for projection and COLMAP serialization.
   view.camera_from_parent.rotation =
       Eigen::Quaterniond(view.camera_from_parent.rotation)
@@ -113,7 +121,7 @@ ColmapView ColmapCamera::MakeView(const Keyframe& frame,
   std::vector<double> depths(valid_.total(),
                              std::numeric_limits<double>::infinity());
   for (std::size_t i = 0; i < frame.cloud->size(); ++i) {
-    const auto position = Position((*frame.cloud)[i], parent_from_body);
+    const auto position = Position((*frame.cloud)[i], parent_pose);
     const auto camera_point = view.camera_from_parent.rotation * position +
                               view.camera_from_parent.translation;
     if (!camera_point.allFinite() || camera_point.z() <= 0) continue;
@@ -140,7 +148,7 @@ ColmapView ColmapCamera::MakeView(const Keyframe& frame,
     if (nearest[offset] == no_point) continue;
     if (rank++ % stride != 0) continue;
     const auto position =
-        Position((*frame.cloud)[nearest[offset]], parent_from_body);
+        Position((*frame.cloud)[nearest[offset]], parent_pose);
     const auto camera_point = view.camera_from_parent.rotation * position +
                               view.camera_from_parent.translation;
     const auto pixel = Project(camera_point, pinhole_);
