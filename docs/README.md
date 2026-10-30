@@ -56,7 +56,7 @@ P5-02 已完成默认关闭的子地图分组、成员索引和选定位姿版�
 实际副本的逐帧位姿修正改变组内几何且不修改原资产；使用与证据见[子地图说明](submap-dataset.md)和[P5-02报告](p5-02-validation.md)。
 
 P5-03 已提供普通C++离线COLMAP导出和安装CLI，支持原始/优化位姿版本、居中去畸变图像与带颜色LiDAR种子。
-普通229、Noetic249单元/8真实ROS、Humble265项及45个普通头通过；SDK/ament迁移消费与两端完整bag精确回归通过。
+普通230、Noetic250单元/8真实ROS、Humble266项及45个普通头通过；SDK/ament迁移消费与两端完整bag精确回归通过。
 官方COLMAP/3DGS格式读取代码实际消费六组导出；使用、范围与未定因回放异常见[导出说明](colmap-export.md)和[P5-03报告](p5-03-validation.md)。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
