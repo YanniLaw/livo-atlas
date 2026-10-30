@@ -1,6 +1,6 @@
 # P5-03 离线 COLMAP 导出实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 将已有关键帧按选定位姿版本离线导出为可被 COLMAP/官方 3DGS 读取的相机、图像和带颜色种子点。
 
@@ -39,17 +39,17 @@ ColmapCamera(const CameraConfig&)、pinhole()->const CameraConfig&（已缩放�
 MakeView(const Keyframe&, const RigidTransform& parent_from_body, uint32_t max_points)->ColmapView。
 私有头不安装，测试只给该目标增加 src include 路径；不导出通用相机基类。
 
-- [ ] Step1：写相机/几何 RED。原始相机配置12×8、scale0.5、fx8/fy10/cx5/cy3，输出6×4、4/5/3/2。
+- [x] Step1：写相机/几何 RED。原始相机配置12×8、scale0.5、fx8/fy10/cx5/cy3，输出6×4、4/5/3/2。
   原body Rz90,t=(1,2,3)，相机body Rz90,t=(0,0,1)，因此快照相机world为I,t=(-1,-2,-2)。
   body点(.5,0,3)导出world=(1,2.5,6)，pixel=(3,2.625)，图像BGR(x,y)=(10+x,20+y,30+x+y)，种子RGB=(35,22,13)。
   优化body为I,t=(10,0,0)，新相机world应Rz90,t=(0,-10,1)，点为(10.5,0,3)，投影与颜色保持。
   新头不存在时构建应失败；记录 camera-red.log。
-- [ ] Step2：添加图像/采样 RED：Pinhole k1=0而k2/p1/p2非0与独立OpenCV参考图像一致；fisheye四系数及光轴有限；
+- [x] Step2：添加图像/采样 RED：Pinhole k1=0而k2/p1/p2非0与独立OpenCV参考图像一致；fisheye四系数及光轴有限；
   11×9按0.5缩放为5×4；同像素近点遮挡远点、深度相等取前者、负深度/出界/整流边缘不产生种子；上限1/2确定且不超限。
   原图/原云不修改，返回图像独立；零或保留的最大uint32上限、错图像形状/类型、无图帧、不合法/溢出的变换拒绝。
-- [ ] Step3：实现私有相机，使用double源K、全部畸变系数和CV_32FC1映射；整流目标OpenCV主点(size-1)/2，输出COLMAP主点size/2；每帧世界点先变换，使用最终归一化相机姿态投影。
+- [x] Step3：实现私有相机，使用double源K、全部畸变系数和CV_32FC1映射；整流目标OpenCV主点(size-1)/2，输出COLMAP主点size/2；每帧世界点先变换，使用最终归一化相机姿态投影。
   双线性源有效性独立于像素颜色。可见像素只存深度/点索引，行优先按规定步长取点，转换整数前检查范围。
-- [ ] Step4：Google格式，普通全套（原205项及新测试）GREEN，44个普通头保持。task gate camera；提交。
+- [x] Step4：Google格式，普通全套（原205项及新测试）GREEN，44个普通头保持。task gate camera；提交。
 
 Expected：字面值几何、图像与颜色契约通过，源资产和现有算法行为保持。
 Commit：feat: prepare calibrated COLMAP images and lidar seeds。
@@ -62,19 +62,19 @@ Commit：feat: prepare calibrated COLMAP images and lidar seeds。
 **Interfaces:** 按Spec的ColmapExportOptions/ColmapExportSummary/ExportColmap(dataset,output,options={})。
 消费Task1 ColmapCamera/MakeView，不在调度、ROS或相机前端增加分支。
 
-- [ ] Step1：写公开接口/文件 RED，初始头不存在应失败，记录 exporter-red.log。
+- [x] Step1：写公开接口/文件 RED，初始头不存在应失败，记录 exporter-red.log。
   使用Task1字面外参：imu_from_lidar=I,t=(1,0,0)，camera_from_lidar=Rz90,t=(0,1,1)，与快照相机body一致。
   读实际文件验证PINHOLE=1、6×4/4/5/3/2、T_C_world、world点/RGB、每点track的IMAGE_ID/零起始POINT2D_IDX以及images.txt逆关联。
   CSV三时间和0.8逆曝光无精度损失，export.yml是完成标记，记录原标定/外参和原始或map版本。
-- [ ] Step2：写版本与生命周期 RED：视觉帧0、非视觉帧1、视觉帧2映射图像ID1/2及0.png/2.png；
+- [x] Step2：写版本与生命周期 RED：视觉帧0、非视觉帧1、视觉帧2映射图像ID1/2及0.png/2.png；
   冻结版本1覆盖0/1且记录倒序，之后追加2并移除其云，导出版本1仍成功只含图像0，版本0因损坏失败。
   两帧不同修正改变两份相机/种子几何，图像与关联时间保持；源文件字节及已有位姿文件保持。
-- [ ] Step3：写错误与路径 RED：空集、全LO、显式缺失版本、坏资产先于输出创建拒绝；全无种子没有完成标记。
+- [x] Step3：写错误与路径 RED：空集、全LO、显式缺失版本、坏资产先于输出创建拒绝；全无种子没有完成标记。
   新输出限制包括已有空目录/含哨兵目录、现有文件、符号链接以及含..或符号链接父目录的源内部路径。
   Unix fork子进程使用真实RLIMIT_FSIZE=0及忽略SIGXFSZ触发文件写入失败；无export.yml、原数据可读、重试不覆盖现场。
-- [ ] Step4：实现只读输入/版本ID映射、选中资产预检、逐帧输出、规范图像ID和计数保护、classic/max_digits10文本与CSV。
+- [x] Step4：实现只读输入/版本ID映射、选中资产预检、逐帧输出、规范图像ID和计数保护、classic/max_digits10文本与CSV。
   metadata复用Decimal/WriteTransform/WriteYaml；模型和图像关闭成功后.pending-export.yml→export.yml，异常增加目标路径。
-- [ ] Step5：Google格式，普通全套GREEN，45公开头独立编译通过。task gate exporter；提交。
+- [x] Step5：Google格式，普通全套GREEN，45公开头独立编译通过。task gate exporter；提交。
 
 Expected：完整真实模型可读、版本不混用、原文件保持，错误不伪装成功。
 Commit：feat: export versioned keyframes as COLMAP datasets。
@@ -87,15 +87,15 @@ Commit：feat: export versioned keyframes as COLMAP datasets。
 **Interfaces:** livo_atlas_export_colmap DATASET_DIRECTORY OUTPUT_DIRECTORY [POSE_VERSION] [MAX_POINTS_PER_IMAGE]。
 成功JSON(images,points,pose_version)且返回0；参数错误2；数据/文件失败1。安装进bin，复用相对RPATH设置。
 
-- [ ] Step1：先用字面数据和安装路径写CLI RED：目标不存在或安装缺失失败；记录 cli-red.log。
+- [x] Step1：先用字面数据和安装路径写CLI RED：目标不存在或安装缺失失败；记录 cli-red.log。
   raw/优化版本及上限1成功；负数/非规范前导零/尾字符/溢出/上限0或UINT32_MAX/错误参数数量返回2且无输出。
   输入缺失/输出已有/无视觉帧/不存在版本返回1，无图时不能吞掉不存在版本错误。
-- [ ] Step1b：实际3DGS读取约束修订：先运行 CentersOffsetCalibrationWithCornerBasedObservationPixels，
+- [x] Step1b：实际3DGS读取约束修订：先运行 CentersOffsetCalibrationWithCornerBasedObservationPixels，
   原实现应在主点、投影及半像素整流上失败；记录 convention-red.log。随后按修订Spec居中整流、
   明确COLMAP/OpenCV半像素转换，原居中图像夹具使用正确的OpenCV主点，新增回归GREEN。重建所有初始SDK及两端验证，旧证据归档本阶段pre-convention。
-- [ ] Step2：实现薄CLI，复用ExportColmap，不另写数学/路径策略；CMake在普通/Noetic/Humble均构建安装。
+- [x] Step2：实现薄CLI，复用ExportColmap，不另写数学/路径策略；CMake在普通/Noetic/Humble均构建安装。
   安装消费者创建自己的小数据集，调用公共接口，读完成标记和PNG/模型确认原始/优化导出；不依赖源目录。
-- [ ] Step3：shared/static/无OMP三种SDK迁移消费与45头、Noetic/Humble完整构建/测试和ament迁移消费。
+- [x] Step3：shared/static/无OMP三种SDK迁移消费与45头、Noetic/Humble完整构建/测试和ament迁移消费。
   保存真实源码与节点+14自有库摘要；原两个检查工具及新CLI字面数据都通过。task gate installed；提交。
 
 Expected：同一普通实现被两端及包外安装消费者调用，运行时无需源树、COLMAP或CUDA。
@@ -109,15 +109,15 @@ Commit：feat: install the offline COLMAP export tool。
 **Interfaces:** 用实际移动SDK的CLI导出冻结P5-02两端short/full；完整数据副本写入倒序非刚性位姿版本，导出另一个新目录。
 外部读取实现只下载到本阶段并固定版本/SHA及许可，来源COLMAP官方read_write_model.py及3DGS官方colmap_loader.py。
 
-- [ ] Step1：官方读取代码实际解析每个导出目录；核对相机/所有PNG/点/双向关联、正深度、重投影和相机中心、版本/时间/曝光。
+- [x] Step1：官方读取代码实际解析每个导出目录；核对相机/所有PNG/点/双向关联、正深度、重投影和相机中心、版本/时间/曝光。
   完整数据各172图像，短段各2；优化前后相机及点改变，PNG/时间关联稳定，所有冻结和原始副本资产摘要不变。
   记录外部真实读取范围，准确区分数据消费和训练；不得用自己编写的解析器冒充第三方读取。
-- [ ] Step1b：真实数据揭示历史相机旋转存在约1e-7量级非正交误差。先运行 UsesOneRigidRepresentationForRoundedPosesAndBodyCorrections，
+- [x] Step1b：真实数据揭示历史相机旋转存在约1e-7量级非正交误差。先运行 UsesOneRigidRepresentationForRoundedPosesAndBodyCorrections，
   记录rigid-red.log的平移/点/像素失败；按修订Spec将已验证输入旋转投影到最近SO(3)，统一相机/点/版本变换，源记录保持。
   普通全套GREEN后重建SDK/两端并重跑全部真实外部导出，保持既定严格重投影误差界限。
-- [ ] Step2：最终Noetic/Humble各short/full官方bag串行回归；原四数组/发布与冻结P5-02精确保持、短段各57旧产品字节一致，
+- [x] Step2：最终Noetic/Humble各short/full官方bag串行回归；原四数组/发布与冻结P5-02精确保持、短段各57旧产品字节一致，
   原始关键帧资产保持。只写本阶段，绑定实际源码/15运行产物摘要。task gate acceptance。
-- [ ] Step3：写使用/布局/坐标/图像/种子与单视角限制/版本/完成标记及跨电脑复现，校正文档总索引旧P5-02计数。
+- [x] Step3：写使用/布局/坐标/图像/种子与单视角限制/版本/完成标记及跨电脑复现，校正文档总索引旧P5-02计数。
   Google检查、原Log/缺失vikit/保护引用核对；提交并将最终HEAD与验收绑定。
 
 Expected：真实外部消费与两端数值回归均通过，用户能在另一台电脑按文档重建和导出。

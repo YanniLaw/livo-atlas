@@ -24,6 +24,8 @@
 20. [P5-01 关键帧设计](superpowers/specs/2026-10-26-p5-keyframes-design.md)、[实施计划](superpowers/plans/2026-10-26-p5-keyframes.md)、[数据集与使用说明](keyframe-dataset.md)及[验证记录](p5-01-validation.md)：独立快照、目录式存储与原始/优化位姿版本。
 21. [P5-02 子地图设计](superpowers/specs/2026-10-29-p5-submaps-design.md)、[实施计划](superpowers/plans/2026-10-29-p5-submaps.md)、[子地图说明](submap-dataset.md)和[验证记录](p5-02-validation.md)：稳定分组、持久成员索引及按逐帧版本重建几何。
 
+22. [P5-03 离线导出设计](superpowers/specs/2026-10-30-p5-colmap-export-design.md)、[实施计划](superpowers/plans/2026-10-30-p5-colmap-export.md)、[使用说明](colmap-export.md)和[验证记录](p5-03-validation.md)：按选定位姿版本导出居中针孔图像、相机与带颜色LiDAR种子，保留原数据。
+
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
 P1-02 已完成普通标定类型、ROS1 参数入口、相机接线、直接测试、完整回放及独立审阅问题闭环。
@@ -49,9 +51,13 @@ Humble数据集经Noetic构建的C++读者完整消费。格式和操作见[数�
 具体证据见[P5-01报告](p5-01-validation.md)。
 
 P5-02 已完成默认关闭的子地图分组、成员索引和选定位姿版本下的几何重建，补齐前轮输入错误路径信息。
-普通201、Noetic221单元/8真实ROS、Humble237项及44个普通头通过；SDK和ament迁移消费通过。
+普通205、Noetic225单元/8真实ROS、Humble241项及44个普通头通过；SDK和ament迁移消费通过。
 两端完整172个关键帧各形成9组，四数组/发布及原有关键帧资产保持一致，短段各57旧产品逐字节一致。
 实际副本的逐帧位姿修正改变组内几何且不修改原资产；使用与证据见[子地图说明](submap-dataset.md)和[P5-02报告](p5-02-validation.md)。
+
+P5-03 已提供普通C++离线COLMAP导出和安装CLI，支持原始/优化位姿版本、居中去畸变图像与带颜色LiDAR种子。
+普通229、Noetic249单元/8真实ROS、Humble265项及45个普通头通过；SDK/ament迁移消费与两端完整bag精确回归通过。
+官方COLMAP/3DGS格式读取代码实际消费六组导出；使用、范围与未定因回放异常见[导出说明](colmap-export.md)和[P5-03报告](p5-03-validation.md)。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
 2026-10-11 的原版采集结果位于工作区 `validation/P0-noetic-20261011/`。

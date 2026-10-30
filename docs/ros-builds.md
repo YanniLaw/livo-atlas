@@ -153,4 +153,6 @@ python3 src/livo-atlas/tools/run_ros2_baseline.py \
 作为隐含前提。P4 用同环境离线 session 与实际接入对照定位差异，同时保留跨环境量化结果；
 没有修改估计公式或以新容差掩盖接入差异。
 
-关键帧选择、快照、版本化位姿及子地图成员/几何重建已提供；GTSAM、回环/全局融合和新的 3DGS 导出仍待实现。
+关键帧、子地图和选定位姿版本的离线COLMAP导出已提供。停止采集后调用安装前缀/bin下的
+`livo_atlas_export_colmap`，见[离线导出说明](colmap-export.md)。该工具两端共用普通C++实现。
+GTSAM、回环/全局融合与实际3DGS训练仍属于后续阶段。
