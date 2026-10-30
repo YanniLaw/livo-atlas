@@ -42,6 +42,20 @@ std::ofstream OpenText(const fs::path& path) {
   return output;
 }
 
+void WriteImage(const fs::path& path, const cv::Mat& image) {
+  try {
+    std::vector<unsigned char> encoded;
+    if (!cv::imencode(".png", image, encoded))
+      Fail(path, "Cannot encode export image");
+    auto output = OpenText(path);
+    output.write(reinterpret_cast<const char*>(encoded.data()),
+                 static_cast<std::streamsize>(encoded.size()));
+    output.close();
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
 std::vector<FramePose> SelectFrames(const KeyframeStore& keyframes,
                                     std::uint64_t version) {
   std::map<std::uint64_t, RigidTransform> poses;
@@ -155,8 +169,7 @@ ColmapExportSummary ExportColmap(const fs::path& dataset,
       const auto image_id = ++summary.images;
       const auto name = std::to_string(frame.id) + ".png";
       const auto image_path = destination / "images" / name;
-      if (!cv::imwrite(image_path.string(), view.image))
-        Fail(image_path, "Cannot write export image");
+      WriteImage(image_path, view.image);
       Eigen::Quaterniond rotation(view.camera_from_parent.rotation);
       rotation.normalize();
       if (rotation.w() < 0) rotation.coeffs() *= -1;

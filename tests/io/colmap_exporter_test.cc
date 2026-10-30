@@ -428,6 +428,46 @@ TEST_F(ColmapExporterTest,
   EXPECT_EQ(Lines(output_ / "sparse/0/images.txt")[1], "3 1.375 1");
 }
 
+TEST_F(ColmapExporterTest, RejectsBufferedPngCloseFailureBeforeCommitting) {
+#if defined(__unix__)
+  calibration_.camera = {"Pinhole", 24, 24, 1, 12, 12, 11.5, 11.5, {}};
+  auto frame = Frame(0);
+  frame.image = cv::Mat(24, 24, CV_8UC3);
+  cv::RNG random(123);
+  random.fill(frame.image, cv::RNG::UNIFORM, 0, 256);
+  KeyframeStore writer(dataset_, calibration_);
+  writer.Append(frame);
+  const auto original = Snapshot(dataset_);
+  cv::setNumThreads(1);
+  const auto control = root_ / "unrestricted";
+  ASSERT_NO_THROW(ExportColmap(dataset_, control));
+  ASSERT_GT(fs::file_size(control / "images/0.png"), 1500u);
+  ASSERT_LT(fs::file_size(control / "export.yml"), 1500u);
+  const auto child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    std::signal(SIGXFSZ, SIG_IGN);
+    const rlimit limit{1500, 1500};
+    if (setrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(3);
+    try {
+      ExportColmap(dataset_, output_);
+    } catch (const std::runtime_error&) {
+      _exit(0);
+    }
+    _exit(2);
+  }
+  int status = 0;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 0);
+  EXPECT_FALSE(fs::exists(output_ / "export.yml"));
+  EXPECT_EQ(Snapshot(dataset_), original);
+  EXPECT_EQ(KeyframeStore(dataset_).Read(0).id, 0u);
+#else
+  GTEST_SKIP() << "RLIMIT_FSIZE fault injection requires Unix";
+#endif
+}
+
 TEST_F(ColmapExporterTest,
        RealWriteFailurePreservesTheInputAndHasNoCompletionMarker) {
 #if defined(__unix__)
