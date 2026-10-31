@@ -8,7 +8,7 @@
 namespace livo_atlas::test_data {
 
 // An ordinary caller exercises repeated updates without any publisher or ROS.
-inline bool RunFrontendScenario(FrontendMode mode) {
+inline bool RunFrontendScenario(FrontendMode mode, int frame_count = 4) {
   const bool inertial = mode != FrontendMode::kLidarOnly;
   const bool visual = mode == FrontendMode::kLidarInertialVisual;
   FrontendOptions options;
@@ -22,7 +22,7 @@ inline bool RunFrontendScenario(FrontendMode mode) {
   int lidar_updates = 0;
   int visual_updates = 0;
   bool tracked = false;
-  for (int frame = 0; frame < 4; ++frame) {
+  for (int frame = 0; frame < frame_count; ++frame) {
     const double begin = 100 + frame * 0.25;
     SynchronizedMeasurements input;
     input.update_kind =
@@ -84,8 +84,8 @@ inline bool RunFrontendScenario(FrontendMode mode) {
     // A caller that skips publishing must still consume this frame's cloud.
     if (frontend.Process(&input).updated) return false;
   }
-  return lidar_updates == (inertial ? 3 : 4) &&
-         (!visual || (visual_updates == 3 && tracked));
+  return lidar_updates == frame_count - (inertial ? 1 : 0) &&
+         (!visual || (visual_updates == frame_count - 1 && tracked));
 }
 
 }  // namespace livo_atlas::test_data

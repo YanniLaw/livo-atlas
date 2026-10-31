@@ -106,3 +106,15 @@ Eigen根据首次缓存查询选择矩阵分块，大小核缓存差异改变浮
 两个回放工具增加可选--image-queue-size并记录实际配置；Humble输出观察队列取max(20,配置深度)，输入QoS不变。
 实际DDS节点回归检查默认1与配置32的发布历史；两端参数测试检查正数、默认及非法值在打开文件前拒绝。
 相同的20张受控暂停实验在32深度下必须全部恢复；完整1倍速及最终重复测试继续严格检查1350张，不补样或放宽。
+
+## 耐久准备发现的缓存所有权路径
+
+关闭法向模式时，RetrieveFromVisualSparseMap每帧清空warp_map，却没有释放此前new出的PatchWarp；析构只能释放最后一帧。
+先扩展现有frontend_lifecycle_check --visual，用真实公开Frontend重复运行已跟踪视觉场景，要求LeakSanitizer检查缓存重置及析构。
+仅保留已证明与无地图控制同样存在的libtbb抑制，不抑制任何livo-atlas分配。
+确认RED后将warp_map的PatchWarp按值存储，删除手动new/delete，保留相同搜索层级和矩阵值；不改光度或滤波计算。
+该补充属于本轮内存可靠性；修复前的完整回放保留为对照，最终两端三次完整回放绑定修复后的运行库重新执行。
+
+初次真实ASan视觉回归已报告UpdateVisualMapPoints中48次256字节图像块分配未释放：静止帧不追加Feature，
+却在判断add_flag前分配patch_temp。将分配与采样放进实际追加分支，使用unique_ptr直到Feature及观察列表接管。
+六帧控制跨越多次warp缓存重置，同时验证两条分配路径；保留默认四帧安装示例兼容，不修改数值公式和Feature名称。

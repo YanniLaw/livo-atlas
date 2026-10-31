@@ -129,7 +129,7 @@ class VIOManager {
   std::vector<livo_atlas::DebugImage> debug_images_;
   std::unordered_map<VOXEL_LOCATION, VisualVoxel *> feat_map;
   std::unordered_map<VOXEL_LOCATION, int> sub_feat_map;
-  std::unordered_map<int, PatchWarp *> warp_map;
+  std::unordered_map<int, PatchWarp> warp_map;
   std::vector<VisualPoint *> retrieve_voxel_points;
   std::vector<PointWithCovariance> append_voxel_points;
   FramePtr new_frame_;

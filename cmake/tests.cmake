@@ -55,6 +55,7 @@ target_link_libraries(livo_atlas_header_checks PRIVATE livo_atlas::core livo_atl
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_executable(frontend_lifecycle_check EXCLUDE_FROM_ALL tests/frontend/map_lifecycle_check.cc)
+  target_include_directories(frontend_lifecycle_check PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_link_libraries(frontend_lifecycle_check PRIVATE livo_atlas::core -fsanitize=address)
 endif()
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")

@@ -91,6 +91,16 @@ Expected：区分未提交与提交后观察损失，给出可控因果及有效
 LO预期7201次更新，LIO7200次；LIVO额外7201次图像调用、7200次有效视觉更新并检查实际跟踪覆盖。
 current_cloud曲率相对上一状态时间，lidar_cloud曲率相对扫描起点，避免把时间间隙当运动；不重复回退真实bag时间戳。
 120秒传感器时间暖机后每30秒采RSS，固定场景最大增量上限8MiB，另有1GiB失败保护；记录墙钟和具体RSS，不称为30分钟墙钟或ROS节点长路线验收。
+首个有效视觉帧负责建图，跟踪覆盖从下一帧开始检查，不把建图帧画面没有跟踪标记误判为丢失。
+
+**缓存所有权补充：** 发现无normal分支warp_map.clear丢失PatchWarp所有权。先改tests/frontend/map_lifecycle_check.cc和cmake/tests.cmake，
+使现有ASan目标支持--visual并调用已跟踪的公开Frontend场景；运行真实RED，libtbb抑制保持不变。
+确认后修改include/livo_atlas/frontend/vision/vio.h与src/frontend/vision/vio.cc：unordered_map<int,PatchWarp>按值缓存，
+查询改成员访问、emplace同一层级和矩阵，移除构造new和析构delete。全套、ASan与安装消费者GREEN后提交。
+修复前完整会话全部归档，再在最终库上重新完成两端各三次完整1倍速，避免把旧运行库证据冒充最终验证。
+真实RED还定位了UpdateVisualMapPoints跳过追加Feature时泄漏patch_temp；分配/采样移到add_flag分支，
+unique_ptr暂管图像块与Feature，到观察列表成功接管后release。测试夹具RunFrontendScenario增加可选frame_count默认4；
+ASan --visual用6帧以跨越至少两次warp缓存重置，旧实现必须报告两处分配，不新增livo-atlas泄漏抑制。
 
 - [ ] shared/static/无OpenMP SDK、Noetic/Humble单元/真实ROS/DDS与启动检查，迁移后实际三模式和图像/关键帧/子地图/导出消费。
 - [ ] 两端短段原57产品/原始资产及六组COLMAP原始/优化实际读取与正常字节对照。
