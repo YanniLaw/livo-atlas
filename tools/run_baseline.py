@@ -50,6 +50,8 @@ def main():
     parser.add_argument('--rate', type=float, default=0.5)
     parser.add_argument('--cpu-affinity', type=int,
                         help='Pin the mapping process to one logical CPU before exec')
+    parser.add_argument('--image-queue-size', type=int,
+                        help='Override the positive image publication queue depth (node default: 1)')
     parser.add_argument('--port', type=int, default=11341)
     parser.add_argument('--gdb', action='store_true', help='Capture a stack trace on shutdown faults')
     parser.add_argument('--semantic-output', action='store_true',
@@ -63,7 +65,12 @@ def main():
     parser.add_argument('--legacy-output', action='store_true',
                         help='Read older node outputs from its source package Log directory')
     args = parser.parse_args()
-    from cpu_affinity import with_cpu_affinity
+    if args.image_queue_size is not None and args.image_queue_size <= 0:
+        parser.error('--image-queue-size must be positive')
+    try:
+        from .cpu_affinity import with_cpu_affinity
+    except ImportError:
+        from cpu_affinity import with_cpu_affinity
     if args.save_submaps:
         args.save_keyframes = True
     if args.save_keyframes and args.legacy_output:
@@ -190,6 +197,8 @@ def main():
             run(['rosparam', 'set', '/keyframes/enabled', 'true'])
         if args.save_submaps:
             run(['rosparam', 'set', '/submaps/enabled', 'true'])
+        if args.image_queue_size is not None:
+            run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
         if args.save_products:
             for key, value in [('pcd_save/pcd_save_en', 'true'),
                                ('pcd_save/colmap_output_en', 'true'),
@@ -210,6 +219,7 @@ def main():
             from output_digest import cloud_digest, image_digest
         rospy = ros_module
         rospy.init_node('baseline_observer', disable_signals=True)
+        image_queue_size = rospy.get_param('/publish/image_queue_size', 1)
 
         def count(topic):
             def receive(_message):
@@ -355,6 +365,7 @@ def main():
             'duration_requested_s': args.duration, 'playback_rate': args.rate,
             'requested_cpu_affinity': args.cpu_affinity,
             'mapping_cpu_affinity': mapping_affinity,
+            'image_queue_size': image_queue_size,
             'playback_wall_s': playback_wall_s, 'ros_master_port': args.port,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,

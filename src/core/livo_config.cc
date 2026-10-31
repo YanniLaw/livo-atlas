@@ -60,6 +60,11 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   options.lidar_enabled =
       reader.Integer("common.lidar_en", options.lidar_enabled ? 1 : 0) != 0;
   config.image_topic = reader.String("common.img_topic", config.image_topic);
+  config.image_queue_size =
+      reader.Integer("publish.image_queue_size", config.image_queue_size);
+  if (config.image_queue_size <= 0)
+    throw std::invalid_argument(reader.Name("publish.image_queue_size") +
+                                ": must be positive");
   visual.normal_enabled =
       reader.Boolean("vio.normal_en", visual.normal_enabled);
   visual.inverse_composition =

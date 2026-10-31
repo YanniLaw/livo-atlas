@@ -16,7 +16,8 @@ class LivoNode::Impl {
       : parameters_(parameters),
         system_(system),
         transport_(node),
-        publisher_(parameters.livo.system.exporter.mode) {
+        publisher_(parameters.livo.system.exporter.mode,
+                   parameters.livo.image_queue_size) {
     publisher_.Initialize(node, transport_);
     const auto& input = parameters_.livo;
     if (input.system.preprocess.lidar_type == kLivox) {

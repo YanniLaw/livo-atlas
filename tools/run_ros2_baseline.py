@@ -81,13 +81,20 @@ def main():
     parser.add_argument('--rate', type=float, default=.5)
     parser.add_argument('--cpu-affinity', type=int,
                         help='Pin the mapping process to one logical CPU before exec')
+    parser.add_argument('--image-queue-size', type=int,
+                        help='Override the positive image publication queue depth (node default: 1)')
     parser.add_argument('--domain', type=int, default=74)
     parser.add_argument('--save-products', action='store_true')
     parser.add_argument('--save-keyframes', action='store_true')
     parser.add_argument('--save-submaps', action='store_true')
     parser.add_argument('--default-threads', action='store_true')
     args = parser.parse_args()
-    from cpu_affinity import with_cpu_affinity
+    if args.image_queue_size is not None and args.image_queue_size <= 0:
+        parser.error('--image-queue-size must be positive')
+    try:
+        from .cpu_affinity import with_cpu_affinity
+    except ImportError:
+        from cpu_affinity import with_cpu_affinity
     if args.save_submaps:
         args.save_keyframes = True
     if not math.isfinite(args.duration) or not math.isfinite(args.rate) or args.duration <= 0 or args.rate <= 0:
@@ -136,6 +143,10 @@ def main():
     parameters.update({'use_sim_time': True, 'qos.reliability': 'reliable',
                        'evo.pose_output_en': True, 'evo.seq_name': 'p4_humble',
                        'output.directory': str(output / 'node-output')})
+    if args.image_queue_size is not None:
+        parameters['publish.image_queue_size'] = args.image_queue_size
+    image_queue_size = parameters.get('publish.image_queue_size', 1)
+    observer_image_depth = max(20, image_queue_size)
     if args.save_keyframes:
         parameters['keyframes.enabled'] = True
     if args.save_submaps:
@@ -196,7 +207,7 @@ def main():
 
     subscriptions += [observer.create_subscription(Odometry, '/aft_mapped_to_init', receive_odom, 2000),
                       observer.create_subscription(PointCloud2, '/cloud_registered', receive_cloud, 100),
-                      observer.create_subscription(Image, '/rgb_img', receive_image, 20),
+                      observer.create_subscription(Image, '/rgb_img', receive_image, observer_image_depth),
                       observer.create_subscription(RosPath, '/path', receive_path, 10)]
     log_path = output / 'node.log'
     process = None
@@ -226,6 +237,7 @@ def main():
                 rclpy.spin_once(observer, timeout_sec=.01)
             stream = reader()
             began = time.monotonic()
+            last_published_timestamp = start
             while stream.has_next():
                 topic, data, timestamp = stream.read_next()
                 if timestamp >= start + round(args.duration * 1e9):
@@ -239,8 +251,11 @@ def main():
                 message.clock.sec, message.clock.nanosec = divmod(timestamp, 1000000000)
                 clock.publish(message)
                 publishers[topic].publish(data)  # Humble native serialized publish; no object conversion.
+                last_published_timestamp = timestamp
                 rclpy.spin_once(observer, timeout_sec=0)
                 peak_rss = max(peak_rss, psutil.Process(process.pid).memory_info().rss)
+            playback_wall_s = time.monotonic() - began
+            input_span_s = (last_published_timestamp - start) * 1e-9
             del stream
             settle = time.monotonic() + 3
             while time.monotonic() < settle:
@@ -296,7 +311,9 @@ def main():
                    keyframes_enabled=args.save_keyframes,
                    submaps_enabled=args.save_submaps,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
+                   playback_wall_s=playback_wall_s, input_span_s=input_span_s,
                    requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,
+                   image_queue_size=image_queue_size, observer_image_depth=observer_image_depth,
                    input_reliability='reliable', expected_input_counts=dict(expected), observed_counts=dict(received),
                    node_input_counts=node_counts, input_count_mismatches=mismatches,
                    node_input_count_mismatches=node_mismatches, input_serialized_payloads_exact=payload_exact,

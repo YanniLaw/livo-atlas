@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 #include "livo_atlas/common/so3_math.h"
@@ -102,7 +103,11 @@ geometry_msgs::Pose Pose(const FilterState& state,
 
 class LivoPublisher::Impl {
  public:
-  explicit Impl(FrontendMode mode) : mode_(mode) {}
+  Impl(FrontendMode mode, int image_queue_size)
+      : mode_(mode), image_queue_size_(image_queue_size) {
+    if (image_queue_size <= 0)
+      throw std::invalid_argument("Image queue size must be positive");
+  }
 
   void Initialize(ros::NodeHandle& node,
                   image_transport::ImageTransport& transport) {
@@ -115,7 +120,7 @@ class LivoPublisher::Impl {
     propagation_ =
         node.advertise<nav_msgs::Odometry>("/LIVO2/imu_propagate", 10000);
     planes_ = node.advertise<visualization_msgs::MarkerArray>("/planes", 10000);
-    image_ = transport.advertise("/rgb_img", 1);
+    image_ = transport.advertise("/rgb_img", image_queue_size_);
     compatibility_ = {
         node.advertise<visualization_msgs::MarkerArray>("visualization_marker",
                                                         100),
@@ -216,6 +221,7 @@ class LivoPublisher::Impl {
   }
 
   FrontendMode mode_;
+  int image_queue_size_;
   ros::Publisher cloud_, effect_, odometry_, path_publisher_, mavros_;
   ros::Publisher propagation_, planes_;
   image_transport::Publisher image_;
@@ -224,8 +230,8 @@ class LivoPublisher::Impl {
   nav_msgs::Path path_;
 };
 
-LivoPublisher::LivoPublisher(FrontendMode mode)
-    : impl_(std::make_unique<Impl>(mode)) {}
+LivoPublisher::LivoPublisher(FrontendMode mode, int image_queue_size)
+    : impl_(std::make_unique<Impl>(mode, image_queue_size)) {}
 LivoPublisher::~LivoPublisher() = default;
 void LivoPublisher::Initialize(ros::NodeHandle& node,
                                image_transport::ImageTransport& transport) {

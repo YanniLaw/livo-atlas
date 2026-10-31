@@ -9,7 +9,8 @@
 namespace livo_atlas::ros2 {
 class LivoPublisher {
  public:
-  LivoPublisher(rclcpp::Node& node, FrontendMode mode);
+  LivoPublisher(rclcpp::Node& node, FrontendMode mode,
+                int image_queue_size = 1);
   ~LivoPublisher();
   LivoPublisher(const LivoPublisher&) = delete;
   LivoPublisher& operator=(const LivoPublisher&) = delete;

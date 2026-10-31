@@ -21,7 +21,7 @@ namespace ros1 {
 
 class LivoPublisher {
  public:
-  explicit LivoPublisher(FrontendMode mode);
+  explicit LivoPublisher(FrontendMode mode, int image_queue_size = 1);
   ~LivoPublisher();
   LivoPublisher(const LivoPublisher&) = delete;
   LivoPublisher& operator=(const LivoPublisher&) = delete;

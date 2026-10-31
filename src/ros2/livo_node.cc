@@ -25,7 +25,8 @@ class LivoNode::Impl {
       : node_(node),
         parameters_(parameters),
         system_(system),
-        publisher_(node, parameters_.livo.system.exporter.mode) {
+        publisher_(node, parameters_.livo.system.exporter.mode,
+                   parameters_.livo.image_queue_size) {
     if (parameters_.livo.system.preprocess.lidar_type == kLivox) {
       livox_ = node.create_subscription<livox_ros_driver2::msg::CustomMsg>(
           parameters_.livo.lidar_topic,

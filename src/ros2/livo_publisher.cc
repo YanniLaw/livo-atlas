@@ -14,6 +14,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <sensor_msgs/image_encodings.hpp>
+#include <stdexcept>
 #include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
 
@@ -102,8 +103,10 @@ geometry_msgs::msg::Pose Pose(
 
 class LivoPublisher::Impl {
  public:
-  Impl(rclcpp::Node& node, FrontendMode mode)
+  Impl(rclcpp::Node& node, FrontendMode mode, int image_queue_size)
       : node_(node), mode_(mode), broadcaster_(node) {
+    if (image_queue_size <= 0)
+      throw std::invalid_argument("Image queue size must be positive");
     cloud_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
         "/cloud_registered", 100);
     effect_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
@@ -117,7 +120,8 @@ class LivoPublisher::Impl {
         "/LIVO2/imu_propagate", 10000);
     planes_ = node.create_publisher<visualization_msgs::msg::MarkerArray>(
         "/planes", 10000);
-    image_ = node.create_publisher<sensor_msgs::msg::Image>("/rgb_img", 1);
+    image_ = node.create_publisher<sensor_msgs::msg::Image>("/rgb_img",
+                                                            image_queue_size);
     path_.header.stamp = node_.now();
     path_.header.frame_id = "camera_init";
   }
@@ -223,8 +227,9 @@ class LivoPublisher::Impl {
   nav_msgs::msg::Path path_;
 };
 
-LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode)
-    : impl_(std::make_unique<Impl>(node, mode)) {}
+LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode,
+                             int image_queue_size)
+    : impl_(std::make_unique<Impl>(node, mode, image_queue_size)) {}
 LivoPublisher::~LivoPublisher() = default;
 void LivoPublisher::Publish(const FrontendResult& result,
                             const ColoredCloud::ConstPtr& colored_cloud) {

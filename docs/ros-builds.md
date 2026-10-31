@@ -140,6 +140,11 @@ python3 src/livo-atlas/tools/run_ros2_baseline.py \
 `--save-products` 保存 PCD、图像和 COLMAP；`--default-threads` 检查默认并行配置。
 `--save-keyframes` 启用并保存独立关键帧数据集；Noetic 工具支持相同选项。
 `--save-submaps` 同时启用关键帧及子地图，退出时归档完整数据集；两端使用方式见[子地图说明](submap-dataset.md)。
+两端共用 `publish.image_queue_size` 正整数参数，默认1，适合实时显示。
+需要完整记录时可显式配置32，或在两个回放工具中增加 `--image-queue-size 32`；工具摘要记录生效深度。
+Humble记录器的图像输出观察深度至少为20，并随显式发布深度增大，输入QoS保持原配置。
+该历史仍然有界：应用发布返回成功不代表每个观察者都已收到，长时间阻塞仍可能淘汰旧样本。
+640×512 BGR的32张原始像素约30MiB，实际内存还包括序列化、接收队列和其他消息。
 默认值、两端节点启用方式及重读命令见[关键帧数据集](keyframe-dataset.md)。
 工具保留输入字节摘要、观察者与节点接收计数、轨迹、发布摘要、文件摘要及退出状态，
 失败返回非零。输出目录必须不存在。默认输出目录仍遵循 ROS_HOME/HOME，显式指定目录

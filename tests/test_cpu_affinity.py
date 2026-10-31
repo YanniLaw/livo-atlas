@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -41,6 +42,30 @@ os.execvp(command[0], command)
                 child = self.run_child(cpu)
                 self.assertNotEqual(child.returncode, 0)
                 self.assertEqual(child.stdout, '')
+
+    def test_ros1_module_entry_reaches_input_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing = root / 'missing.bag'
+            output = root / 'output'
+            child = subprocess.run(
+                [sys.executable, '-m', 'tools.run_baseline', '--workspace', directory,
+                 '--bag', str(missing), '--output', str(output)],
+                cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+            self.assertNotEqual(child.returncode, 0)
+            self.assertIn('FileNotFoundError', child.stderr)
+            self.assertIn(str(missing), child.stderr)
+            self.assertFalse(output.exists())
+
+    def test_ros2_module_entry_rejects_an_existing_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            child = subprocess.run(
+                [sys.executable, '-m', 'tools.run_ros2_baseline', '--bag', directory,
+                 '--executable', '/unused', '--output', directory],
+                cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+            self.assertNotEqual(child.returncode, 0)
+            self.assertIn('FileExistsError', child.stderr)
+            self.assertEqual(list(Path(directory).iterdir()), [])
 
 
 if __name__ == '__main__':
