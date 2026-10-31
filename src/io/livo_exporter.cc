@@ -9,12 +9,12 @@
 #include <fstream>
 #include <iomanip>
 #include <opencv2/core/mat.hpp>
-#include <opencv2/imgcodecs.hpp>
 #include <ostream>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 
+#include "image_writer.h"
 #include "livo_atlas/camera/camera_config.h"
 #include "livo_atlas/camera/camera_factory.h"
 #include "livo_atlas/camera/pinhole_camera.h"
@@ -79,16 +79,6 @@ std::string Timestamp(double time) {
   std::ostringstream text;
   text << std::fixed << std::setprecision(6) << time;
   return text.str();
-}
-
-void WriteImage(const fs::path& path, const cv::Mat& image) {
-  try {
-    if (!cv::imwrite(path.string(), image)) {
-      throw std::runtime_error("Cannot write image");
-    }
-  } catch (const std::exception& error) {
-    throw std::runtime_error(path.string() + ": " + error.what());
-  }
 }
 
 template <typename Cloud>
@@ -224,7 +214,7 @@ class LivoExporter::Impl {
       if (colored_cloud) WriteProducts(result, colored_cloud);
       for (const auto& debug : result.debug_images) {
         fs::create_directories(Path("ref_cur_combine"));
-        WriteImage(Path("ref_cur_combine") / debug.name, debug.image);
+        WriteImageFile(Path("ref_cur_combine") / debug.name, debug.image);
       }
       WriteStateRow(out_.stream, result.relative_time, result.estimate);
       out_.stream << " " << result.undistorted_cloud->size() << std::endl;
@@ -240,7 +230,7 @@ class LivoExporter::Impl {
   void WriteColmap(const FrontendResult& result, const cv::Mat& image) {
     std::ostringstream name;
     name << std::setw(5) << std::setfill('0') << colmap_count_ << ".png";
-    WriteImage(Path("Colmap/images") / name.str(), image);
+    WriteImageFile(Path("Colmap/images") / name.str(), image);
     const Eigen::Quaterniond orientation(
         result.camera_from_world_rotation.toRotationMatrix());
     const auto& translation = result.camera_from_world_translation;
@@ -304,7 +294,7 @@ class LivoExporter::Impl {
     }
     if (options_.images && visual &&
         ++image_count_ >= options_.image_interval) {
-      WriteImage(Path("image") / (name + ".png"), result.color_image);
+      WriteImageFile(Path("image") / (name + ".png"), result.color_image);
       WritePose(image_poses_.stream, result);
       Check(image_poses_);
       image_count_ = 0;

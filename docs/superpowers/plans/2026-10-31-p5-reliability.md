@@ -29,11 +29,11 @@
 **Files:** 新src/io/image_writer.h/.cc；修改src/io/keyframe_store.cc、src/io/livo_exporter.cc、src/io/colmap_exporter.cc、cmake/core.cmake；测试tests/io/keyframe_store_test.cc、tests/io/livo_exporter_test.cc。
 **Interfaces:** 私有livo_atlas::WriteImageFile(const std::filesystem::path&,const cv::Mat&)->void；失败runtime_error包含目标路径。三类调用者保持提交/终止失败策略。
 
-- [ ] 写KeyframeStoreTest.RejectsPngCloseFailureWithoutCommittingTheFrame：24×24固定噪声，元数据/云小于1500，正常PNG大于1500；子进程RLIMIT_FSIZE1500且忽略SIGXFSZ，要求异常、无已提交目标帧、旧前缀可读、后续Append/WritePoses拒绝。
-- [ ] 写LivoExporterTest.ReportsPngCloseFailureAndKeepsTheWriterFailed：实际Write视觉帧和PNG超限，要求异常含PNG路径、后续Write/Finish失败、没有该图像成功位姿行；正对照正常可解码。两项在旧实现应FAIL，保留storage-red.log。
-- [ ] 写JPEG扩展名与灰度正常文件消费测试，原PNG/调试/目录错误测试保持；JPEG检查真实文件魔数、解码尺寸/类型，不要求有损像素逐字相同。
-- [ ] 实现私有函数：按扩展名imencode，检查二进制write/close并附路径；不创建父目录、不改变覆盖/重试/fsync规则。三个调用者移除重复实现；加入已有io目标，私有头不安装。
-- [ ] Google格式，普通全套/45公开头通过；正常PNG与P5-03源图/导出字节保持。提交并运行task gate storage。
+- [x] 写KeyframeStoreTest.RejectsPngCloseFailureWithoutCommittingTheFrame：24×24固定噪声，元数据/云小于1500，正常PNG大于1500；子进程RLIMIT_FSIZE1500且忽略SIGXFSZ，要求异常、无已提交目标帧、旧前缀可读、后续Append/WritePoses拒绝。
+- [x] 写LivoExporterTest.ReportsPngCloseFailureAndKeepsTheWriterFailed：实际Write视觉帧和PNG超限，要求异常含PNG路径、后续Write/Finish失败、没有该图像成功位姿行；正对照正常可解码。两项在旧实现应FAIL，保留storage-red.log。
+- [x] 写JPEG扩展名与灰度正常文件消费测试，原PNG/调试/目录错误测试保持；JPEG检查真实文件魔数、解码尺寸/类型，不要求有损像素逐字相同。
+- [x] 实现私有函数：按扩展名imencode，检查二进制write/close并附路径；不创建父目录、不改变覆盖/重试/fsync规则。三个调用者移除重复实现；加入已有io目标，私有头不安装。
+- [x] Google格式，普通全套/45公开头通过；正常PNG与P5-03源图/导出字节保持。提交并运行task gate storage。
 
 Expected：真实PNG关闭错误被两个历史调用者报告；原有成功输出与格式选择保持。
 Commit：fix: share checked image writes across all exporters。

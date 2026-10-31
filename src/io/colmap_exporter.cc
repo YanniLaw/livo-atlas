@@ -6,13 +6,13 @@
 #include <limits>
 #include <locale>
 #include <map>
-#include <opencv2/imgcodecs.hpp>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "colmap_camera.h"
 #include "dataset_metadata.h"
+#include "image_writer.h"
 #include "livo_atlas/io/keyframe_store.h"
 
 namespace livo_atlas {
@@ -40,20 +40,6 @@ std::ofstream OpenText(const fs::path& path) {
   output.open(path, std::ios::binary);
   output << std::setprecision(std::numeric_limits<double>::max_digits10);
   return output;
-}
-
-void WriteImage(const fs::path& path, const cv::Mat& image) {
-  try {
-    std::vector<unsigned char> encoded;
-    if (!cv::imencode(".png", image, encoded))
-      Fail(path, "Cannot encode export image");
-    auto output = OpenText(path);
-    output.write(reinterpret_cast<const char*>(encoded.data()),
-                 static_cast<std::streamsize>(encoded.size()));
-    output.close();
-  } catch (const std::exception& error) {
-    Fail(path, error.what());
-  }
 }
 
 std::vector<FramePose> SelectFrames(const KeyframeStore& keyframes,
@@ -169,7 +155,7 @@ ColmapExportSummary ExportColmap(const fs::path& dataset,
       const auto image_id = ++summary.images;
       const auto name = std::to_string(frame.id) + ".png";
       const auto image_path = destination / "images" / name;
-      WriteImage(image_path, view.image);
+      WriteImageFile(image_path, view.image);
       Eigen::Quaterniond rotation(view.camera_from_parent.rotation);
       rotation.normalize();
       if (rotation.w() < 0) rotation.coeffs() *= -1;

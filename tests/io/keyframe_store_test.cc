@@ -4,10 +4,13 @@
 
 #if defined(__unix__)
 #include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -133,6 +136,66 @@ TEST_F(KeyframeStoreTest,
   EXPECT_FALSE(plain.image_timestamp);
   EXPECT_TRUE(plain.image.empty());
   EXPECT_FALSE(fs::exists(directory_ / "frames/1/image.png"));
+}
+
+TEST_F(KeyframeStoreTest, RejectsPngCloseFailureWithoutCommittingTheFrame) {
+#if defined(__unix__)
+  calibration_.camera = {"Pinhole", 24, 24, 1, 12, 12, 11.5, 11.5, {}};
+  auto frame = Frame(1);
+  frame.image = cv::Mat(24, 24, CV_8UC3);
+  cv::RNG random(123);
+  random.fill(frame.image, cv::RNG::UNIFORM, 0, 256);
+  const auto control = root_ / "unrestricted";
+  {
+    KeyframeStore writer(control, calibration_);
+    writer.Append(Frame(0, false));
+    writer.Append(frame);
+  }
+  ASSERT_GT(fs::file_size(control / "frames/1/image.png"), 1500u);
+  ASSERT_LT(fs::file_size(control / "frames/1/frame.yml"), 1500u);
+  ASSERT_LT(fs::file_size(control / "frames/1/cloud.pcd"), 1500u);
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0, false));
+  const auto original = Contents(directory_ / "frames/0/frame.yml");
+  cv::setNumThreads(1);
+  const auto child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    std::signal(SIGXFSZ, SIG_IGN);
+    const rlimit limit{1500, 1500};
+    if (setrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(3);
+    try {
+      writer.Append(frame);
+    } catch (const std::runtime_error& error) {
+      const auto path = directory_ / "frames/.pending-1/image.png";
+      if (std::string(error.what()).find(path.string()) == std::string::npos)
+        _exit(4);
+      try {
+        writer.Append(frame);
+        _exit(5);
+      } catch (const std::logic_error&) {
+      }
+      try {
+        writer.WritePoses(1, Poses(1));
+        _exit(6);
+      } catch (const std::logic_error&) {
+      }
+      _exit(0);
+    }
+    _exit(2);
+  }
+  int status = 0;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 0);
+  EXPECT_FALSE(fs::exists(directory_ / "frames/1"));
+  EXPECT_EQ(Contents(directory_ / "frames/0/frame.yml"), original);
+  KeyframeStore reader(directory_);
+  EXPECT_EQ(reader.ids(), (std::vector<std::uint64_t>{0}));
+  EXPECT_EQ(reader.Read(0).id, 0u);
+#else
+  GTEST_SKIP() << "RLIMIT_FSIZE fault injection requires Unix";
+#endif
 }
 
 TEST_F(KeyframeStoreTest,

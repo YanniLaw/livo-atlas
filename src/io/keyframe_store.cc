@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "dataset_metadata.h"
+#include "image_writer.h"
 
 namespace livo_atlas {
 namespace {
@@ -302,10 +303,8 @@ void KeyframeStore::Append(const Keyframe& frame) {
     const auto cloud_file = pending / "cloud.pcd";
     if (pcl::io::savePCDFileBinary(cloud_file.string(), *frame.cloud) != 0)
       Fail(cloud_file, "Cannot write PCD");
-    if (frame.image_timestamp &&
-        !cv::imwrite((pending / "image.png").string(), frame.image)) {
-      Fail(pending / "image.png", "Cannot write image");
-    }
+    if (frame.image_timestamp)
+      WriteImageFile(pending / "image.png", frame.image);
     WriteYaml(pending / "frame.yml", [&](auto& yaml) {
       yaml << "id" << std::to_string(frame.id) << "calibration_id"
            << "0"
