@@ -48,6 +48,8 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--duration', type=float, default=30.0)
     parser.add_argument('--rate', type=float, default=0.5)
+    parser.add_argument('--cpu-affinity', type=int,
+                        help='Pin the mapping process to one logical CPU before exec')
     parser.add_argument('--port', type=int, default=11341)
     parser.add_argument('--gdb', action='store_true', help='Capture a stack trace on shutdown faults')
     parser.add_argument('--semantic-output', action='store_true',
@@ -61,6 +63,7 @@ def main():
     parser.add_argument('--legacy-output', action='store_true',
                         help='Read older node outputs from its source package Log directory')
     args = parser.parse_args()
+    from cpu_affinity import with_cpu_affinity
     if args.save_submaps:
         args.save_keyframes = True
     if args.save_keyframes and args.legacy_output:
@@ -252,7 +255,7 @@ def main():
                             '-ex', 'handle SIGINT nostop noprint pass',
                             '-ex', 'run', '-ex', 'thread apply all bt',
                             '--args'] + node_command
-        node = launch(node_command, 'mapping')
+        node = launch(with_cpu_affinity(node_command, args.cpu_affinity), 'mapping')
         deadline = time.monotonic() + 20
         required = {'/livox/lidar', '/livox/imu', '/left_camera/image'}
         while True:
@@ -266,6 +269,7 @@ def main():
                 raise TimeoutError('Mapping subscriptions did not become ready')
             time.sleep(0.1)
 
+        mapping_affinity = psutil.Process(node.pid).cpu_affinity()
         with rosbag.Bag(str(bag)) as data:
             bag_start, bag_end = data.get_start_time(), data.get_end_time()
             replay_end = min(bag_end, bag_start + args.duration)
@@ -349,6 +353,8 @@ def main():
             'sequence_name': seq_name,
             'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
             'duration_requested_s': args.duration, 'playback_rate': args.rate,
+            'requested_cpu_affinity': args.cpu_affinity,
+            'mapping_cpu_affinity': mapping_affinity,
             'playback_wall_s': playback_wall_s, 'ros_master_port': args.port,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,

@@ -79,12 +79,15 @@ def main():
     parser.add_argument('--camera', type=Path, default=package / 'config/camera_pinhole.yaml')
     parser.add_argument('--duration', type=float, default=30)
     parser.add_argument('--rate', type=float, default=.5)
+    parser.add_argument('--cpu-affinity', type=int,
+                        help='Pin the mapping process to one logical CPU before exec')
     parser.add_argument('--domain', type=int, default=74)
     parser.add_argument('--save-products', action='store_true')
     parser.add_argument('--save-keyframes', action='store_true')
     parser.add_argument('--save-submaps', action='store_true')
     parser.add_argument('--default-threads', action='store_true')
     args = parser.parse_args()
+    from cpu_affinity import with_cpu_affinity
     if args.save_submaps:
         args.save_keyframes = True
     if not math.isfinite(args.duration) or not math.isfinite(args.rate) or args.duration <= 0 or args.rate <= 0:
@@ -199,8 +202,10 @@ def main():
     process = None
     try:
         with log_path.open('w') as log:
-            process = subprocess.Popen(['nice', '-n', '10', str(args.executable), '--ros-args',
-                                        '--params-file', str(config)], env=child_env,
+            command = with_cpu_affinity(
+                ['nice', '-n', '10', str(args.executable), '--ros-args', '--params-file', str(config)],
+                args.cpu_affinity)
+            process = subprocess.Popen(command, env=child_env,
                                        stdout=log, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
@@ -211,6 +216,7 @@ def main():
                     break
             else:
                 raise TimeoutError('DDS inputs did not discover both node and observer')
+            mapping_affinity = psutil.Process(process.pid).cpu_affinity()
             # Allow output subscriptions and /clock discovery to settle.
             settle = time.monotonic() + 1
             while time.monotonic() < settle:
@@ -290,6 +296,7 @@ def main():
                    keyframes_enabled=args.save_keyframes,
                    submaps_enabled=args.save_submaps,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
+                   requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,
                    input_reliability='reliable', expected_input_counts=dict(expected), observed_counts=dict(received),
                    node_input_counts=node_counts, input_count_mismatches=mismatches,
                    node_input_count_mismatches=node_mismatches, input_serialized_payloads_exact=payload_exact,

@@ -43,14 +43,21 @@ Commit：fix: share checked image writes across all exporters。
 **Files:** 新阶段diagnostics/native_replay.cc、parameter_reader.h、CMakeLists.txt、run_native.py、compare_trace.py，仅包外诊断；必要产品修正在证实后追加本任务明细。
 **Interfaces:** native_replay BAG PARAMETERS OUTPUT DURATION SKIP_STARTUP_IMU；使用现有LivoSystem、真实ROS1转换与冻结配置；N=0正常，N>0仅跳过首个LiDAR之后N个初始IMU接纳，所有原始输入另行计数。
 
-- [ ] 复制并适配P4只读离线控制思路，使用公开LoadLivoConfig/ParameterReader从冻结parameters.yaml读取，设置Noetic时间范围；新目录、同一数值配置，无ROS master。
-- [ ] 记录首200个IMU的原始/修正时间和接纳bool、首扫描边界、结果完整精度gravity/状态与源事件序号；N=0先与冻结8秒前缀对照，确保诊断入口可信。
-- [ ] N=1/2等单变量控制与P5-03历史失败四数组前缀逐值对照；若匹配，补消息跨主题到达顺序复现，形成causal-startup.json；不把仅相似的曲线当相同根因。
-- [ ] 如未匹配，按输入接纳→同步组→预处理/初始化→更新首偏差扩展临时源副本追踪，每个假设独立留档。无证据不修改算法。
-- [ ] 原因确认后，先将精确文件/接口/字面测量/预期行为追加本任务，再写真实RED→GREEN，普通全套保持。最终正常参考的保持或有意纠错差异明确记录。
+- [x] 复制并适配P4只读离线控制思路，使用公开LoadLivoConfig/ParameterReader从冻结parameters.yaml读取，设置Noetic时间范围；新目录、同一数值配置，无ROS master。
+- [x] 记录首200个IMU的原始/修正时间和接纳bool、首扫描边界、结果完整精度gravity/状态与源事件序号；N=0先与冻结8秒前缀对照，确保诊断入口可信。
+- [x] N=1/2等单变量控制与P5-03历史失败四数组前缀逐值对照；若匹配，补消息跨主题到达顺序复现，形成causal-startup.json；不把仅相似的曲线当相同根因。
+- [x] 如未匹配，按输入接纳→同步组→预处理/初始化→更新首偏差扩展临时源副本追踪，每个假设独立留档。无证据不修改算法。
+- [x] 原因确认后，先将精确文件/接口/字面测量/预期行为追加本任务，再写真实RED→GREEN，普通全套保持。最终正常参考的保持或有意纠错差异明确记录。
 
 Expected：证明或排除启动接纳原因，最终给出可重复的数值差异因果与覆盖测试；不能仅靠成功重跑关闭本任务。
 Commit：在因果明确后按实际最小修复命名；诊断证据不进入产品依赖。
+
+**已证实的实施补充：** CPU16完整四数组逐值复现P5-03失败，CPU0复现正常；Eigen缓存参数交叉控制反转结果。
+不是启动IMU或算法调度修复。修改tools/run_baseline.py、tools/run_ros2_baseline.py；新增tools/cpu_affinity.py、tests/test_cpu_affinity.py。
+接口with_cpu_affinity(command,cpu)->list，None保持启动命令；否则校验os.sched_getaffinity并用taskset --cpu-list CPU在exec前绑定。
+两端新增--cpu-affinity整数可选参数；summary保存mapping_cpu_affinity（实际允许集）及requested_cpu_affinity。
+字面回归：实际子进程第一次执行即报告单CPU、默认继承允许集、负数/不允许CPU在执行前拒绝；旧CLI不支持该选项为RED控制。
+最终回放显式CPU0，诊断缓存覆盖不进入产品。提交fix: control CPU affinity for reproducible bag validation。
 
 ### Task 3: Humble应用发布与观察损失归因
 
