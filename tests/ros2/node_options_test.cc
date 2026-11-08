@@ -219,4 +219,28 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   EXPECT_DOUBLE_EQ(options.imu_time_range.minimum, -2147483648.0);
   EXPECT_DOUBLE_EQ(options.imu_time_range.maximum, 2147483648.0);
 }
+TEST(Ros2ParametersTest, ReadsOnlineSubmapModeAndValidatesBounds) {
+  for (const auto& mode : {"online", "keyframe_groups", "unknown"}) {
+    auto params = test::Parameters("/tmp/livo_atlas_online_parameters");
+    params.emplace_back("keyframes.enabled", true);
+    params.emplace_back("submaps.enabled", true);
+    params.emplace_back("submaps.mode", mode);
+    params.emplace_back("submaps.online.support_keyframes", -1);
+    rclcpp::Node node("online_parameters",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    if (std::string(mode) == "keyframe_groups")
+      EXPECT_NO_THROW(ReadNodeOptions(node));
+    else
+      EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  auto params = test::Parameters("/tmp/livo_atlas_online_parameters");
+  params.emplace_back("submaps.mode", "online");
+  params.emplace_back("submaps.online.translation_threshold", 3.0);
+  rclcpp::Node node("online_valid_parameters",
+                    rclcpp::NodeOptions().parameter_overrides(params));
+  const auto config = ReadNodeOptions(node);
+  EXPECT_EQ(config.livo.system.submap_mode, SubmapMode::kOnline);
+  EXPECT_DOUBLE_EQ(config.livo.system.online_submaps.translation_threshold,
+                   3.0);
+}
 }  // namespace livo_atlas::ros2

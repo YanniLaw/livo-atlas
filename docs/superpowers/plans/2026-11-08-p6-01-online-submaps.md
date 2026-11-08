@@ -12,7 +12,7 @@
 
 **Spec:** [在线子地图设计](../specs/2026-11-08-online-submaps-design.md)。执行者必须同时阅读。
 
-**状态：用户已切换模型并授权实施；Task 1、2、3 已完成，其余任务待实施。**
+**状态：用户已切换模型并授权实施；Task 1、2、3、4 已完成，其余任务待实施。**
 切换后沿用用户已选择的当前会话直接实施方式，使用 executing-plans；不再要求选择执行方式。
 
 ## Global Constraints
@@ -335,13 +335,13 @@ Finish/失败后Get仍能读取最近成功状态；Finish后Apply拒绝。非�
 回调不得重入System/调用Store/改cv::Mat或PCL别名；需要修改资产先复制。意外抛出按终止错误保存。
 无回调时每个新帧只追加原始位姿元数据；Get/有回调才物化完整vector，成本O(M)，不写每帧完整位姿文件。
 
-- [ ] Step 1：写 `AllModesPreserveFrontendAndRawAssets`：复用 test::Options/Scan，LO/LIO/LIVO三模式分别比较禁用、旧分组、online的states/clouds/image_hashes及旧原始文件字节。
+- [x] Step 1：写 `AllModesPreserveFrontendAndRawAssets`：复用 test::Options/Scan，LO/LIO/LIVO三模式分别比较禁用、旧分组、online的states/clouds/image_hashes及旧原始文件字节。
   禁用时无子地图目录，开启默认模式仅旧目录，online仅新目录；keyframes关闭而submaps开启在任何输出前失败。
   两端参数测试覆盖默认、online覆盖、模式拼写/类型错误、无效阈值和support范围；旧mode忽略在线阈值但保留旧max校验。
-- [ ] Step 2：写 `OwnedObservationIsPublishedAfterCommit`：回调内只读打开独立Store，确认原帧和所有revision已可见，poses覆盖其ID；保留shared_ptr跨后续Process和System析构，图像/点云仍相同。
+- [x] Step 2：写 `OwnedObservationIsPublishedAfterCommit`：回调内只读打开独立Store，确认原帧和所有revision已可见，poses覆盖其ID；保留shared_ptr跨后续Process和System析构，图像/点云仍相同。
   使用借用源内容后来被覆盖的输入证明深复制；LO/LIO通知无图像，不产生虚构camera。
   写 `CallbackExceptionRemainsVisible` 和 `CallbackRegistrationHasDefinedBoundary`：回调异常在后续Process/Finish重抛；开始后注册非空回调拒绝，空回调停用有效；重复Finish不通知。
-- [ ] Step 3：写 `FailedRevisionPublishesNoPartialEvent`：使用Task3实际文件阻断法，在原帧已提交后令索引失败，无该帧通知，重复Process/Finish重抛原错误，旧资产和已交付快照不变。
+- [x] Step 3：写 `FailedRevisionPublishesNoPartialEvent`：使用Task3实际文件阻断法，在原帧已提交后令索引失败，无该帧通知，重复Process/Finish重抛原错误，旧资产和已交付快照不变。
   写 `FailedPoseCommitKeepsPublishedVersion`：v2持久化失败时Get仍v1，无v2通知；合法v1提交后再输入过期结果仅拒绝输入，不终止写入。
 
   ```cpp
@@ -352,15 +352,15 @@ Finish/失败后Get仍能读取最近成功状态；Finish后Apply拒绝。非�
   EXPECT_THROW(system.Finish(), std::runtime_error);
   ```
 
-- [ ] Step 4：写 `OptimizationDoesNotFeedBackIntoFrontend`：在两次Process之间用已知非刚性更新Apply，得到Task2分类并使后续新帧按C_tail延续；前端与无更新参考严格一致。
+- [x] Step 4：写 `OptimizationDoesNotFeedBackIntoFrontend`：在两次Process之间用已知非刚性更新Apply，得到Task2分类并使后续新帧按C_tail延续；前端与无更新参考严格一致。
   模拟消费者从v0直接消费v2、跳过成员revision；只修正自己已有成员、新增独立初始化。
   模拟训练结果携带(submap_id,membership_revision,pose_version)，任一不匹配时拒绝提交；representation_revision仅在有效输出提交后增加。
   该消费者留在测试中，P6-01不为三字段比较新增通用生产接口或后台任务。
-- [ ] Step 5：构建 `online_submap_system_test` 确认 RED，实现上述组合。串行顺序固定：Capture一次→原帧Append→全部成员修订Append→登记raw pose/覆盖前缀→通知。
+- [x] Step 5：构建 `online_submap_system_test` 确认 RED，实现上述组合。串行顺序固定：Capture一次→原帧Append→全部成员修订Append→登记raw pose/覆盖前缀→通知。
   Apply先验证/构造候选→计算同当前前缀的变化→写冻结文件→替换当前版本→通知；计算/分配尽可能先于持久化。
   新位姿只通过普通API/通知交付，既有ROS发布和TF保持原语义；map/odom接入留到真正后端阶段。
   持久化或回调异常后锁住本次写运行；Finish只封存一次，空/重复Finish不通知；旧ResultCallback签名保持。
-- [ ] Step 6：普通新测试与旧system/keyframe/submap全套 GREEN；Noetic运行 `catkin_make run_tests_livo_atlas -j1` 和 `rostest livo_atlas lidar_callbacks.test`，Humble运行实际 `ros2_node_test` 参数用例。
+- [x] Step 6：普通新测试与旧system/keyframe/submap全套 GREEN；Noetic运行 `catkin_make run_tests_livo_atlas -j1` 和 `rostest livo_atlas lidar_callbacks.test`，Humble运行实际 `ros2_node_test` 参数用例。
   两环境按既有[构建说明](../../ros-builds.md)配置独立候选目录，记录命令/产物摘要；提交 `feat: integrate committed online submap observations`。
 
 ### Task 5: 显式检查、回放开关与独立安装消费
@@ -462,4 +462,4 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 - 类型一致：仅保留一份KeyframePose；mode不改变旧SubmapOptions布局；原始位姿数组以ID为下标；正版本/运行覆盖分别记录。
 - 失败覆盖：五项Review Focus各有上述具名用例；不以mock代替真实文件失败或双ROS回放。
 - 规模控制：没有GTSAM/CUDA/渲染实现、通用插件/调度框架和多套存储权威；未来队列、Gaussian资产和几何表示在后续阶段实现。
-- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2、3，后续从Task4继续。完整P6-01验收尚未完成。
+- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2、3、4，后续从Task5继续。完整P6-01验收尚未完成。

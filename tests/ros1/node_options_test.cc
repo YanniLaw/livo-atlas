@@ -188,5 +188,21 @@ TEST_F(Ros1ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
 
+TEST_F(Ros1ParametersTest, ReadsOnlineSubmapModeAndValidatesBounds) {
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  node_->setParam("submaps/online/translation_threshold", 3.0);
+  const auto config = ReadNodeOptions(*node_);
+  EXPECT_EQ(config.livo.system.submap_mode, SubmapMode::kOnline);
+  EXPECT_DOUBLE_EQ(config.livo.system.online_submaps.translation_threshold,
+                   3.0);
+  node_->setParam("submaps/online/support_keyframes", -1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("submaps/mode", "keyframe_groups");
+  EXPECT_NO_THROW(ReadNodeOptions(*node_));
+  node_->setParam("submaps/mode", "unknown");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+}
 }  // namespace
 }  // namespace livo_atlas::ros1

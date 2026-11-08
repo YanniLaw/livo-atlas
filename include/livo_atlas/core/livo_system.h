@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 
+#include "livo_atlas/core/online_submap_update.h"
 #include "livo_atlas/core/system_options.h"
 #include "livo_atlas/frontend/frontend.h"
 #include "livo_atlas/sensor/lidar_scan.h"
@@ -20,6 +21,12 @@ class LivoSystem {
  public:
   using ResultCallback = std::function<void(
       const FrontendResult&, const ColoredCloud::ConstPtr&, double)>;
+  using OnlineSubmapCallback = std::function<void(const OnlineSubmapUpdate&)>;
+  // Register before the first frame; callbacks only enqueue, never reenter or
+  // throw.
+  void SetOnlineSubmapCallback(OnlineSubmapCallback callback);
+  std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
+  void ApplyPoseUpdate(const PoseUpdate& update);
   explicit LivoSystem(SystemOptions options);
   ~LivoSystem();
   LivoSystem(const LivoSystem&) = delete;

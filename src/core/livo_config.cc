@@ -51,6 +51,22 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   submaps.enabled = reader.Boolean("submaps.enabled", submaps.enabled);
   submaps.max_keyframes =
       reader.Integer("submaps.max_keyframes", submaps.max_keyframes);
+  const auto submap_mode = reader.String("submaps.mode", "keyframe_groups");
+  if (submap_mode == "online") {
+    options.submap_mode = SubmapMode::kOnline;
+    auto& online = options.online_submaps;
+    online.translation_threshold = reader.Number(
+        "submaps.online.translation_threshold", online.translation_threshold);
+    online.rotation_threshold_deg = reader.Number(
+        "submaps.online.rotation_threshold_deg", online.rotation_threshold_deg);
+    online.time_threshold =
+        reader.Number("submaps.online.time_threshold", online.time_threshold);
+    online.support_keyframes = reader.Integer(
+        "submaps.online.support_keyframes", online.support_keyframes);
+  } else if (submap_mode != "keyframe_groups") {
+    throw std::invalid_argument(
+        "submaps.mode must be keyframe_groups or online");
+  }
   config.lidar_topic = reader.String("common.lid_topic", config.lidar_topic);
   config.imu_topic = reader.String("common.imu_topic", config.imu_topic);
   options.driver_fix =
