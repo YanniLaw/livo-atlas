@@ -190,6 +190,14 @@ class LivoSystem::Impl {
       throw;
     }
   }
+  void SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
+    if (callback && submap_error_) std::rethrow_exception(submap_error_);
+    Online().SetCallback(std::move(callback));
+  }
+  void ApplyPoseUpdate(const PoseUpdate& update) {
+    if (submap_error_) std::rethrow_exception(submap_error_);
+    Online().ApplyPoseUpdate(update);
+  }
   OnlineSubmapManager& Online() const {
     if (!online_) throw std::logic_error("Online submaps are not enabled");
     return *online_;
@@ -265,13 +273,13 @@ std::optional<PropagationResult> LivoSystem::PropagateLatest() {
   return impl_->PropagateLatest();
 }
 void LivoSystem::SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
-  impl_->Online().SetCallback(std::move(callback));
+  impl_->SetOnlineSubmapCallback(std::move(callback));
 }
 std::shared_ptr<const PoseSnapshot> LivoSystem::GetPoseSnapshot() const {
   return impl_->Online().GetPoseSnapshot();
 }
 void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
-  impl_->Online().ApplyPoseUpdate(update);
+  impl_->ApplyPoseUpdate(update);
 }
 void LivoSystem::Finish() { impl_->Finish(); }
 }  // namespace livo_atlas

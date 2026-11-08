@@ -117,6 +117,48 @@ TEST(OnlineSubmapSystemTest, PoseUpdateExtendsTailAndRejectsStaleInput) {
   }
   fs::remove_all(options.exporter.directory);
 }
+TEST(OnlineSubmapSystemTest, RawSaveFailureBlocksOnlineMutations) {
+  auto options = Options();
+  {
+    LivoSystem system(options);
+    int notifications = 0;
+    system.SetOnlineSubmapCallback([&](const auto&) { ++notifications; });
+    Populate(system);
+    const auto before = system.GetPoseSnapshot();
+    const auto count = notifications;
+    const auto pending = options.exporter.directory / "keyframes/frames" /
+                         (".pending-" + std::to_string(before->frame_count));
+    fs::create_directory(pending);
+    std::ofstream(pending / "keep") << "original";
+    std::string failure;
+    try {
+      Feed(system, 4);
+    } catch (const std::runtime_error& error) {
+      failure = error.what();
+    }
+    ASSERT_FALSE(failure.empty());
+    try {
+      system.ApplyPoseUpdate(Update(*before));
+      ADD_FAILURE() << "Pose update must preserve the raw-save terminal error";
+    } catch (const std::runtime_error& error) {
+      EXPECT_EQ(error.what(), failure);
+    }
+    EXPECT_EQ(system.GetPoseSnapshot()->version, before->version);
+    EXPECT_EQ(system.GetPoseSnapshot()->frame_count, before->frame_count);
+    EXPECT_EQ(notifications, count);
+    EXPECT_FALSE(fs::exists(options.exporter.directory /
+                            "keyframes/online_submaps/poses/1.yml"));
+    EXPECT_NO_THROW(system.SetOnlineSubmapCallback({}));
+    try {
+      system.SetOnlineSubmapCallback([](const auto&) {});
+      ADD_FAILURE() << "Nonempty registration must preserve terminal state";
+    } catch (const std::exception& error) {
+      EXPECT_EQ(error.what(), failure);
+    }
+    EXPECT_THROW(system.Finish(), std::runtime_error);
+  }
+  fs::remove_all(options.exporter.directory);
+}
 TEST(OnlineSubmapSystemTest, FailedPoseCommitKeepsPublishedVersion) {
   auto options = Options();
   {
