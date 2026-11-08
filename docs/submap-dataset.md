@@ -161,3 +161,7 @@ SubmapStore 非拥有地引用传入的 KeyframeStore，后者必须先构造、
 
 整体复制 keyframes 目录及运行配置、源码版本到目标电脑，重新编译 SDK 后运行检查工具。
 格式不含机器绝对路径。两端与跨环境读取的实际范围见 [P5-02 验证记录](p5-02-validation.md)。
+
+显式submaps.mode=online使用独立online_submaps/命名空间，旧分组格式和默认检查保持。
+配置、--online检查与旧位姿出口见[在线子地图说明](online-submap-dataset.md)，
+最终验收见[P6-01记录](p6-01-validation.md)。

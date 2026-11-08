@@ -12,7 +12,7 @@
 
 **Spec:** [在线子地图设计](../specs/2026-11-08-online-submaps-design.md)。执行者必须同时阅读。
 
-**状态：用户已切换模型并授权实施；Task 1、2、3、4、5 已完成，其余任务待实施。**
+**状态：用户已切换模型并授权实施；Task 1–6已完成，2026-11-09验收通过。**
 切换后沿用用户已选择的当前会话直接实施方式，使用 executing-plans；不再要求选择执行方式。
 
 ## Global Constraints
@@ -412,7 +412,7 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 
 **Interfaces:** 消费全部公开API和已安装CLI；产出可复现日志、源码/库摘要、实际测试清单、bag配对结果及限制。
 
-- [ ] Step 1：普通shared全套运行；static与无OpenMP分别在独立目录配置、编译、测试和安装消费，不并行构建。
+- [x] Step 1：普通shared全套运行；static与无OpenMP分别在独立目录配置、编译、测试和安装消费，不并行构建。
   shared示例：
 
   ```bash
@@ -427,10 +427,10 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 
   static增加 `-DBUILD_SHARED_LIBS=OFF`，无OMP增加 `-DLIVO_ATLAS_USE_OPENMP=OFF`，每组独立安装前缀。
   预期全套零失败，包括新增头的单头编译；以实际GTest用例数报告，不预填计数。
-- [ ] Step 2：Noetic/Humble最终源码分别构建、运行全套普通及实际ROS/DDS测试、启动参数保护、SDK/ament移动安装消费。
+- [x] Step 2：Noetic/Humble最终源码分别构建、运行全套普通及实际ROS/DDS测试、启动参数保护、SDK/ament移动安装消费。
   本机沿用ros2容器，候选目录使用 `/tmp/livo_atlas_p6_01`；迁移机器先记录真实路径/环境，不能把旧脚本硬编码路径当成功证明。
   两端加载的自有库、节点与源码摘要一致后再回放；每端只在一个固定CPU上运行，默认本机CPU0，异机检查允许集。
-- [ ] Step 3：每端对同环境冻结P5-04基线和新实现运行默认、旧分组、online的配对输入；先30s冒烟，再完整136s请求覆盖bag。
+- [x] Step 3：每端对同环境冻结P5-04基线和新实现运行默认、旧分组、online的配对输入；先30s冒烟，再完整136s请求覆盖bag。
   Noetic online示例（workspace必须指向实际候选构建，不指向冻结参考）：
 
   ```bash
@@ -447,13 +447,13 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
   检查输入/发布计数、四数组和原始关键帧资产精确一致；短段额外启用 `--save-products` 验证旧产品逐字节一致。
   默认关闭关键帧的运行只比较前端/发布；原始关键帧资产比较使用同样开启keyframes的配对运行。新增索引单独核对，禁止把它计入旧资产比较。
   参考正常完整计数为1351 LIO、1350 VIO、172关键帧；若启动变体出现，记录并用冻结参考同条件复现，不放宽精度阈值。
-- [ ] Step 4：用真实回放数据只读打开online索引，检查唯一主归属、support、封存与所有原始资产；Humble产物由Noetic普通SDK交叉读取。
+- [x] Step 4：用真实回放数据只读打开online索引，检查唯一主归属、support、封存与所有原始资产；Humble产物由Noetic普通SDK交叉读取。
   在仅复制原始关键帧的新副本中用Builder/新建Store重建在线索引，再应用已知刚性及组内位姿修正，检查冻结文件、尾帧延续、原始资产摘要和相机变换。
   已有在线Store不能重开写入，因此不直接向原运行目录添加版本；明确这是合成优化输入。
   记录online相对默认的耗时/RSS/磁盘增长，解释metadata、逐帧revision与可选完整快照物化成本；不预设未测的实时预算。
-- [ ] Step 5：写在线使用、全部字段/单位/错误语义、只读重开、部分提交、回调所有权和离线导出示例；实际报告链接日志和摘要。
+- [x] Step 5：写在线使用、全部字段/单位/错误语义、只读重开、部分提交、回调所有权和离线导出示例；实际报告链接日志和摘要。
   标明当前仍没有几何后端、闭环检测和高斯训练；后续P6-02几何/后端、P6-03在线GS、P6-04辅助估计各自先细化计划。
-- [ ] Step 6：Google格式/`git diff --check`、当前阶段整体代码审阅、修复重要问题后重跑受影响检查；只提交本任务文档与必要验证改动，提交 `docs: validate online submap contracts across ROS versions`。
+- [x] Step 6：Google格式/`git diff --check`、当前阶段整体代码审阅、修复重要问题后重跑受影响检查；只提交本任务文档与必要验证改动，提交 `docs: validate online submap contracts across ROS versions`。
   报告实际结果、剩余限制和代码提交；不自动合并/推送或打tag。
 
 ## 计划自检与交接
@@ -462,4 +462,4 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 - 类型一致：仅保留一份KeyframePose；mode不改变旧SubmapOptions布局；原始位姿数组以ID为下标；正版本/运行覆盖分别记录。
 - 失败覆盖：五项Review Focus各有上述具名用例；不以mock代替真实文件失败或双ROS回放。
 - 规模控制：没有GTSAM/CUDA/渲染实现、通用插件/调度框架和多套存储权威；未来队列、Gaussian资产和几何表示在后续阶段实现。
-- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2、3、4、5，后续从Task6继续。完整P6-01验收尚未完成。
+- 2026-11-08 用户切换模型后开始实施；当前Task1–6已完成，完整验收于2026-11-09通过，见 docs/p6-01-validation.md。

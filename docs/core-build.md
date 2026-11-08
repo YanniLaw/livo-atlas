@@ -155,3 +155,7 @@ visual_point 归 mapping，Frame/Feature 归视觉前端；目录不强制对应
 原有在线COLMAP/图像保存仍归LivoExporter；选定位姿版本的研究数据通过ExportColmap离线导出。
 跳过发布不影响同步消费与文件导出。
 关键帧从普通结果与 I/O 边界接入，后续 GTSAM/3DGS 可消费独立数据集和位姿版本。
+
+在线模式的拥有观测通知、位姿更新及显式检查见[在线子地图说明](online-submap-dataset.md)。
+终止错误也阻止位姿提交和非空回调注册；最后成功的位姿快照仍可读取。
+三种普通构建、双ROS和完整bag结果见[P6-01记录](p6-01-validation.md)。
