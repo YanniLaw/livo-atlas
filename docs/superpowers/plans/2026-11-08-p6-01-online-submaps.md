@@ -12,7 +12,7 @@
 
 **Spec:** [在线子地图设计](../specs/2026-11-08-online-submaps-design.md)。执行者必须同时阅读。
 
-**状态：仅计划，所有任务尚未实施。正式编码前通知用户并等待其切换模型。**
+**状态：用户已切换模型并授权实施；Task 1 已完成，其余任务待实施。**
 切换后沿用用户已选择的当前会话直接实施方式，使用 executing-plans；不再要求选择执行方式。
 
 ## Global Constraints
@@ -146,7 +146,7 @@ class OnlineSubmapBuilder {
 Builder 只保留 ID、锚点位姿/时间和必要计数，不保存图像/点云。返回值按提交顺序排列且独立拥有。
 无效输入抛 invalid_argument 且不推进状态；Finish 后 Add 抛 logic_error；溢出显式拒绝。
 
-- [ ] Step 1：写 RED。`CountLimitProducesInsertionThenSealingRevision`：上限2、support2，Add0 返回 active{0}/r1；Add1 返回 active{0,1}/r2、sealed{0,1}/r3；Add2 新组{2}/r1、support{0,1}。
+- [x] Step 1：写 RED。`CountLimitProducesInsertionThenSealingRevision`：上限2、support2，Add0 返回 active{0}/r1；Add1 返回 active{0,1}/r2、sealed{0,1}/r3；Add2 新组{2}/r1、support{0,1}。
   `FinishSealsOnce`：尾组 Finish 返回 sealed{2}/r2，再次为空；空 Builder Finish 无组。
 
   ```cpp
@@ -158,14 +158,14 @@ Builder 只保留 ID、锚点位姿/时间和必要计数，不保存图像/点�
   EXPECT_EQ(revisions.back().state, OnlineSubmapState::kSealed);
   ```
 
-- [ ] Step 2：补参数化 RED `ThresholdEqualityStartsNewGroup`：固定其他阈值足够大，分别测试平移5、Rz45°、时间20的等号触发，以及紧邻阈值两侧；旋转使用最短 SO(3) 角，覆盖179°到-179°相对2°。
+- [x] Step 2：补参数化 RED `ThresholdEqualityStartsNewGroup`：固定其他阈值足够大，分别测试平移5、Rz45°、时间20的等号触发，以及紧邻阈值两侧；旋转使用最短 SO(3) 角，覆盖179°到-179°相对2°。
   `RejectedInputDoesNotAdvance`：NaN/Inf、重复/跳号ID、时间回退、坏旋转失败后，相同下一个合法ID仍成功；相等时间允许。
   首组support为空，后组只取直接前组末尾 min(support,count) 个，support0有效、负值/超上限拒绝。
-- [ ] Step 3：执行 `nice -n 10 cmake --build "$LIVO_P6_VALIDATION/core-shared" --target online_submap_test -- -j1`；确认 RED 来自新契约。
-- [ ] Step 4：实现先全量校验、再计算有序修订；运动/时间边界在插入前封存，数量边界在插入后封存。
+- [x] Step 3：执行 `nice -n 10 cmake --build "$LIVO_P6_VALIDATION/core-shared" --target online_submap_test -- -j1`；确认 RED 来自新契约。
+- [x] Step 4：实现先全量校验、再计算有序修订；运动/时间边界在插入前封存，数量边界在插入后封存。
   同次插入需要的所有计数检查先完成，不能先改旧组再发现新组非法。
-- [ ] Step 5：同命令构建，运行 `"$LIVO_P6_VALIDATION/core-shared/online_submap_test"`；全部 GREEN。
-- [ ] Step 6：仅提交本任务文件，提交信息 `feat: add deterministic online submap grouping`。
+- [x] Step 5：同命令构建，运行 `"$LIVO_P6_VALIDATION/core-shared/online_submap_test"`；全部 GREEN。
+- [x] Step 6：仅提交本任务文件，提交信息 `feat: add deterministic online submap grouping`。
 
 ### Task 2: 位姿快照、尾部延续与修正分类
 
@@ -462,4 +462,4 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 - 类型一致：仅保留一份KeyframePose；mode不改变旧SubmapOptions布局；原始位姿数组以ID为下标；正版本/运行覆盖分别记录。
 - 失败覆盖：五项Review Focus各有上述具名用例；不以mock代替真实文件失败或双ROS回放。
 - 规模控制：没有GTSAM/CUDA/渲染实现、通用插件/调度框架和多套存储权威；未来队列、Gaussian资产和几何表示在后续阶段实现。
-- 本轮只完成方案与实施计划，不运行上面的构建/回放，不创建这些新源码和测试。下一步先通知用户切换模型，收到继续指令后才开始Task1。
+- 2026-11-08 用户切换模型后开始实施；当前完成Task1，后续从Task2继续。完整P6-01验收尚未完成。
