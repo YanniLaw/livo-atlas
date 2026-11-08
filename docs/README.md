@@ -26,6 +26,8 @@
 
 22. [P5-03 离线导出设计](superpowers/specs/2026-10-30-p5-colmap-export-design.md)、[实施计划](superpowers/plans/2026-10-30-p5-colmap-export.md)、[使用说明](colmap-export.md)和[验证记录](p5-03-validation.md)：按选定位姿版本导出居中针孔图像、相机与带颜色LiDAR种子，保留原数据。
 23. [P5-04可靠性设计](superpowers/specs/2026-10-31-p5-reliability-design.md)、[实施计划](superpowers/plans/2026-10-31-p5-reliability.md)和[验证记录](p5-04-validation.md)：检查图片写入与关闭、定位大小核数值差异和图像历史淘汰，补齐视觉缓存所有权与重复/耐久验证。
+24. [完整 SLAM 与在线 3DGS 子地图调研](online-3dgs-submap-research.md)：截至 2026-11-08 的论文和官方实现核对、候选架构、闭环地图修正及当前接口差距；属于研究建议，尚未实施。
+25. [在线子地图设计](superpowers/specs/2026-11-08-online-submaps-design.md)：共享观测、局部坐标、生命周期、版本化位姿与高斯修正契约；首个实施范围限定为 P6-01 数据与接口基础。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
