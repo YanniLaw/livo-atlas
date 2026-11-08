@@ -327,6 +327,22 @@ void KeyframeStore::Append(const Keyframe& frame) {
   }
 }
 
+RigidTransform KeyframeStore::ReadRawBodyPose(std::uint64_t id) const {
+  if (id >= ids_.size())
+    throw std::out_of_range(directory_.string() +
+                            ": Unknown keyframe identifier");
+  const auto path = directory_ / "frames" / std::to_string(id) / "frame.yml";
+  try {
+    auto yaml = ReadYaml(path);
+    if (!yaml.isOpened() || Id(yaml["id"]) != id ||
+        Id(yaml["calibration_id"]) != 0)
+      Fail(path, "Frame identifier mismatch");
+    return ReadTransform(yaml["odom_from_body"]);
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
 Keyframe KeyframeStore::Read(std::uint64_t id) const {
   if (id >= ids_.size())
     throw std::out_of_range(directory_.string() +

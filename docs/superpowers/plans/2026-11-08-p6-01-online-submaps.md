@@ -12,7 +12,7 @@
 
 **Spec:** [在线子地图设计](../specs/2026-11-08-online-submaps-design.md)。执行者必须同时阅读。
 
-**状态：用户已切换模型并授权实施；Task 1、2 已完成，其余任务待实施。**
+**状态：用户已切换模型并授权实施；Task 1、2、3 已完成，其余任务待实施。**
 切换后沿用用户已选择的当前会话直接实施方式，使用 executing-plans；不再要求选择执行方式。
 
 ## Global Constraints
@@ -276,15 +276,15 @@ Read 返回最新已提交修订；index覆盖前缀可短于原始数据。Read
 Append只允许首revision含一个主成员，后续一次追加一个成员或仅封存；support和anchor不变，新组只能在前组封存后出现。
 WritePoseSnapshot要求覆盖当时全部已提交原始帧、版本连续且优化前缀不缩短；先验证全部数据再创建pending文件。
 
-- [ ] Step 1：写磁盘 RED `RevisionsRoundTripAndRemainImmutable`：Task1的全部修订落盘/重开，旧修订字节不变；active尾组仍active；空数据集无虚构组。
+- [x] Step 1：写磁盘 RED `RevisionsRoundTripAndRemainImmutable`：Task1的全部修订落盘/重开，旧修订字节不变；active尾组仍active；空数据集无虚构组。
   `RawPoseReadDoesNotLoadAssets`：用测试副本删除PNG/PCD后ReadRawBodyPose仍返回元数据位姿，完整Read失败；坏frame.yml/未知ID仍拒绝。
-- [ ] Step 2：写 `RejectsCorruptHistoryBeforeAllocation`：缺修订、改anchor/已有成员、seal后新revision、主归属重复/有洞、support非前组末尾、两个active、未知schema/ID、非规范字符串、伪造巨大count均拒绝。
+- [x] Step 2：写 `RejectsCorruptHistoryBeforeAllocation`：缺修订、改anchor/已有成员、seal后新revision、主归属重复/有洞、support非前组末尾、两个active、未知schema/ID、非规范字符串、伪造巨大count均拒绝。
   读取所有提交修订验证历史，不能只信最大文件名；pending文件忽略；中间缺号或最高现存文件损坏时拒绝，不能退回旧revision伪装成功。
   没有独立提交清单，无法识别整段末尾文件被删除；明确这一格式限制，不写不可能通过的检测测试。
-- [ ] Step 3：写 `PartialCommitRemainsInspectable`：原始0..2已提交，组0 sealed{0,1}，新组尚未提交；重开indexed_count=2、未索引尾部=1；无自动补齐。
+- [x] Step 3：写 `PartialCommitRemainsInspectable`：原始0..2已提交，组0 sealed{0,1}，新组尚未提交；重开indexed_count=2、未索引尾部=1；无自动补齐。
   把记录目录替换为普通文件造成真实写失败，之后Append/Write仍抛原错误，已提交字节不变。
   同样覆盖旧组封存后新组首修订失败、active插入成功但seal失败；无跨文件回滚假象。
-- [ ] Step 4：写 `FrozenPoseFileReproducesGrowingView`：v1/M3/N2写入后追加raw3，Read仍M3，Materialize(v1,4)尾帧13，文件摘要不变。
+- [x] Step 4：写 `FrozenPoseFileReproducesGrowingView`：v1/M3/N2写入后追加raw3，Read仍M3，Materialize(v1,4)尾帧13，文件摘要不变。
   旧API仍只认识原poses；新Store拒绝覆盖v1、跳版本、base过期、优化前缀缩短、非法尾策略/尾锚点和伪造尾姿态。
   只写pending时重开看不到新版本；真实位姿写失败后v1仍可读，v2不可见。
 
@@ -297,10 +297,10 @@ WritePoseSnapshot要求覆盖当时全部已提交原始帧、版本连续且优
   EXPECT_THROW(reader.MaterializePoseSnapshot(1, 5), std::invalid_argument);
   ```
 
-- [ ] Step 5：构建并运行 `online_submap_store_test`、`keyframe_store_test` 确认 RED。
+- [x] Step 5：构建并运行 `online_submap_store_test`、`keyframe_store_test` 确认 RED。
   实现沿用私有 dataset_metadata 解析和checked-close；临时文件放在目标同目录，最后rename；单writer下拒绝覆盖，所有计数与实际节点/已提交范围核对后再分配。
   只缓存必要位姿/成员元数据，不在打开索引或物化位姿时加载全部图像/PCD。
-- [ ] Step 6：两个测试及旧 `submap_store_test` 全部 GREEN；提交 `feat: persist online submap revisions and pose snapshots`。
+- [x] Step 6：两个测试及旧 `submap_store_test` 全部 GREEN；提交 `feat: persist online submap revisions and pose snapshots`。
 
 ### Task 4: 共用系统的提交顺序与拥有观测通知
 
@@ -462,4 +462,4 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 - 类型一致：仅保留一份KeyframePose；mode不改变旧SubmapOptions布局；原始位姿数组以ID为下标；正版本/运行覆盖分别记录。
 - 失败覆盖：五项Review Focus各有上述具名用例；不以mock代替真实文件失败或双ROS回放。
 - 规模控制：没有GTSAM/CUDA/渲染实现、通用插件/调度框架和多套存储权威；未来队列、Gaussian资产和几何表示在后续阶段实现。
-- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2，后续从Task3继续。完整P6-01验收尚未完成。
+- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2、3，后续从Task4继续。完整P6-01验收尚未完成。
