@@ -7,13 +7,9 @@
 
 #include "livo_atlas/frontend/calibration.h"
 #include "livo_atlas/mapping/keyframe.h"
+#include "livo_atlas/mapping/pose_snapshot.h"
 
 namespace livo_atlas {
-struct KeyframePose {
-  std::uint64_t id = 0;
-  RigidTransform map_from_body;
-};
-
 // One serial writer per dataset. Reopening never appends or replaces raw
 // frames; it can read them and add complete, independently numbered poses.
 class KeyframeStore {

@@ -12,7 +12,7 @@
 
 **Spec:** [在线子地图设计](../specs/2026-11-08-online-submaps-design.md)。执行者必须同时阅读。
 
-**状态：用户已切换模型并授权实施；Task 1 已完成，其余任务待实施。**
+**状态：用户已切换模型并授权实施；Task 1、2 已完成，其余任务待实施。**
 切换后沿用用户已选择的当前会话直接实施方式，使用 executing-plans；不再要求选择执行方式。
 
 ## Global Constraints
@@ -217,7 +217,7 @@ Make/Materialize先验证raw中的所有变换、当前冻结快照和数量边�
 所有函数无副作用。Compare 要求同覆盖前缀，比较已有组主成员与support的并集；changed IDs 为空代表可走整体刚性路径。
 CameraPose 无有效图像/相机变换时拒绝，不猜外参或忽略图像时间。
 
-- [ ] Step 1：写 `TailExtensionKeepsFrozenPrefix`：raw x={0,1,2}、更新base0/N2/map x={10,11}，候选v1/M3/N2 的x={10,11,12}。
+- [x] Step 1：写 `TailExtensionKeepsFrozenPrefix`：raw x={0,1,2}、更新base0/N2/map x={10,11}，候选v1/M3/N2 的x={10,11,12}。
   追加raw x=3后同v1物化M4，x={10,11,12,13}，原冻结对象仍M3且内容不变；不写磁盘。
   `NewFramesDoNotStaleBaseVersion`：base1/N3在raw增加到5后仍接受为v2/M5；base0拒绝；N回退、0、超范围均拒绝。
 
@@ -230,19 +230,19 @@ CameraPose 无有效图像/相机变换时拒绝，不猜外参或忽略图像�
   EXPECT_EQ(frozen.frame_count, 3u);
   ```
 
-- [ ] Step 2：写 `InvalidSnapshotRejected`：重复/缺号/乱序/超当前前缀的64位ID、UINT64_MAX版本回绕、伪造frame_count、错误parent、坏旋转/NaN；不按未经校验的数量 reserve。
+- [x] Step 2：写 `InvalidSnapshotRejected`：重复/缺号/乱序/超当前前缀的64位ID、UINT64_MAX版本回绕、伪造frame_count、错误parent、坏旋转/NaN；不按未经校验的数量 reserve。
   超32位值不得截断；其拒绝原因是超出现有数据，而不是任意限制为32位ID。
   `VersionZeroHasNoTailAnchor`：空快照及原始完整前缀有效；正版本错尾帧在物化时拒绝。
-- [ ] Step 3：写 `RigidAndLocalChangesSeparate`：两帧原Rz90，平移(1,2,3)/(1,4,3)，点(1,0,0)/(2,0,0)，原局部点为(1,0,0)/(4,0,0)。
+- [x] Step 3：写 `RigidAndLocalChangesSeparate`：两帧原Rz90，平移(1,2,3)/(1,4,3)，点(1,0,0)/(2,0,0)，原局部点为(1,0,0)/(4,0,0)。
   全部位姿左乘同一 Rx90+t(10,-3,2)，changed为空，局部点不变；独立设置新anchor I/t(10,0,0)、第二帧Rz90/t(10,5,0)，第二局部点变(0,7,0)，changed={1}。
   比较阈值固定为1e-9 m/rad，用稳定的 SO(3) 角差计算覆盖极小旋转；原始点和图像摘要保持。
   支持帧单独改变必须出现在changed中，anchor自身局部恒为I，不能误报；外部anchor修正只应用一次。
-- [ ] Step 4：写 `CameraRelativePoseSurvivesCorrection`：使用 KeyframeResult 的非同一状态/图像时间，验证
+- [x] Step 4：写 `CameraRelativePoseSurvivesCorrection`：使用 KeyframeResult 的非同一状态/图像时间，验证
   `inverse(T_map_B)*T_map_C == inverse(T_odom_B)*inverse(T_C_odom)`；旧相机快照和时间不变，LO/LIO缺图像拒绝CameraPose。
   `SkippedMembershipInitializesOnlyNewObservations`：从消费过的旧OnlineSubmap成员集比较v0到v2；新增ID不列为旧资产的修正，旧/新快照缺已有ID时拒绝。
-- [ ] Step 5：分别构建/运行 `pose_snapshot_test`、`submap_pose_change_test` 确认 RED，然后实现纯函数，使用 double 组合变换并复用 ValidateExtrinsic。
+- [x] Step 5：分别构建/运行 `pose_snapshot_test`、`submap_pose_change_test` 确认 RED，然后实现纯函数，使用 double 组合变换并复用 ValidateExtrinsic。
   尾部遵循 `C_tail=T_new(N-1)*inverse(T_raw(N-1))`；不改前端状态、速度、bias或原始资产。
-- [ ] Step 6：运行两个新目标及旧 `keyframe_store_test`、`submap_store_test`，全部 GREEN；提交 `feat: define versioned submap pose corrections`。
+- [x] Step 6：运行两个新目标及旧 `keyframe_store_test`、`submap_store_test`，全部 GREEN；提交 `feat: define versioned submap pose corrections`。
 
 ### Task 3: 不可变在线索引与冻结位姿存储
 
@@ -462,4 +462,4 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 - 类型一致：仅保留一份KeyframePose；mode不改变旧SubmapOptions布局；原始位姿数组以ID为下标；正版本/运行覆盖分别记录。
 - 失败覆盖：五项Review Focus各有上述具名用例；不以mock代替真实文件失败或双ROS回放。
 - 规模控制：没有GTSAM/CUDA/渲染实现、通用插件/调度框架和多套存储权威；未来队列、Gaussian资产和几何表示在后续阶段实现。
-- 2026-11-08 用户切换模型后开始实施；当前完成Task1，后续从Task2继续。完整P6-01验收尚未完成。
+- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2，后续从Task3继续。完整P6-01验收尚未完成。
