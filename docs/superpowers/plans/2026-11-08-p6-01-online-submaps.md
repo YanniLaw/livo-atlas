@@ -12,7 +12,7 @@
 
 **Spec:** [在线子地图设计](../specs/2026-11-08-online-submaps-design.md)。执行者必须同时阅读。
 
-**状态：用户已切换模型并授权实施；Task 1、2、3、4 已完成，其余任务待实施。**
+**状态：用户已切换模型并授权实施；Task 1、2、3、4、5 已完成，其余任务待实施。**
 切换后沿用用户已选择的当前会话直接实施方式，使用 executing-plans；不再要求选择执行方式。
 
 ## Global Constraints
@@ -382,7 +382,7 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 沿用 `--save-submaps` 的旧行为，summary加入submap_mode；ROS1/ROS2分别配置同一共用字段。
 不顺带改已延期的ROS2模块启动导入；仍以脚本路径运行。
 
-- [ ] Step 1：写CLI RED：旧格式输出保持；online显式读取新索引，active尾组/未索引尾部和冻结M3→物化M4字段准确；未知版本、重复选项、非规范数字、仅含旧索引却请求online均非零；文件摘要不变。
+- [x] Step 1：写CLI RED：旧格式输出保持；online显式读取新索引，active尾组/未索引尾部和冻结M3→物化M4字段准确；未知版本、重复选项、非规范数字、仅含旧索引却请求online均非零；文件摘要不变。
   两种命名空间都存在的离线副本按显式选项读取，不能自动混合两者或因为旧索引存在就拒绝合法online索引。
   Python测试入口为 `python3 tests/tools/online_submap_cli_test.py --executable PATH --fixtures DIR`；自定义参数解析后仅把unittest参数传入runner。
   fixture目录由安装消费者运行时写入，不依赖旧验证数据或真实bag。
@@ -395,13 +395,13 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
   self.assertEqual(result["optimized_frame_count"], 2)
   ```
 
-- [ ] Step 2：实现CLI分派及两个脚本参数，运行 `--help` 和参数检查；online明确、旧默认保持。
+- [x] Step 2：实现CLI分派及两个脚本参数，运行 `--help` 和参数检查；online明确、旧默认保持。
   测试两个脚本参数映射；不新增只有脚本表面mock通过而未实际回放的“集成成功”声明。
-- [ ] Step 3：扩展installed_consumer：公开API执行online LO/LIO/LIVO、两次模拟位姿更新、保留观测、Finish后重开Store，检查Task2几何断言。
+- [x] Step 3：扩展installed_consumer：公开API执行online LO/LIO/LIVO、两次模拟位姿更新、保留观测、Finish后重开Store，检查Task2几何断言。
   增加可选 `--online-fixtures DIR` 输出确定的旧/在线小数据集；正常无参模式继续原全部场景并清理自建临时资产。
   在fixture副本上把选定正online版本物化到完整当前前缀后显式调用旧WritePoses，ExportColmap可使用该副本；另用旧Builder/Store生成兼容分组后验证旧Submap工具。
   记录optimized前缀与外推尾帧，旧版本号冲突明确拒绝，不覆盖；不在在线运行中自动双写两套位姿权威。
-- [ ] Step 4：安装后以独立CMake工程运行消费者；移走安装前缀后重配/重编译消费，拒绝借用源码include或构建树目标。
+- [x] Step 4：安装后以独立CMake工程运行消费者；移走安装前缀后重配/重编译消费，拒绝借用源码include或构建树目标。
   运行CLI实际测试全部 GREEN；提交 `feat: expose online submap inspection and portable consumption`。
 
 ### Task 6: 跨环境回归、交付文档与阶段结论
@@ -462,4 +462,4 @@ v0的stored_frame_count=0表示没有冻结文件，frame_count为当前原始�
 - 类型一致：仅保留一份KeyframePose；mode不改变旧SubmapOptions布局；原始位姿数组以ID为下标；正版本/运行覆盖分别记录。
 - 失败覆盖：五项Review Focus各有上述具名用例；不以mock代替真实文件失败或双ROS回放。
 - 规模控制：没有GTSAM/CUDA/渲染实现、通用插件/调度框架和多套存储权威；未来队列、Gaussian资产和几何表示在后续阶段实现。
-- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2、3、4，后续从Task5继续。完整P6-01验收尚未完成。
+- 2026-11-08 用户切换模型后开始实施；当前完成Task1、2、3、4、5，后续从Task6继续。完整P6-01验收尚未完成。

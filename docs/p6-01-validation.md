@@ -1,6 +1,6 @@
 # P6-01 实施进度与验证
 
-状态：截至 2026-11-08，Task 1–4 完成；工具、安装消费及真实 bag 验收仍待 Task 5–6。
+状态：截至 2026-11-08，Task 1–5 完成；完整 bag、构建矩阵和阶段审阅仍待 Task 6。
 本报告中的结果不代表整个 P6-01 已验收。实施顺序见
 [计划](superpowers/plans/2026-11-08-p6-01-online-submaps.md)，坐标与版本契约见
 [设计](superpowers/specs/2026-11-08-online-submaps-design.md)。
@@ -53,3 +53,30 @@
 Noetic 候选仅包含 livo-atlas，位于本阶段 `noetic-ws/`；Humble 候选位于已有 ros2 容器的
 `/tmp/livo_atlas_p6_01_task4/`。原阶段证据、原始 bag 和其他包保持不动。
 Task 4 没有进行 Retail_Street.bag 回放、SDK 安装迁移或完整阶段性能验收；这些结果须在后续实际运行后补充。
+
+## Task 5 实测
+
+显式 online CLI 已通过 5 项标准库 unittest 测试：真实冻结 M3/N2 文件物化到 M4、
+活动组和未索引尾部、旧输出格式、错误参数/未知版本、两个命名空间共存及只读文件摘要。
+实现前原工具在同一组真实数据上有 3 项失败，实现后及移动 SDK 后均全部通过。
+
+普通 shared SDK 安装后移到 sdk-task5-moved/，原前缀不再存在。独立 CMake 消费者
+重新配置/编译并运行旧/online LO、LIO、LIVO、两次模拟位姿更新、跨析构资产保留和离线出口。
+编译参数没有生产源码 include，ldd 的 12 个自有库全部来自新安装前缀。
+确定性副本同时验证了旧分组重建和实际 COLMAP 导出，重复兼容版本写入被拒绝。
+
+两端都使用新增 --submap-mode online 做了官方数据的 3 秒、1 倍速冒烟回放，
+CPU0、图像队列32、OMP线程限制1。均产生26次 LIO、25次 VIO、2个关键帧和1个正常封存的在线组；
+summary 中 keyframes_enabled/submaps_enabled 为 true，submap_mode 为 online。
+Noetic 正常关闭，Humble passed=true 且输入序列化载荷精确；两份在线索引均由移动后的普通 SDK CLI 读取。
+这只验证工具接线，不代替完整 bag 配对回归或闭环准确性验证。
+
+节点及库复用 Task 4 已验证产物：本阶段生产 src/、include/ 未变，并逐文件核对 Task 4 摘要。
+Noetic 回放使用独立源码和产物副本 task5-replay-ws/，没有放宽工具的源码链接保护。
+Humble 复用已核验的 ROS2 转换数据。Humble 的 Python 工具测试实际通过5项；
+本机 Python 3.8 的同一测试集合因版本要求跳过，没有把跳过计为成功。
+
+Task 5 普通核心仍为267项测试和50个公开头，全部通过。新增证据包括：
+task5-cli-red.log、task5-cli-moved.log、task5-consumer-ldd.log、task5-moved-consumer.log、
+task5-ctest.log、task5-noetic-online-smoke/、task5-humble-online-smoke/。
+复现命令见包外 task5-commands.md；当前参数、CLI 和兼容出口见[使用说明](online-submap-dataset.md)。

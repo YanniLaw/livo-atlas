@@ -64,6 +64,8 @@ def main():
                         help='Enable keyframes and persistent submap membership')
     parser.add_argument('--legacy-output', action='store_true',
                         help='Read older node outputs from its source package Log directory')
+    parser.add_argument('--submap-mode', choices=('keyframe_groups', 'online'),
+                        default='keyframe_groups', help='Select the submap index format')
     args = parser.parse_args()
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
@@ -71,6 +73,8 @@ def main():
         from .cpu_affinity import with_cpu_affinity
     except ImportError:
         from cpu_affinity import with_cpu_affinity
+    if args.submap_mode == 'online':
+        args.save_submaps = True
     if args.save_submaps:
         args.save_keyframes = True
     if args.save_keyframes and args.legacy_output:
@@ -197,6 +201,7 @@ def main():
             run(['rosparam', 'set', '/keyframes/enabled', 'true'])
         if args.save_submaps:
             run(['rosparam', 'set', '/submaps/enabled', 'true'])
+            run(['rosparam', 'set', '/submaps/mode', args.submap_mode])
         if args.image_queue_size is not None:
             run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
         if args.save_products:
@@ -384,6 +389,7 @@ def main():
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
             'keyframes_enabled': args.save_keyframes,
             'submaps_enabled': args.save_submaps,
+            'submap_mode': args.submap_mode,
             'gdb_enabled': args.gdb,
             'clean_shutdown': exited_cleanly(node.returncode, log, args.gdb),
             'player_returncode': player.returncode,

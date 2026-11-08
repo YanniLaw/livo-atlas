@@ -88,6 +88,8 @@ def main():
     parser.add_argument('--save-keyframes', action='store_true')
     parser.add_argument('--save-submaps', action='store_true')
     parser.add_argument('--default-threads', action='store_true')
+    parser.add_argument('--submap-mode', choices=('keyframe_groups', 'online'),
+                        default='keyframe_groups', help='Select the submap index format')
     args = parser.parse_args()
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
@@ -95,6 +97,8 @@ def main():
         from .cpu_affinity import with_cpu_affinity
     except ImportError:
         from cpu_affinity import with_cpu_affinity
+    if args.submap_mode == 'online':
+        args.save_submaps = True
     if args.save_submaps:
         args.save_keyframes = True
     if not math.isfinite(args.duration) or not math.isfinite(args.rate) or args.duration <= 0 or args.rate <= 0:
@@ -151,6 +155,7 @@ def main():
         parameters['keyframes.enabled'] = True
     if args.save_submaps:
         parameters['submaps.enabled'] = True
+        parameters['submaps.mode'] = args.submap_mode
     if args.save_products:
         parameters.update({'pcd_save.pcd_save_en': True, 'pcd_save.colmap_output_en': True,
                            'pcd_save.interval': -1, 'image_save.img_save_en': True})
@@ -310,6 +315,7 @@ def main():
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
                    keyframes_enabled=args.save_keyframes,
                    submaps_enabled=args.save_submaps,
+                   submap_mode=args.submap_mode,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
                    playback_wall_s=playback_wall_s, input_span_s=input_span_s,
                    requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,
