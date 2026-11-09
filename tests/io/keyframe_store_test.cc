@@ -138,6 +138,31 @@ TEST_F(KeyframeStoreTest,
   EXPECT_FALSE(fs::exists(directory_ / "frames/1/image.png"));
 }
 
+TEST_F(KeyframeStoreTest, ReadBodyCloudDoesNotDecodeImages) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0));
+  KeyframeStore reader(directory_);
+  const auto original = reader.Read(0).cloud;
+  fs::remove(directory_ / "frames/0/image.png");
+  const auto cloud = reader.ReadBodyCloud(0, 1);
+  ASSERT_EQ(cloud->size(), 1u);
+  EXPECT_FLOAT_EQ(cloud->front().x, original->front().x);
+  EXPECT_FLOAT_EQ(cloud->front().intensity, original->front().intensity);
+  EXPECT_THROW(reader.Read(0), std::runtime_error);
+  EXPECT_THROW(reader.ReadBodyCloud(1, 1), std::out_of_range);
+  EXPECT_THROW(reader.ReadBodyCloud(0, 0), std::invalid_argument);
+}
+
+TEST_F(KeyframeStoreTest, ReadBodyCloudChecksLimitBeforePayloadAllocation) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0, false));
+  KeyframeStore reader(directory_);
+  EXPECT_EQ(reader.ReadBodyCloud(0, 1)->size(), 1u);
+  const auto metadata = directory_ / "frames/0/frame.yml";
+  ReplaceValue(metadata, "cloud_points", "\"1000000000\"");
+  EXPECT_THROW(reader.ReadBodyCloud(0, 1), std::runtime_error);
+}
+
 TEST_F(KeyframeStoreTest, RejectsPngCloseFailureWithoutCommittingTheFrame) {
 #if defined(__unix__)
   calibration_.camera = {"Pinhole", 24, 24, 1, 12, 12, 11.5, 11.5, {}};

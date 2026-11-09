@@ -22,6 +22,9 @@ class KeyframeStore {
 
   void Append(const Keyframe& keyframe);
   Keyframe Read(std::uint64_t id) const;
+  // Reads bounded body-frame XYZI without opening or validating the image.
+  PointCloud::ConstPtr ReadBodyCloud(std::uint64_t id,
+                                     std::uint64_t max_points) const;
   // Metadata only; does not validate or decode image/cloud assets.
   RigidTransform ReadRawBodyPose(std::uint64_t id) const;
   const std::vector<std::uint64_t>& ids() const { return ids_; }

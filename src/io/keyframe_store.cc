@@ -209,6 +209,27 @@ void CheckPcdHeader(const fs::path& path, std::uint64_t expected_points) {
   }
 }
 
+PointCloud::ConstPtr ReadCloud(const fs::path& path, std::uint64_t points) {
+  CheckPcdHeader(path, points);
+  pcl::PCLPointCloud2 header;
+  pcl::PCDReader reader;
+  if (reader.readHeader(path.string(), header) < 0 ||
+      std::uint64_t{header.width} * header.height != points) {
+    Fail(path, "Invalid PCD header");
+  }
+  PointCloud::Ptr cloud(new PointCloud);
+  if (reader.read(path.string(), *cloud) < 0 || cloud->size() != points) {
+    Fail(path, "Cannot read PCD");
+  }
+  for (const auto& point : *cloud) {
+    if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+        !std::isfinite(point.z) || !std::isfinite(point.intensity)) {
+      Fail(path, "Point cloud XYZI must be finite");
+    }
+  }
+  return cloud;
+}
+
 void ValidatePoses(const std::vector<KeyframePose>& poses,
                    const std::vector<std::uint64_t>& ids) {
   if (poses.size() != ids.size() || poses.empty()) {
@@ -345,6 +366,38 @@ RigidTransform KeyframeStore::ReadRawBodyPose(std::uint64_t id) const {
   }
 }
 
+PointCloud::ConstPtr KeyframeStore::ReadBodyCloud(
+    std::uint64_t id, std::uint64_t max_points) const {
+  if (!max_points) throw std::invalid_argument("Point limit must be positive");
+  if (id >= ids_.size()) {
+    throw std::out_of_range(directory_.string() +
+                            ": Unknown keyframe identifier");
+  }
+  const auto path = directory_ / "frames" / std::to_string(id);
+  try {
+    auto yaml = ReadYaml(path / "frame.yml");
+    if (!yaml.isOpened() || Id(yaml["id"]) != id ||
+        Id(yaml["calibration_id"]) != 0) {
+      Fail(path, "Frame identifier mismatch");
+    }
+    (void)Number(yaml["timestamp"]);
+    (void)Number(yaml["cloud_timestamp"]);
+    (void)Number(yaml["inverse_exposure_time"]);
+    (void)ReadTransform(yaml["odom_from_body"]);
+    const int has_image = Integer(yaml["has_image"]);
+    if (has_image != 0 && has_image != 1) Fail(path, "Invalid image flag");
+    if (has_image) {
+      (void)Number(yaml["image_timestamp"]);
+      (void)ReadTransform(yaml["camera_from_odom"]);
+    }
+    const auto points = Id(yaml["cloud_points"]);
+    if (points > max_points) Fail(path, "Point cloud exceeds configured limit");
+    return ReadCloud(path / "cloud.pcd", points);
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
 Keyframe KeyframeStore::Read(std::uint64_t id) const {
   if (id >= ids_.size())
     throw std::out_of_range(directory_.string() +
@@ -373,17 +426,7 @@ Keyframe KeyframeStore::Read(std::uint64_t id) const {
           cv::imread((path / "image.png").string(), cv::IMREAD_UNCHANGED);
     }
     const auto points = Id(yaml["cloud_points"]);
-    const auto cloud_file = path / "cloud.pcd";
-    CheckPcdHeader(cloud_file, points);
-    pcl::PCLPointCloud2 header;
-    pcl::PCDReader reader;
-    if (reader.readHeader(cloud_file.string(), header) < 0 ||
-        std::uint64_t{header.width} * header.height != points)
-      Fail(cloud_file, "Invalid PCD header");
-    PointCloud::Ptr cloud(new PointCloud);
-    if (reader.read(cloud_file.string(), *cloud) < 0 || cloud->size() != points)
-      Fail(cloud_file, "Cannot read PCD");
-    frame.cloud = cloud;
+    frame.cloud = ReadCloud(path / "cloud.pcd", points);
     ValidateKeyframe(frame);
     ValidateImage(frame, calibration_);
     return frame;
