@@ -39,6 +39,7 @@ double NanosecondTime(double value, const TimestampRange& range) {
   return result;
 }
 }  // namespace
+
 LivoSystem::LivoSystem(SystemOptions options)
     : options_(PrepareSystemOptions(std::move(options))),
       synchronizer_(options_.exporter.mode, options_.exposure_time),
@@ -113,8 +114,9 @@ bool LivoSystem::AddImage(TimedImage measurement) {
   if (options_.hilti && ++image_count_ % 4 != 0) return false;
   const double timestamp = measurement.timestamp;
   if (std::abs(timestamp - last_image_) < 0.001 || last_lidar_ < 0 ||
-      timestamp < last_image_ || timestamp - last_image_ < 0.02)
+      timestamp < last_image_ || timestamp - last_image_ < 0.02) {
     return false;
+  }
   buffers_.images.push_back(std::move(measurement));
   last_image_ = timestamp;
   return true;

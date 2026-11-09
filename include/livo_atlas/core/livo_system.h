@@ -1,5 +1,6 @@
 #ifndef LIVO_ATLAS_CORE_LIVO_SYSTEM_H_
 #define LIVO_ATLAS_CORE_LIVO_SYSTEM_H_
+
 #include <cstdint>
 #include <deque>
 #include <exception>
@@ -7,14 +8,23 @@
 #include <memory>
 #include <optional>
 
+#include "livo_atlas/common/filter_state.h"
 #include "livo_atlas/core/online_submap_update.h"
 #include "livo_atlas/core/system_options.h"
 #include "livo_atlas/frontend/frontend.h"
+#include "livo_atlas/frontend/synchronized_measurements.h"
+#include "livo_atlas/io/livo_exporter.h"
+#include "livo_atlas/mapping/cloud_colorizer.h"
+#include "livo_atlas/mapping/keyframe_selector.h"
+#include "livo_atlas/mapping/pose_snapshot.h"
+#include "livo_atlas/mapping/submap.h"
 #include "livo_atlas/sensor/lidar_preprocessor.h"
 #include "livo_atlas/sensor/lidar_scan.h"
 #include "livo_atlas/sensor/measurements.h"
 #include "livo_atlas/sensor/synchronizer.h"
+
 namespace livo_atlas {
+
 class KeyframeStore;
 class OnlineSubmapManager;
 class SubmapStore;
@@ -23,6 +33,7 @@ struct PropagationResult {
   double timestamp = 0;
   FilterState state;
 };
+
 // All calls belong to one executor. Views
 // passed to the callback must be consumed before the next ProcessNext call.
 class LivoSystem {
@@ -81,5 +92,7 @@ class LivoSystem {
   FilterState latest_state_, propagated_;
   double latest_time_ = 0, last_from_end_ = 0;
 };
+
 }  // namespace livo_atlas
+
 #endif  // LIVO_ATLAS_CORE_LIVO_SYSTEM_H_

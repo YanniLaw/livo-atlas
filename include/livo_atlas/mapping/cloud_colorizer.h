@@ -5,6 +5,7 @@
 
 #include "livo_atlas/camera/camera_config.h"
 #include "livo_atlas/frontend/frontend_result.h"
+#include "livo_atlas/frontend/synchronized_measurements.h"
 #include "livo_atlas/sensor/point_types.h"
 
 namespace livo_atlas {

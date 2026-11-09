@@ -11,6 +11,7 @@
 #include "livo_atlas/frontend/frontend_result.h"
 #include "livo_atlas/frontend/synchronized_measurements.h"
 #include "livo_atlas/mapping/point_with_covariance.h"
+#include "livo_atlas/sensor/point_types.h"
 
 namespace livo_atlas {
 
