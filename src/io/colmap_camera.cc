@@ -17,22 +17,26 @@ void CheckPose(const RigidTransform& pose) {
   if (!error.empty())
     throw std::invalid_argument("Export camera pose: " + error);
 }
+
 RigidTransform Compose(const RigidTransform& a, const RigidTransform& b) {
   RigidTransform result{a.rotation * b.rotation,
                         a.rotation * b.translation + a.translation};
   CheckPose(result);
   return result;
 }
+
 RigidTransform Inverse(const RigidTransform& pose) {
   const Eigen::Matrix3d rotation = pose.rotation.transpose();
   return {rotation, -rotation * pose.translation};
 }
+
 RigidTransform RigidPose(const RigidTransform& pose) {
   CheckPose(pose);
   const Eigen::JacobiSVD<Eigen::Matrix3d> svd(
       pose.rotation, Eigen::ComputeFullU | Eigen::ComputeFullV);
   return {svd.matrixU() * svd.matrixV().transpose(), pose.translation};
 }
+
 Eigen::Vector3d Position(const Point& point, const RigidTransform& pose) {
   const Eigen::Vector3d result =
       pose.rotation * Eigen::Vector3d(point.x, point.y, point.z) +
@@ -41,6 +45,7 @@ Eigen::Vector3d Position(const Point& point, const RigidTransform& pose) {
     throw std::invalid_argument("Nonfinite exported point position");
   return result;
 }
+
 Eigen::Vector2d Project(const Eigen::Vector3d& camera_point,
                         const CameraConfig& camera) {
   return {camera.fx * (camera_point.x() / camera_point.z()) + camera.cx,

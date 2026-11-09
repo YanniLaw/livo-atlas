@@ -12,10 +12,12 @@ OnlineSubmapManager::OnlineSubmapManager(const std::filesystem::path& directory,
 void OnlineSubmapManager::RethrowFailure() const {
   if (failure_) std::rethrow_exception(failure_);
 }
+
 void OnlineSubmapManager::CheckRunning() const {
   RethrowFailure();
   if (finished_) throw std::logic_error("Online mapping has finished");
 }
+
 void OnlineSubmapManager::SetCallback(
     LivoSystem::OnlineSubmapCallback callback) {
   if (callback) {
@@ -26,16 +28,19 @@ void OnlineSubmapManager::SetCallback(
   }
   callback_ = std::move(callback);
 }
+
 std::shared_ptr<const PoseSnapshot> OnlineSubmapManager::GetPoseSnapshot()
     const {
   return std::make_shared<const PoseSnapshot>(
       MaterializePoseSnapshot(frozen_, raw_poses_, raw_poses_.size()));
 }
+
 void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {
   if (!callback_) return;
   update.poses = GetPoseSnapshot();
   callback_(update);
 }
+
 void OnlineSubmapManager::AppendCommittedKeyframe(
     std::shared_ptr<const Keyframe> keyframe) {
   CheckRunning();
@@ -56,6 +61,7 @@ void OnlineSubmapManager::AppendCommittedKeyframe(
     throw;
   }
 }
+
 void OnlineSubmapManager::ApplyPoseUpdate(const PoseUpdate& update) {
   CheckRunning();
   // Invalid/stale backend inputs do not poison the running writer.
@@ -74,6 +80,7 @@ void OnlineSubmapManager::ApplyPoseUpdate(const PoseUpdate& update) {
     throw;
   }
 }
+
 void OnlineSubmapManager::Finish() {
   if (failure_) std::rethrow_exception(failure_);
   if (finished_) return;

@@ -45,6 +45,7 @@ void ValidateCalibration(const Calibration& calibration) {
   const auto error = ValidateCameraConfig(calibration.camera);
   if (!error.empty()) throw std::invalid_argument(error);
 }
+
 void ValidateImage(const Keyframe& frame, const Calibration& calibration) {
   if (!frame.image_timestamp) return;
   const auto& camera = calibration.camera;
@@ -74,6 +75,7 @@ void WriteCalibration(const fs::path& path, const Calibration& calibration) {
     WriteTransform(yaml, "camera_from_lidar", calibration.camera_from_lidar);
   });
 }
+
 Calibration ReadCalibration(const fs::path& path) {
   if (!fs::is_regular_file(path)) Fail(path, "Missing dataset metadata");
   auto yaml = ReadYaml(path);

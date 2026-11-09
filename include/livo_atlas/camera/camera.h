@@ -13,11 +13,17 @@ class Camera {
   virtual ~Camera() = default;
 
   int width() const { return width_; }
+
   int height() const { return height_; }
+
   double scale() const { return scale_; }
+
   double fx() const { return fx_; }
+
   double fy() const { return fy_; }
+
   double cx() const { return cx_; }
+
   double cy() const { return cy_; }
 
   virtual Eigen::Vector2d Project(const Eigen::Vector2d& point) const = 0;

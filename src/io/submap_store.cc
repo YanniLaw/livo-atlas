@@ -25,6 +25,7 @@ RigidTransform Inverse(const RigidTransform& pose) {
   const Eigen::Matrix3d rotation = pose.rotation.transpose();
   return {rotation, -rotation * pose.translation};
 }
+
 RigidTransform Compose(const RigidTransform& a, const RigidTransform& b) {
   return {a.rotation * b.rotation, a.rotation * b.translation + a.translation};
 }

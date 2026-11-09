@@ -100,11 +100,14 @@ std::string String(const cv::FileNode& node) {
   if (!node.isString()) throw std::invalid_argument("Expected a string field");
   return static_cast<std::string>(node);
 }
+
 std::uint64_t Id(const cv::FileNode& node) { return ParseId(String(node)); }
+
 int Integer(const cv::FileNode& node) {
   if (!node.isInt()) throw std::invalid_argument("Expected an integer field");
   return static_cast<int>(node);
 }
+
 cv::FileStorage ReadYaml(const fs::path& path) {
   std::ifstream input(path, std::ios::binary);
   if (!input) Fail(path, "Cannot open metadata");
@@ -113,6 +116,7 @@ cv::FileStorage ReadYaml(const fs::path& path) {
   ValidateYamlIntegers(text);
   return cv::FileStorage(text, cv::FileStorage::READ | cv::FileStorage::MEMORY);
 }
+
 double Number(const cv::FileNode& node) {
   std::istringstream text(String(node));
   text.imbue(std::locale::classic());
@@ -124,6 +128,7 @@ double Number(const cv::FileNode& node) {
   if (!text.eof()) throw std::invalid_argument("Trailing decimal data");
   return value;
 }
+
 void Sequence(const cv::FileNode& node, std::size_t size) {
   if (!node.isSeq() || node.size() != size) {
     throw std::invalid_argument("Incorrect sequence length");
@@ -145,6 +150,7 @@ void WriteTransform(cv::FileStorage& output, const std::string& name,
   output << "]"
          << "}";
 }
+
 RigidTransform ReadTransform(const cv::FileNode& node) {
   RigidTransform pose;
   const auto rotation = node["rotation"], translation = node["translation"];

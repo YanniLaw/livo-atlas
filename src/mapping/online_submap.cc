@@ -21,11 +21,13 @@ void ValidateOnlineSubmapOptions(int max_keyframes,
       options.support_keyframes > max_keyframes)
     throw std::invalid_argument("Online submap support count is out of range");
 }
+
 OnlineSubmapBuilder::OnlineSubmapBuilder(int max_keyframes,
                                          OnlineSubmapOptions options)
     : max_keyframes_(max_keyframes), options_(options) {
   ValidateOnlineSubmapOptions(max_keyframes, options);
 }
+
 std::vector<OnlineSubmap> OnlineSubmapBuilder::AddKeyframe(
     std::uint64_t id, double timestamp, const RigidTransform& odom_from_body) {
   if (finished_) throw std::logic_error("Online submap builder has finished");
@@ -74,6 +76,7 @@ std::vector<OnlineSubmap> OnlineSubmapBuilder::AddKeyframe(
   last_time_ = timestamp;
   return revisions;
 }
+
 void OnlineSubmapBuilder::Seal(std::vector<OnlineSubmap>* revisions) {
   ++active_->membership_revision;
   active_->state = OnlineSubmapState::kSealed;
@@ -81,6 +84,7 @@ void OnlineSubmapBuilder::Seal(std::vector<OnlineSubmap>* revisions) {
   previous_members_ = active_->primary.keyframe_ids;
   active_.reset();
 }
+
 std::vector<OnlineSubmap> OnlineSubmapBuilder::Finish() {
   std::vector<OnlineSubmap> revisions;
   if (active_) Seal(&revisions);

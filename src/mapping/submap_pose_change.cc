@@ -46,6 +46,7 @@ SubmapPoseChange CompareSubmapPoses(const OnlineSubmap& existing_members,
   }
   return result;
 }
+
 RigidTransform CameraPose(const Keyframe& keyframe, const PoseSnapshot& poses) {
   ValidatePoseSnapshot(poses);
   if (!keyframe.image_timestamp || !keyframe.camera_from_odom ||

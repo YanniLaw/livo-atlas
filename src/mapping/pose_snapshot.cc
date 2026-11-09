@@ -23,6 +23,7 @@ void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
     pose_math::Validate(snapshot.poses[i].map_from_body);
   }
 }
+
 PoseSnapshot MaterializePoseSnapshot(
     const PoseSnapshot& frozen, const std::vector<RigidTransform>& raw_poses,
     std::uint64_t frame_count) {
@@ -56,6 +57,7 @@ PoseSnapshot MaterializePoseSnapshot(
   ValidatePoseSnapshot(result);
   return result;
 }
+
 PoseSnapshot MakePoseSnapshot(const PoseUpdate& update,
                               const PoseSnapshot& previous,
                               const std::vector<RigidTransform>& raw_poses) {

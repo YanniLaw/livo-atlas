@@ -17,6 +17,7 @@ std::string DefaultDirectory() {
     return (std::filesystem::path(base) / ".ros/livo_atlas").string();
   return (std::filesystem::current_path() / "livo_atlas_output").string();
 }
+
 RigidTransform Transform(ParameterReader& reader, const std::string& rotation,
                          const std::string& translation) {
   RigidTransform result;

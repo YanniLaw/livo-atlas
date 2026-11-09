@@ -24,16 +24,19 @@ std::vector<std::uint64_t> Entries(const fs::path& path, bool directories) {
   std::sort(ids.begin(), ids.end());
   return ids;
 }
+
 void Schema(const cv::FileStorage& yaml) {
   if (!yaml.isOpened() || meta::Integer(yaml["schema_version"]) != 1)
     throw std::invalid_argument("Unsupported online submap schema");
 }
+
 void WriteIds(cv::FileStorage& yaml, const char* name,
               const std::vector<std::uint64_t>& ids) {
   yaml << name << "[";
   for (auto id : ids) yaml << std::to_string(id);
   yaml << "]";
 }
+
 std::vector<std::uint64_t> ReadIds(const cv::FileNode& node,
                                    std::size_t limit) {
   if (!node.isSeq() || node.size() > limit)
@@ -85,6 +88,7 @@ OnlineSubmapStore::OnlineSubmapStore(const fs::path& directory,
     meta::Fail(directory_, error.what());
   }
 }
+
 OnlineSubmapStore::OnlineSubmapStore(const fs::path& directory,
                                      const KeyframeStore& keyframes)
     : directory_(directory), keyframes_(keyframes) {
@@ -128,20 +132,24 @@ OnlineSubmapStore::OnlineSubmapStore(const fs::path& directory,
     meta::Fail(directory_, error.what());
   }
 }
+
 std::uint64_t OnlineSubmapStore::indexed_frame_count() const {
   return submaps_.empty() ? 0 : submaps_.back().primary.keyframe_ids.back() + 1;
 }
+
 void OnlineSubmapStore::CheckWritable() const {
   if (failure_) std::rethrow_exception(failure_);
   if (!writable_)
     throw std::logic_error(directory_.string() + ": Online index is read-only");
 }
+
 void OnlineSubmapStore::SaveFailure(const fs::path& path,
                                     const std::exception& error) {
   failure_ = std::make_exception_ptr(
       std::runtime_error(path.string() + ": " + error.what()));
   std::rethrow_exception(failure_);
 }
+
 void OnlineSubmapStore::ValidateNext(const OnlineSubmap& submap) const {
   ValidateSubmap(submap.primary);
   const auto& primary = submap.primary;
@@ -193,12 +201,14 @@ void OnlineSubmapStore::ValidateNext(const OnlineSubmap& submap) const {
     throw std::invalid_argument("Insertion must append one primary member");
   }
 }
+
 void OnlineSubmapStore::Accept(const OnlineSubmap& submap) {
   if (submap.primary.id == submaps_.size())
     submaps_.push_back(submap);
   else
     submaps_.back() = submap;
 }
+
 OnlineSubmap OnlineSubmapStore::ReadRecord(std::uint64_t id,
                                            std::uint64_t revision) const {
   const auto path = directory_ / "records" / std::to_string(id) /
@@ -229,6 +239,7 @@ OnlineSubmap OnlineSubmapStore::ReadRecord(std::uint64_t id,
     meta::Fail(path, error.what());
   }
 }
+
 OnlineSubmap OnlineSubmapStore::Read(std::uint64_t id) const {
   if (id >= size()) throw std::out_of_range("Unknown online submap");
   const auto& expected = submaps_[id];
@@ -241,6 +252,7 @@ OnlineSubmap OnlineSubmapStore::Read(std::uint64_t id) const {
     meta::Fail(directory_, "Committed online record changed");
   return record;
 }
+
 void OnlineSubmapStore::AppendRevision(const OnlineSubmap& submap) {
   CheckWritable();
   const auto folder =
@@ -271,12 +283,14 @@ void OnlineSubmapStore::AppendRevision(const OnlineSubmap& submap) {
     SaveFailure(path, error);
   }
 }
+
 std::vector<RigidTransform> OnlineSubmapStore::RawPoses() const {
   std::vector<RigidTransform> raw;
   for (auto id : keyframes_.ids())
     raw.push_back(keyframes_.ReadRawBodyPose(id));
   return raw;
 }
+
 PoseSnapshot OnlineSubmapStore::ReadPoseFile(std::uint64_t version) const {
   const auto path = directory_ / "poses" / (std::to_string(version) + ".yml");
   try {
@@ -307,6 +321,7 @@ PoseSnapshot OnlineSubmapStore::ReadPoseFile(std::uint64_t version) const {
     meta::Fail(path, error.what());
   }
 }
+
 PoseSnapshot OnlineSubmapStore::ReadPoseSnapshot(std::uint64_t version) const {
   if (!version)
     return livo_atlas::MaterializePoseSnapshot({}, RawPoses(),
@@ -315,11 +330,13 @@ PoseSnapshot OnlineSubmapStore::ReadPoseSnapshot(std::uint64_t version) const {
     throw std::out_of_range("Unknown online pose version");
   return ReadPoseFile(version);
 }
+
 PoseSnapshot OnlineSubmapStore::MaterializePoseSnapshot(
     std::uint64_t version, std::uint64_t frame_count) const {
   return livo_atlas::MaterializePoseSnapshot(ReadPoseSnapshot(version),
                                              RawPoses(), frame_count);
 }
+
 void OnlineSubmapStore::WritePoseSnapshot(const PoseSnapshot& snapshot) {
   CheckWritable();
   const auto path =

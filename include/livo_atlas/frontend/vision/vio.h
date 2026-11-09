@@ -72,6 +72,7 @@ class PatchWarp {
   int search_level;
   PatchWarp(int level, Eigen::Matrix2d warp_matrix)
       : search_level(level), A_cur_ref(warp_matrix) {}
+
   ~PatchWarp() {}
 };
 
@@ -80,6 +81,7 @@ class VisualVoxel {
   std::vector<VisualPoint *> voxel_points;
   int count;
   VisualVoxel(int num) : count(num) {}
+
   ~VisualVoxel() {
     for (VisualPoint *vp : voxel_points) {
       if (vp != nullptr) {

@@ -25,6 +25,7 @@ class KeyframeStore {
   // Metadata only; does not validate or decode image/cloud assets.
   RigidTransform ReadRawBodyPose(std::uint64_t id) const;
   const std::vector<std::uint64_t>& ids() const { return ids_; }
+
   const Calibration& calibration() const { return calibration_; }
   void WritePoses(std::uint64_t version,
                   const std::vector<KeyframePose>& poses);
