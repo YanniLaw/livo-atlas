@@ -28,8 +28,10 @@
 23. [P5-04可靠性设计](superpowers/specs/2026-10-31-p5-reliability-design.md)、[实施计划](superpowers/plans/2026-10-31-p5-reliability.md)和[验证记录](p5-04-validation.md)：检查图片写入与关闭、定位大小核数值差异和图像历史淘汰，补齐视觉缓存所有权与重复/耐久验证。
 24. [完整 SLAM 与在线 3DGS 子地图调研](online-3dgs-submap-research.md)：截至 2026-11-08 的论文和官方实现核对、候选架构、闭环地图修正及当前接口差距；属于研究建议，尚未实施。
 25. [在线子地图设计](superpowers/specs/2026-11-08-online-submaps-design.md)：共享观测、局部坐标、生命周期、版本化位姿与高斯修正契约；首个实施范围限定为 P6-01 数据与接口基础。
-26. [P6-01 实施计划](superpowers/plans/2026-11-08-p6-01-online-submaps.md)：在线分组、位姿快照、不可变索引、拥有观测交付及双 ROS 验收的六个任务；已开始实施，实际进度见下方验证记录。
+26. [P6-01 实施计划](superpowers/plans/2026-11-08-p6-01-online-submaps.md)：在线分组、位姿快照、不可变索引、拥有观测交付及双 ROS 验收的六个任务；已完成，证据见下方验证记录。
 27. [P6-01 实施进度与验证](p6-01-validation.md)：P6-01最终验收、三种普通构建、双ROS完整bag及已知边界；[在线子地图使用说明](online-submap-dataset.md)介绍配置、检查和离线兼容出口。
+28. [P6-01 之后的阶段路线](superpowers/specs/2026-11-08-online-submaps-design.md#p6-01-之后的阶段路线)：先完成几何子地图，再依次接入 GTSAM 位姿图、真实回环、在线 Gaussian mapping 和可选高斯辅助估计；各阶段编码前先细化设计与验收。
+29. [移除 Pimpl 设计](superpowers/specs/2026-11-10-remove-pimpl-design.md)及[实施计划](superpowers/plans/2026-11-10-remove-pimpl.md)：用户选择全部移除现有 8 处 Pimpl，恢复普通类的私有成员与直接方法实现；尚未编码，等待切换模型。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
