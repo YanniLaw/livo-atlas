@@ -32,6 +32,7 @@
 27. [P6-01 实施进度与验证](p6-01-validation.md)：P6-01最终验收、三种普通构建、双ROS完整bag及已知边界；[在线子地图使用说明](online-submap-dataset.md)介绍配置、检查和离线兼容出口。
 28. [P6-01 之后的阶段路线](superpowers/specs/2026-11-08-online-submaps-design.md#p6-01-之后的阶段路线)：先完成几何子地图，再依次接入 GTSAM 位姿图、真实回环、在线 Gaussian mapping 和可选高斯辅助估计；各阶段编码前先细化设计与验收。
 29. [移除 Pimpl 设计](superpowers/specs/2026-11-10-remove-pimpl-design.md)、[实施计划](superpowers/plans/2026-11-10-remove-pimpl.md)及[验证记录](pimpl-removal-validation.md)：移除现有 8 处 Pimpl，恢复普通类的私有成员与直接方法实现；双 ROS、普通 SDK 及配对 bag 已完成验收。
+30. [P6-02a 几何子地图设计](superpowers/specs/2026-11-10-p6-02a-geometry-submaps-design.md)与[实施计划](superpowers/plans/2026-11-10-p6-02a-geometry-submaps.md)：主成员体素统计、条件有效的面元、版本修正、有限缓存和显式导出；已完成设计审阅，尚未编码或验收，正式编码前通知用户切换模型。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
