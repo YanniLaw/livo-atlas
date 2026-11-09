@@ -36,78 +36,67 @@ Eigen::Vector3f SampleColor(const cv::Mat& image,
 
 }  // namespace
 
-class CloudColorizer::Impl {
- public:
-  explicit Impl(const CloudColorizerOptions& options) : options_(options) {
-    if (options_.scan_interval <= 0) {
-      throw std::invalid_argument("publish/pub_scan_num must be positive");
-    }
-    if (options_.mode == FrontendMode::kLidarInertialVisual) {
-      camera_ = CreateCamera(options_.camera);
-      if (!camera_) throw std::invalid_argument("Invalid output camera");
-    }
-  }
-
-  ColoredCloud::ConstPtr Process(const FrontendResult& result) {
-    if (!result.updated || !result.world_cloud || result.world_cloud->empty()) {
-      return {};
-    }
-    ColoredCloud::Ptr colored(new ColoredCloud);
-    ++scan_count_;
-    if (result.kind == UpdateKind::kVisual) {
-      if (result.color_image.type() != CV_8UC3 || result.color_image.empty() ||
-          result.color_image.cols != camera_->width() ||
-          result.color_image.rows != camera_->height()) {
-        throw std::invalid_argument("Output image must match the BGR camera");
-      }
-      pending_ += *result.world_cloud;
-      if (scan_count_ >= options_.scan_interval) {
-        scan_count_ = 1;
-        Colorize(result, colored.get());
-      }
-    }
-    if (!colored->empty()) PointCloud().swap(pending_);
-    return colored;
-  }
-
-  void Colorize(const FrontendResult& result, ColoredCloud* colored) {
-    colored->reserve(pending_.size());
-    for (const auto& point : pending_.points) {
-      const Eigen::Vector3d world(point.x, point.y, point.z);
-      const Eigen::Vector3d local = result.camera_from_world_rotation * world +
-                                    result.camera_from_world_translation;
-      if (!local.allFinite() || local.z() <= 0) continue;
-      const Eigen::Vector2d pixel = camera_->Project(local);
-      if (!pixel.allFinite() ||
-          pixel.cwiseAbs().maxCoeff() > std::numeric_limits<int>::max()) {
-        continue;
-      }
-      if (!camera_->IsInFrame(pixel.cast<int>(), 3)) continue;
-      const Eigen::Vector3f color = SampleColor(result.color_image, pixel);
-      pcl::PointXYZRGB output;
-      output.x = point.x;
-      output.y = point.y;
-      output.z = point.z;
-      output.r = color[2];
-      output.g = color[1];
-      output.b = color[0];
-      if (local.norm() > options_.minimum_color_distance) {
-        colored->push_back(output);
-      }
-    }
-  }
-
-  CloudColorizerOptions options_;
-  std::unique_ptr<Camera> camera_;
-  PointCloud pending_;
-  int scan_count_ = 1;
-};
-
 CloudColorizer::CloudColorizer(const CloudColorizerOptions& options)
-    : impl_(std::make_unique<Impl>(options)) {}
-CloudColorizer::~CloudColorizer() = default;
-ColoredCloud::ConstPtr CloudColorizer::Process(const FrontendResult& result) {
-  return impl_->Process(result);
+    : options_(options) {
+  if (options_.scan_interval <= 0) {
+    throw std::invalid_argument("publish/pub_scan_num must be positive");
+  }
+  if (options_.mode == FrontendMode::kLidarInertialVisual) {
+    camera_ = CreateCamera(options_.camera);
+    if (!camera_) throw std::invalid_argument("Invalid output camera");
+  }
 }
+
+ColoredCloud::ConstPtr CloudColorizer::Process(const FrontendResult& result) {
+  if (!result.updated || !result.world_cloud || result.world_cloud->empty()) {
+    return {};
+  }
+  ColoredCloud::Ptr colored(new ColoredCloud);
+  ++scan_count_;
+  if (result.kind == UpdateKind::kVisual) {
+    if (result.color_image.type() != CV_8UC3 || result.color_image.empty() ||
+        result.color_image.cols != camera_->width() ||
+        result.color_image.rows != camera_->height()) {
+      throw std::invalid_argument("Output image must match the BGR camera");
+    }
+    pending_ += *result.world_cloud;
+    if (scan_count_ >= options_.scan_interval) {
+      scan_count_ = 1;
+      Colorize(result, colored.get());
+    }
+  }
+  if (!colored->empty()) PointCloud().swap(pending_);
+  return colored;
+}
+
+void CloudColorizer::Colorize(const FrontendResult& result,
+                              ColoredCloud* colored) {
+  colored->reserve(pending_.size());
+  for (const auto& point : pending_.points) {
+    const Eigen::Vector3d world(point.x, point.y, point.z);
+    const Eigen::Vector3d local = result.camera_from_world_rotation * world +
+                                  result.camera_from_world_translation;
+    if (!local.allFinite() || local.z() <= 0) continue;
+    const Eigen::Vector2d pixel = camera_->Project(local);
+    if (!pixel.allFinite() ||
+        pixel.cwiseAbs().maxCoeff() > std::numeric_limits<int>::max()) {
+      continue;
+    }
+    if (!camera_->IsInFrame(pixel.cast<int>(), 3)) continue;
+    const Eigen::Vector3f color = SampleColor(result.color_image, pixel);
+    pcl::PointXYZRGB output;
+    output.x = point.x;
+    output.y = point.y;
+    output.z = point.z;
+    output.r = color[2];
+    output.g = color[1];
+    output.b = color[0];
+    if (local.norm() > options_.minimum_color_distance) {
+      colored->push_back(output);
+    }
+  }
+}
+
+CloudColorizer::~CloudColorizer() = default;
 
 }  // namespace livo_atlas

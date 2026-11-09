@@ -9,6 +9,8 @@
 
 namespace livo_atlas {
 
+class Camera;
+
 struct CloudColorizerOptions {
   CameraConfig camera;
   FrontendMode mode = FrontendMode::kLidarInertialVisual;
@@ -28,8 +30,12 @@ class CloudColorizer {
   ColoredCloud::ConstPtr Process(const FrontendResult& result);
 
  private:
-  class Impl;
-  std::unique_ptr<Impl> impl_;
+  void Colorize(const FrontendResult& result, ColoredCloud* colored);
+
+  CloudColorizerOptions options_;
+  std::unique_ptr<Camera> camera_;
+  PointCloud pending_;
+  int scan_count_ = 1;
 };
 
 }  // namespace livo_atlas
