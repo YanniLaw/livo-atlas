@@ -61,6 +61,10 @@ target_link_libraries(my_frontend PRIVATE livo_atlas::core)
 `tests/installed_consumer` 实际通过 Frontend 和 LivoSystem 两种接口执行连续
 LO/LIO/VIO，并检查视觉跟踪、有限状态和文件写入。它只依赖安装头和导出目标。
 
+Frontend、LivoSystem 等公开类直接声明私有成员，头文件包含这些成员所需的普通 C++ 类型。
+移除 Pimpl 后对象布局发生变化：升级时请重新编译本包、节点和使用这些类的下游程序，
+不要将旧版二进制与新版库混用。Eigen、PCL 和 OpenCV 等仍由导出目标提供所需构建依赖。
+
 ## ROS1 Noetic
 
 默认 `LIVO_ATLAS_ROS_VERSION=1`。在 catkin 工作区执行：

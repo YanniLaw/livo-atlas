@@ -11,7 +11,7 @@
 
 **Spec:** [移除 Pimpl 设计](../specs/2026-11-10-remove-pimpl-design.md)。
 
-**状态：范围已由用户确定；尚未编码，等待用户切换模型。** 沿用当前会话直接实施，不再要求选择执行方式。
+**状态：已于 2026-11-10 完成实施及验收。** 具体结果见[验证记录](../../pimpl-removal-validation.md)。
 
 ## Global Constraints
 
@@ -46,12 +46,12 @@
 
 **Interfaces:** 现有 Frontend 的 Process/state/IMU 查询和 CloudColorizer::Process 原签名保持。
 
-- [ ] 记录现有 frontend_test、cloud_colorizer_test 及地图生命周期检查的参考结果。
-- [ ] 将字段及辅助方法迁入 private，原 Impl 构造/析构体迁为所属类实现，删除转发。
+- [x] 记录现有 frontend_test、cloud_colorizer_test 及地图生命周期检查的参考结果。
+- [x] 将字段及辅助方法迁入 private，原 Impl 构造/析构体迁为所属类实现，删除转发。
   Frontend 值成员直接包含 PCL VoxelGrid 和 PointWithCovariance 的定义，真实指针组件允许前置声明。
-- [ ] 重建并运行 `OMP_THREAD_LIMIT=1 ctest --test-dir <新普通构建目录> --output-on-failure -R '^(frontend_test|cloud_colorizer_test)$'`；
+- [x] 重建后在新普通构建目录运行 `OMP_THREAD_LIMIT=1 ctest --output-on-failure -R '^(frontend_test|cloud_colorizer_test)$'`；
   复用既有地图生命周期检查核对视觉/体素根释放顺序，所有原断言通过才继续。
-- [ ] 检查改动范围及 Google 格式，提交本任务对应文件。
+- [x] 检查改动范围及 Google 格式，提交本任务对应文件。
 
 ### Task 2: LivoExporter 直接持有文件资源
 
@@ -61,11 +61,11 @@
 private TextFile 含 `std::filesystem::path path` 和 `std::ofstream stream`，
 private static `Check(const TextFile&)`、`Open(const std::filesystem::path&, TextFile*)`、`Close(TextFile*)`。
 
-- [ ] 先运行原 livo_exporter_test，记录文件失败、独立实例及重复 Finish 的参考结果。
-- [ ] 按设计迁移成员、文件辅助函数和方法，移除 Impl；保留资源初始化、写入精度及关闭检查顺序。
-- [ ] 执行 `OMP_THREAD_LIMIT=1 ctest --test-dir <新普通构建目录> --output-on-failure -R '^livo_exporter_test$'`，
+- [x] 先运行原 livo_exporter_test，记录文件失败、独立实例及重复 Finish 的参考结果。
+- [x] 按设计迁移成员、文件辅助函数和方法，移除 Impl；保留资源初始化、写入精度及关闭检查顺序。
+- [x] 在新普通构建目录执行 `OMP_THREAD_LIMIT=1 ctest --output-on-failure -R '^livo_exporter_test$'`，
   尤其核对 ReportsSpecificFileOnActualTextCloseFailure 和 ReportsPngCloseFailureAndKeepsTheWriterFailed。
-- [ ] 检查改动与格式，提交本任务对应文件。
+- [x] 检查改动与格式，提交本任务对应文件。
 
 ### Task 3: LivoSystem 直接组合
 
@@ -74,12 +74,12 @@ private static `Check(const TextFile&)`、`Open(const std::filesystem::path&, Te
 **Interfaces:** AddLidar/AddImu/AddImage、ProcessNext/ProcessAvailable、PropagateLatest、Finish、
 SetOnlineSubmapCallback、GetPoseSnapshot、ApplyPoseUpdate 原签名保持。OnlineSubmapManager 保持现有私有模块接口。
 
-- [ ] 先运行现有四组 system 测试，确认 RawSaveFailureBlocksOnlineMutations 参考通过。
-- [ ] 迁移构造、字段和方法，逐一合并转发与 Impl 逻辑；保留现有 submap_error_ 防护和成员顺序。
+- [x] 先运行现有四组 system 测试，确认 RawSaveFailureBlocksOnlineMutations 参考通过。
+- [x] 迁移构造、字段和方法，逐一合并转发与 Impl 逻辑；保留现有 submap_error_ 防护和成员顺序。
   KeyframeStore/SubmapStore/OnlineSubmapManager 可前置声明，析构在 `.cc` 完整定义处实现。
-- [ ] 执行 `OMP_THREAD_LIMIT=1 ctest --test-dir <新普通构建目录> --output-on-failure -R '^(livo_system_test|keyframe_system_test|submap_system_test|online_submap_system_test)$'`，
+- [x] 在新普通构建目录执行 `OMP_THREAD_LIMIT=1 ctest --output-on-failure -R '^(livo_system_test|keyframe_system_test|submap_system_test|online_submap_system_test)$'`，
   所有现有错误、所有权、隔离和在线版本断言通过。
-- [ ] 检查改动与格式，提交本任务对应文件。
+- [x] 检查改动与格式，提交本任务对应文件。
 
 ### Task 4: 两端节点和发布器直接实现
 
@@ -88,26 +88,26 @@ SetOnlineSubmapCallback、GetPoseSnapshot、ApplyPoseUpdate 原签名保持。On
 
 **Interfaces:** 两端 LivoNode 的构造/ProcessNext/ReportInputs，及各自 LivoPublisher 的现有方法保持。
 
-- [ ] 在各自环境运行既有 ROS 节点/发布参考测试，记录结果。
-- [ ] 两端同步迁移成员和方法，增加实际使用类型的直接包含；保留成员顺序、回调捕获、发布设置和时间戳处理。
-- [ ] 用 Noetic 真实 rostest 和 Humble 的 ros2_node_test 验证订阅、定时器、图像、TF 和退出行为；
+- [x] 在各自环境运行既有 ROS 节点/发布参考测试，记录结果。
+- [x] 两端同步迁移成员和方法，增加实际使用类型的直接包含；保留回调捕获、发布设置和时间戳处理；ROS1 计数器移到订阅成员之前以保证销毁顺序。
+- [x] 用 Noetic 真实 rostest 和 Humble 的 ros2_node_test 验证订阅、定时器、图像、TF 和退出行为；
   命令及环境沿用 [双版本说明](../../ros-builds.md)，使用新验证工作区。
-- [ ] 检查对称职责、同一 main 和格式，提交本任务对应文件。
+- [x] 检查对称职责、同一 main 和格式，提交本任务对应文件。
 
 ### Task 5: 整体验收及文档
 
 **Files:** 更新 `docs/cpp-style.md`、`docs/core-build.md`、`docs/README.md`；创建 `docs/pimpl-removal-validation.md`。
 复用 `tests/installed_consumer/`、现有行为测试和两个 baseline 工具；只有发现真实行为缺口时才补对应测试。
 
-- [ ] 在新目录分别配置 shared/static 普通构建：`LIVO_ATLAS_ROS_VERSION=0`、`LIVO_ATLAS_BUILD_TESTS=ON`、Release；
-  `nice -n 10 cmake --build <目录> -- -j1`，然后 `OMP_THREAD_LIMIT=1 ctest --test-dir <目录> --output-on-failure`。
-- [ ] 单独编译所有安装公共头，尤其 Frontend、LivoSystem、Exporter；检查普通头不含 ROS 或 src 私有路径。
-- [ ] 两种安装均移动前缀后重新配置、构建并运行 tests/installed_consumer；Noetic/Humble 也重建全部依赖这些类的库和节点。
-- [ ] 各环境串行回放现有 Retail_Street.bag：默认、旧分组、online 完整段及开启产品的短段，
+- [x] 在新目录分别配置 shared/static 普通构建：`LIVO_ATLAS_ROS_VERSION=0`、`LIVO_ATLAS_BUILD_TESTS=ON`、Release；
+  `nice -n 10 cmake --build <目录> -- -j1`，然后在各构建目录运行 `OMP_THREAD_LIMIT=1 ctest --output-on-failure`。
+- [x] 单独编译所有普通公共头，尤其 Frontend、LivoSystem、Exporter；检查普通头不含 ROS 或 src 私有路径，另由独立消费者检查两个 ROS 版本的接入头。
+- [x] 两种安装均移动前缀后重新配置、构建并运行 tests/installed_consumer；Noetic/Humble 也重建全部依赖这些类的库和节点。
+- [x] 各环境串行回放现有 Retail_Street.bag：默认、旧分组、online 完整段及开启产品的短段，
   与该环境冻结参考比较四轨迹数组、发布摘要和既有导出资产，沿用原精确判定，不放宽容差。
-- [ ] `rg -n 'class Impl|struct Impl|impl_|pimpl_' include src` 无匹配（预期退出码 1），人工确认没有改名包装；
+- [x] `rg -n 'class Impl|struct Impl|impl_|pimpl_' include src` 无匹配（预期退出码 1），人工确认没有改名包装；
   Google 格式与 `git diff --check` 通过。记录实际结果和局限，不以旧测试数字代替本次实测。
-- [ ] 更新文档并完成自查，提交验证说明及最终任务状态；不修改已完成阶段的历史证据。
+- [x] 更新文档并完成自查，提交验证说明及最终任务状态；不修改已完成阶段的历史证据。
 
 纯结构整理没有新增行为时不强行添加 RED 测试。若发现行为问题，先用最小行为测试复现，
 再修复，并将新增影响纳入回归；不借此次任务调整算法数值。
