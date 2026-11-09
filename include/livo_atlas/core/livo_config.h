@@ -13,6 +13,7 @@ struct LivoConfig {
   std::string lidar_topic = "/livox/lidar";
   std::string imu_topic = "/livox/imu";
   std::string image_topic = "/left_camera/image";
+  int image_queue_size = 1;
   double image_time_offset = 0;
   double lidar_time_offset = 0;
 };

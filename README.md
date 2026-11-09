@@ -8,6 +8,10 @@
 [双版本说明](docs/ros-builds.md)，职责目录和旧头路径迁移见
 [源码组织](docs/core-build.md#源码组织与-include-迁移)。
 当前命名迁移、职责边界与验证见 [整理记录](docs/p4-naming-validation.md)。
+关键帧选择、独立快照与位姿版本存储见[数据集说明](docs/keyframe-dataset.md)，
+两端默认关闭，启用方式和跨电脑读取命令均在该文档中。
+子地图成员索引与按位姿版本重建见[子地图说明](docs/submap-dataset.md)。
+离线导出选定位姿版本的图像、相机与 LiDAR 初始化种子见[COLMAP 研究数据导出](docs/colmap-export.md)。
 
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 

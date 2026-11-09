@@ -7,6 +7,7 @@ endif()
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES livo_atlas_core livo_atlas_frontend livo_atlas_colorizer livo_atlas_io
+    livo_atlas_keyframes
     livo_atlas_vio livo_atlas_lio livo_atlas_imu livo_atlas_synchronization
     livo_atlas_preprocess livo_atlas_camera livo_atlas_calibration
     ${livo_atlas_runtime_libraries}

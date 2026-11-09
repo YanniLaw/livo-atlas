@@ -78,6 +78,10 @@ TEST_F(Ros1ParametersTest, ReadsPrivateCameraNumericArraysAndSharedDefaults) {
             (std::vector<int>{5, 5, 5, 5, 5}));
   EXPECT_EQ(options.exporter.mode, FrontendMode::kLidarInertialVisual);
   EXPECT_EQ(options.exporter.directory, directory_);
+  EXPECT_FALSE(options.keyframes.enabled);
+  EXPECT_FALSE(options.submaps.enabled);
+  EXPECT_EQ(options.submaps.max_keyframes, 20);
+  EXPECT_EQ(config.livo.image_queue_size, 1);
   EXPECT_DOUBLE_EQ(options.imu_time_range.minimum, 0);
   EXPECT_DOUBLE_EQ(options.imu_time_range.maximum, 4294967296.0);
   EXPECT_FALSE(std::filesystem::exists(directory_));
@@ -93,6 +97,13 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   node_->setParam("lio/layer_init_num", std::vector<int>{3, 6, 9});
   node_->setParam("preprocess/point_filter_num", 1);
   node_->setParam("publish/pub_scan_num", 3);
+  node_->setParam("publish/image_queue_size", 32);
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("keyframes/translation_threshold", .7);
+  node_->setParam("keyframes/rotation_threshold_deg", 15.);
+  node_->setParam("keyframes/time_threshold", 3.);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/max_keyframes", 3);
   camera_.setParam("scale", .5);
   const auto config = ReadNodeOptions(*node_);
   const auto& options = config.livo.system;
@@ -103,6 +114,13 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   EXPECT_EQ(options.frontend.voxel_map.layer_init_num_,
             (std::vector<int>{3, 6, 9}));
   EXPECT_EQ(options.colorizer.scan_interval, 3);
+  EXPECT_EQ(config.livo.image_queue_size, 32);
+  EXPECT_TRUE(options.keyframes.enabled);
+  EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
+  EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);
+  EXPECT_DOUBLE_EQ(options.keyframes.time_threshold, 3);
+  EXPECT_TRUE(options.submaps.enabled);
+  EXPECT_EQ(options.submaps.max_keyframes, 3);
   EXPECT_EQ(options.preprocess.point_filter, 1);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.scale, .5);
   EXPECT_DOUBLE_EQ(options.frontend.calibration.camera.fx, 200);
@@ -119,7 +137,10 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
       std::ofstream(sentinel) << "keep existing output";
     }
     for (const auto& key :
-         {"vio/img_point_cov", "imu/acc_cov", "preprocess/point_filter_num"}) {
+         {"vio/img_point_cov", "imu/acc_cov", "preprocess/point_filter_num",
+          "keyframes/translation_threshold", "keyframes/rotation_threshold_deg",
+          "keyframes/time_threshold", "submaps/max_keyframes",
+          "publish/image_queue_size"}) {
       node_->setParam(key, -1);
       EXPECT_THROW(
           {
@@ -136,9 +157,15 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
         EXPECT_FALSE(std::filesystem::exists(directory_ / "new"));
       }
     }
+    node_->setParam("submaps/enabled", true);
+    EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+    node_->deleteParam("submaps/enabled");
     node_->setParam("common/imu_topic", "bad topic");
     EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
     node_->deleteParam("common/imu_topic");
+    node_->setParam("publish/image_queue_size", 0);
+    EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+    node_->deleteParam("publish/image_queue_size");
   }
 }
 
@@ -146,6 +173,9 @@ TEST_F(Ros1ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
   node_->setParam("imu/imu_int_frame", "three");
   EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
   node_->deleteParam("imu/imu_int_frame");
+  node_->setParam("publish/image_queue_size", "many");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->deleteParam("publish/image_queue_size");
   camera_.setParam("cam_fx", true);
   EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
   camera_.setParam("cam_fx", 200);
@@ -158,5 +188,21 @@ TEST_F(Ros1ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
 
+TEST_F(Ros1ParametersTest, ReadsOnlineSubmapModeAndValidatesBounds) {
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  node_->setParam("submaps/online/translation_threshold", 3.0);
+  const auto config = ReadNodeOptions(*node_);
+  EXPECT_EQ(config.livo.system.submap_mode, SubmapMode::kOnline);
+  EXPECT_DOUBLE_EQ(config.livo.system.online_submaps.translation_threshold,
+                   3.0);
+  node_->setParam("submaps/online/support_keyframes", -1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("submaps/mode", "keyframe_groups");
+  EXPECT_NO_THROW(ReadNodeOptions(*node_));
+  node_->setParam("submaps/mode", "unknown");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+}
 }  // namespace
 }  // namespace livo_atlas::ros1

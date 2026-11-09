@@ -14,6 +14,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <sensor_msgs/image_encodings.hpp>
+#include <stdexcept>
 #include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
 
@@ -100,138 +101,119 @@ geometry_msgs::msg::Pose Pose(
 
 }  // namespace
 
-class LivoPublisher::Impl {
- public:
-  Impl(rclcpp::Node& node, FrontendMode mode)
-      : node_(node), mode_(mode), broadcaster_(node) {
-    cloud_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/cloud_registered", 100);
-    effect_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/cloud_effected", 100);
-    odometry_ = node.create_publisher<nav_msgs::msg::Odometry>(
-        "/aft_mapped_to_init", 10);
-    path_publisher_ = node.create_publisher<nav_msgs::msg::Path>("/path", 10);
-    mavros_ = node.create_publisher<geometry_msgs::msg::PoseStamped>(
-        "/mavros/vision_pose/pose", 10);
-    propagation_ = node.create_publisher<nav_msgs::msg::Odometry>(
-        "/LIVO2/imu_propagate", 10000);
-    planes_ = node.create_publisher<visualization_msgs::msg::MarkerArray>(
-        "/planes", 10000);
-    image_ = node.create_publisher<sensor_msgs::msg::Image>("/rgb_img", 1);
-    path_.header.stamp = node_.now();
-    path_.header.frame_id = "camera_init";
-  }
+LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode,
+                             int image_queue_size)
+    : node_(node), mode_(mode), broadcaster_(node) {
+  if (image_queue_size <= 0)
+    throw std::invalid_argument("Image queue size must be positive");
+  cloud_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
+      "/cloud_registered", 100);
+  effect_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
+      "/cloud_effected", 100);
+  odometry_ =
+      node.create_publisher<nav_msgs::msg::Odometry>("/aft_mapped_to_init", 10);
+  path_publisher_ = node.create_publisher<nav_msgs::msg::Path>("/path", 10);
+  mavros_ = node.create_publisher<geometry_msgs::msg::PoseStamped>(
+      "/mavros/vision_pose/pose", 10);
+  propagation_ = node.create_publisher<nav_msgs::msg::Odometry>(
+      "/LIVO2/imu_propagate", 10000);
+  planes_ = node.create_publisher<visualization_msgs::msg::MarkerArray>(
+      "/planes", 10000);
+  image_ = node.create_publisher<sensor_msgs::msg::Image>("/rgb_img",
+                                                          image_queue_size);
+  path_.header.stamp = node_.now();
+  path_.header.frame_id = "camera_init";
+}
 
-  void PublishCloud(const FrontendResult& result,
-                    const ColoredCloud::ConstPtr& colored_cloud) {
-    if (!colored_cloud) return;
-    sensor_msgs::msg::PointCloud2 message;
-    if (mode_ == FrontendMode::kLidarInertialVisual) {
-      if (result.kind == UpdateKind::kVisual) {
-        pcl::toROSMsg(*colored_cloud, message);
-      }
-    } else {
-      pcl::toROSMsg(*result.world_cloud, message);
-    }
-    message.header.stamp = node_.now();
-    message.header.frame_id = "camera_init";
-    cloud_->publish(message);
-  }
-
-  void Publish(const FrontendResult& result,
-               const ColoredCloud::ConstPtr& colored_cloud) {
-    if (!result.updated) return;
+void LivoPublisher::PublishCloud(const FrontendResult& result,
+                                 const ColoredCloud::ConstPtr& colored_cloud) {
+  if (!colored_cloud) return;
+  sensor_msgs::msg::PointCloud2 message;
+  if (mode_ == FrontendMode::kLidarInertialVisual) {
     if (result.kind == UpdateKind::kVisual) {
-      PublishCloud(result, colored_cloud);
-      cv_bridge::CvImage image;
-      image.header.stamp = node_.now();
-      image.encoding = sensor_msgs::image_encodings::BGR8;
-      image.image = result.tracking_image;
-      image_->publish(*image.toImageMsg());
-      return;
+      pcl::toROSMsg(*colored_cloud, message);
     }
-    const Eigen::Vector3d euler =
-        RotationMatrixToEuler(result.estimate.rot_end);
-    tf2::Quaternion quaternion;
-    quaternion.setRPY(euler.x(), euler.y(), euler.z());
-    geometry_msgs::msg::Quaternion orientation;
-    orientation.x = quaternion.x();
-    orientation.y = quaternion.y();
-    orientation.z = quaternion.z();
-    orientation.w = quaternion.w();
-    nav_msgs::msg::Odometry odometry;
-    odometry.header.frame_id = "camera_init";
-    odometry.child_frame_id = "aft_mapped";
-    odometry.header.stamp = node_.now();
-    odometry.pose.pose = Pose(result.estimate, orientation);
-    geometry_msgs::msg::TransformStamped transform;
-    transform.header = odometry.header;
-    transform.child_frame_id = odometry.child_frame_id;
-    transform.transform.translation.x = result.estimate.pos_end.x();
-    transform.transform.translation.y = result.estimate.pos_end.y();
-    transform.transform.translation.z = result.estimate.pos_end.z();
-    transform.transform.rotation = orientation;
-    broadcaster_.sendTransform(transform);
-    odometry_->publish(odometry);
-    PublishCloud(result, colored_cloud);
-    if (result.effective_cloud) {
-      sensor_msgs::msg::PointCloud2 message;
-      pcl::toROSMsg(*result.effective_cloud, message);
-      message.header.stamp = node_.now();
-      message.header.frame_id = "camera_init";
-      effect_->publish(message);
-    }
-    if (result.has_plane_visualization) {
-      planes_->publish(PlaneMarkers(result.planes));
-    }
-    geometry_msgs::msg::PoseStamped pose;
-    pose.pose = odometry.pose.pose;
-    pose.header.stamp = node_.now();
-    pose.header.frame_id = "camera_init";
-    path_.poses.push_back(pose);
-    path_publisher_->publish(path_);
-    pose.header.stamp = node_.now();
-    mavros_->publish(pose);
+  } else {
+    pcl::toROSMsg(*result.world_cloud, message);
   }
+  message.header.stamp = node_.now();
+  message.header.frame_id = "camera_init";
+  cloud_->publish(message);
+}
 
-  void PublishImuPropagation(const FilterState& state, double timestamp) {
-    nav_msgs::msg::Odometry message;
-    message.header.frame_id = "world";
-    message.header.stamp = FromSeconds(timestamp);
-    geometry_msgs::msg::Quaternion orientation;
-    const Eigen::Quaterniond quaternion(state.rot_end);
-    orientation.w = quaternion.w();
-    orientation.x = quaternion.x();
-    orientation.y = quaternion.y();
-    orientation.z = quaternion.z();
-    message.pose.pose = Pose(state, orientation);
-    message.twist.twist.linear.x = state.vel_end.x();
-    message.twist.twist.linear.y = state.vel_end.y();
-    message.twist.twist.linear.z = state.vel_end.z();
-    propagation_->publish(message);
-  }
-
-  rclcpp::Node& node_;
-  FrontendMode mode_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_, effect_;
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_, propagation_;
-  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_publisher_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr mavros_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr planes_;
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_;
-  tf2_ros::TransformBroadcaster broadcaster_;
-  nav_msgs::msg::Path path_;
-};
-
-LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode)
-    : impl_(std::make_unique<Impl>(node, mode)) {}
-LivoPublisher::~LivoPublisher() = default;
 void LivoPublisher::Publish(const FrontendResult& result,
                             const ColoredCloud::ConstPtr& colored_cloud) {
-  impl_->Publish(result, colored_cloud);
+  if (!result.updated) return;
+  if (result.kind == UpdateKind::kVisual) {
+    PublishCloud(result, colored_cloud);
+    cv_bridge::CvImage image;
+    image.header.stamp = node_.now();
+    image.encoding = sensor_msgs::image_encodings::BGR8;
+    image.image = result.tracking_image;
+    image_->publish(*image.toImageMsg());
+    return;
+  }
+  const Eigen::Vector3d euler = RotationMatrixToEuler(result.estimate.rot_end);
+  tf2::Quaternion quaternion;
+  quaternion.setRPY(euler.x(), euler.y(), euler.z());
+  geometry_msgs::msg::Quaternion orientation;
+  orientation.x = quaternion.x();
+  orientation.y = quaternion.y();
+  orientation.z = quaternion.z();
+  orientation.w = quaternion.w();
+  nav_msgs::msg::Odometry odometry;
+  odometry.header.frame_id = "camera_init";
+  odometry.child_frame_id = "aft_mapped";
+  odometry.header.stamp = node_.now();
+  odometry.pose.pose = Pose(result.estimate, orientation);
+  geometry_msgs::msg::TransformStamped transform;
+  transform.header = odometry.header;
+  transform.child_frame_id = odometry.child_frame_id;
+  transform.transform.translation.x = result.estimate.pos_end.x();
+  transform.transform.translation.y = result.estimate.pos_end.y();
+  transform.transform.translation.z = result.estimate.pos_end.z();
+  transform.transform.rotation = orientation;
+  broadcaster_.sendTransform(transform);
+  odometry_->publish(odometry);
+  PublishCloud(result, colored_cloud);
+  if (result.effective_cloud) {
+    sensor_msgs::msg::PointCloud2 message;
+    pcl::toROSMsg(*result.effective_cloud, message);
+    message.header.stamp = node_.now();
+    message.header.frame_id = "camera_init";
+    effect_->publish(message);
+  }
+  if (result.has_plane_visualization) {
+    planes_->publish(PlaneMarkers(result.planes));
+  }
+  geometry_msgs::msg::PoseStamped pose;
+  pose.pose = odometry.pose.pose;
+  pose.header.stamp = node_.now();
+  pose.header.frame_id = "camera_init";
+  path_.poses.push_back(pose);
+  path_publisher_->publish(path_);
+  pose.header.stamp = node_.now();
+  mavros_->publish(pose);
 }
+
 void LivoPublisher::PublishImuPropagation(const FilterState& state,
                                           double timestamp) {
-  impl_->PublishImuPropagation(state, timestamp);
+  nav_msgs::msg::Odometry message;
+  message.header.frame_id = "world";
+  message.header.stamp = FromSeconds(timestamp);
+  geometry_msgs::msg::Quaternion orientation;
+  const Eigen::Quaterniond quaternion(state.rot_end);
+  orientation.w = quaternion.w();
+  orientation.x = quaternion.x();
+  orientation.y = quaternion.y();
+  orientation.z = quaternion.z();
+  message.pose.pose = Pose(state, orientation);
+  message.twist.twist.linear.x = state.vel_end.x();
+  message.twist.twist.linear.y = state.vel_end.y();
+  message.twist.twist.linear.z = state.vel_end.z();
+  propagation_->publish(message);
 }
+
+LivoPublisher::~LivoPublisher() = default;
+
 }  // namespace livo_atlas::ros2

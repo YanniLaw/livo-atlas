@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 
+#include "installed_consumer/scenario.h"
 #include "livo_atlas/frontend/frontend.h"
 
 namespace {
@@ -38,9 +39,16 @@ bool CreateAndDestroyPopulatedFrontend(bool create_map) {
 // status. It also observes allocations made by the unchanged estimator shared
 // library.
 int main(int argc, char** argv) {
-  if (argc > 2 || (argc == 2 && std::string(argv[1]) != "--no-map")) return 2;
+  const std::string mode = argc == 2 ? argv[1] : "";
+  if (argc > 2 || (!mode.empty() && mode != "--no-map" && mode != "--visual"))
+    return 2;
   for (int i = 0; i < 4; ++i) {
-    if (!CreateAndDestroyPopulatedFrontend(argc == 1)) {
+    const bool passed =
+        mode == "--visual"
+            ? livo_atlas::test_data::RunFrontendScenario(
+                  livo_atlas::FrontendMode::kLidarInertialVisual, 6)
+            : CreateAndDestroyPopulatedFrontend(mode.empty());
+    if (!passed) {
       std::cerr << "Lifecycle check did not create a populated map\n";
       return 1;
     }

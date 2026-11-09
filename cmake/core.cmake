@@ -37,6 +37,8 @@ endfunction()
 
 livo_atlas_library(calibration src/sensor/extrinsics.cc src/camera/camera_config.cc)
 target_link_libraries(livo_atlas_calibration PUBLIC Eigen3::Eigen)
+livo_atlas_library(keyframes src/mapping/keyframe.cc src/mapping/keyframe_selector.cc src/mapping/submap.cc src/mapping/online_submap.cc src/mapping/pose_snapshot.cc src/mapping/submap_pose_change.cc)
+target_link_libraries(livo_atlas_keyframes PUBLIC livo_atlas_calibration pcl_common opencv_core)
 livo_atlas_library(camera src/camera/camera.cc src/camera/camera_factory.cc
   src/camera/pinhole_camera.cc src/camera/equidistant_camera.cc src/image/image_ops.cc)
 target_link_libraries(livo_atlas_camera PUBLIC livo_atlas_calibration
@@ -73,14 +75,27 @@ target_link_libraries(livo_atlas_frontend PUBLIC livo_atlas_calibration
   livo_atlas_vio livo_atlas_lio livo_atlas_imu pcl_filters)
 livo_atlas_library(colorizer src/mapping/cloud_colorizer.cc)
 target_link_libraries(livo_atlas_colorizer PUBLIC livo_atlas_camera pcl_common)
-livo_atlas_library(io src/io/livo_exporter.cc)
-target_link_libraries(livo_atlas_io PUBLIC livo_atlas_camera Eigen3::Eigen
+livo_atlas_library(io src/io/livo_exporter.cc src/io/keyframe_store.cc src/io/submap_store.cc src/io/online_submap_store.cc src/io/dataset_metadata.cc src/io/colmap_camera.cc src/io/colmap_exporter.cc src/io/image_writer.cc)
+target_link_libraries(livo_atlas_io PUBLIC livo_atlas_keyframes livo_atlas_camera Eigen3::Eigen
   pcl_io pcl_filters opencv_core opencv_imgcodecs)
-livo_atlas_library(core src/core/livo_system.cc src/core/system_options.cc src/core/livo_config.cc)
+livo_atlas_library(core src/core/online_submap_manager.cc src/core/livo_system.cc src/core/system_options.cc src/core/livo_config.cc)
 target_link_libraries(livo_atlas_core PUBLIC livo_atlas_frontend
-  livo_atlas_synchronization livo_atlas_preprocess livo_atlas_colorizer livo_atlas_io)
+  livo_atlas_synchronization livo_atlas_preprocess livo_atlas_colorizer livo_atlas_io livo_atlas_keyframes)
 
-install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camera
+foreach(tool inspect_keyframes inspect_submaps export_colmap)
+  set(livo_atlas_tool livo_atlas_${tool})
+  add_executable(${livo_atlas_tool} tools/${tool}.cc)
+  target_link_libraries(${livo_atlas_tool} PRIVATE livo_atlas::io)
+  set_target_properties(${livo_atlas_tool} PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+  if(UNIX AND NOT APPLE)
+    set_target_properties(${livo_atlas_tool} PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+  elseif(APPLE)
+    set_target_properties(${livo_atlas_tool} PROPERTIES INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
+  endif()
+  install(TARGETS ${livo_atlas_tool} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endforeach()
+
+install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camera livo_atlas_keyframes
   livo_atlas_synchronization livo_atlas_preprocess livo_atlas_imu livo_atlas_lio
   livo_atlas_vio livo_atlas_frontend livo_atlas_colorizer livo_atlas_io livo_atlas_core
   EXPORT livo_atlasTargets

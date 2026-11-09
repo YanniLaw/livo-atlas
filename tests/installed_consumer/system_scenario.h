@@ -3,6 +3,7 @@
 
 #include <Eigen/Core>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <opencv2/core.hpp>
@@ -11,6 +12,9 @@
 #include <vector>
 
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/io/keyframe_store.h"
+#include "livo_atlas/io/online_submap_store.h"
+#include "livo_atlas/io/submap_store.h"
 
 namespace livo_atlas::test_data {
 
@@ -34,7 +38,7 @@ inline LidarScan RuntimeScan(double timestamp) {
 
 // Exercise synchronization, estimation and file output through the installed
 // runtime. This consumer has no source-tree helpers or ROS publishers.
-inline bool RunSystemScenario(FrontendMode mode) {
+inline bool RunSystemScenario(FrontendMode mode, bool online = false) {
   const bool inertial = mode != FrontendMode::kLidarOnly;
   const bool visual = mode == FrontendMode::kLidarInertialVisual;
   SystemOptions options;
@@ -47,6 +51,10 @@ inline bool RunSystemScenario(FrontendMode mode) {
   options.frontend.visual.normal_enabled = false;
   options.image_enabled = visual;
   options.preprocess.point_filter = 1;
+  options.keyframes.enabled = true;
+  options.keyframes.time_threshold = 0;
+  options.submaps = {true, 2};
+  if (online) options.submap_mode = SubmapMode::kOnline;
   options.exporter.directory =
       std::filesystem::temp_directory_path() /
       ("livo_atlas_consumer_" +
@@ -57,8 +65,13 @@ inline bool RunSystemScenario(FrontendMode mode) {
   int visual_updates = 0;
   bool valid = true;
   bool tracked = false;
+  std::shared_ptr<const Keyframe> held;
   {
     LivoSystem session(options);
+    if (online)
+      session.SetOnlineSubmapCallback([&](const auto& update) {
+        if (update.keyframe && !held) held = update.keyframe;
+      });
     for (int frame = 0; frame < 6; ++frame) {
       const double timestamp = 100 + frame * 0.25;
       valid &= session.AddLidar(RuntimeScan(timestamp));
@@ -94,10 +107,66 @@ inline bool RunSystemScenario(FrontendMode mode) {
           valid &= result.world_cloud && !result.world_cloud->empty();
         }
       });
+      if (online && (frame == 3 || frame == 5)) {
+        const auto snapshot = session.GetPoseSnapshot();
+        PoseUpdate update{snapshot->version, snapshot->frame_count,
+                          snapshot->poses};
+        for (auto& pose : update.poses)
+          pose.map_from_body.translation.x() += 10;
+        session.ApplyPoseUpdate(update);
+      }
     }
     session.Finish();
+    if (online) valid &= session.GetPoseSnapshot()->version == 2;
   }
   valid &= std::filesystem::file_size(directory / "mat_out.txt") > 0;
+  KeyframeStore dataset(directory / "keyframes");
+  valid &= dataset.ids().size() ==
+           static_cast<std::size_t>(visual ? visual_updates : lidar_updates);
+  std::vector<KeyframePose> poses;
+  for (auto id : dataset.ids()) {
+    const auto frame = dataset.Read(id);
+    auto corrected = frame.odom_from_body;
+    corrected.translation.x() += 10;
+    poses.push_back({id, corrected});
+    const auto cloud = TransformKeyframeCloud(frame, corrected);
+    valid &= !cloud.empty() && std::isfinite(cloud.front().x);
+    if (visual) valid &= !frame.image.empty();
+  }
+  const std::uint64_t version = online ? 2 : 1;
+  if (online) {
+    OnlineSubmapStore index(directory / "keyframes/online_submaps", dataset);
+    const auto materialized =
+        index.MaterializePoseSnapshot(2, dataset.ids().size());
+    poses = materialized.poses;
+    valid &= held && !held->cloud->empty();
+    if (visual)
+      valid &= held && !held->image.empty() &&
+               cv::norm(held->image, dataset.Read(held->id).image,
+                        cv::NORM_INF) == 0;
+    SubmapStore compatible(directory / "keyframes/submaps", dataset, 2);
+    SubmapBuilder builder(2);
+    for (auto id : dataset.ids())
+      if (const auto group = builder.AddKeyframe(id)) compatible.Append(*group);
+    if (const auto tail = builder.Finish()) compatible.Append(*tail);
+    for (std::size_t id = 0; id < index.size(); ++id)
+      valid &= index.Read(id).state == OnlineSubmapState::kSealed;
+  }
+  dataset.WritePoses(version, poses);
+  valid &= dataset.ReadPoses(version).size() == dataset.ids().size();
+  SubmapStore submaps(directory / "keyframes/submaps", dataset);
+  valid &= submaps.size() == (dataset.ids().size() + 1) / 2;
+  std::size_t grouped = 0;
+  for (std::size_t id = 0; id < submaps.size(); ++id) {
+    grouped += submaps.Read(id).keyframe_ids.size();
+    const auto raw = submaps.ReadCloud(id);
+    const auto corrected = submaps.ReadCloud(id, version);
+    valid &= raw.cloud.size() == corrected.cloud.size() && !raw.cloud.empty();
+    valid &= std::abs(corrected.parent_from_submap.translation.x() -
+                      raw.parent_from_submap.translation.x() -
+                      (online ? 20 : 10)) < 1e-9;
+  }
+  valid &= grouped == dataset.ids().size();
   std::filesystem::remove_all(directory);
   return valid && lidar_updates > 2 &&
          (!visual || (visual_updates > 2 && tracked));

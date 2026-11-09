@@ -17,6 +17,7 @@ std::string DefaultDirectory() {
     return (std::filesystem::path(base) / ".ros/livo_atlas").string();
   return (std::filesystem::current_path() / "livo_atlas_output").string();
 }
+
 RigidTransform Transform(ParameterReader& reader, const std::string& rotation,
                          const std::string& translation) {
   RigidTransform result;
@@ -39,6 +40,34 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   auto& pre = options.preprocess;
   auto& output = options.exporter;
   auto& colorizer = options.colorizer;
+  auto& keyframes = options.keyframes;
+  keyframes.enabled = reader.Boolean("keyframes.enabled", keyframes.enabled);
+  keyframes.translation_threshold = reader.Number(
+      "keyframes.translation_threshold", keyframes.translation_threshold);
+  keyframes.rotation_threshold_deg = reader.Number(
+      "keyframes.rotation_threshold_deg", keyframes.rotation_threshold_deg);
+  keyframes.time_threshold =
+      reader.Number("keyframes.time_threshold", keyframes.time_threshold);
+  auto& submaps = options.submaps;
+  submaps.enabled = reader.Boolean("submaps.enabled", submaps.enabled);
+  submaps.max_keyframes =
+      reader.Integer("submaps.max_keyframes", submaps.max_keyframes);
+  const auto submap_mode = reader.String("submaps.mode", "keyframe_groups");
+  if (submap_mode == "online") {
+    options.submap_mode = SubmapMode::kOnline;
+    auto& online = options.online_submaps;
+    online.translation_threshold = reader.Number(
+        "submaps.online.translation_threshold", online.translation_threshold);
+    online.rotation_threshold_deg = reader.Number(
+        "submaps.online.rotation_threshold_deg", online.rotation_threshold_deg);
+    online.time_threshold =
+        reader.Number("submaps.online.time_threshold", online.time_threshold);
+    online.support_keyframes = reader.Integer(
+        "submaps.online.support_keyframes", online.support_keyframes);
+  } else if (submap_mode != "keyframe_groups") {
+    throw std::invalid_argument(
+        "submaps.mode must be keyframe_groups or online");
+  }
   config.lidar_topic = reader.String("common.lid_topic", config.lidar_topic);
   config.imu_topic = reader.String("common.imu_topic", config.imu_topic);
   options.driver_fix =
@@ -48,6 +77,11 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   options.lidar_enabled =
       reader.Integer("common.lidar_en", options.lidar_enabled ? 1 : 0) != 0;
   config.image_topic = reader.String("common.img_topic", config.image_topic);
+  config.image_queue_size =
+      reader.Integer("publish.image_queue_size", config.image_queue_size);
+  if (config.image_queue_size <= 0)
+    throw std::invalid_argument(reader.Name("publish.image_queue_size") +
+                                ": must be positive");
   visual.normal_enabled =
       reader.Boolean("vio.normal_en", visual.normal_enabled);
   visual.inverse_composition =

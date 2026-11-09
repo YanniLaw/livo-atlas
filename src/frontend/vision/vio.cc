@@ -17,6 +17,7 @@ which is included as part of this source code package.
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <opencv2/core/mat.hpp>
 #include <ostream>
 #include <unordered_map>
@@ -38,7 +39,6 @@ VIOManager::VIOManager() : visual_submap(nullptr) {}
 
 VIOManager::~VIOManager() {
   delete visual_submap;
-  for (auto &entry : warp_map) delete entry.second;
   warp_map.clear();
   for (auto &entry : feat_map) delete entry.second;
   feat_map.clear();
@@ -681,8 +681,8 @@ void VIOManager::RetrieveFromVisualSparseMap(
       } else {
         auto iter_warp = warp_map.find(ref_ftr->id_);
         if (iter_warp != warp_map.end()) {
-          search_level = iter_warp->second->search_level;
-          A_cur_ref_zero = iter_warp->second->A_cur_ref;
+          search_level = iter_warp->second.search_level;
+          A_cur_ref_zero = iter_warp->second.A_cur_ref;
         } else {
           GetAffineWarpMatrix(
               *cam, ref_ftr->px_, ref_ftr->f_,
@@ -692,8 +692,8 @@ void VIOManager::RetrieveFromVisualSparseMap(
 
           search_level = SelectSearchLevel(A_cur_ref_zero, 2);
 
-          PatchWarp *ot = new PatchWarp(search_level, A_cur_ref_zero);
-          warp_map[ref_ftr->id_] = ot;
+          warp_map.emplace(ref_ftr->id_,
+                           PatchWarp(search_level, A_cur_ref_zero));
         }
       }
 
@@ -861,8 +861,6 @@ void VIOManager::UpdateVisualMapPoints(cv::Mat img) {
     Vector2d pc(new_frame_->WorldToPixel(pt->pos_));
     bool add_flag = false;
 
-    float *patch_temp = new float[patch_size_total];
-    GetImagePatch(img, pc, patch_temp, 0);
     // TODO: condition: distance and view_angle
     // Step 1: time
     Feature *last_feature = pt->obs_.back();
@@ -891,13 +889,18 @@ void VIOManager::UpdateVisualMapPoints(cv::Mat img) {
     }
     if (add_flag) {
       update_flag[i] = 1;
+      auto patch_temp = std::make_unique<float[]>(patch_size_total);
+      GetImagePatch(img, pc, patch_temp.get(), 0);
       Vector3d f = cam->Unproject(pc);
-      Feature *ftr_new = new Feature(pt, patch_temp, pc, f, new_frame_->T_f_w_,
-                                     visual_submap->search_levels[i]);
+      auto ftr_new = std::make_unique<Feature>(pt, patch_temp.get(), pc, f,
+                                               new_frame_->T_f_w_,
+                                               visual_submap->search_levels[i]);
+      patch_temp.release();
       ftr_new->img_ = img;
       ftr_new->id_ = new_frame_->id_;
       ftr_new->inv_expo_time_ = state->inv_expo_time;
-      pt->AddFeatureObservation(ftr_new);
+      pt->AddFeatureObservation(ftr_new.get());
+      ftr_new.release();
     }
   }
 }

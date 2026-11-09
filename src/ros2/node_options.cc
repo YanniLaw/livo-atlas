@@ -13,13 +13,16 @@ namespace {
 class RosParameterReader final : public ParameterReader {
  public:
   explicit RosParameterReader(rclcpp::Node& node) : node_(node) {}
+
   bool Boolean(const std::string& name, bool fallback) override {
     return Declare(name, rclcpp::ParameterValue(fallback)).as_bool();
   }
+
   int Integer(const std::string& name, int fallback) override {
     return Narrow(name,
                   Declare(name, rclcpp::ParameterValue(fallback)).as_int());
   }
+
   double Number(const std::string& name, double fallback) override {
     const auto value = Declare(name, rclcpp::ParameterValue(fallback), true);
     double result;
@@ -33,10 +36,12 @@ class RosParameterReader final : public ParameterReader {
       throw std::invalid_argument(name + " must be finite");
     return result;
   }
+
   std::string String(const std::string& name,
                      const std::string& fallback) override {
     return Declare(name, rclcpp::ParameterValue(fallback)).as_string();
   }
+
   std::vector<double> NumberArray(const std::string& name) override {
     const auto value =
         Declare(name, rclcpp::ParameterValue(std::vector<double>{}), true);
@@ -48,6 +53,7 @@ class RosParameterReader final : public ParameterReader {
     }
     throw std::invalid_argument(name + " must be a numeric array");
   }
+
   std::vector<int> IntegerArray(const std::string& name,
                                 const std::vector<int>& fallback) override {
     const auto value =
@@ -58,6 +64,7 @@ class RosParameterReader final : public ParameterReader {
       result.push_back(Narrow(name, integer));
     return result;
   }
+
   std::string Name(const std::string& name) const override { return name; }
 
  private:
@@ -67,6 +74,7 @@ class RosParameterReader final : public ParameterReader {
       throw std::invalid_argument(name + " is outside the integer range");
     return static_cast<int>(value);
   }
+
   rclcpp::Parameter Declare(const std::string& name,
                             const rclcpp::ParameterValue& value,
                             bool numeric = false) {
@@ -76,6 +84,7 @@ class RosParameterReader final : public ParameterReader {
     node_.declare_parameter(name, value, descriptor);
     return node_.get_parameter(name);
   }
+
   rclcpp::Node& node_;
 };
 }  // namespace

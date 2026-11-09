@@ -79,10 +79,28 @@ def main():
     parser.add_argument('--camera', type=Path, default=package / 'config/camera_pinhole.yaml')
     parser.add_argument('--duration', type=float, default=30)
     parser.add_argument('--rate', type=float, default=.5)
+    parser.add_argument('--cpu-affinity', type=int,
+                        help='Pin the mapping process to one logical CPU before exec')
+    parser.add_argument('--image-queue-size', type=int,
+                        help='Override the positive image publication queue depth (node default: 1)')
     parser.add_argument('--domain', type=int, default=74)
     parser.add_argument('--save-products', action='store_true')
+    parser.add_argument('--save-keyframes', action='store_true')
+    parser.add_argument('--save-submaps', action='store_true')
     parser.add_argument('--default-threads', action='store_true')
+    parser.add_argument('--submap-mode', choices=('keyframe_groups', 'online'),
+                        default='keyframe_groups', help='Select the submap index format')
     args = parser.parse_args()
+    if args.image_queue_size is not None and args.image_queue_size <= 0:
+        parser.error('--image-queue-size must be positive')
+    try:
+        from .cpu_affinity import with_cpu_affinity
+    except ImportError:
+        from cpu_affinity import with_cpu_affinity
+    if args.submap_mode == 'online':
+        args.save_submaps = True
+    if args.save_submaps:
+        args.save_keyframes = True
     if not math.isfinite(args.duration) or not math.isfinite(args.rate) or args.duration <= 0 or args.rate <= 0:
         raise ValueError('Duration and playback rate must be finite and positive')
     output = args.output.resolve()
@@ -129,6 +147,15 @@ def main():
     parameters.update({'use_sim_time': True, 'qos.reliability': 'reliable',
                        'evo.pose_output_en': True, 'evo.seq_name': 'p4_humble',
                        'output.directory': str(output / 'node-output')})
+    if args.image_queue_size is not None:
+        parameters['publish.image_queue_size'] = args.image_queue_size
+    image_queue_size = parameters.get('publish.image_queue_size', 1)
+    observer_image_depth = max(20, image_queue_size)
+    if args.save_keyframes:
+        parameters['keyframes.enabled'] = True
+    if args.save_submaps:
+        parameters['submaps.enabled'] = True
+        parameters['submaps.mode'] = args.submap_mode
     if args.save_products:
         parameters.update({'pcd_save.pcd_save_en': True, 'pcd_save.colmap_output_en': True,
                            'pcd_save.interval': -1, 'image_save.img_save_en': True})
@@ -185,14 +212,16 @@ def main():
 
     subscriptions += [observer.create_subscription(Odometry, '/aft_mapped_to_init', receive_odom, 2000),
                       observer.create_subscription(PointCloud2, '/cloud_registered', receive_cloud, 100),
-                      observer.create_subscription(Image, '/rgb_img', receive_image, 20),
+                      observer.create_subscription(Image, '/rgb_img', receive_image, observer_image_depth),
                       observer.create_subscription(RosPath, '/path', receive_path, 10)]
     log_path = output / 'node.log'
     process = None
     try:
         with log_path.open('w') as log:
-            process = subprocess.Popen(['nice', '-n', '10', str(args.executable), '--ros-args',
-                                        '--params-file', str(config)], env=child_env,
+            command = with_cpu_affinity(
+                ['nice', '-n', '10', str(args.executable), '--ros-args', '--params-file', str(config)],
+                args.cpu_affinity)
+            process = subprocess.Popen(command, env=child_env,
                                        stdout=log, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
@@ -203,6 +232,7 @@ def main():
                     break
             else:
                 raise TimeoutError('DDS inputs did not discover both node and observer')
+            mapping_affinity = psutil.Process(process.pid).cpu_affinity()
             # Allow output subscriptions and /clock discovery to settle.
             settle = time.monotonic() + 1
             while time.monotonic() < settle:
@@ -212,6 +242,7 @@ def main():
                 rclpy.spin_once(observer, timeout_sec=.01)
             stream = reader()
             began = time.monotonic()
+            last_published_timestamp = start
             while stream.has_next():
                 topic, data, timestamp = stream.read_next()
                 if timestamp >= start + round(args.duration * 1e9):
@@ -225,8 +256,11 @@ def main():
                 message.clock.sec, message.clock.nanosec = divmod(timestamp, 1000000000)
                 clock.publish(message)
                 publishers[topic].publish(data)  # Humble native serialized publish; no object conversion.
+                last_published_timestamp = timestamp
                 rclpy.spin_once(observer, timeout_sec=0)
                 peak_rss = max(peak_rss, psutil.Process(process.pid).memory_info().rss)
+            playback_wall_s = time.monotonic() - began
+            input_span_s = (last_published_timestamp - start) * 1e-9
             del stream
             settle = time.monotonic() + 3
             while time.monotonic() < settle:
@@ -260,6 +294,8 @@ def main():
     for name in ('mat_pre.txt', 'mat_out.txt', 'imu.txt'):
         shutil.copy2(node_output / name, output / name)
     shutil.copy2(node_output / 'result/p4_humble.txt', output / 'trajectory.tum')
+    if args.save_keyframes:
+        shutil.move(str(node_output / 'keyframes'), str(output / 'keyframes'))
     if args.save_products:
         for name in ('pcd', 'image', 'Colmap'):
             shutil.copytree(node_output / name, output / 'products' / name)
@@ -277,7 +313,13 @@ def main():
     np.savetxt(output / 'odometry.txt', np.asarray(odometry))
     summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues,
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
+                   keyframes_enabled=args.save_keyframes,
+                   submaps_enabled=args.save_submaps,
+                   submap_mode=args.submap_mode,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
+                   playback_wall_s=playback_wall_s, input_span_s=input_span_s,
+                   requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,
+                   image_queue_size=image_queue_size, observer_image_depth=observer_image_depth,
                    input_reliability='reliable', expected_input_counts=dict(expected), observed_counts=dict(received),
                    node_input_counts=node_counts, input_count_mismatches=mismatches,
                    node_input_count_mismatches=node_mismatches, input_serialized_payloads_exact=payload_exact,

@@ -48,15 +48,37 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--duration', type=float, default=30.0)
     parser.add_argument('--rate', type=float, default=0.5)
+    parser.add_argument('--cpu-affinity', type=int,
+                        help='Pin the mapping process to one logical CPU before exec')
+    parser.add_argument('--image-queue-size', type=int,
+                        help='Override the positive image publication queue depth (node default: 1)')
     parser.add_argument('--port', type=int, default=11341)
     parser.add_argument('--gdb', action='store_true', help='Capture a stack trace on shutdown faults')
     parser.add_argument('--semantic-output', action='store_true',
                         help='Hash declared cloud fields and image pixels, excluding padding/clocks')
     parser.add_argument('--save-products', action='store_true',
                         help='Enable and capture world PCD, images and COLMAP output')
+    parser.add_argument('--save-keyframes', action='store_true',
+                        help='Capture and retain the P5 keyframe dataset')
+    parser.add_argument('--save-submaps', action='store_true',
+                        help='Enable keyframes and persistent submap membership')
     parser.add_argument('--legacy-output', action='store_true',
                         help='Read older node outputs from its source package Log directory')
+    parser.add_argument('--submap-mode', choices=('keyframe_groups', 'online'),
+                        default='keyframe_groups', help='Select the submap index format')
     args = parser.parse_args()
+    if args.image_queue_size is not None and args.image_queue_size <= 0:
+        parser.error('--image-queue-size must be positive')
+    try:
+        from .cpu_affinity import with_cpu_affinity
+    except ImportError:
+        from cpu_affinity import with_cpu_affinity
+    if args.submap_mode == 'online':
+        args.save_submaps = True
+    if args.save_submaps:
+        args.save_keyframes = True
+    if args.save_keyframes and args.legacy_output:
+        parser.error('--save-keyframes requires the current standalone core')
     source_package = Path(__file__).resolve().parents[1]
     workspace = args.workspace.resolve()
     package = workspace / 'src/livo-atlas'
@@ -175,6 +197,13 @@ def main():
         run(['rosparam', 'set', '/evo/seq_name', seq_name])
         if not args.legacy_output:
             run(['rosparam', 'set', '/output/directory', str(node_output)])
+        if args.save_keyframes:
+            run(['rosparam', 'set', '/keyframes/enabled', 'true'])
+        if args.save_submaps:
+            run(['rosparam', 'set', '/submaps/enabled', 'true'])
+            run(['rosparam', 'set', '/submaps/mode', args.submap_mode])
+        if args.image_queue_size is not None:
+            run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
         if args.save_products:
             for key, value in [('pcd_save/pcd_save_en', 'true'),
                                ('pcd_save/colmap_output_en', 'true'),
@@ -195,6 +224,7 @@ def main():
             from output_digest import cloud_digest, image_digest
         rospy = ros_module
         rospy.init_node('baseline_observer', disable_signals=True)
+        image_queue_size = rospy.get_param('/publish/image_queue_size', 1)
 
         def count(topic):
             def receive(_message):
@@ -240,7 +270,7 @@ def main():
                             '-ex', 'handle SIGINT nostop noprint pass',
                             '-ex', 'run', '-ex', 'thread apply all bt',
                             '--args'] + node_command
-        node = launch(node_command, 'mapping')
+        node = launch(with_cpu_affinity(node_command, args.cpu_affinity), 'mapping')
         deadline = time.monotonic() + 20
         required = {'/livox/lidar', '/livox/imu', '/left_camera/image'}
         while True:
@@ -254,6 +284,7 @@ def main():
                 raise TimeoutError('Mapping subscriptions did not become ready')
             time.sleep(0.1)
 
+        mapping_affinity = psutil.Process(node.pid).cpu_affinity()
         with rosbag.Bag(str(bag)) as data:
             bag_start, bag_end = data.get_start_time(), data.get_end_time()
             replay_end = min(bag_end, bag_start + args.duration)
@@ -299,6 +330,8 @@ def main():
         stop(node)
         if args.semantic_output:
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
+        if args.save_keyframes:
+            shutil.move(str(node_output / 'keyframes'), str(output / 'keyframes'))
         if args.save_products:
             for directory in ['pcd', 'image', 'Colmap']:
                 shutil.copytree(node_output / directory, output / 'products' / directory)
@@ -335,6 +368,9 @@ def main():
             'sequence_name': seq_name,
             'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
             'duration_requested_s': args.duration, 'playback_rate': args.rate,
+            'requested_cpu_affinity': args.cpu_affinity,
+            'mapping_cpu_affinity': mapping_affinity,
+            'image_queue_size': image_queue_size,
             'playback_wall_s': playback_wall_s, 'ros_master_port': args.port,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,
@@ -351,6 +387,9 @@ def main():
                                    'p95': float(np.percentile(values, 95)), 'max': max(values)}
                                for key, values in timings.items()},
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
+            'keyframes_enabled': args.save_keyframes,
+            'submaps_enabled': args.save_submaps,
+            'submap_mode': args.submap_mode,
             'gdb_enabled': args.gdb,
             'clean_shutdown': exited_cleanly(node.returncode, log, args.gdb),
             'player_returncode': player.returncode,

@@ -2,6 +2,7 @@
 
 #include <Eigen/Geometry>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <fstream>
 #include <functional>
@@ -13,6 +14,8 @@
 #include <vector>
 
 #ifdef __linux__
+#include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -300,6 +303,100 @@ TEST_F(LivoExporterTest, DebugImagesAreWrittenOutsideTheFrontend) {
       cv::IMREAD_GRAYSCALE);
   ASSERT_FALSE(image.empty());
   EXPECT_EQ(image.at<unsigned char>(0, 0), 42);
+}
+
+TEST_F(LivoExporterTest, DebugImageExtensionSelectsTheEncodedFormat) {
+  LivoExporter writer(options_);
+  auto result = Result();
+  const cv::Mat image(8, 10, CV_8UC3, cv::Scalar(40, 80, 120));
+  result.debug_images.push_back({"color.jpg", image(cv::Rect(1, 2, 6, 4))});
+  writer.Write(result, Colors());
+  writer.Finish();
+  const auto path = options_.directory / "ref_cur_combine/color.jpg";
+  std::ifstream input(path, std::ios::binary);
+  unsigned char header[3]{};
+  input.read(reinterpret_cast<char*>(header), sizeof(header));
+  ASSERT_TRUE(input.good());
+  EXPECT_EQ(header[0], 0xff);
+  EXPECT_EQ(header[1], 0xd8);
+  EXPECT_EQ(header[2], 0xff);
+  const auto decoded = cv::imread(path.string(), cv::IMREAD_UNCHANGED);
+  EXPECT_EQ(decoded.size(), cv::Size(6, 4));
+  EXPECT_EQ(decoded.type(), CV_8UC3);
+}
+
+TEST_F(LivoExporterTest, DebugImageEncodingFailureReportsThePath) {
+  LivoExporter writer(options_);
+  auto result = Result();
+  result.debug_images.push_back(
+      {"unsupported.invalid", cv::Mat(2, 3, CV_8UC1, cv::Scalar(42))});
+  const auto path = options_.directory / "ref_cur_combine/unsupported.invalid";
+  try {
+    writer.Write(result, Colors());
+    FAIL() << "Expected an unsupported image format to fail";
+  } catch (const std::runtime_error& error) {
+    EXPECT_NE(std::string(error.what()).find(path.string()), std::string::npos);
+  }
+  EXPECT_FALSE(fs::exists(path));
+  EXPECT_THROW(writer.Write(result, Colors()), std::logic_error);
+  EXPECT_THROW(writer.Finish(), std::runtime_error);
+}
+
+TEST_F(LivoExporterTest, ReportsPngCloseFailureAndKeepsTheWriterFailed) {
+#ifdef __linux__
+  options_.images = true;
+  options_.calibration.camera = {"Pinhole", 24, 24, 1, 12, 12, 11.5, 11.5, {}};
+  auto result = Result(UpdateKind::kVisual);
+  cv::RNG random(123);
+  random.fill(result.color_image, cv::RNG::UNIFORM, 0, 256);
+  auto control = options_;
+  control.directory = root_ / "unrestricted";
+  {
+    LivoExporter writer(control);
+    writer.Write(result, Colors());
+    writer.Finish();
+  }
+  const auto name = "image/100.250000.png";
+  ASSERT_GT(fs::file_size(control.directory / name), 1500u);
+  const auto image = cv::imread((control.directory / name).string());
+  ASSERT_FALSE(image.empty());
+  EXPECT_EQ(cv::norm(image, result.color_image, cv::NORM_INF), 0);
+  LivoExporter writer(options_);
+  cv::setNumThreads(1);
+  const auto child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    std::signal(SIGXFSZ, SIG_IGN);
+    const rlimit limit{1500, 1500};
+    if (setrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(3);
+    try {
+      writer.Write(result, Colors());
+    } catch (const std::runtime_error& error) {
+      const auto path = options_.directory / name;
+      if (std::string(error.what()).find(path.string()) == std::string::npos)
+        _exit(4);
+      try {
+        writer.Write(result, Colors());
+        _exit(5);
+      } catch (const std::logic_error&) {
+      }
+      try {
+        writer.Finish();
+        _exit(6);
+      } catch (const std::runtime_error&) {
+      }
+      _exit(0);
+    }
+    _exit(2);
+  }
+  int status = 0;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 0);
+  EXPECT_TRUE(ReadRows(options_.directory / "image/image_poses.txt").empty());
+#else
+  GTEST_SKIP() << "RLIMIT_FSIZE fault injection requires Linux";
+#endif
 }
 
 TEST_F(LivoExporterTest, FinishIsIdempotentAndRejectsFurtherWrites) {

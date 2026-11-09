@@ -21,6 +21,17 @@
 17. [接入进一步收敛设计](superpowers/specs/2026-10-25-ros-convergence-design.md)、[实施计划](superpowers/plans/2026-10-25-ros-convergence.md)及[实测与迁移](p4-convergence-validation.md)：main注入同一普通MappingSession、共用参数清单、对称ROS接入职责与独立runtime安装。
 18. VIO 独立修复：[缓存均值](vio-cached-mean-fix.md)、[图像采样边界](vio-sampling-bounds-fix.md)。
 19. [命名与职责整理设计](superpowers/specs/2026-10-25-naming-cleanup-design.md)、[实施计划](superpowers/plans/2026-10-25-naming-cleanup.md)、[迁移清单](naming-audit.md)及[当前验证](p4-naming-validation.md)：core/common、LivoSystem与对称ROS节点、旧兼容层移除、着色和导出职责归类；保留六个指定类型名。
+20. [P5-01 关键帧设计](superpowers/specs/2026-10-26-p5-keyframes-design.md)、[实施计划](superpowers/plans/2026-10-26-p5-keyframes.md)、[数据集与使用说明](keyframe-dataset.md)及[验证记录](p5-01-validation.md)：独立快照、目录式存储与原始/优化位姿版本。
+21. [P5-02 子地图设计](superpowers/specs/2026-10-29-p5-submaps-design.md)、[实施计划](superpowers/plans/2026-10-29-p5-submaps.md)、[子地图说明](submap-dataset.md)和[验证记录](p5-02-validation.md)：稳定分组、持久成员索引及按逐帧版本重建几何。
+
+22. [P5-03 离线导出设计](superpowers/specs/2026-10-30-p5-colmap-export-design.md)、[实施计划](superpowers/plans/2026-10-30-p5-colmap-export.md)、[使用说明](colmap-export.md)和[验证记录](p5-03-validation.md)：按选定位姿版本导出居中针孔图像、相机与带颜色LiDAR种子，保留原数据。
+23. [P5-04可靠性设计](superpowers/specs/2026-10-31-p5-reliability-design.md)、[实施计划](superpowers/plans/2026-10-31-p5-reliability.md)和[验证记录](p5-04-validation.md)：检查图片写入与关闭、定位大小核数值差异和图像历史淘汰，补齐视觉缓存所有权与重复/耐久验证。
+24. [完整 SLAM 与在线 3DGS 子地图调研](online-3dgs-submap-research.md)：截至 2026-11-08 的论文和官方实现核对、候选架构、闭环地图修正及当前接口差距；属于研究建议，尚未实施。
+25. [在线子地图设计](superpowers/specs/2026-11-08-online-submaps-design.md)：共享观测、局部坐标、生命周期、版本化位姿与高斯修正契约；首个实施范围限定为 P6-01 数据与接口基础。
+26. [P6-01 实施计划](superpowers/plans/2026-11-08-p6-01-online-submaps.md)：在线分组、位姿快照、不可变索引、拥有观测交付及双 ROS 验收的六个任务；已完成，证据见下方验证记录。
+27. [P6-01 实施进度与验证](p6-01-validation.md)：P6-01最终验收、三种普通构建、双ROS完整bag及已知边界；[在线子地图使用说明](online-submap-dataset.md)介绍配置、检查和离线兼容出口。
+28. [P6-01 之后的阶段路线](superpowers/specs/2026-11-08-online-submaps-design.md#p6-01-之后的阶段路线)：先完成几何子地图，再依次接入 GTSAM 位姿图、真实回环、在线 Gaussian mapping 和可选高斯辅助估计；各阶段编码前先细化设计与验收。
+29. [移除 Pimpl 设计](superpowers/specs/2026-11-10-remove-pimpl-design.md)、[实施计划](superpowers/plans/2026-11-10-remove-pimpl.md)及[验证记录](pimpl-removal-validation.md)：移除现有 8 处 Pimpl，恢复普通类的私有成员与直接方法实现；双 ROS、普通 SDK 及配对 bag 已完成验收。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
@@ -39,6 +50,26 @@ Noetic172项单元/8项真实ROS/50项启动、Humble188项C++/16项启动通过
 普通152、Noetic172单元/8真实ROS/50启动、Humble188单元/16启动及39个普通头通过；
 三种普通SDK和ament安装消费通过，两端完整bag各1351位姿、四数组/发布精确保持，短段各57文件逐字节一致。
 当前入口与跨电脑迁移见[命名整理报告](p4-naming-validation.md)。历史报告中的runtime等名称保留其原始记录。
+
+P5-01 已加入默认关闭的关键帧选择、独立快照、数据集保存/重读和优化位姿版本。
+普通180、Noetic200单元/8真实ROS、Humble216项及42个普通公开头通过，三种SDK及ament迁移消费通过。
+两端开启关键帧的完整bag各1351位姿、172个带图像关键帧；四数组/发布保持精确一致，短段各57个原有产品逐字节一致。
+Humble数据集经Noetic构建的C++读者完整消费。格式和操作见[数据集说明](keyframe-dataset.md)，
+具体证据见[P5-01报告](p5-01-validation.md)。
+
+P5-02 已完成默认关闭的子地图分组、成员索引和选定位姿版本下的几何重建，补齐前轮输入错误路径信息。
+普通205、Noetic225单元/8真实ROS、Humble241项及44个普通头通过；SDK和ament迁移消费通过。
+两端完整172个关键帧各形成9组，四数组/发布及原有关键帧资产保持一致，短段各57旧产品逐字节一致。
+实际副本的逐帧位姿修正改变组内几何且不修改原资产；使用与证据见[子地图说明](submap-dataset.md)和[P5-02报告](p5-02-validation.md)。
+
+P5-03 已提供普通C++离线COLMAP导出和安装CLI，支持原始/优化位姿版本、居中去畸变图像与带颜色LiDAR种子。
+普通230、Noetic250单元/8真实ROS、Humble266项及45个普通头通过；SDK/ament迁移消费与两端完整bag精确回归通过。
+官方COLMAP/3DGS格式读取代码实际消费六组导出；使用、范围与未定因回放异常见[导出说明](colmap-export.md)和[P5-03报告](p5-03-validation.md)。
+
+P5-04 已补齐历史图像写入/关闭错误，配置有界发布历史，修复两条视觉分配所有权路径；实测结果见[可靠性报告](p5-04-validation.md)。
+两端各三次正常参考的完整1倍速回放严格通过，另两次启动变体由冻结旧库精确复现并单列保留。
+原版负坐标视觉索引不一致导致重复建点和图像保留，本轮明确尚未修复；正坐标固定工作集连续处理不能证明一般地图内存有界。
+整阶段独立评审无新增重要回归，1项模块启动Minor延期；完整历史bundle及恢复核对见报告。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
 2026-10-11 的原版采集结果位于工作区 `validation/P0-noetic-20261011/`。

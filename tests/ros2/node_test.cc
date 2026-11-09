@@ -14,7 +14,9 @@
 #include "ros2/fixtures.h"
 namespace livo_atlas::ros2 {
 TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
-  auto params = test::Parameters("/tmp/livo_atlas_naming/tests/dds");
+  auto params = test::Parameters(
+      (std::filesystem::temp_directory_path() / "livo_atlas_tests/dds")
+          .string());
   params.emplace_back("common.img_en", 0);
   params.emplace_back("common.imu_topic", "/p4_test/imu");
   params.emplace_back("common.lid_topic", "/p4_test/lidar");
@@ -95,7 +97,9 @@ TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
 
 namespace livo_atlas::ros2 {
 TEST(Ros2NodeTest, PublishesFromTheInjectedSystem) {
-  auto params = test::Parameters("/tmp/livo_atlas_naming/tests/injected");
+  auto params = test::Parameters(
+      (std::filesystem::temp_directory_path() / "livo_atlas_tests/injected")
+          .string());
   params.emplace_back("common.img_en", 0);
   params.emplace_back("preprocess.point_filter_num", 1);
   auto node = std::make_shared<rclcpp::Node>(
