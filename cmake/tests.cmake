@@ -104,3 +104,8 @@ livo_atlas_test(online_submap_manager_test tests/core/online_submap_manager_test
 target_include_directories(online_submap_manager_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 livo_atlas_test(geometry_system_test tests/core/geometry_system_test.cc)
 target_link_libraries(livo_system_test livo_atlas::core)
+
+if(LIVO_ATLAS_WITH_GTSAM)
+  livo_atlas_test(pose_graph_test tests/backend/pose_graph_test.cc)
+  target_link_libraries(pose_graph_test livo_atlas::backend)
+endif()

@@ -4,16 +4,24 @@ if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
 endif()
 # External catkin projects receive library files, not the original targets.
 # Keep dependents before dependencies for static linking as well.
+set(livo_atlas_optional_libraries)
+set(livo_atlas_optional_extras)
+if(LIVO_ATLAS_WITH_GTSAM)
+  list(APPEND livo_atlas_optional_libraries livo_atlas_backend)
+  list(APPEND livo_atlas_optional_extras catkin_backend.cmake)
+endif()
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES livo_atlas_core livo_atlas_frontend livo_atlas_colorizer livo_atlas_io
+  LIBRARIES ${livo_atlas_optional_libraries}
+    livo_atlas_core livo_atlas_frontend livo_atlas_colorizer livo_atlas_io
     livo_atlas_geometry livo_atlas_keyframes
     livo_atlas_vio livo_atlas_lio livo_atlas_imu livo_atlas_synchronization
     livo_atlas_preprocess livo_atlas_camera livo_atlas_calibration
     ${livo_atlas_runtime_libraries}
   CATKIN_DEPENDS geometry_msgs nav_msgs sensor_msgs roscpp rospy std_msgs
     pcl_ros tf message_runtime cv_bridge image_transport visualization_msgs
-  DEPENDS PCL OpenCV Sophus)
+  DEPENDS PCL OpenCV Sophus
+  CFG_EXTRAS ${livo_atlas_optional_extras})
 
 add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
 target_include_directories(livo_atlas_ros1_conversions PUBLIC ${catkin_INCLUDE_DIRS})
