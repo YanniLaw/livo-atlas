@@ -1,9 +1,9 @@
 #include "livo_atlas/mapping/pose_snapshot.h"
 
-#include <gtest/gtest.h>
-
 #include <limits>
 #include <stdexcept>
+
+#include <gtest/gtest.h>
 
 namespace livo_atlas {
 namespace {
@@ -12,6 +12,7 @@ std::vector<RigidTransform> Raw(int count) {
   for (int i = 0; i < count; ++i) poses[i].translation.x() = i;
   return poses;
 }
+
 PoseUpdate Update(std::uint64_t base, int count) {
   PoseUpdate update;
   update.base_version = base;
@@ -23,6 +24,7 @@ PoseUpdate Update(std::uint64_t base, int count) {
   }
   return update;
 }
+
 TEST(PoseSnapshotTest, TailExtensionKeepsFrozenPrefix) {
   const auto frozen = MakePoseSnapshot(Update(0, 2), {}, Raw(3));
   EXPECT_EQ(frozen.frame_count, 3u);
@@ -37,6 +39,7 @@ TEST(PoseSnapshotTest, TailExtensionKeepsFrozenPrefix) {
   EXPECT_THROW(MaterializePoseSnapshot(frozen, Raw(4), 5),
                std::invalid_argument);
 }
+
 TEST(PoseSnapshotTest, NewFramesDoNotStaleBaseVersion) {
   const auto frozen = MakePoseSnapshot(Update(0, 2), {}, Raw(3));
   const auto next = MakePoseSnapshot(Update(1, 3), frozen, Raw(5));
@@ -46,6 +49,7 @@ TEST(PoseSnapshotTest, NewFramesDoNotStaleBaseVersion) {
     EXPECT_THROW(MakePoseSnapshot(invalid, frozen, Raw(5)),
                  std::invalid_argument);
 }
+
 TEST(PoseSnapshotTest, VersionZeroHasNoTailAnchor) {
   ValidatePoseSnapshot({});
   const auto raw = MaterializePoseSnapshot({}, Raw(3), 3);
@@ -54,6 +58,7 @@ TEST(PoseSnapshotTest, VersionZeroHasNoTailAnchor) {
   EXPECT_DOUBLE_EQ(raw.poses[2].map_from_body.translation.x(), 2);
   EXPECT_TRUE(MaterializePoseSnapshot(raw, Raw(3), 0).poses.empty());
 }
+
 TEST(PoseSnapshotTest, InvalidSnapshotRejected) {
   const auto valid = MakePoseSnapshot(Update(0, 2), {}, Raw(3));
   for (int fault = 0; fault < 9; ++fault) {
@@ -85,5 +90,93 @@ TEST(PoseSnapshotTest, InvalidSnapshotRejected) {
   EXPECT_THROW(MaterializePoseSnapshot(valid, bad_raw, 3),
                std::invalid_argument);
 }
+
+TEST(PoseSnapshotTest, ProjectedTailHandlesValidApproximateRotations) {
+  auto raw = Raw(2);
+  raw[0].rotation(0, 0) = 1.000045;
+  raw[1].rotation(0, 0) = 1.000045;
+  raw[1].translation.x() = 1000;
+  ASSERT_TRUE(ValidateExtrinsic(raw[0]).empty());
+  ASSERT_TRUE(ValidateExtrinsic(raw[1]).empty());
+
+  PoseUpdate update;
+  update.optimized_frame_count = 1;
+  update.poses.push_back({0, {}});
+  EXPECT_THROW(MakePoseSnapshot(update, {}, raw), std::invalid_argument);
+
+  update.tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  const auto snapshot = MakePoseSnapshot(update, {}, raw);
+  EXPECT_EQ(snapshot.tail_policy, update.tail_policy);
+  ASSERT_EQ(snapshot.poses.size(), 2u);
+  EXPECT_TRUE(ValidateExtrinsic(snapshot.poses[1].map_from_body).empty());
+  EXPECT_NEAR(snapshot.poses[1].map_from_body.translation.x(), 1000, 1e-10);
+  EXPECT_NEAR(snapshot.poses[1].map_from_body.rotation(0, 0), 1, 1e-12);
+  EXPECT_DOUBLE_EQ(raw[0].rotation(0, 0), 1.000045);
+  EXPECT_DOUBLE_EQ(raw[1].rotation(0, 0), 1.000045);
+
+  auto grown_raw = raw;
+  grown_raw.push_back(raw[1]);
+  grown_raw.back().translation.x() = 2000;
+  const auto grown = MaterializePoseSnapshot(snapshot, grown_raw, 3);
+  EXPECT_NEAR(grown.poses[2].map_from_body.translation.x(), 2000, 1e-10);
+  EXPECT_EQ(snapshot.frame_count, 2u);
+}
+
+TEST(PoseSnapshotTest, ProjectedTailUsesOneRigidCorrection) {
+  auto raw = Raw(2);
+  Eigen::Matrix3d rz;
+  rz << 0, -1, 0, 1, 0, 0, 0, 0, 1;
+  Eigen::Matrix3d rx;
+  rx << 1, 0, 0, 0, 0, -1, 0, 1, 0;
+  Eigen::Matrix3d ry;
+  ry << 0, 0, 1, 0, 1, 0, -1, 0, 0;
+  const Eigen::Matrix3d stretch = Eigen::Vector3d(1.000045, 1, 1).asDiagonal();
+  raw[0].rotation = rz * stretch;
+  raw[0].translation = Eigen::Vector3d(1, 2, 0);
+  raw[1].rotation = rx * stretch;
+  raw[1].translation = Eigen::Vector3d(2, 4, 3);
+
+  PoseUpdate update;
+  update.optimized_frame_count = 1;
+  update.tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  update.poses.push_back({0, {ry, Eigen::Vector3d(4, -1, 2)}});
+  const auto snapshot = MakePoseSnapshot(update, {}, raw);
+  const auto& tail = snapshot.poses[1].map_from_body;
+  Eigen::Matrix3d expected_rotation;
+  expected_rotation << 0, 1, 0, -1, 0, 0, 0, 0, 1;
+  EXPECT_TRUE(tail.rotation.isApprox(expected_rotation, 1e-12));
+  EXPECT_TRUE(tail.translation.isApprox(Eigen::Vector3d(7, -2, 0), 1e-12));
+}
+
+TEST(PoseSnapshotTest, ProjectedTailRejectsStretchedFrozenPose) {
+  auto raw = Raw(2);
+  PoseUpdate update;
+  update.optimized_frame_count = 1;
+  update.tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  update.poses.push_back({0, {}});
+  auto snapshot = MakePoseSnapshot(update, {}, raw);
+  snapshot.poses[1].map_from_body.rotation(0, 0) = 1.00004;
+  ASSERT_TRUE(ValidateExtrinsic(snapshot.poses[1].map_from_body).empty());
+  EXPECT_THROW(MaterializePoseSnapshot(snapshot, raw, 2),
+               std::invalid_argument);
+
+  auto version_zero = MaterializePoseSnapshot({}, raw, 2);
+  version_zero.tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  EXPECT_THROW(ValidatePoseSnapshot(version_zero), std::invalid_argument);
+}
+
+TEST(PoseSnapshotTest, ProjectedUpdateNormalizesItsOwnPoseCopies) {
+  const auto raw = Raw(2);
+  PoseUpdate update;
+  update.optimized_frame_count = 1;
+  update.tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  update.poses.push_back({0, {}});
+  update.poses[0].map_from_body.rotation(0, 0) = 1.000045;
+  const auto snapshot = MakePoseSnapshot(update, {}, raw);
+  EXPECT_NEAR(snapshot.poses[0].map_from_body.rotation(0, 0), 1, 1e-12);
+  EXPECT_NEAR(snapshot.poses[1].map_from_body.translation.x(), 1, 1e-12);
+  EXPECT_DOUBLE_EQ(update.poses[0].map_from_body.rotation(0, 0), 1.000045);
+}
+
 }  // namespace
 }  // namespace livo_atlas

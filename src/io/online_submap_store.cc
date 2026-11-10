@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include "dataset_metadata.h"
+
 namespace livo_atlas {
 namespace {
 namespace fs = std::filesystem;
@@ -28,6 +29,18 @@ std::vector<std::uint64_t> Entries(const fs::path& path, bool directories) {
 void Schema(const cv::FileStorage& yaml) {
   if (!yaml.isOpened() || meta::Integer(yaml["schema_version"]) != 1)
     throw std::invalid_argument("Unsupported online submap schema");
+}
+
+PoseTailPolicy PoseSchema(const cv::FileStorage& yaml) {
+  if (!yaml.isOpened())
+    throw std::invalid_argument("Cannot read online pose schema");
+  const auto schema = meta::Integer(yaml["schema_version"]);
+  const auto policy = meta::String(yaml["tail_policy"]);
+  if (schema == 1 && policy == "last_optimized_anchor")
+    return PoseTailPolicy::kLegacyLastOptimizedAnchor;
+  if (schema == 2 && policy == "last_optimized_anchor_projected")
+    return PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  throw std::invalid_argument("Unsupported online pose schema or tail policy");
 }
 
 void WriteIds(cv::FileStorage& yaml, const char* name,
@@ -295,18 +308,18 @@ PoseSnapshot OnlineSubmapStore::ReadPoseFile(std::uint64_t version) const {
   const auto path = directory_ / "poses" / (std::to_string(version) + ".yml");
   try {
     auto yaml = meta::ReadYaml(path);
-    Schema(yaml);
+    const auto tail_policy = PoseSchema(yaml);
     PoseSnapshot snapshot;
     snapshot.version = meta::Id(yaml["version"]);
     snapshot.base_version = meta::Id(yaml["base_version"]);
     snapshot.frame_count = meta::Id(yaml["frame_count"]);
     snapshot.optimized_frame_count = meta::Id(yaml["optimized_frame_count"]);
     snapshot.parent_frame = PoseFrame::kMap;
+    snapshot.tail_policy = tail_policy;
     if (!version || snapshot.version != version ||
         snapshot.frame_count > keyframes_.ids().size() ||
         snapshot.optimized_frame_count == 0 ||
         meta::String(yaml["parent_frame"]) != "map" ||
-        meta::String(yaml["tail_policy"]) != "last_optimized_anchor" ||
         meta::Id(yaml["tail_anchor_keyframe_id"]) !=
             snapshot.optimized_frame_count - 1)
       meta::Fail(path, "Invalid frozen pose header");
@@ -360,14 +373,17 @@ void OnlineSubmapStore::WritePoseSnapshot(const PoseSnapshot& snapshot) {
         path.parent_path() / (".pending-" + path.filename().string());
     if (fs::exists(pending)) meta::Fail(pending, "Pending pose already exists");
     meta::WriteYaml(pending, [&](auto& yaml) {
-      yaml << "schema_version" << 1 << "version"
+      const bool projected =
+          snapshot.tail_policy == PoseTailPolicy::kProjectedLastOptimizedAnchor;
+      yaml << "schema_version" << (projected ? 2 : 1) << "version"
            << std::to_string(snapshot.version) << "base_version"
            << std::to_string(snapshot.base_version) << "parent_frame"
            << "map"
            << "frame_count" << std::to_string(snapshot.frame_count)
            << "optimized_frame_count"
            << std::to_string(snapshot.optimized_frame_count) << "tail_policy"
-           << "last_optimized_anchor"
+           << (projected ? "last_optimized_anchor_projected"
+                         : "last_optimized_anchor")
            << "tail_anchor_keyframe_id"
            << std::to_string(snapshot.optimized_frame_count - 1) << "poses"
            << "[";

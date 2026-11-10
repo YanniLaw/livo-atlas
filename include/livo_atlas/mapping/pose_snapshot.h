@@ -1,20 +1,32 @@
 #ifndef LIVO_ATLAS_MAPPING_POSE_SNAPSHOT_H_
 #define LIVO_ATLAS_MAPPING_POSE_SNAPSHOT_H_
+
 #include <cstdint>
 #include <vector>
 
 #include "livo_atlas/sensor/extrinsics.h"
+
 namespace livo_atlas {
+
+enum class PoseTailPolicy {
+  kLegacyLastOptimizedAnchor,
+  kProjectedLastOptimizedAnchor,
+};
+
 struct KeyframePose {
   std::uint64_t id = 0;
   RigidTransform map_from_body;
 };
+
 enum class PoseFrame { kOdom, kMap };
+
 struct PoseUpdate {
   std::uint64_t base_version = 0;
   std::uint64_t optimized_frame_count = 0;
   std::vector<KeyframePose> poses;
+  PoseTailPolicy tail_policy = PoseTailPolicy::kLegacyLastOptimizedAnchor;
 };
+
 // Share snapshots as const. In version zero map_from_body holds odom_from_body;
 // parent_frame, not the legacy field name, defines the coordinate frame.
 struct PoseSnapshot {
@@ -24,6 +36,7 @@ struct PoseSnapshot {
   std::uint64_t optimized_frame_count = 0;
   PoseFrame parent_frame = PoseFrame::kOdom;
   std::vector<KeyframePose> poses;
+  PoseTailPolicy tail_policy = PoseTailPolicy::kLegacyLastOptimizedAnchor;
 };
 void ValidatePoseSnapshot(const PoseSnapshot& snapshot);
 PoseSnapshot MaterializePoseSnapshot(

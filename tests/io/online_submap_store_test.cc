@@ -1,13 +1,15 @@
 #include "livo_atlas/io/online_submap_store.h"
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <fstream>
 #include <iterator>
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <opencv2/core/persistence.hpp>
+
 #include "mapping/keyframe_fixtures.h"
+
 namespace livo_atlas {
 namespace {
 namespace fs = std::filesystem;
@@ -28,7 +30,9 @@ class OnlineSubmapStoreTest : public testing::Test {
     path = root / "keyframes/online_submaps";
     Add(3);
   }
+
   void TearDown() override { fs::remove_all(root); }
+
   void Add(int count) {
     while (frames->ids().size() < static_cast<std::size_t>(count)) {
       auto frame =
@@ -60,6 +64,7 @@ TEST_F(OnlineSubmapStoreTest, RevisionsRoundTripAndRemainImmutable) {
   EXPECT_EQ(Bytes(path / "records/0/1.yml"), first);
   EXPECT_THROW(reader.AppendRevision(reader.Read(1)), std::logic_error);
 }
+
 TEST_F(OnlineSubmapStoreTest, RawPoseReadDoesNotLoadAssets) {
   auto frame = CaptureKeyframe(3, test_data::KeyframeResult());
   frames->Append(frame);
@@ -101,6 +106,7 @@ TEST_F(OnlineSubmapStoreTest, PartialCommitRemainsInspectable) {
   }
   EXPECT_EQ(OnlineSubmapStore(path, *frames).indexed_frame_count(), 2u);
 }
+
 TEST_F(OnlineSubmapStoreTest, FrozenPoseFileReproducesGrowingView) {
   OnlineSubmapStore writer(path, *frames, 2, {});
   PoseUpdate update;
@@ -127,6 +133,7 @@ TEST_F(OnlineSubmapStoreTest, FrozenPoseFileReproducesGrowingView) {
   EXPECT_THROW(writer.WritePoseSnapshot(snapshot), std::invalid_argument);
   EXPECT_THROW(frames->ReadPoses(1), std::runtime_error);
 }
+
 TEST_F(OnlineSubmapStoreTest, RejectsCorruptHistoryAndIgnoresPending) {
   OnlineSubmapStore writer(path, *frames, 2, {});
   OnlineSubmapBuilder builder(2, {});
@@ -138,6 +145,7 @@ TEST_F(OnlineSubmapStoreTest, RejectsCorruptHistoryAndIgnoresPending) {
   fs::remove(path / "records/0/2.yml");
   EXPECT_THROW((OnlineSubmapStore{path, *frames}), std::runtime_error);
 }
+
 TEST_F(OnlineSubmapStoreTest, InvalidInputDoesNotPoisonWriter) {
   OnlineSubmapStore writer(path, *frames, 2, {});
   OnlineSubmapBuilder builder(2, {});
@@ -151,6 +159,7 @@ TEST_F(OnlineSubmapStoreTest, InvalidInputDoesNotPoisonWriter) {
   for (const auto& revision : second) writer.AppendRevision(revision);
   EXPECT_EQ(writer.Read(0).membership_revision, 3u);
 }
+
 TEST_F(OnlineSubmapStoreTest, CorruptRecordsAreRejectedWithoutRepair) {
   OnlineSubmapStore writer(path, *frames, 2, {});
   OnlineSubmapBuilder builder(2, {});
@@ -179,6 +188,7 @@ TEST_F(OnlineSubmapStoreTest, CorruptRecordsAreRejectedWithoutRepair) {
   std::ofstream(record) << original;
   EXPECT_EQ(OnlineSubmapStore(path, *frames).size(), 1u);
 }
+
 TEST_F(OnlineSubmapStoreTest, FailedSealLeavesActiveRevision) {
   OnlineSubmapStore writer(path, *frames, 2, {});
   OnlineSubmapBuilder builder(2, {});
@@ -192,6 +202,7 @@ TEST_F(OnlineSubmapStoreTest, FailedSealLeavesActiveRevision) {
   EXPECT_EQ(reader.Read(0).state, OnlineSubmapState::kActive);
   EXPECT_EQ(reader.indexed_frame_count(), 2u);
 }
+
 TEST_F(OnlineSubmapStoreTest, FailedPoseCommitPreservesOldVersion) {
   OnlineSubmapStore writer(path, *frames, 2, {});
   std::vector<RigidTransform> raw;
@@ -223,6 +234,7 @@ TEST_F(OnlineSubmapStoreTest, FailedPoseCommitPreservesOldVersion) {
   std::ofstream(path / "poses/1.yml") << corrupt;
   EXPECT_THROW((OnlineSubmapStore{path, *frames}), std::runtime_error);
 }
+
 TEST_F(OnlineSubmapStoreTest, EmptyIndexAndExistingDirectoryAreProtected) {
   OnlineSubmapStore writer(path, *frames, 2, {});
   EXPECT_EQ(OnlineSubmapStore(path, *frames).size(), 0u);
@@ -233,5 +245,107 @@ TEST_F(OnlineSubmapStoreTest, EmptyIndexAndExistingDirectoryAreProtected) {
                std::invalid_argument);
   EXPECT_FALSE(fs::exists(root / "invalid"));
 }
+
+TEST_F(OnlineSubmapStoreTest, ReadsAndExtendsProjectedTailFile) {
+  { OnlineSubmapStore writer(path, *frames, 2, {}); }
+  const auto pose_file = path / "poses/1.yml";
+  std::ofstream(pose_file) << R"yaml(%YAML:1.0
+---
+schema_version: 2
+version: "1"
+base_version: "0"
+parent_frame: map
+frame_count: "3"
+optimized_frame_count: "1"
+tail_policy: last_optimized_anchor_projected
+tail_anchor_keyframe_id: "0"
+poses:
+  - id: "0"
+    map_from_body:
+      rotation: ["1", "0", "0", "0", "1", "0", "0", "0", "1"]
+      translation: ["10", "0", "0"]
+  - id: "1"
+    map_from_body:
+      rotation: ["1", "0", "0", "0", "1", "0", "0", "0", "1"]
+      translation: ["11", "0", "0"]
+  - id: "2"
+    map_from_body:
+      rotation: ["1", "0", "0", "0", "1", "0", "0", "0", "1"]
+      translation: ["12", "0", "0"]
+)yaml";
+  const auto bytes = Bytes(pose_file);
+  OnlineSubmapStore reader(path, *frames);
+  const auto snapshot = reader.ReadPoseSnapshot(1);
+  EXPECT_EQ(snapshot.version, 1u);
+  EXPECT_EQ(snapshot.frame_count, 3u);
+  EXPECT_EQ(snapshot.tail_policy,
+            PoseTailPolicy::kProjectedLastOptimizedAnchor);
+  EXPECT_DOUBLE_EQ(snapshot.poses[2].map_from_body.translation.x(), 12);
+  Add(4);
+  const auto grown = reader.MaterializePoseSnapshot(1, 4);
+  EXPECT_DOUBLE_EQ(grown.poses[3].map_from_body.translation.x(), 13);
+  EXPECT_EQ(Bytes(pose_file), bytes);
+}
+
+TEST_F(OnlineSubmapStoreTest, WritesProjectedTailAndPreservesLegacyVersion) {
+  OnlineSubmapStore writer(path, *frames, 2, {});
+  std::vector<RigidTransform> raw;
+  for (int i = 0; i < 3; ++i) raw.push_back(frames->ReadRawBodyPose(i));
+  PoseUpdate first;
+  first.optimized_frame_count = 1;
+  first.poses.push_back({0, {}});
+  const auto legacy = MakePoseSnapshot(first, {}, raw);
+  writer.WritePoseSnapshot(legacy);
+  const auto legacy_bytes = Bytes(path / "poses/1.yml");
+
+  PoseUpdate second;
+  second.base_version = 1;
+  second.optimized_frame_count = 2;
+  second.tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  second.poses.push_back({0, {}});
+  second.poses.push_back({1, raw[1]});
+  const auto projected = MakePoseSnapshot(second, legacy, raw);
+  writer.WritePoseSnapshot(projected);
+
+  const OnlineSubmapStore reader(path, *frames);
+  EXPECT_EQ(reader.ReadPoseSnapshot(1).tail_policy,
+            PoseTailPolicy::kLegacyLastOptimizedAnchor);
+  EXPECT_EQ(reader.ReadPoseSnapshot(2).tail_policy,
+            PoseTailPolicy::kProjectedLastOptimizedAnchor);
+  EXPECT_EQ(Bytes(path / "poses/1.yml"), legacy_bytes);
+  const cv::FileStorage file((path / "poses/2.yml").string(),
+                             cv::FileStorage::READ);
+  ASSERT_TRUE(file.isOpened());
+  EXPECT_EQ(static_cast<int>(file["schema_version"]), 2);
+  EXPECT_EQ(file["tail_policy"].string(), "last_optimized_anchor_projected");
+}
+
+TEST_F(OnlineSubmapStoreTest, RejectsMismatchedPoseSchemaAndPolicy) {
+  OnlineSubmapStore writer(path, *frames, 2, {});
+  std::vector<RigidTransform> raw;
+  for (int i = 0; i < 3; ++i) raw.push_back(frames->ReadRawBodyPose(i));
+  PoseUpdate update;
+  update.optimized_frame_count = 1;
+  update.poses.push_back({0, {}});
+  writer.WritePoseSnapshot(MakePoseSnapshot(update, {}, raw));
+  const auto pose_file = path / "poses/1.yml";
+  const auto legacy = Bytes(pose_file);
+  const auto schema_pos = legacy.find("schema_version: 1");
+  ASSERT_NE(schema_pos, std::string::npos);
+  auto mismatch = legacy;
+  mismatch.replace(schema_pos, std::string("schema_version: 1").size(),
+                   "schema_version: 2");
+  std::ofstream(pose_file) << mismatch;
+  EXPECT_THROW((OnlineSubmapStore{path, *frames}), std::runtime_error);
+
+  mismatch = legacy;
+  const auto policy_pos = mismatch.find("last_optimized_anchor");
+  ASSERT_NE(policy_pos, std::string::npos);
+  mismatch.replace(policy_pos, std::string("last_optimized_anchor").size(),
+                   "last_optimized_anchor_projected");
+  std::ofstream(pose_file) << mismatch;
+  EXPECT_THROW((OnlineSubmapStore{path, *frames}), std::runtime_error);
+}
+
 }  // namespace
 }  // namespace livo_atlas

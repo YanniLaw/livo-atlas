@@ -330,5 +330,18 @@ TEST(GeometryMapperTest, EvictedBlockUsesNewestOfMultiplePoseVersions) {
   }
 }
 
+TEST(GeometryMapperTest, RejectsChangingTailPolicyWithinVersion) {
+  GeometryMapper mapper({}, [](std::uint64_t) { return Cloud(0); });
+  const auto poses = Poses(2, 1);
+  mapper.Update({Group(0, {0, 1}, true)}, poses);
+  const auto original = mapper.GetSubmap(0);
+  auto changed = std::make_shared<PoseSnapshot>(*poses);
+  changed->tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  EXPECT_THROW(mapper.Update({}, changed), std::invalid_argument);
+  const auto after = mapper.GetSubmap(0);
+  EXPECT_EQ(after.pose_version, original.pose_version);
+  EXPECT_EQ(after.data, original.data);
+}
+
 }  // namespace
 }  // namespace livo_atlas

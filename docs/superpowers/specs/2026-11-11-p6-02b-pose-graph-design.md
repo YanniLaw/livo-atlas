@@ -154,6 +154,10 @@ C_tail = T_map_Bk(optimized) * inverse(P(O_k))
 T_map_Bj = C_tail * P(O_j),  j > k
 ```
 
+新策略的优化前缀也先在副本中逐帧通过现有 `1e-4` 校验并投影旋转，输入 `PoseUpdate` 不变。
+这样任意合法调用方都能得到真正的刚体校正；新策略快照和文件中的旋转要求正交及行列式误差
+不超过 `1e-9`。旧策略仍保持原有容差与计算。
+
 不能只在最后投影 `T_map_Bj` 的旋转：锚点到尾帧距离为 `L` 时，上述反例还会留下约
 `0.000045 L` 的平移误差。策略需要在 `PoseUpdate` 和 `PoseSnapshot` 中显式携带，并在同一版本
 保持不变。建议新增 `PoseTailPolicy`，取值为 `kLegacyLastOptimizedAnchor` 和

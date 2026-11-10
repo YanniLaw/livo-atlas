@@ -1,16 +1,47 @@
 #include "livo_atlas/mapping/pose_snapshot.h"
 
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 
+#include "common/rotation_projection.h"
 #include "pose_math.h"
+
 namespace livo_atlas {
+namespace {
+
+bool IsProjected(PoseTailPolicy policy) {
+  return policy == PoseTailPolicy::kProjectedLastOptimizedAnchor;
+}
+
+bool IsRigidRotation(const Eigen::Matrix3d& rotation) {
+  return (rotation.transpose() * rotation - Eigen::Matrix3d::Identity())
+                 .cwiseAbs()
+                 .maxCoeff() <= 1e-9 &&
+         std::abs(rotation.determinant() - 1) <= 1e-9;
+}
+
+RigidTransform ProjectPose(const RigidTransform& pose) {
+  pose_math::Validate(pose);
+  return {ProjectRotation(pose.rotation), pose.translation};
+}
+
+bool EqualProjectedPose(const RigidTransform& a, const RigidTransform& b) {
+  return (a.rotation - b.rotation).cwiseAbs().maxCoeff() <= 1e-9 &&
+         (a.translation - b.translation).norm() <= 1e-9;
+}
+
+}  // namespace
+
 void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
-  if (snapshot.frame_count != snapshot.poses.size() ||
+  if ((snapshot.tail_policy != PoseTailPolicy::kLegacyLastOptimizedAnchor &&
+       !IsProjected(snapshot.tail_policy)) ||
+      snapshot.frame_count != snapshot.poses.size() ||
       (snapshot.version == 0
            ? snapshot.base_version != 0 ||
                  snapshot.optimized_frame_count != 0 ||
-                 snapshot.parent_frame != PoseFrame::kOdom
+                 snapshot.parent_frame != PoseFrame::kOdom ||
+                 IsProjected(snapshot.tail_policy)
            : snapshot.base_version != snapshot.version - 1 ||
                  snapshot.optimized_frame_count == 0 ||
                  snapshot.optimized_frame_count > snapshot.frame_count ||
@@ -21,6 +52,10 @@ void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
       throw std::invalid_argument(
           "Pose snapshot IDs must be a complete ordered prefix");
     pose_math::Validate(snapshot.poses[i].map_from_body);
+    if (IsProjected(snapshot.tail_policy) &&
+        !IsRigidRotation(snapshot.poses[i].map_from_body.rotation)) {
+      throw std::invalid_argument("Projected pose rotation must be rigid");
+    }
   }
 }
 
@@ -35,11 +70,21 @@ PoseSnapshot MaterializePoseSnapshot(
   RigidTransform correction;
   if (frozen.version) {
     const auto anchor = frozen.optimized_frame_count - 1;
+    const auto anchor_pose = IsProjected(frozen.tail_policy)
+                                 ? ProjectPose(raw_poses[anchor])
+                                 : raw_poses[anchor];
     correction = pose_math::Compose(frozen.poses[anchor].map_from_body,
-                                    pose_math::Inverse(raw_poses[anchor]));
+                                    pose_math::Inverse(anchor_pose));
     for (auto i = frozen.optimized_frame_count; i < frozen.frame_count; ++i) {
-      if (!pose_math::Equal(frozen.poses[i].map_from_body,
-                            pose_math::Compose(correction, raw_poses[i])))
+      const auto raw = IsProjected(frozen.tail_policy)
+                           ? ProjectPose(raw_poses[i])
+                           : raw_poses[i];
+      const auto expected = pose_math::Compose(correction, raw);
+      const bool equal =
+          IsProjected(frozen.tail_policy)
+              ? EqualProjectedPose(frozen.poses[i].map_from_body, expected)
+              : pose_math::Equal(frozen.poses[i].map_from_body, expected);
+      if (!equal)
         throw std::invalid_argument(
             "Frozen pose tail does not follow its optimized anchor");
     }
@@ -52,8 +97,11 @@ PoseSnapshot MaterializePoseSnapshot(
   result.frame_count = frame_count;
   if (!frozen.version) result.poses.clear();
   result.poses.reserve(frame_count);
-  for (auto i = result.poses.size(); i < frame_count; ++i)
-    result.poses.push_back({i, pose_math::Compose(correction, raw_poses[i])});
+  for (auto i = result.poses.size(); i < frame_count; ++i) {
+    const auto raw = IsProjected(frozen.tail_policy) ? ProjectPose(raw_poses[i])
+                                                     : raw_poses[i];
+    result.poses.push_back({i, pose_math::Compose(correction, raw)});
+  }
   ValidatePoseSnapshot(result);
   return result;
 }
@@ -80,6 +128,12 @@ PoseSnapshot MakePoseSnapshot(const PoseUpdate& update,
   optimized.optimized_frame_count = update.optimized_frame_count;
   optimized.parent_frame = PoseFrame::kMap;
   optimized.poses = update.poses;
+  optimized.tail_policy = update.tail_policy;
+  if (IsProjected(optimized.tail_policy)) {
+    for (auto& pose : optimized.poses) {
+      pose.map_from_body = ProjectPose(pose.map_from_body);
+    }
+  }
   return MaterializePoseSnapshot(optimized, raw_poses, raw_poses.size());
 }
 }  // namespace livo_atlas

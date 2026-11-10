@@ -110,7 +110,8 @@ void GeometryMapper::Update(const std::vector<OnlineSubmap>& revisions,
     }
     if (poses->version == poses_->version) {
       if (poses->optimized_frame_count != poses_->optimized_frame_count ||
-          poses->parent_frame != poses_->parent_frame) {
+          poses->parent_frame != poses_->parent_frame ||
+          poses->tail_policy != poses_->tail_policy) {
         throw std::invalid_argument("Geometry pose version changed in place");
       }
       for (std::size_t i = 0; i < poses_->poses.size(); ++i) {
