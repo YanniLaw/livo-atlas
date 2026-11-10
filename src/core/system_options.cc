@@ -20,6 +20,17 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
                                 options.online_submaps);
   if (options.submaps.enabled && !options.keyframes.enabled)
     throw std::invalid_argument("submaps.enabled requires keyframes.enabled");
+  if (options.geometry.enabled) {
+    ValidateGeometryOptions(options.geometry);
+    if (!options.keyframes.enabled || !options.submaps.enabled ||
+        options.submap_mode != SubmapMode::kOnline ||
+        options.submaps.max_keyframes >
+            static_cast<int>(kMaxGeometryKeyframes)) {
+      throw std::invalid_argument(
+          "Geometry requires online submaps and at most 64 keyframes per "
+          "submap");
+    }
+  }
   const auto& front = options.frontend;
   const auto& imu = front.imu;
   const auto& visual = front.visual;

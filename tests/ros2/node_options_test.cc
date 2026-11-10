@@ -243,4 +243,24 @@ TEST(Ros2ParametersTest, ReadsOnlineSubmapModeAndValidatesBounds) {
   EXPECT_DOUBLE_EQ(config.livo.system.online_submaps.translation_threshold,
                    3.0);
 }
+
+TEST(Ros2ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
+  auto params = test::Parameters("/tmp/livo_atlas_geometry_parameters");
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  params.emplace_back("submaps.geometry.enabled", true);
+  params.emplace_back("submaps.geometry.voxel_size", 0.3);
+  params.emplace_back("submaps.geometry.max_resident_submaps", 4);
+  rclcpp::Node valid("geometry_valid",
+                     rclcpp::NodeOptions().parameter_overrides(params));
+  const auto options = ReadNodeOptions(valid).livo.system.geometry;
+  EXPECT_TRUE(options.enabled);
+  EXPECT_DOUBLE_EQ(options.voxel_size, 0.3);
+  EXPECT_EQ(options.max_resident_submaps, 4);
+  params.back() = rclcpp::Parameter("submaps.geometry.max_resident_submaps", 1);
+  rclcpp::Node invalid("geometry_invalid",
+                       rclcpp::NodeOptions().parameter_overrides(params));
+  EXPECT_THROW(ReadNodeOptions(invalid), std::exception);
+}
 }  // namespace livo_atlas::ros2

@@ -64,7 +64,7 @@ LivoSystem::LivoSystem(SystemOptions options)
               ? std::make_unique<OnlineSubmapManager>(
                     options_.exporter.directory / "keyframes/online_submaps",
                     *keyframe_store_, options_.submaps.max_keyframes,
-                    options_.online_submaps)
+                    options_.online_submaps, options_.geometry)
               : nullptr),
       writer_(options_.exporter) {
   const auto& pre = options_.preprocess;
@@ -204,6 +204,15 @@ void LivoSystem::SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
 void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
   if (submap_error_) std::rethrow_exception(submap_error_);
   Online().ApplyPoseUpdate(update);
+}
+
+GeometrySubmap LivoSystem::GetGeometrySubmap(std::uint64_t id) {
+  if (submap_error_) std::rethrow_exception(submap_error_);
+  return Online().GetGeometrySubmap(id);
+}
+
+GeometryCacheStats LivoSystem::GetGeometryStats() const {
+  return Online().GetGeometryStats();
 }
 
 OnlineSubmapManager& LivoSystem::Online() const {

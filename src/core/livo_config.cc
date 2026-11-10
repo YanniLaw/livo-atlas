@@ -68,6 +68,27 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
     throw std::invalid_argument(
         "submaps.mode must be keyframe_groups or online");
   }
+  auto& geometry = options.geometry;
+  geometry.enabled =
+      reader.Boolean("submaps.geometry.enabled", geometry.enabled);
+  if (geometry.enabled) {
+    geometry.voxel_size =
+        reader.Number("submaps.geometry.voxel_size", geometry.voxel_size);
+    geometry.min_points_per_voxel = reader.Integer(
+        "submaps.geometry.min_points_per_voxel", geometry.min_points_per_voxel);
+    geometry.max_plane_rms =
+        reader.Number("submaps.geometry.max_plane_rms", geometry.max_plane_rms);
+    geometry.max_plane_ratio = reader.Number("submaps.geometry.max_plane_ratio",
+                                             geometry.max_plane_ratio);
+    geometry.max_voxels_per_submap =
+        reader.Integer("submaps.geometry.max_voxels_per_submap",
+                       geometry.max_voxels_per_submap);
+    geometry.max_points_per_keyframe =
+        reader.Integer("submaps.geometry.max_points_per_keyframe",
+                       geometry.max_points_per_keyframe);
+    geometry.max_resident_submaps = reader.Integer(
+        "submaps.geometry.max_resident_submaps", geometry.max_resident_submaps);
+  }
   config.lidar_topic = reader.String("common.lid_topic", config.lidar_topic);
   config.imu_topic = reader.String("common.imu_topic", config.imu_topic);
   options.driver_fix =

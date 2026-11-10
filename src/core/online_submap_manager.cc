@@ -1,14 +1,30 @@
-#include "online_submap_manager.h"
-
+#include <chrono>
+#include <iomanip>
+#include <iostream>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
+
+#include "online_submap_manager.h"
 namespace livo_atlas {
 OnlineSubmapManager::OnlineSubmapManager(const std::filesystem::path& directory,
                                          KeyframeStore& keyframes,
                                          int max_keyframes,
-                                         OnlineSubmapOptions options)
+                                         OnlineSubmapOptions options,
+                                         GeometryOptions geometry)
     : builder_(max_keyframes, options),
-      store_(directory, keyframes, max_keyframes, options) {}
+      store_(directory, keyframes, max_keyframes, options),
+      geometry_(
+          geometry.enabled
+              ? std::make_unique<GeometryMapper>(
+                    geometry,
+                    [&keyframes, limit = geometry.max_points_per_keyframe](
+                        std::uint64_t id) {
+                      return keyframes.ReadBodyCloud(id, limit);
+                    })
+              : nullptr) {}
+
 void OnlineSubmapManager::RethrowFailure() const {
   if (failure_) std::rethrow_exception(failure_);
 }
@@ -36,9 +52,43 @@ std::shared_ptr<const PoseSnapshot> OnlineSubmapManager::GetPoseSnapshot()
 }
 
 void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {
-  if (!callback_) return;
+  if (!callback_ && !geometry_) return;
+  const auto start = std::chrono::steady_clock::now();
   update.poses = GetPoseSnapshot();
-  callback_(update);
+  if (geometry_) {
+    geometry_->Update(update.revisions, update.poses, update.keyframe.get());
+    const auto total =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+            .count();
+    const auto stats = geometry_->GetStats();
+    std::ostringstream message;
+    message.imbue(std::locale::classic());
+    message << std::setprecision(17) << "geometry_total_seconds=" << total
+            << " geometry_update_seconds=" << stats.last_update_seconds
+            << " geometry_cloud_read_seconds=" << stats.last_cloud_read_seconds
+            << " geometry_full_build_seconds=" << stats.last_full_build_seconds
+            << " geometry_snapshot_seconds=" << stats.last_snapshot_seconds;
+    std::cout << message.str() << std::endl;
+  }
+  if (callback_) callback_(update);
+}
+
+GeometrySubmap OnlineSubmapManager::GetGeometrySubmap(std::uint64_t id) {
+  if (!geometry_) throw std::logic_error("Geometry submaps are not enabled");
+  RethrowFailure();
+  if (id >= store_.size())
+    throw std::out_of_range("Unknown geometry submap ID");
+  try {
+    return geometry_->GetSubmap(id);
+  } catch (...) {
+    failure_ = std::current_exception();
+    throw;
+  }
+}
+
+GeometryCacheStats OnlineSubmapManager::GetGeometryStats() const {
+  if (!geometry_) throw std::logic_error("Geometry submaps are not enabled");
+  return geometry_->GetStats();
 }
 
 void OnlineSubmapManager::AppendCommittedKeyframe(

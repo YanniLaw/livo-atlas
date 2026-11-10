@@ -204,5 +204,20 @@ TEST_F(Ros1ParametersTest, ReadsOnlineSubmapModeAndValidatesBounds) {
   node_->setParam("submaps/mode", "unknown");
   EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
 }
+
+TEST_F(Ros1ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  node_->setParam("submaps/geometry/enabled", true);
+  node_->setParam("submaps/geometry/voxel_size", 0.3);
+  node_->setParam("submaps/geometry/max_resident_submaps", 4);
+  const auto options = ReadNodeOptions(*node_).livo.system.geometry;
+  EXPECT_TRUE(options.enabled);
+  EXPECT_DOUBLE_EQ(options.voxel_size, 0.3);
+  EXPECT_EQ(options.max_resident_submaps, 4);
+  node_->setParam("submaps/geometry/max_resident_submaps", 1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+}
 }  // namespace
 }  // namespace livo_atlas::ros1
