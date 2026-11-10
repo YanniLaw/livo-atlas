@@ -1,11 +1,11 @@
-#include <gtest/gtest.h>
+#include "livo_atlas/mapping/geometry_mapper.h"
 
-#include <Eigen/Geometry>
 #include <memory>
 #include <stdexcept>
 #include <vector>
 
-#include "livo_atlas/mapping/geometry_mapper.h"
+#include <Eigen/Geometry>
+#include <gtest/gtest.h>
 
 namespace livo_atlas {
 namespace {

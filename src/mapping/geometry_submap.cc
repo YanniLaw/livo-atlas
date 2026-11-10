@@ -1,4 +1,5 @@
-#include <Eigen/Eigenvalues>
+#include "livo_atlas/mapping/geometry_submap.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -7,7 +8,7 @@
 #include <tuple>
 #include <utility>
 
-#include "livo_atlas/mapping/geometry_submap.h"
+#include <Eigen/Eigenvalues>
 
 namespace livo_atlas {
 namespace {

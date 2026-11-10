@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include "livo_atlas/io/geometry_exporter.h"
 
 #if defined(__unix__)
 #include <sys/resource.h>
@@ -12,10 +12,11 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
-#include <opencv2/core/persistence.hpp>
 #include <string>
 
-#include "livo_atlas/io/geometry_exporter.h"
+#include <gtest/gtest.h>
+#include <opencv2/core/persistence.hpp>
+
 #include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/io/online_submap_store.h"
 #include "mapping/keyframe_fixtures.h"

@@ -1,9 +1,11 @@
-#include <gtest/gtest.h>
+#include "livo_atlas/core/livo_system.h"
 
 #include <filesystem>
 
+#include <gtest/gtest.h>
+
 #include "core/system_observations.h"
-#include "livo_atlas/core/livo_system.h"
+
 namespace livo_atlas {
 namespace {
 

@@ -1,10 +1,11 @@
+#include "livo_atlas/mapping/geometry_mapper.h"
+
 #include <algorithm>
 #include <chrono>
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
-#include "livo_atlas/mapping/geometry_mapper.h"
 #include "pose_math.h"
 
 namespace livo_atlas {

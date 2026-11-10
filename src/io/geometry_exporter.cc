@@ -1,3 +1,5 @@
+#include "livo_atlas/io/geometry_exporter.h"
+
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -12,7 +14,6 @@
 #include <opencv2/core/persistence.hpp>
 
 #include "dataset_metadata.h"
-#include "livo_atlas/io/geometry_exporter.h"
 #include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/io/online_submap_store.h"
 #include "livo_atlas/mapping/geometry_mapper.h"

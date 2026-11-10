@@ -1,10 +1,10 @@
-#include <gtest/gtest.h>
+#include "livo_atlas/mapping/geometry_mapper.h"
 
 #include <atomic>
 #include <cstdlib>
 #include <new>
 
-#include "livo_atlas/mapping/geometry_mapper.h"
+#include <gtest/gtest.h>
 
 namespace {
 std::atomic<long> allocations_before_failure{-1};

@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include "livo_atlas/mapping/geometry_submap.h"
 
 #include <cmath>
 #include <cstdint>
@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "livo_atlas/mapping/geometry_submap.h"
+#include <gtest/gtest.h>
 
 namespace livo_atlas {
 namespace {

@@ -1,13 +1,14 @@
 #ifndef LIVO_ATLAS_MAPPING_GEOMETRY_SUBMAP_H_
 #define LIVO_ATLAS_MAPPING_GEOMETRY_SUBMAP_H_
 
-#include <Eigen/Core>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
 #include <vector>
+
+#include <Eigen/Core>
 
 #include "livo_atlas/mapping/online_submap.h"
 #include "livo_atlas/mapping/pose_snapshot.h"

@@ -1,3 +1,5 @@
+#include "online_submap_manager.h"
+
 #include <chrono>
 #include <exception>
 #include <iomanip>
@@ -7,7 +9,6 @@
 #include <stdexcept>
 #include <utility>
 
-#include "online_submap_manager.h"
 namespace livo_atlas {
 OnlineSubmapManager::OnlineSubmapManager(const std::filesystem::path& directory,
                                          KeyframeStore& keyframes,
