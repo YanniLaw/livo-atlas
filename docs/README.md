@@ -33,7 +33,7 @@
 28. [P6-01 之后的阶段路线](superpowers/specs/2026-11-08-online-submaps-design.md#p6-01-之后的阶段路线)：先完成几何子地图，再依次接入 GTSAM 位姿图、真实回环、在线 Gaussian mapping 和可选高斯辅助估计；各阶段编码前先细化设计与验收。
 29. [移除 Pimpl 设计](superpowers/specs/2026-11-10-remove-pimpl-design.md)、[实施计划](superpowers/plans/2026-11-10-remove-pimpl.md)及[验证记录](pimpl-removal-validation.md)：移除现有 8 处 Pimpl，恢复普通类的私有成员与直接方法实现；双 ROS、普通 SDK 及配对 bag 已完成验收。
 30. [P6-02a 几何子地图设计](superpowers/specs/2026-11-10-p6-02a-geometry-submaps-design.md)、[实施计划](superpowers/plans/2026-11-10-p6-02a-geometry-submaps.md)、[使用说明](geometry-submaps.md)与[验证记录](p6-02a-validation.md)：主成员体素统计、条件有效的面元、版本修正、有限缓存和显式导出已实现，双 ROS 回归与本阶段验收已完成。
-31. [P6-02b GTSAM 位姿图设计](superpowers/specs/2026-11-11-p6-02b-pose-graph-design.md)和[实施计划](superpowers/plans/2026-11-11-p6-02b-pose-graph.md)：可选批量优化、模拟回环和版本化几何交付的草案；尚未编码或验收。
+31. [P6-02b GTSAM 位姿图设计](superpowers/specs/2026-11-11-p6-02b-pose-graph-design.md)和[实施计划](superpowers/plans/2026-11-11-p6-02b-pose-graph.md)：可选批量优化、模拟回环和版本化几何交付；方案已确认，正在实施，尚未验收。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
