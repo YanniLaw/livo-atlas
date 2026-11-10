@@ -163,6 +163,23 @@ TEST_F(KeyframeStoreTest, ReadBodyCloudChecksLimitBeforePayloadAllocation) {
   EXPECT_THROW(reader.ReadBodyCloud(0, 1), std::runtime_error);
 }
 
+TEST_F(KeyframeStoreTest, ReadBodyCloudRejectsOversizedPointLayout) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0, false));
+  const auto path = directory_ / "frames/0/cloud.pcd";
+  {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << "VERSION .7\nFIELDS x y z intensity padding\n"
+              "SIZE 4 4 4 4 1\nTYPE F F F F U\n"
+              "COUNT 1 1 1 1 1048576\nWIDTH 1\nHEIGHT 1\n"
+              "VIEWPOINT 0 0 0 1 0 0 0\nPOINTS 1\nDATA binary\n";
+    output.seekp(16 + 1048576 - 1, std::ios::cur);
+    output.put('\0');
+  }
+  KeyframeStore reader(directory_);
+  EXPECT_THROW(reader.ReadBodyCloud(0, 1), std::runtime_error);
+}
+
 TEST_F(KeyframeStoreTest, RejectsPngCloseFailureWithoutCommittingTheFrame) {
 #if defined(__unix__)
   calibration_.camera = {"Pinhole", 24, 24, 1, 12, 12, 11.5, 11.5, {}};

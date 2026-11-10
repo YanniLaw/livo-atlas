@@ -24,19 +24,27 @@ bool SameMembership(const OnlineSubmap& a, const OnlineSubmap& b) {
          a.membership_revision == b.membership_revision && a.state == b.state;
 }
 
+void ValidateRevision(const OnlineSubmap& group, const PoseSnapshot& poses) {
+  ValidateSubmap(group.primary);
+  const auto& members = group.primary.keyframe_ids;
+  const bool sealed = group.state == OnlineSubmapState::kSealed;
+  if ((group.state != OnlineSubmapState::kActive && !sealed) ||
+      members.size() > kMaxGeometryKeyframes ||
+      group.membership_revision != members.size() + (sealed ? 1 : 0) ||
+      members.back() >= poses.frame_count) {
+    throw std::invalid_argument("Invalid geometry submap revision");
+  }
+}
+
 void ValidateGroups(const std::vector<OnlineSubmap>& groups,
                     const PoseSnapshot& poses) {
   std::uint64_t next_frame = 0;
   for (std::size_t i = 0; i < groups.size(); ++i) {
     const auto& group = groups[i];
-    ValidateSubmap(group.primary);
+    ValidateRevision(group, poses);
     const auto& members = group.primary.keyframe_ids;
     const bool sealed = group.state == OnlineSubmapState::kSealed;
-    if ((group.state != OnlineSubmapState::kActive && !sealed) ||
-        group.primary.id != i || members.front() != next_frame ||
-        members.size() > kMaxGeometryKeyframes ||
-        group.membership_revision != members.size() + (sealed ? 1 : 0) ||
-        members.back() >= poses.frame_count ||
+    if (group.primary.id != i || members.front() != next_frame ||
         (!sealed && i + 1 != groups.size())) {
       throw std::invalid_argument("Invalid geometry submap membership");
     }
@@ -117,6 +125,7 @@ void GeometryMapper::Update(const std::vector<OnlineSubmap>& revisions,
   target.reserve(entries_.size() + revisions.size());
   for (const auto& entry : entries_) target.push_back(entry.membership);
   for (const auto& revision : revisions) {
+    ValidateRevision(revision, *poses);
     const auto id = revision.primary.id;
     if (id > target.size())
       throw std::invalid_argument("Geometry submap ID gap");
@@ -248,15 +257,16 @@ void GeometryMapper::Build(std::uint64_t id, const Keyframe* new_keyframe) {
                          LocalPose(entry.membership, *poses_, frame_id));
   }
   const auto snapshot_start = Clock::now();
-  const auto data = builder->Snapshot();
+  auto data = builder->Snapshot();
   stats_.last_snapshot_seconds += Seconds(snapshot_start);
+  auto sources = data->sources;
   if (entry.representation_revision ==
       std::numeric_limits<std::uint64_t>::max()) {
     throw std::overflow_error("Geometry representation revision exhausted");
   }
   EvictFor(id);
-  entry.data = data;
-  entry.built_sources = data->sources;
+  entry.data = std::move(data);
+  entry.built_sources.swap(sources);
   ++entry.representation_revision;
   entry.last_access = ++access_clock_;
   if (entry.membership.state == OnlineSubmapState::kActive)
@@ -272,14 +282,15 @@ void GeometryMapper::Append(std::uint64_t id, const Keyframe& keyframe) {
         keyframe.id, *keyframe.cloud,
         LocalPose(entry.membership, *poses_, keyframe.id));
     const auto start = Clock::now();
-    const auto data = entry.builder->Snapshot();
+    auto data = entry.builder->Snapshot();
     stats_.last_snapshot_seconds += Seconds(start);
+    auto sources = data->sources;
     if (entry.representation_revision ==
         std::numeric_limits<std::uint64_t>::max()) {
       throw std::overflow_error("Geometry representation revision exhausted");
     }
-    entry.data = data;
-    entry.built_sources = data->sources;
+    entry.data = std::move(data);
+    entry.built_sources.swap(sources);
     ++entry.representation_revision;
     entry.last_access = ++access_clock_;
     ++stats_.incremental_updates;

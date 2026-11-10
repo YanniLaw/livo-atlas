@@ -127,7 +127,9 @@ void CheckPngHeader(const fs::path& path, const CameraConfig& camera) {
 
 // PCL 1.10 readHeader resizes PCLPointCloud2::data. Bound the binary payload
 // using the actual file first, before handing a corrupt header to PCL.
-void CheckPcdHeader(const fs::path& path, std::uint64_t expected_points) {
+void CheckPcdHeader(
+    const fs::path& path, std::uint64_t expected_points,
+    std::uint64_t max_point_step = std::numeric_limits<std::uint64_t>::max()) {
   std::ifstream file(path, std::ios::binary);
   if (!file) Fail(path, "Missing point cloud");
   std::vector<std::string> fields, sizes, types, counts;
@@ -202,15 +204,17 @@ void CheckPcdHeader(const fs::path& path, std::uint64_t expected_points) {
       }
     }
   }
-  if (required.size() != 4 || !points || step > kMax / points ||
-      header_size > fs::file_size(path) ||
+  if (required.size() != 4 || !points || step > max_point_step ||
+      step > kMax / points || header_size > fs::file_size(path) ||
       step * points != fs::file_size(path) - header_size) {
     Fail(path, "PCD payload length or XYZI fields do not match metadata");
   }
 }
 
-PointCloud::ConstPtr ReadCloud(const fs::path& path, std::uint64_t points) {
-  CheckPcdHeader(path, points);
+PointCloud::ConstPtr ReadCloud(
+    const fs::path& path, std::uint64_t points,
+    std::uint64_t max_point_step = std::numeric_limits<std::uint64_t>::max()) {
+  CheckPcdHeader(path, points, max_point_step);
   pcl::PCLPointCloud2 header;
   pcl::PCDReader reader;
   if (reader.readHeader(path.string(), header) < 0 ||
@@ -392,7 +396,10 @@ PointCloud::ConstPtr KeyframeStore::ReadBodyCloud(
     }
     const auto points = Id(yaml["cloud_points"]);
     if (points > max_points) Fail(path, "Point cloud exceeds configured limit");
-    return ReadCloud(path / "cloud.pcd", points);
+    // Our saved XYZI/normal layout uses 32 bytes per point. This separate
+    // bound limits PCL allocations even if a header declares huge extra fields.
+    constexpr std::uint64_t kMaxGeometryPointStep = 64;
+    return ReadCloud(path / "cloud.pcd", points, kMaxGeometryPointStep);
   } catch (const std::exception& error) {
     Fail(path, error.what());
   }

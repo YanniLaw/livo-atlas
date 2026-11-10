@@ -224,5 +224,76 @@ TEST(GeometryMapperTest, GrowingPoseFrontierDoesNotRebuildOldBlock) {
   EXPECT_EQ(mapper.GetSubmap(0).pose_version, 3u);
 }
 
+TEST(GeometryMapperTest, RejectsInvalidIntermediateRevisionWithoutMutation) {
+  GeometryMapper mapper({}, [](std::uint64_t) { return Cloud(0); });
+  OnlineSubmap invalid;
+  invalid.primary.id = 0;
+  invalid.primary.anchor_keyframe_id = 0;
+  invalid.membership_revision = 0;
+  EXPECT_THROW(mapper.Update({invalid, Group(0, {0}, false)}, Poses(1)),
+               std::invalid_argument);
+  EXPECT_THROW(mapper.GetSubmap(0), std::out_of_range);
+  EXPECT_NO_THROW(mapper.Update({Group(0, {0}, false)}, Poses(1)));
+  EXPECT_EQ(mapper.GetSubmap(0).representation_revision, 1u);
+}
+
+TEST(GeometryMapperTest, ConsecutiveNoncommutingRigidCorrectionsReuseData) {
+  GeometryMapper mapper({}, [](std::uint64_t) { return Cloud(0); });
+  mapper.Update({Group(0, {0, 1}, true)}, Poses(2));
+  const auto initial = mapper.GetSubmap(0);
+  auto corrected = std::make_shared<PoseSnapshot>(*Poses(2));
+  for (int step = 0; step < 2; ++step) {
+    const Eigen::Vector3d axis =
+        step == 0 ? Eigen::Vector3d::UnitZ() : Eigen::Vector3d::UnitX();
+    const Eigen::Matrix3d rotation =
+        Eigen::AngleAxisd(1.5707963267948966, axis).toRotationMatrix();
+    for (auto& pose : corrected->poses) {
+      pose.map_from_body.translation =
+          rotation * pose.map_from_body.translation + Eigen::Vector3d(3, -2, 1);
+      pose.map_from_body.rotation = rotation * pose.map_from_body.rotation;
+    }
+    corrected->version = step + 1;
+    corrected->base_version = step;
+    corrected->optimized_frame_count = 2;
+    corrected->parent_frame = PoseFrame::kMap;
+    mapper.Update({}, std::make_shared<const PoseSnapshot>(*corrected));
+    const auto result = mapper.GetSubmap(0);
+    EXPECT_EQ(result.data.get(), initial.data.get());
+    EXPECT_EQ(result.representation_revision, initial.representation_revision);
+    EXPECT_NEAR((result.parent_from_submap.translation -
+                 corrected->poses[0].map_from_body.translation)
+                    .norm(),
+                0, 1e-12);
+  }
+}
+
+TEST(GeometryMapperTest, AnchorOnlyCorrectionRebuildsAgainstNewLocalFrame) {
+  const auto reader = [](std::uint64_t) { return Cloud(0); };
+  GeometryMapper mapper({}, reader);
+  const auto groups = std::vector<OnlineSubmap>{Group(0, {0, 1}, true)};
+  mapper.Update(groups, Poses(2));
+  const auto original = mapper.GetSubmap(0);
+  auto corrected = std::make_shared<PoseSnapshot>(*Poses(2, 1));
+  corrected->poses[0].map_from_body.translation = Eigen::Vector3d(2, -1, 0);
+  corrected->poses[0].map_from_body.rotation =
+      Eigen::AngleAxisd(1.5707963267948966, Eigen::Vector3d::UnitZ())
+          .toRotationMatrix();
+  mapper.Update({}, corrected);
+  const auto rebuilt = mapper.GetSubmap(0);
+  EXPECT_GT(rebuilt.representation_revision, original.representation_revision);
+  EXPECT_NE(rebuilt.data.get(), original.data.get());
+  GeometryMapper fresh({}, reader);
+  fresh.Update(groups, corrected);
+  const auto expected = fresh.GetSubmap(0);
+  ASSERT_EQ(rebuilt.data->voxels.size(), expected.data->voxels.size());
+  for (std::size_t i = 0; i < rebuilt.data->voxels.size(); ++i) {
+    EXPECT_TRUE(rebuilt.data->voxels[i].key == expected.data->voxels[i].key);
+    EXPECT_NEAR(
+        (rebuilt.data->voxels[i].centroid - expected.data->voxels[i].centroid)
+            .norm(),
+        0, 1e-12);
+  }
+}
+
 }  // namespace
 }  // namespace livo_atlas

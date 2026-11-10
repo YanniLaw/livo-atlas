@@ -22,7 +22,8 @@ class KeyframeStore {
 
   void Append(const Keyframe& keyframe);
   Keyframe Read(std::uint64_t id) const;
-  // Reads bounded body-frame XYZI without opening or validating the image.
+  // Reads body-frame XYZI without opening the image; rejects PCD point layouts
+  // larger than 64 bytes before PCL can allocate their payload.
   PointCloud::ConstPtr ReadBodyCloud(std::uint64_t id,
                                      std::uint64_t max_points) const;
   // Metadata only; does not validate or decode image/cloud assets.
