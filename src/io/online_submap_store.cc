@@ -27,19 +27,23 @@ std::vector<std::uint64_t> Entries(const fs::path& path, bool directories) {
 }
 
 void Schema(const cv::FileStorage& yaml) {
-  if (!yaml.isOpened() || meta::Integer(yaml["schema_version"]) != 1)
+  if (!yaml.isOpened() || meta::Integer(yaml["schema_version"]) != 1) {
     throw std::invalid_argument("Unsupported online submap schema");
+  }
 }
 
 PoseTailPolicy PoseSchema(const cv::FileStorage& yaml) {
-  if (!yaml.isOpened())
+  if (!yaml.isOpened()) {
     throw std::invalid_argument("Cannot read online pose schema");
+  }
   const auto schema = meta::Integer(yaml["schema_version"]);
   const auto policy = meta::String(yaml["tail_policy"]);
-  if (schema == 1 && policy == "last_optimized_anchor")
+  if (schema == 1 && policy == "last_optimized_anchor") {
     return PoseTailPolicy::kLegacyLastOptimizedAnchor;
-  if (schema == 2 && policy == "last_optimized_anchor_projected")
+  }
+  if (schema == 2 && policy == "last_optimized_anchor_projected") {
     return PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  }
   throw std::invalid_argument("Unsupported online pose schema or tail policy");
 }
 

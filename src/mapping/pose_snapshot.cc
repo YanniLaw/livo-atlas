@@ -45,12 +45,14 @@ void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
            : snapshot.base_version != snapshot.version - 1 ||
                  snapshot.optimized_frame_count == 0 ||
                  snapshot.optimized_frame_count > snapshot.frame_count ||
-                 snapshot.parent_frame != PoseFrame::kMap))
+                 snapshot.parent_frame != PoseFrame::kMap)) {
     throw std::invalid_argument("Invalid pose snapshot header or coverage");
+  }
   for (std::size_t i = 0; i < snapshot.poses.size(); ++i) {
-    if (snapshot.poses[i].id != i)
+    if (snapshot.poses[i].id != i) {
       throw std::invalid_argument(
           "Pose snapshot IDs must be a complete ordered prefix");
+    }
     pose_math::Validate(snapshot.poses[i].map_from_body);
     if (IsProjected(snapshot.tail_policy) &&
         !IsRigidRotation(snapshot.poses[i].map_from_body.rotation)) {
@@ -64,8 +66,9 @@ PoseSnapshot MaterializePoseSnapshot(
     std::uint64_t frame_count) {
   ValidatePoseSnapshot(frozen);
   if (frozen.frame_count > raw_poses.size() || frame_count > raw_poses.size() ||
-      (frozen.version && frame_count < frozen.frame_count))
+      (frozen.version && frame_count < frozen.frame_count)) {
     throw std::invalid_argument("Requested pose frontier is out of range");
+  }
   for (const auto& pose : raw_poses) pose_math::Validate(pose);
   RigidTransform correction;
   if (frozen.version) {
@@ -84,14 +87,17 @@ PoseSnapshot MaterializePoseSnapshot(
           IsProjected(frozen.tail_policy)
               ? EqualProjectedPose(frozen.poses[i].map_from_body, expected)
               : pose_math::Equal(frozen.poses[i].map_from_body, expected);
-      if (!equal)
+      if (!equal) {
         throw std::invalid_argument(
             "Frozen pose tail does not follow its optimized anchor");
+      }
     }
   } else {
-    for (std::size_t i = 0; i < frozen.poses.size(); ++i)
-      if (!pose_math::Equal(frozen.poses[i].map_from_body, raw_poses[i]))
+    for (std::size_t i = 0; i < frozen.poses.size(); ++i) {
+      if (!pose_math::Equal(frozen.poses[i].map_from_body, raw_poses[i])) {
         throw std::invalid_argument("Version zero must match raw poses");
+      }
+    }
   }
   PoseSnapshot result = frozen;
   result.frame_count = frame_count;
@@ -116,11 +122,13 @@ PoseSnapshot MakePoseSnapshot(const PoseUpdate& update,
       update.optimized_frame_count < previous.optimized_frame_count ||
       update.optimized_frame_count == 0 ||
       update.optimized_frame_count > raw_poses.size() ||
-      update.poses.size() != update.optimized_frame_count)
+      update.poses.size() != update.optimized_frame_count) {
     throw std::invalid_argument(
         "Stale pose update or invalid optimized prefix");
-  if (previous.version == std::numeric_limits<std::uint64_t>::max())
+  }
+  if (previous.version == std::numeric_limits<std::uint64_t>::max()) {
     throw std::overflow_error("Pose version exhausted");
+  }
   PoseSnapshot optimized;
   optimized.version = previous.version + 1;
   optimized.base_version = previous.version;
@@ -136,4 +144,5 @@ PoseSnapshot MakePoseSnapshot(const PoseUpdate& update,
   }
   return MaterializePoseSnapshot(optimized, raw_poses, raw_poses.size());
 }
+
 }  // namespace livo_atlas
