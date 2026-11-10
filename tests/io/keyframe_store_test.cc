@@ -12,6 +12,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -177,6 +178,29 @@ TEST_F(KeyframeStoreTest, ReadBodyCloudRejectsOversizedPointLayout) {
     output.put('\0');
   }
   KeyframeStore reader(directory_);
+  EXPECT_THROW(reader.ReadBodyCloud(0, 1), std::runtime_error);
+}
+
+TEST_F(KeyframeStoreTest, ReadBodyCloudRejectsNonfiniteAndTruncatedPayload) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0, false));
+  const auto path = directory_ / "frames/0/cloud.pcd";
+  const auto original = Contents(path);
+  auto corrupted = original;
+  const std::string marker = "DATA binary\n";
+  const auto pos = corrupted.find(marker);
+  ASSERT_NE(pos, std::string::npos);
+  const auto offset = pos + marker.size();
+  ASSERT_GE(corrupted.size(), offset + sizeof(float));
+  const float infinite = std::numeric_limits<float>::infinity();
+  std::memcpy(&corrupted[offset], &infinite, sizeof(infinite));
+  std::ofstream(path, std::ios::binary | std::ios::trunc)
+      .write(corrupted.data(), corrupted.size());
+  KeyframeStore reader(directory_);
+  EXPECT_THROW(reader.ReadBodyCloud(0, 1), std::runtime_error);
+  std::ofstream(path, std::ios::binary | std::ios::trunc)
+      .write(original.data(), original.size());
+  fs::resize_file(path, original.size() - 1);
   EXPECT_THROW(reader.ReadBodyCloud(0, 1), std::runtime_error);
 }
 

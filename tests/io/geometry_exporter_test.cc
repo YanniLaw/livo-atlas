@@ -1,6 +1,13 @@
 #include <gtest/gtest.h>
 
+#if defined(__unix__)
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #include <chrono>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -125,6 +132,35 @@ TEST_F(GeometryExporterTest, RefusesExistingOrNestedOutputs) {
   EXPECT_THROW(ExportGeometry(dataset, root_ / "file/output", 0, {}),
                std::exception);
   EXPECT_FALSE(fs::exists(root_ / "file/output"));
+}
+
+TEST_F(GeometryExporterTest, WriteFailureNeverPublishesFinalOutput) {
+#if defined(__unix__)
+  const auto source = root_ / "keyframes/frames/0/cloud.pcd";
+  const auto original = ReadBytes(source);
+  const auto child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    std::signal(SIGXFSZ, SIG_IGN);
+    const rlimit limit{512, 512};
+    if (setrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(3);
+    try {
+      ExportGeometry(root_ / "keyframes", root_ / "failed", 0, {});
+    } catch (const std::exception&) {
+      _exit(0);
+    }
+    _exit(2);
+  }
+  int status = 0;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 0);
+  EXPECT_FALSE(fs::exists(root_ / "failed"));
+  EXPECT_TRUE(fs::exists(root_ / ".pending-failed"));
+  EXPECT_EQ(ReadBytes(source), original);
+#else
+  GTEST_SKIP() << "RLIMIT_FSIZE fault injection requires Unix";
+#endif
 }
 
 }  // namespace

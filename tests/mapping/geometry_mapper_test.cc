@@ -295,5 +295,40 @@ TEST(GeometryMapperTest, AnchorOnlyCorrectionRebuildsAgainstNewLocalFrame) {
   }
 }
 
+TEST(GeometryMapperTest, EvictedBlockUsesNewestOfMultiplePoseVersions) {
+  GeometryOptions options;
+  options.max_resident_submaps = 2;
+  const auto reader = [](std::uint64_t) { return Cloud(0); };
+  GeometryMapper mapper(options, reader);
+  const auto groups = std::vector<OnlineSubmap>{
+      Group(0, {0, 1}, true), Group(1, {2}, true), Group(2, {3}, false)};
+  mapper.Update(groups, Poses(4));
+  const auto old = mapper.GetSubmap(0);
+  mapper.GetSubmap(1);
+  mapper.GetSubmap(2);
+  auto version1 = std::make_shared<PoseSnapshot>(*Poses(4, 1));
+  for (auto& pose : version1->poses) pose.map_from_body.translation.x() += 4;
+  mapper.Update({}, version1);
+  auto version2 = std::make_shared<PoseSnapshot>(*version1);
+  version2->version = 2;
+  version2->base_version = 1;
+  version2->poses[1].map_from_body.translation.y() += 0.3;
+  mapper.Update({}, version2);
+  const auto reloaded = mapper.GetSubmap(0);
+  EXPECT_EQ(reloaded.pose_version, 2u);
+  EXPECT_GT(reloaded.representation_revision, old.representation_revision);
+  GeometryMapper fresh(options, reader);
+  fresh.Update(groups, version2);
+  const auto expected = fresh.GetSubmap(0);
+  ASSERT_EQ(reloaded.data->voxels.size(), expected.data->voxels.size());
+  for (std::size_t i = 0; i < reloaded.data->voxels.size(); ++i) {
+    EXPECT_TRUE(reloaded.data->voxels[i].key == expected.data->voxels[i].key);
+    EXPECT_NEAR(
+        (reloaded.data->voxels[i].centroid - expected.data->voxels[i].centroid)
+            .norm(),
+        0, 1e-12);
+  }
+}
+
 }  // namespace
 }  // namespace livo_atlas

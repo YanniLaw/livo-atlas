@@ -1,10 +1,9 @@
-#include "livo_atlas/core/livo_system.h"
-
 #include <gtest/gtest.h>
 
 #include <filesystem>
 
 #include "core/system_observations.h"
+#include "livo_atlas/core/livo_system.h"
 namespace livo_atlas {
 namespace {
 
@@ -72,8 +71,14 @@ TEST(GeometrySystemTest, GeometryFailureStopsCommittedWriter) {
     }
     EXPECT_TRUE(failed);
     EXPECT_EQ(notifications, 0);
+    const auto poses = system.GetPoseSnapshot();
+    PoseUpdate update{poses->version, poses->frame_count, poses->poses};
     EXPECT_THROW(system.ProcessAvailable({}), std::exception);
     EXPECT_THROW(system.GetGeometrySubmap(0), std::exception);
+    EXPECT_THROW(system.ApplyPoseUpdate(update), std::exception);
+    EXPECT_THROW(system.SetOnlineSubmapCallback([](const auto&) {}),
+                 std::exception);
+    EXPECT_NO_THROW(system.GetPoseSnapshot());
     EXPECT_THROW(system.Finish(), std::exception);
   }
   std::filesystem::remove_all(options.exporter.directory);

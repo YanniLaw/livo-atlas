@@ -54,8 +54,9 @@ TEST(GeometrySubmapTest, UsesFloorAndChecksIndexRange) {
   GeometrySubmapBuilder builder(options);
   PointCloud cloud;
   for (float value :
-       {-0.5f, std::nextafter(-0.5f, -1.0f), std::nextafter(-0.5f, 0.0f), 0.0f,
-        0.5f, std::nextafter(0.5f, 0.0f), std::nextafter(0.5f, 1.0f)}) {
+       {-0.5f, std::nextafter(-0.5f, -1.0f), std::nextafter(-0.5f, 0.0f), -0.0f,
+        0.0f, std::nextafter(0.0f, -1.0f), 0.5f, std::nextafter(0.5f, 0.0f),
+        std::nextafter(0.5f, 1.0f)}) {
     Point point;
     point.x = value;
     cloud.push_back(point);
@@ -145,6 +146,53 @@ TEST(GeometrySubmapTest, RejectsLinesAndSeparatedPlanesAsSurfaces) {
   GeometrySubmapBuilder plane_builder(options);
   plane_builder.AddKeyframe(0, two_planes, {});
   EXPECT_FALSE(plane_builder.Snapshot()->voxels[0].normal);
+}
+
+TEST(GeometrySubmapTest, AppliesPlaneRmsAndRatioThresholdsIndependently) {
+  const auto surface = [](float half_thickness) {
+    PointCloud points;
+    for (float z : {0.25f - half_thickness, 0.25f + half_thickness}) {
+      auto plane = Plane();
+      for (auto& point : plane) point.z = z;
+      points += plane;
+    }
+    return points;
+  };
+  GeometryOptions options;
+  options.voxel_size = 0.5;
+  GeometrySubmapBuilder below_rms(options), above_rms(options);
+  below_rms.AddKeyframe(0, surface(0.015625f), {});
+  above_rms.AddKeyframe(0, surface(0.03125f), {});
+  EXPECT_TRUE(below_rms.Snapshot()->voxels[0].normal);
+  EXPECT_FALSE(above_rms.Snapshot()->voxels[0].normal);
+  options.max_plane_rms = 0.1;
+  options.max_plane_ratio = 0.01;
+  GeometrySubmapBuilder below_ratio(options), above_ratio(options);
+  below_ratio.AddKeyframe(0, surface(0.0078125f), {});
+  above_ratio.AddKeyframe(0, surface(0.03125f), {});
+  EXPECT_TRUE(below_ratio.Snapshot()->voxels[0].normal);
+  EXPECT_FALSE(above_ratio.Snapshot()->voxels[0].normal);
+}
+
+TEST(GeometrySubmapTest, RejectsInvalidOptionsEvenWhenDisabled) {
+  GeometryOptions options;
+  options.enabled = false;
+  options.voxel_size = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(GeometrySubmapBuilder{options}, std::invalid_argument);
+  options.voxel_size = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(GeometrySubmapBuilder{options}, std::invalid_argument);
+  options.voxel_size = 0.2;
+  options.min_points_per_voxel = 2;
+  EXPECT_THROW(GeometrySubmapBuilder{options}, std::invalid_argument);
+  options.min_points_per_voxel = 6;
+  options.max_plane_rms = 0;
+  EXPECT_THROW(GeometrySubmapBuilder{options}, std::invalid_argument);
+  options.max_plane_rms = 0.02;
+  options.max_plane_ratio = 1;
+  EXPECT_THROW(GeometrySubmapBuilder{options}, std::invalid_argument);
+  options.max_plane_ratio = 0.1;
+  options.max_resident_submaps = 1;
+  EXPECT_THROW(GeometrySubmapBuilder{options}, std::invalid_argument);
 }
 
 }  // namespace

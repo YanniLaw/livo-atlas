@@ -211,13 +211,25 @@ TEST_F(Ros1ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
   node_->setParam("submaps/mode", "online");
   node_->setParam("submaps/geometry/enabled", true);
   node_->setParam("submaps/geometry/voxel_size", 0.3);
+  node_->setParam("submaps/geometry/min_points_per_voxel", 8);
+  node_->setParam("submaps/geometry/max_plane_rms", 0.03);
+  node_->setParam("submaps/geometry/max_plane_ratio", 0.2);
+  node_->setParam("submaps/geometry/max_voxels_per_submap", 50000);
+  node_->setParam("submaps/geometry/max_points_per_keyframe", 200000);
   node_->setParam("submaps/geometry/max_resident_submaps", 4);
   const auto options = ReadNodeOptions(*node_).livo.system.geometry;
   EXPECT_TRUE(options.enabled);
   EXPECT_DOUBLE_EQ(options.voxel_size, 0.3);
+  EXPECT_EQ(options.min_points_per_voxel, 8);
+  EXPECT_DOUBLE_EQ(options.max_plane_rms, 0.03);
+  EXPECT_DOUBLE_EQ(options.max_plane_ratio, 0.2);
+  EXPECT_EQ(options.max_voxels_per_submap, 50000);
+  EXPECT_EQ(options.max_points_per_keyframe, 200000);
   EXPECT_EQ(options.max_resident_submaps, 4);
   node_->setParam("submaps/geometry/max_resident_submaps", 1);
   EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("submaps/geometry/enabled", false);
+  EXPECT_NO_THROW(ReadNodeOptions(*node_));
 }
 }  // namespace
 }  // namespace livo_atlas::ros1

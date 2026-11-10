@@ -251,16 +251,34 @@ TEST(Ros2ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
   params.emplace_back("submaps.mode", "online");
   params.emplace_back("submaps.geometry.enabled", true);
   params.emplace_back("submaps.geometry.voxel_size", 0.3);
+  params.emplace_back("submaps.geometry.min_points_per_voxel", 8);
+  params.emplace_back("submaps.geometry.max_plane_rms", 0.03);
+  params.emplace_back("submaps.geometry.max_plane_ratio", 0.2);
+  params.emplace_back("submaps.geometry.max_voxels_per_submap", 50000);
+  params.emplace_back("submaps.geometry.max_points_per_keyframe", 200000);
   params.emplace_back("submaps.geometry.max_resident_submaps", 4);
   rclcpp::Node valid("geometry_valid",
                      rclcpp::NodeOptions().parameter_overrides(params));
   const auto options = ReadNodeOptions(valid).livo.system.geometry;
   EXPECT_TRUE(options.enabled);
   EXPECT_DOUBLE_EQ(options.voxel_size, 0.3);
+  EXPECT_EQ(options.min_points_per_voxel, 8);
+  EXPECT_DOUBLE_EQ(options.max_plane_rms, 0.03);
+  EXPECT_DOUBLE_EQ(options.max_plane_ratio, 0.2);
+  EXPECT_EQ(options.max_voxels_per_submap, 50000);
+  EXPECT_EQ(options.max_points_per_keyframe, 200000);
   EXPECT_EQ(options.max_resident_submaps, 4);
   params.back() = rclcpp::Parameter("submaps.geometry.max_resident_submaps", 1);
   rclcpp::Node invalid("geometry_invalid",
                        rclcpp::NodeOptions().parameter_overrides(params));
   EXPECT_THROW(ReadNodeOptions(invalid), std::exception);
+  for (auto& parameter : params) {
+    if (parameter.get_name() == "submaps.geometry.enabled") {
+      parameter = rclcpp::Parameter("submaps.geometry.enabled", false);
+    }
+  }
+  rclcpp::Node disabled("geometry_disabled",
+                        rclcpp::NodeOptions().parameter_overrides(params));
+  EXPECT_NO_THROW(ReadNodeOptions(disabled));
 }
 }  // namespace livo_atlas::ros2
