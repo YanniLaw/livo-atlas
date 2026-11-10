@@ -55,6 +55,8 @@ target_link_libraries(my_frontend PRIVATE livo_atlas::core)
 `livo_atlas::keyframes` 提供快照、选择及几何操作，`io` 提供数据集读写；
 格式、位姿版本和检查工具见[关键帧数据集](keyframe-dataset.md)。
 子地图成员与逐帧版本几何重建由同一 io 目标提供，见[子地图数据集](submap-dataset.md)。
+`livo_atlas::geometry` 提供独立的几何子地图统计和版本化查询；启用、查询与导出方法
+见[几何子地图使用说明](geometry-submaps.md)。
 `livo_atlas::ExportColmap` 和安装在bin的 `livo_atlas_export_colmap` 也归同一io目标；
 导出选定版本的相机、居中去畸变图像与LiDAR种子，使用及坐标契约见[离线导出说明](colmap-export.md)。
 `common/` 只有共享定义，没有单独的物理库或聚合目标。

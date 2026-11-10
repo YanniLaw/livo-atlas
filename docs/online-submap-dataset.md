@@ -30,6 +30,8 @@ max_keyframes 之间。主成员连续且唯一归属；支持帧引用前组末
 
 两个回放工具均支持 `--submap-mode online`，自动启用关键帧和子地图保存。
 原 `--save-submaps` 保持默认旧分组行为。summary.json 增加 submap_mode 字段。
+需要进一步构建局部体素几何时，可在在线模式中启用几何子地图；配置和消费方法见
+[几何子地图使用说明](geometry-submaps.md)。
 Noetic 工具要求独立源码快照；Humble 工具读取经核验的 ROS2 bag，不直接读取 ROS1 bag。
 完整回放和环境设置见[双版本说明](ros-builds.md)。
 

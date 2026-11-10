@@ -12,8 +12,9 @@
 
 **Spec:** [2026-11-10-p6-02a-geometry-submaps-design.md](../specs/2026-11-10-p6-02a-geometry-submaps-design.md)。先读该设计再执行；计划不另建一套坐标或版本规则。
 
-**Status:** 设计阶段；下列复选框均未执行。基线 `5e0bf071de3591c62f84364321df44ff1eb5d802`，
-当前分支 `framework_completion`。本计划中的新 API、CLI、文件和参数目前不存在。
+**Status:** Task 1–5 的实现已提交并完成独立审阅修复，其复选框保留原始执行清单；Task 6 已完成。
+实际验收范围以[验证记录](../../p6-02a-validation.md)为准。原设计检视基线为
+`5e0bf071de3591c62f84364321df44ff1eb5d802`，当前分支 `framework_completion`。
 
 ## Global Constraints
 
@@ -242,7 +243,7 @@ docs/core-build.md、docs/online-submap-dataset.md；新证据仅在本阶段 va
 **Interfaces:** 消费全部公开 API、已安装CLI和真实节点，产出实际构建/测试清单、源/库摘要、
 同环境配对结果、数学/缓存/资源证据及未覆盖范围。
 
-- [ ] Step 1：shared 全套构建、ctest、公开头编译、安装消费。static 与无 OpenMP 在独立目录
+- [x] Step 1：shared 全套构建、ctest、公开头编译、安装消费。static 与无 OpenMP 在独立目录
   分别配置/运行；static用 `-DBUILD_SHARED_LIBS=OFF`、无OMP用 `-DLIVO_ATLAS_USE_OPENMP=OFF`。
   三种模式均验证 geometry/core 的公开头与安装后外部链接，不依赖源码include或构建树目标。
 
@@ -256,10 +257,10 @@ docs/core-build.md、docs/online-submap-dataset.md；新证据仅在本阶段 va
   "$LIVO_GEOM_VALIDATION/consumer-shared/installed_consumer"
   ```
 
-- [ ] Step 2：Noetic/Humble 独立候选副本编译，执行普通测试、实际ROS/DDS测试、启动参数保护和
+- [x] Step 2：Noetic/Humble 独立候选副本编译，执行普通测试、实际ROS/DDS测试、启动参数保护和
   SDK/catkin/ament移动安装消费。沿用[ROS构建说明](../../ros-builds.md)的方法，
   不直接运行会覆盖旧目录的历史验证脚本。迁移机器缺依赖时记录再安装，不能把跳过写成通过。
-- [ ] Step 3：冻结实施前的同环境基线，分别串行回放：默认关闭、旧分组、online几何关闭、online几何开启。
+- [x] Step 3：冻结实施前的同环境基线，分别串行回放：默认关闭、旧分组、online几何关闭、online几何开启。
   先新增开启模式30 s冒烟，再每种模式完整136 s请求覆盖bag；两端新增开启模式再做3 s旧产品检查。
   比较参考与候选四数组/发布语义及原始资产；几何开启还与候选online关闭作配对，分离模块成本。
 
@@ -274,15 +275,15 @@ docs/core-build.md、docs/online-submap-dataset.md；新证据仅在本阶段 va
   实际节点、YAML和安装库必须属于候选副本。记录源码/实际加载库摘要，不能混用Pimpl前后二进制。
   正常完整参考为1351 LIO、1350 VIO、172关键帧；如启动变体出现，用冻结参考同条件复现并单列。
   旧四数组、原始517文件、成员/位姿索引及短段57产品按同环境精确比较，几何导出独立列项。
-- [ ] Step 4：在真实关键帧副本上构造已知整体和单成员修正，验证几何Get/导出及源摘要；
+- [x] Step 4：在真实关键帧副本上构造已知整体和单成员修正，验证几何Get/导出及源摘要；
   旧OnlineSubmapStore不能重开追加，需在新副本按既有Builder/Store重新创建索引与版本，不能改原记录。
   整体修正验证数据内容不变、局部修正验证所属块变化；无真实回环算法或真值时不报告回环/绝对精度。
-- [ ] Step 5：报告0.2/0.3/0.5 m的格数、有效平面比例、来源覆盖、CPU/RSS/导出大小与耗时。
+- [x] Step 5：报告0.2/0.3/0.5 m的格数、有效平面比例、来源覆盖、CPU/RSS/导出大小与耗时。
   对默认0.2 m检查 geometry_total_seconds的p95≤50 ms/最大≤200 ms、重建p95≤500 ms、峰值RSS增量≤128 MiB、
   1倍速无新增丢帧。计时区分纯刚性登记、追加、重建、读云和Snapshot；不得拿旧LIO/VIO内部计时代替新增耗时。
   使用固定大小小云生成至少1000个封存块并循环查询/修正，验证resident上限、无持有全部云，
   报告元数据增长；它是缓存压力测试，不是真实长距离耐久证明。
-- [ ] Step 6：写实际使用与验证文档，注明版本号仅mapper生命周期内有效、主成员融合、空间重叠、
+- [x] Step 6：写实际使用与验证文档，注明版本号仅mapper生命周期内有效、主成员融合、空间重叠、
   正版本尾帧外推、无图像完整性检查的ReadBodyCloud、单格单平面局限和同步Get阻塞边界。
   运行Google格式、函数间空行人工检查、git diff --check，完成阶段独立代码审阅；
   修复重要问题后重跑受影响验证，提交 `docs: validate geometry submaps across ROS versions`。
