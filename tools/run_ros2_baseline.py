@@ -89,8 +89,14 @@ def main():
     parser.add_argument('--save-submaps', action='store_true')
     parser.add_argument('--default-threads', action='store_true')
     parser.add_argument('--submap-mode', choices=('keyframe_groups', 'online'),
-                        default='keyframe_groups', help='Select the submap index format')
+                        help='Select the submap index format (default: keyframe_groups)')
+    parser.add_argument('--geometry-submaps', action='store_true',
+                        help='Enable online geometry submaps and their required inputs')
     args = parser.parse_args()
+    if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
+        parser.error('--geometry-submaps requires online submaps')
+    if args.submap_mode is None:
+        args.submap_mode = 'online' if args.geometry_submaps else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
     try:
@@ -156,6 +162,8 @@ def main():
     if args.save_submaps:
         parameters['submaps.enabled'] = True
         parameters['submaps.mode'] = args.submap_mode
+    if args.geometry_submaps:
+        parameters['submaps.geometry.enabled'] = True
     if args.save_products:
         parameters.update({'pcd_save.pcd_save_en': True, 'pcd_save.colmap_output_en': True,
                            'pcd_save.interval': -1, 'image_save.img_save_en': True})
@@ -284,6 +292,11 @@ def main():
         observer.destroy_node()
         rclpy.shutdown()
     node_log = log_path.read_text()
+    try:
+        from .geometry_diagnostics import summarize_geometry_timings
+    except ImportError:
+        from geometry_diagnostics import summarize_geometry_timings
+    geometry_timings = summarize_geometry_timings(node_log, np)
     counter = re.search(r'livo_atlas inputs: lidar=(\d+) imu=(\d+) image=(\d+)', node_log)
     node_counts = dict(zip((parameters['common.lid_topic'], parameters['common.imu_topic'], parameters['common.img_topic']),
                           map(int, counter.groups()))) if counter else {}
@@ -316,6 +329,8 @@ def main():
                    keyframes_enabled=args.save_keyframes,
                    submaps_enabled=args.save_submaps,
                    submap_mode=args.submap_mode,
+                   geometry_enabled=args.geometry_submaps,
+                   geometry_timing_seconds=geometry_timings,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
                    playback_wall_s=playback_wall_s, input_span_s=input_span_s,
                    requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,

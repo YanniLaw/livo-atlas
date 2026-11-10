@@ -65,8 +65,14 @@ def main():
     parser.add_argument('--legacy-output', action='store_true',
                         help='Read older node outputs from its source package Log directory')
     parser.add_argument('--submap-mode', choices=('keyframe_groups', 'online'),
-                        default='keyframe_groups', help='Select the submap index format')
+                        help='Select the submap index format (default: keyframe_groups)')
+    parser.add_argument('--geometry-submaps', action='store_true',
+                        help='Enable online geometry submaps and their required inputs')
     args = parser.parse_args()
+    if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
+        parser.error('--geometry-submaps requires online submaps')
+    if args.submap_mode is None:
+        args.submap_mode = 'online' if args.geometry_submaps else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
     try:
@@ -202,6 +208,8 @@ def main():
         if args.save_submaps:
             run(['rosparam', 'set', '/submaps/enabled', 'true'])
             run(['rosparam', 'set', '/submaps/mode', args.submap_mode])
+        if args.geometry_submaps:
+            run(['rosparam', 'set', '/submaps/geometry/enabled', 'true'])
         if args.image_queue_size is not None:
             run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
         if args.save_products:
@@ -352,6 +360,11 @@ def main():
         mismatches = {topic: [number, saved_counts.get(topic, 0)]
                       for topic, number in expected.items() if saved_counts.get(topic, 0) != number}
         log = re.sub(r'\x1b\[[0-9;]*m', '', (output / 'mapping.log').read_text(errors='replace'))
+        try:
+            from .geometry_diagnostics import summarize_geometry_timings
+        except ImportError:
+            from geometry_diagnostics import summarize_geometry_timings
+        geometry_timings = summarize_geometry_timings(log, np)
         timings = collections.defaultdict(list)
         stage = None
         for line in log.splitlines():
@@ -390,6 +403,8 @@ def main():
             'keyframes_enabled': args.save_keyframes,
             'submaps_enabled': args.save_submaps,
             'submap_mode': args.submap_mode,
+            'geometry_enabled': args.geometry_submaps,
+            'geometry_timing_seconds': geometry_timings,
             'gdb_enabled': args.gdb,
             'clean_shutdown': exited_cleanly(node.returncode, log, args.gdb),
             'player_returncode': player.returncode,

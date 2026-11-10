@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <stdexcept>
+#include <vector>
 
 #include "livo_atlas/mapping/geometry_submap.h"
 

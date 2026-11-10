@@ -8,6 +8,7 @@
 
 #include "livo_atlas/mapping/geometry_submap.h"
 #include "livo_atlas/mapping/keyframe.h"
+#include "livo_atlas/sensor/point_types.h"
 
 namespace livo_atlas {
 

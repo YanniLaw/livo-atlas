@@ -1,13 +1,18 @@
+#include <exception>
 #include <iostream>
+#include <string>
 
 #include "export_scenario.h"
+#include "geometry_scenario.h"
 #include "online_submap_scenario.h"
 #include "scenario.h"
 #include "system_scenario.h"
 
 int main(int argc, char** argv) {
   if (argc != 1) {
-    if (argc != 3 || std::string(argv[1]) != "--online-fixtures") return 2;
+    if (argc != 3 || (std::string(argv[1]) != "--online-fixtures" &&
+                      std::string(argv[1]) != "--geometry-fixtures"))
+      return 2;
     try {
       livo_atlas::test_data::WriteOnlineFixtures(argv[2]);
     } catch (const std::exception& error) {
@@ -24,7 +29,13 @@ int main(int argc, char** argv) {
     if (!livo_atlas::test_data::RunSystemScenario(mode, true)) return 1;
   }
   if (!livo_atlas::test_data::RunColmapScenario()) return 1;
+  try {
+    livo_atlas::test_data::RunGeometryScenario();
+  } catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
   std::cout
       << "Installed core: repeated LO, LIO, tracked VIO and online submaps "
-         "passed\n";
+         "and geometry submaps passed\n";
 }

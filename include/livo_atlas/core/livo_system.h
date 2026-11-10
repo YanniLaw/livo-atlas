@@ -15,6 +15,7 @@
 #include "livo_atlas/frontend/synchronized_measurements.h"
 #include "livo_atlas/io/livo_exporter.h"
 #include "livo_atlas/mapping/cloud_colorizer.h"
+#include "livo_atlas/mapping/geometry_submap.h"
 #include "livo_atlas/mapping/keyframe_selector.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
 #include "livo_atlas/mapping/submap.h"
