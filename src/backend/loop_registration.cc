@@ -149,6 +149,10 @@ LoopAlignment Align(const Cloud::ConstPtr& target,
   Eigen::Matrix4f guess = Eigen::Matrix4f::Identity();
   guess.topLeftCorner<3, 3>() = initial.rotation.cast<float>();
   guess.topRightCorner<3, 1>() = initial.translation.cast<float>();
+  if (!guess.allFinite()) {
+    throw std::invalid_argument(
+        "Loop initial guess cannot be represented by PCL");
+  }
   LoopAlignment result;
   Cloud output;
   try {
@@ -233,42 +237,11 @@ LoopVerification Solve(const GeometrySubmap& target,
   result.transform_errors = loop_internal::TransformErrors(
       result.initial_target_from_source, *result.forward.transform,
       *result.reverse.transform);
-  for (const auto* metrics :
-       {&*result.forward.metrics, &*result.reverse.metrics}) {
-    if (metrics->inliers < options.min_inliers ||
-        metrics->source_coverage < options.min_coverage ||
-        metrics->target_coverage < options.min_coverage) {
-      result.status = LoopStatus::kLowOverlap;
-      return result;
-    }
-    if (!metrics->rmse_m || !metrics->p95_m ||
-        *metrics->rmse_m > options.max_rmse_m ||
-        *metrics->p95_m > options.max_p95_m) {
-      result.status = LoopStatus::kHighResidual;
-      return result;
-    }
-  }
-  for (std::size_t i = 0; i < 4; ++i) {
-    const auto& error = (*result.transform_errors)[i];
-    if (error.translation_m > (i < 2 ? options.max_cycle_translation_m
-                                     : options.max_correction_m) ||
-        error.rotation_deg > (i < 2 ? options.max_cycle_rotation_deg
-                                    : options.max_correction_deg)) {
-      result.status = i < 2 ? LoopStatus::kInconsistentTransform
-                            : LoopStatus::kLargeCorrection;
-      return result;
-    }
-  }
-  for (const auto* metrics :
-       {&*result.forward.metrics, &*result.reverse.metrics}) {
-    if (!metrics->eigenvalue_ratio ||
-        *metrics->eigenvalue_ratio < options.min_eigenvalue_ratio) {
-      result.status = LoopStatus::kDegenerate;
-      return result;
-    }
-  }
-  result.status = LoopStatus::kVerified;
-  result.target_from_source = result.forward.transform;
+  result.status = loop_internal::ClassifyQuality(
+      *result.forward.metrics, *result.reverse.metrics,
+      *result.transform_errors, options);
+  if (result.status == LoopStatus::kVerified)
+    result.target_from_source = result.forward.transform;
   return result;
 }
 
@@ -276,6 +249,7 @@ LoopVerification Solve(const GeometrySubmap& target,
 
 void ValidateLoopRegistrationOptions(const LoopRegistrationOptions& o) {
   if (!Positive(o.voxel_size_m) || !Positive(o.correspondence_distance_m) ||
+      !Positive(o.correspondence_distance_m * o.correspondence_distance_m) ||
       !Positive(o.translation_epsilon) || !Positive(o.rotation_epsilon) ||
       !Positive(o.match_distance_m) ||
       !Positive(o.match_distance_m * o.match_distance_m) ||

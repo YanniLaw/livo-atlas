@@ -15,6 +15,10 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
 std::array<LoopTransformError, 4> TransformErrors(
     const RigidTransform& initial, const RigidTransform& forward,
     const RigidTransform& reverse);
+LoopStatus ClassifyQuality(const LoopMetrics& forward,
+                           const LoopMetrics& reverse,
+                           const std::array<LoopTransformError, 4>& errors,
+                           const LoopRegistrationOptions& options);
 
 }  // namespace livo_atlas::loop_internal
 

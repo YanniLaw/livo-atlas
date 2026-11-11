@@ -133,5 +133,17 @@ TEST(LoopRegistrationTest, FloorsNegativeCoordinatesAndChecksCoarseBudget) {
             LoopStatus::kResourceLimit);
 }
 
+TEST(LoopRegistrationTest, RejectsInitialGuessOutsidePclNumericRange) {
+  const auto target = loop_test::Scene();
+  auto source = loop_test::Scene(5, 100);
+  source.parent_from_submap.translation.x() = 1e100;
+  LoopRegistrationOptions options;
+  options.max_iterations = 1;
+  EXPECT_THROW(VerifyLoop(target, source, options), std::invalid_argument);
+  source.parent_from_submap = {};
+  options.correspondence_distance_m = 1e200;
+  EXPECT_THROW(VerifyLoop(target, source, options), std::invalid_argument);
+}
+
 }  // namespace
 }  // namespace livo_atlas

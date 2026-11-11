@@ -107,5 +107,36 @@ TEST(LoopQualityTest, UsesNearestRankForSeveralResidualsAndRejectsLineRank) {
   EXPECT_LT(*metrics.eigenvalue_ratio, 1e-10);
 }
 
+TEST(LoopQualityTest, ClassifiesBothDirectionsBeforeAcceptingQuality) {
+  LoopMetrics good;
+  good.inliers = good.normal_pairs = 300;
+  good.source_coverage = good.target_coverage = 1;
+  good.rmse_m = good.p95_m = 0.01;
+  good.eigenvalue_ratio = 0.1;
+  auto forward = good, reverse = good;
+  std::array<LoopTransformError, 4> errors{};
+  EXPECT_EQ(loop_internal::ClassifyQuality(forward, reverse, errors, {}),
+            LoopStatus::kVerified);
+  forward.rmse_m = 1;
+  reverse.source_coverage = 0;
+  EXPECT_EQ(loop_internal::ClassifyQuality(forward, reverse, errors, {}),
+            LoopStatus::kLowOverlap);
+  reverse = good;
+  EXPECT_EQ(loop_internal::ClassifyQuality(forward, reverse, errors, {}),
+            LoopStatus::kHighResidual);
+  forward = good;
+  errors[1].translation_m = 0.11;
+  EXPECT_EQ(loop_internal::ClassifyQuality(forward, reverse, errors, {}),
+            LoopStatus::kInconsistentTransform);
+  errors = {};
+  errors[3].rotation_deg = 21;
+  EXPECT_EQ(loop_internal::ClassifyQuality(forward, reverse, errors, {}),
+            LoopStatus::kLargeCorrection);
+  errors = {};
+  reverse.eigenvalue_ratio = 0;
+  EXPECT_EQ(loop_internal::ClassifyQuality(forward, reverse, errors, {}),
+            LoopStatus::kDegenerate);
+}
+
 }  // namespace
 }  // namespace livo_atlas
