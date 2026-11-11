@@ -1,16 +1,16 @@
-#include "livo_atlas/backend/loop_closure.h"
+#include <gtest/gtest.h>
 
 #include <limits>
 #include <stdexcept>
 #include <vector>
 
-#include <gtest/gtest.h>
+#include "livo_atlas/backend/loop_closure.h"
 
 namespace livo_atlas {
 namespace {
 
 LoopSubmapInfo Info(std::uint64_t id, std::uint64_t first, double time,
-                   double x) {
+                    double x) {
   LoopSubmapInfo result;
   result.membership.primary = {id, first, {first, first + 1}};
   result.membership.membership_revision = 3;
@@ -55,8 +55,8 @@ TEST(LoopCandidatesTest, IncludesExactGapAndRadiusBoundaries) {
 
 TEST(LoopCandidatesTest, ExcludesFutureSelfAndSharedMembers) {
   const auto query = Info(10, 100, 100, 0);
-  EXPECT_TRUE(FindLoopCandidates(query, {query, Info(11, 110, 110, 0),
-                                         Info(0, 100, 0, 0)})
+  EXPECT_TRUE(FindLoopCandidates(
+                  query, {query, Info(11, 110, 110, 0), Info(0, 100, 0, 0)})
                   .empty());
 }
 

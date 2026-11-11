@@ -26,8 +26,7 @@ void ValidateInfo(const LoopSubmapInfo& info) {
   }
   const auto& support = group.support_keyframe_ids;
   for (std::size_t i = 0; i < support.size(); ++i) {
-    if (support[i] >= ids.front() ||
-        (i && support[i] - support[i - 1] != 1)) {
+    if (support[i] >= ids.front() || (i && support[i] - support[i - 1] != 1)) {
       throw std::invalid_argument("Invalid loop support members");
     }
   }
@@ -61,16 +60,18 @@ std::vector<LoopCandidate> FindLoopCandidates(
     }
     const auto& before = target.membership.primary.keyframe_ids;
     const auto& after = query.membership.primary.keyframe_ids;
-    // Check ordering before unsigned subtraction, including overlapping members.
+    // Check ordering before unsigned subtraction, including overlapping
+    // members.
     if (id >= query.membership.primary.id || before.back() >= after.front() ||
         query.membership.primary.id - id < options.min_submap_gap ||
         after.front() - before.back() < options.min_keyframe_gap ||
-        query.first_timestamp - target.last_timestamp < options.min_time_gap_s) {
+        query.first_timestamp - target.last_timestamp <
+            options.min_time_gap_s) {
       continue;
     }
-    const double distance =
-        (query.parent_from_submap.translation -
-         target.parent_from_submap.translation).stableNorm();
+    const double distance = (query.parent_from_submap.translation -
+                             target.parent_from_submap.translation)
+                                .stableNorm();
     if (distance <= options.search_radius_m) {
       result.push_back({id, query.membership.primary.id, distance});
     }
@@ -80,7 +81,8 @@ std::vector<LoopCandidate> FindLoopCandidates(
            (a.anchor_distance_m == b.anchor_distance_m &&
             a.target_id < b.target_id);
   });
-  if (result.size() > options.max_candidates) result.resize(options.max_candidates);
+  if (result.size() > options.max_candidates)
+    result.resize(options.max_candidates);
   return result;
 }
 
