@@ -17,7 +17,8 @@ cmake -S /path/to/gtsam -B /path/to/gtsam-build \
   -DGTSAM_USE_SYSTEM_EIGEN=ON \
   -DGTSAM_BUILD_WITH_MARCH_NATIVE=OFF \
   -DGTSAM_BUILD_TESTS=OFF -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
-  -DGTSAM_BUILD_UNSTABLE=OFF -DGTSAM_WITH_TBB=OFF
+  -DGTSAM_BUILD_UNSTABLE=OFF -DGTSAM_BUILD_PYTHON=OFF \
+  -DGTSAM_WITH_TBB=OFF -DGTSAM_SUPPORT_NESTED_DISSECTION=OFF
 cmake --build /path/to/gtsam-build
 cmake --install /path/to/gtsam-build
 
@@ -28,6 +29,9 @@ cmake --build /path/to/livo-build
 (cd /path/to/livo-build && ctest --output-on-failure)
 cmake --install /path/to/livo-build --prefix /path/to/livo-install
 ```
+
+普通 CMake 构建可追加 `-DBUILD_SHARED_LIBS=OFF` 使用静态工程库，或追加
+`-DLIVO_ATLAS_USE_OPENMP=OFF` 关闭估计器的 OpenMP 循环。
 
 ROS1 和 ROS2 构建同样使用 `LIVO_ATLAS_WITH_GTSAM=ON` 并提供 GTSAM 前缀；其余 ROS
 依赖和构建步骤见工程原有说明。例如在已配置的工作空间中：
@@ -84,3 +88,21 @@ if (!candidate.iteration_limit_reached) {
 了策略字段，依赖旧二进制布局的程序需要重新编译。图、快照与批量求解内存随帧数增长，
 本阶段不承诺长距离实时性能。更多设计和验收边界见
 [P6-02b 设计](superpowers/specs/2026-11-11-p6-02b-pose-graph-design.md)。
+
+## 导出给 COLMAP
+
+当前 COLMAP 导出器读取 `keyframes/poses/` 中的完整位姿文件，不会自动读取
+`keyframes/online_submaps/poses/` 中的在线版本。结束采集后，可以在数据集副本中显式
+物化要导出的版本，再写入一次独立的完整位姿文件：
+
+```cpp
+// dataset 指向复制出的 keyframes 目录，version 是已提交的正版本。
+livo_atlas::KeyframeStore frames(dataset);
+livo_atlas::OnlineSubmapStore online(dataset / "online_submaps", frames);
+const auto poses = online.MaterializePoseSnapshot(version, frames.ids().size());
+frames.WritePoses(version, poses.poses);
+```
+
+然后运行 `livo_atlas_export_colmap DATASET OUTPUT VERSION`。写入不会替换已有同号
+文件，也不会改写原始帧；导出需要数据集中存在图像关键帧。物化的是当时完整的帧前缀，
+不自动追踪之后新增的尾帧。这个流程为后续 3DGS 数据准备提供输入，但尚不是在线 3DGS。
