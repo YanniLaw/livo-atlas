@@ -34,6 +34,7 @@
 29. [移除 Pimpl 设计](superpowers/specs/2026-11-10-remove-pimpl-design.md)、[实施计划](superpowers/plans/2026-11-10-remove-pimpl.md)及[验证记录](pimpl-removal-validation.md)：移除现有 8 处 Pimpl，恢复普通类的私有成员与直接方法实现；双 ROS、普通 SDK 及配对 bag 已完成验收。
 30. [P6-02a 几何子地图设计](superpowers/specs/2026-11-10-p6-02a-geometry-submaps-design.md)、[实施计划](superpowers/plans/2026-11-10-p6-02a-geometry-submaps.md)、[使用说明](geometry-submaps.md)与[验证记录](p6-02a-validation.md)：主成员体素统计、条件有效的面元、版本修正、有限缓存和显式导出已实现，双 ROS 回归与本阶段验收已完成。
 31. [P6-02b GTSAM 位姿图设计](superpowers/specs/2026-11-11-p6-02b-pose-graph-design.md)、[实施计划](superpowers/plans/2026-11-11-p6-02b-pose-graph.md)、[使用说明](pose-graph.md)和[验证记录](p6-02b-validation.md)：可选批量优化、模拟回环和版本化几何交付已完成阶段验收。
+32. [P6-02c 真实回环设计草案](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)：建议先完成先验辅助的子地图几何验证，再细化在线图准入与 ROS 全局输出；尚未确认或编码。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
