@@ -1,10 +1,10 @@
-#include <gtest/gtest.h>
+#include "livo_atlas/backend/loop_closure.h"
 
 #include <limits>
 #include <stdexcept>
 #include <vector>
 
-#include "livo_atlas/backend/loop_closure.h"
+#include <gtest/gtest.h>
 
 namespace livo_atlas {
 namespace {

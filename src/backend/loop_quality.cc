@@ -1,12 +1,13 @@
-#include <pcl/kdtree/kdtree_flann.h>
+#include "backend/loop_internal.h"
 
-#include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
 
-#include "backend/loop_internal.h"
+#include <Eigen/Eigenvalues>
+#include <pcl/kdtree/kdtree_flann.h>
+
 #include "mapping/pose_math.h"
 
 namespace livo_atlas::loop_internal {

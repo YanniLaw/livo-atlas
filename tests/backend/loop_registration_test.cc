@@ -1,10 +1,11 @@
-#include <gtest/gtest.h>
+#include "livo_atlas/backend/loop_closure.h"
 
 #include <limits>
 #include <stdexcept>
 
+#include <gtest/gtest.h>
+
 #include "backend/loop_fixtures.h"
-#include "livo_atlas/backend/loop_closure.h"
 
 namespace livo_atlas {
 namespace {
@@ -142,6 +143,40 @@ TEST(LoopRegistrationTest, RejectsInitialGuessOutsidePclNumericRange) {
   EXPECT_THROW(VerifyLoop(target, source, options), std::invalid_argument);
   source.parent_from_submap = {};
   options.correspondence_distance_m = 1e200;
+  EXPECT_THROW(VerifyLoop(target, source, options), std::invalid_argument);
+}
+
+TEST(LoopRegistrationTest, RejectsFloatFiniteButUnsafeArithmetic) {
+  auto target = loop_test::Scene();
+  auto source = loop_test::Scene(5, 100);
+  auto large = std::make_shared<GeometryData>(*target.data);
+  for (auto& voxel : large->voxels) voxel.centroid *= 1e20;
+  target.data = large;
+  LoopRegistrationOptions options;
+  options.voxel_size_m = 1e19;
+  options.max_iterations = 1;
+  EXPECT_THROW(VerifyLoop(target, source, options), std::invalid_argument);
+  target = loop_test::Scene();
+  source.parent_from_submap.translation.x() = 1e38;
+  options.voxel_size_m = 0.5;
+  EXPECT_THROW(VerifyLoop(target, source, options), std::invalid_argument);
+}
+
+TEST(LoopRegistrationTest, ChecksReverseInitialCloudBeforeEitherSolve) {
+  auto target = loop_test::Scene();
+  auto source = loop_test::Scene(5, 100);
+  auto target_data = std::make_shared<GeometryData>(*target.data);
+  auto source_data = std::make_shared<GeometryData>(*source.data);
+  for (auto& voxel : target_data->voxels) {
+    voxel.centroid *= 1e17;
+    voxel.centroid.x() -= 7e17;
+  }
+  for (auto& voxel : source_data->voxels) voxel.centroid *= 1e17;
+  target.data = target_data;
+  source.data = source_data;
+  source.parent_from_submap.translation.x() = 7e17;
+  LoopRegistrationOptions options;
+  options.voxel_size_m = 1e16;
   EXPECT_THROW(VerifyLoop(target, source, options), std::invalid_argument);
 }
 

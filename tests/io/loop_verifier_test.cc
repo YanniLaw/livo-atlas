@@ -1,12 +1,12 @@
 #include "io/loop_verifier.h"
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
+
+#include <gtest/gtest.h>
 #include <opencv2/core/persistence.hpp>
 
 #include "livo_atlas/io/keyframe_store.h"

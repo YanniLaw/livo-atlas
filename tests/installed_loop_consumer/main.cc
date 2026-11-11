@@ -1,6 +1,6 @@
-#include <memory>
-
 #include "livo_atlas/backend/loop_closure.h"
+
+#include <memory>
 
 int main() {
 #ifdef EXPECT_LOOP

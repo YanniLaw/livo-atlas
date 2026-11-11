@@ -1,9 +1,10 @@
-#include <gtest/gtest.h>
+#include "backend/loop_internal.h"
 
 #include <cmath>
 
+#include <gtest/gtest.h>
+
 #include "backend/loop_fixtures.h"
-#include "backend/loop_internal.h"
 
 namespace livo_atlas {
 namespace {

@@ -1,6 +1,5 @@
-#include <pcl/registration/gicp.h>
+#include "livo_atlas/backend/loop_closure.h"
 
-#include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -9,15 +8,56 @@
 #include <set>
 #include <stdexcept>
 
+#include <Eigen/Eigenvalues>
+#include <pcl/registration/gicp.h>
+
 #include "backend/loop_internal.h"
 #include "common/rotation_projection.h"
-#include "livo_atlas/backend/loop_closure.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
 namespace {
 
 using Cloud = pcl::PointCloud<pcl::PointXYZ>;
+
+double PclCoordinateLimit() {
+  // Reserve headroom for float covariance products and squared distances.
+  return std::sqrt(static_cast<double>(std::numeric_limits<float>::max())) / 16;
+}
+
+bool SafePclPoint(const Eigen::Vector3d& point) {
+  return point.allFinite() &&
+         point.cwiseAbs().maxCoeff() <= PclCoordinateLimit();
+}
+
+bool SafeTransform(const Cloud& cloud, const Eigen::Matrix4f& transform) {
+  if (!transform.allFinite() ||
+      transform.topLeftCorner<3, 3>().cwiseAbs().maxCoeff() > 2 ||
+      transform.topRightCorner<3, 1>().cast<double>().cwiseAbs().maxCoeff() >
+          4 * PclCoordinateLimit())
+    return false;
+  const auto rotation = transform.topLeftCorner<3, 3>().cast<double>().eval();
+  const auto translation =
+      transform.topRightCorner<3, 1>().cast<double>().eval();
+  for (const auto& point : cloud) {
+    if (!SafePclPoint(rotation * point.getVector3fMap().cast<double>() +
+                      translation))
+      return false;
+  }
+  return true;
+}
+
+Eigen::Matrix4f InitialGuess(const Cloud& cloud,
+                             const RigidTransform& initial) {
+  Eigen::Matrix4f guess = Eigen::Matrix4f::Identity();
+  guess.topLeftCorner<3, 3>() = initial.rotation.cast<float>();
+  guess.topRightCorner<3, 1>() = initial.translation.cast<float>();
+  if (!SafeTransform(cloud, guess)) {
+    throw std::invalid_argument(
+        "Loop initial guess exceeds PCL arithmetic limits");
+  }
+  return guess;
+}
 
 bool Positive(double value) {
   return std::isfinite(value) && value > 0 && std::isfinite(1.0 / value);
@@ -65,8 +105,7 @@ void ValidateGeometry(const GeometrySubmap& submap) {
 void ValidateVoxels(const GeometryData& data) {
   std::set<GeometryVoxelKey> keys;
   for (const auto& voxel : data.voxels) {
-    if (!voxel.point_count || !voxel.centroid.allFinite() ||
-        !voxel.centroid.cast<float>().allFinite() ||
+    if (!voxel.point_count || !SafePclPoint(voxel.centroid) ||
         !std::isfinite(voxel.mean_intensity) ||
         !voxel.spatial_covariance.allFinite() ||
         !voxel.spatial_covariance.isApprox(voxel.spatial_covariance.transpose(),
@@ -130,12 +169,25 @@ Cloud::Ptr Downsample(const GeometryData& data, double size) {
 class Gicp : public pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ,
                                                           pcl::PointXYZ> {
  public:
+  Gicp() {
+    const auto estimate = rigid_transformation_estimation_;
+    rigid_transformation_estimation_ =
+        [estimate](const Cloud& source, const std::vector<int>& source_indices,
+                   const Cloud& target, const std::vector<int>& target_indices,
+                   Eigen::Matrix4f& transform) {
+          estimate(source, source_indices, target, target_indices, transform);
+          // PCL catches this before the next float nearest-neighbor query.
+          if (!SafeTransform(source, transform)) {
+            throw pcl::PCLException("Unsafe loop registration iterate");
+          }
+        };
+  }
+
   int iterations() const { return nr_iterations_; }
 };
 
 LoopAlignment Align(const Cloud::ConstPtr& target,
-                    const Cloud::ConstPtr& source,
-                    const RigidTransform& initial,
+                    const Cloud::ConstPtr& source, const Eigen::Matrix4f& guess,
                     const LoopRegistrationOptions& options) {
   Gicp solver;
   solver.setInputSource(source);
@@ -146,13 +198,6 @@ LoopAlignment Align(const Cloud::ConstPtr& target,
   solver.setMaximumOptimizerIterations(options.max_optimizer_iterations);
   solver.setTransformationEpsilon(options.translation_epsilon);
   solver.setRotationEpsilon(options.rotation_epsilon);
-  Eigen::Matrix4f guess = Eigen::Matrix4f::Identity();
-  guess.topLeftCorner<3, 3>() = initial.rotation.cast<float>();
-  guess.topRightCorner<3, 1>() = initial.translation.cast<float>();
-  if (!guess.allFinite()) {
-    throw std::invalid_argument(
-        "Loop initial guess cannot be represented by PCL");
-  }
   LoopAlignment result;
   Cloud output;
   try {
@@ -215,16 +260,18 @@ LoopVerification Solve(const GeometrySubmap& target,
     result.status = LoopStatus::kInsufficientPoints;
     return result;
   }
-  result.forward = Align(target_cloud, source_cloud,
-                         result.initial_target_from_source, options);
+  // Check both directions before entering either solver.
+  const auto forward_guess =
+      InitialGuess(*source_cloud, result.initial_target_from_source);
+  const auto reverse_guess = InitialGuess(
+      *target_cloud, pose_math::Inverse(result.initial_target_from_source));
+  result.forward = Align(target_cloud, source_cloud, forward_guess, options);
   if (result.forward.iterations >= options.max_iterations) {
     result.status = LoopStatus::kIterationLimit;
     return result;
   }
   if (!result.forward.transform) return result;
-  result.reverse =
-      Align(source_cloud, target_cloud,
-            pose_math::Inverse(result.initial_target_from_source), options);
+  result.reverse = Align(source_cloud, target_cloud, reverse_guess, options);
   if (result.reverse.iterations >= options.max_iterations) {
     result.status = LoopStatus::kIterationLimit;
     return result;
