@@ -576,5 +576,20 @@ TEST_F(KeyframeStoreTest,
   EXPECT_EQ(reader.ids().size(), 1u);
   EXPECT_EQ(reader.Read(0).image.at<cv::Vec3b>(0, 0), cv::Vec3b(7, 8, 9));
 }
+TEST_F(KeyframeStoreTest, ReadsTimestampWithoutOpeningSensorAssets) {
+  KeyframeStore writer(directory_, calibration_);
+  auto frame = Frame(0);
+  frame.timestamp = 1234567890.125;
+  writer.Append(frame);
+  fs::remove(directory_ / "frames/0/image.png");
+  fs::remove(directory_ / "frames/0/cloud.pcd");
+  EXPECT_DOUBLE_EQ(writer.ReadTimestamp(0), 1234567890.125);
+  ReplaceValue(directory_ / "frames/0/frame.yml", "timestamp", "\"nan\"");
+  EXPECT_THROW(writer.ReadTimestamp(0), std::runtime_error);
+  ReplaceValue(directory_ / "frames/0/frame.yml", "timestamp", "\"1\"");
+  ReplaceValue(directory_ / "frames/0/frame.yml", "id", "\"1\"");
+  EXPECT_THROW(writer.ReadTimestamp(0), std::runtime_error);
+}
+
 }  // namespace
 }  // namespace livo_atlas

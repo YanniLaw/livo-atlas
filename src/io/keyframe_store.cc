@@ -370,6 +370,23 @@ RigidTransform KeyframeStore::ReadRawBodyPose(std::uint64_t id) const {
   }
 }
 
+double KeyframeStore::ReadTimestamp(std::uint64_t id) const {
+  if (id >= ids_.size()) {
+    throw std::out_of_range(directory_.string() +
+                            ": Unknown keyframe identifier");
+  }
+  const auto path = directory_ / "frames" / std::to_string(id) / "frame.yml";
+  try {
+    const auto yaml = ReadYaml(path);
+    if (Id(yaml["id"]) != id || Id(yaml["calibration_id"]) != 0) {
+      Fail(path, "Frame identifier mismatch");
+    }
+    return Number(yaml["timestamp"]);
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
 PointCloud::ConstPtr KeyframeStore::ReadBodyCloud(
     std::uint64_t id, std::uint64_t max_points) const {
   if (!max_points) throw std::invalid_argument("Point limit must be positive");

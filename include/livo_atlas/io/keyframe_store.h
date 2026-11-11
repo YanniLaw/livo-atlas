@@ -28,6 +28,8 @@ class KeyframeStore {
                                      std::uint64_t max_points) const;
   // Metadata only; does not validate or decode image/cloud assets.
   RigidTransform ReadRawBodyPose(std::uint64_t id) const;
+  // Reads only frame metadata; does not open the image or point cloud.
+  double ReadTimestamp(std::uint64_t id) const;
   const std::vector<std::uint64_t>& ids() const { return ids_; }
 
   const Calibration& calibration() const { return calibration_; }
