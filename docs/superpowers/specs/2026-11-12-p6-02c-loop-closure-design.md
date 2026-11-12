@@ -4,6 +4,8 @@
 [P6-02b](../../p6-02b-validation.md) 已完成可选位姿图与版本化几何交付。
 本文确定下一阶段的边界和实施顺序，C1 详见[实施计划](../plans/2026-11-12-p6-02c1-loop-verification.md)。
 实现冻结于 `64054a7`；实际结果与限制见 [C1 验证记录](../../p6-02c1-validation.md)。
+后续边界已细化为 [C2 设计草案](2026-11-13-p6-02c2-loop-admission-design.md)与
+[C2a 实施计划](../plans/2026-11-13-p6-02c2a-loop-admission.md)，尚未编码。
 
 ## 目标与阶段划分
 

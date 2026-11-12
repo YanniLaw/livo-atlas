@@ -36,6 +36,8 @@
 31. [P6-02b GTSAM 位姿图设计](superpowers/specs/2026-11-11-p6-02b-pose-graph-design.md)、[实施计划](superpowers/plans/2026-11-11-p6-02b-pose-graph.md)、[使用说明](pose-graph.md)和[验证记录](p6-02b-validation.md)：可选批量优化、模拟回环和版本化几何交付已完成阶段验收。
 32. [P6-02c 真实回环设计](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)、[C1 实施计划](superpowers/plans/2026-11-12-p6-02c1-loop-verification.md)、[使用说明](loop-verification.md)和[验证记录](p6-02c1-validation.md)：C1 先验辅助几何验证与只读工具已完成阶段验收；C2 在线图准入与 C3 全局输出留待后续。
 
+33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)及[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)：先实现无状态约束准入、图试算和优化后几何复核，再接入在线调度与提交；当前为已做独立设计检查的草案，尚未编码。
+
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
 P1-02 已完成普通标定类型、ROS1 参数入口、相机接线、直接测试、完整回放及独立审阅问题闭环。
