@@ -55,6 +55,8 @@ struct PoseGraphResult {
   bool iteration_limit_reached = false;
   std::vector<FactorResidual> odometry_residuals;
   std::vector<FactorResidual> loop_residuals;
+  double graph_build_seconds = 0;
+  double solve_seconds = 0;
 };
 
 // A graph has one serial owner. Optimize creates a candidate without changing

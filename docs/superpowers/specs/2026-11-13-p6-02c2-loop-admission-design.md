@@ -111,6 +111,10 @@ C2a 配置0是非法输入，通用PoseGraph的0仅用于保持原Gaussian消费
 诊断不使用鲁棒降权后的数值，否则被降权的坏因子可能伪装成小残差。
 GTSAM 的具体切空间约定由该因子的误差函数决定，不另写一份假定等价的 SE(3) Logmap。
 
+实施补充：图结果和准入试算诊断还记录 `graph_build_seconds`（输入装配、GTSAM构图与初始目标计算）
+和 `solve_seconds`（LM求解器构造与求解）。它们只用于验收性能记录，不参与准入判断；
+求解未返回时仍只保留异常原因，不伪造计时或试算结果。
+
 临时图由完整原始前缀和已接纳列表重建，随后加入唯一新约束并 Optimize。依次检查：
 
 - 有限目标值、不增加，且 `iteration_limit_reached=false`；否则 `kOptimizationRejected`。

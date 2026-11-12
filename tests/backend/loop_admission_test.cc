@@ -1,7 +1,7 @@
 #include "livo_atlas/backend/loop_admission.h"
 
-#include <memory>
 #include <map>
+#include <memory>
 #include <new>
 #include <stdexcept>
 #include <vector>
@@ -118,6 +118,8 @@ TEST(LoopAdmissionTest, ProposesProjectedUpdateWithoutMutatingInput) {
   ASSERT_TRUE(result.proposal);
   ASSERT_TRUE(result.trial);
   EXPECT_FALSE(result.optimization_error);
+  EXPECT_GT(result.trial->graph_build_seconds, 0);
+  EXPECT_GT(result.trial->solve_seconds, 0);
   EXPECT_EQ(result.proposal->update.base_version, 0u);
   EXPECT_EQ(result.proposal->update.optimized_frame_count, 101u);
   EXPECT_EQ(result.proposal->update.tail_policy,

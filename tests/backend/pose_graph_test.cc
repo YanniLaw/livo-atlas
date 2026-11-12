@@ -79,6 +79,8 @@ TEST(PoseGraphTest, SyntheticLoopReducesResidual) {
   ASSERT_EQ(result.update.poses.size(), raw.size());
   EXPECT_GT(result.initial_error, result.final_error);
   EXPECT_FALSE(result.iteration_limit_reached);
+  EXPECT_GT(result.graph_build_seconds, 0);
+  EXPECT_GT(result.solve_seconds, 0);
   const auto& first = result.update.poses.front().map_from_body;
   const auto& last = result.update.poses.back().map_from_body;
   EXPECT_LT(first.translation.norm(), 1e-3);

@@ -132,6 +132,9 @@ vector<FactorResidual> odometry_residuals, loop_residuals }`。
 `LoopAdmissionResult`字段为status、candidates、optional trial、geometry_checks、optional proposal、
 optional<string> optimization_error。求解器未返回时只保留optimization_error，不填造trial数值。
 
+实施补充：为完成Task5的分阶段计时，PoseGraphResult与LoopTrialDiagnostics追加
+`graph_build_seconds`、`solve_seconds`；不参与准入，仅在求解实际返回时记录。
+
 - [ ] 内部选择函数 `SelectLoopCandidate(hypotheses, accepted, poses, options)` 的精确内部类型由实现者在
   loop_selection.h定义；测试直接输入普通小型hypothesis，断言两两歧义、全部排序优先级、相等边界、
   无符号ID差、主成员交集、近邻相关、最优相关时不换次优。先缺API RED再实现。

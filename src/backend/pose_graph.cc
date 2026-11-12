@@ -1,6 +1,7 @@
 #include "livo_atlas/backend/pose_graph.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -138,6 +139,7 @@ PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
     }
   }
 
+  const auto build_start = std::chrono::steady_clock::now();
   gtsam::NonlinearFactorGraph graph;
   gtsam::Values initial;
   std::vector<gtsam::Pose3> odometry;
@@ -175,9 +177,14 @@ PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
   if (!std::isfinite(result.initial_error)) {
     throw PoseGraphOptimizationError("Non-finite initial pose graph error");
   }
+  result.graph_build_seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                    build_start)
+          .count();
   gtsam::LevenbergMarquardtParams parameters;
   parameters.setMaxIterations(options_.max_iterations);
   gtsam::Values values;
+  const auto solve_start = std::chrono::steady_clock::now();
   try {
     gtsam::LevenbergMarquardtOptimizer optimizer(graph, initial, parameters);
     values = optimizer.optimize();
@@ -189,6 +196,9 @@ PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
     // unknown exception types propagate to the caller.
     throw PoseGraphOptimizationError(error.what());
   }
+  result.solve_seconds = std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - solve_start)
+                             .count();
   result.iteration_limit_reached =
       result.iterations >= static_cast<std::size_t>(options_.max_iterations);
   result.final_error = graph.error(values);

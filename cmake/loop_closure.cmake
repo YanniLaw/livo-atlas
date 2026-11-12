@@ -11,7 +11,8 @@ install(TARGETS livo_atlas_loop_closure EXPORT livo_atlasTargets
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # Keep dataset orchestration private to the tool and its integration tests.
-add_library(livo_atlas_loop_io STATIC src/io/loop_verifier.cc)
+add_library(livo_atlas_loop_io STATIC src/io/loop_verifier.cc
+  src/io/loop_options.cc src/io/loop_diagnostics.cc)
 target_include_directories(livo_atlas_loop_io PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_loop_io PUBLIC livo_atlas_loop_closure livo_atlas_io)
 add_executable(livo_atlas_verify_loops tools/verify_loops.cc)

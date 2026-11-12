@@ -74,6 +74,8 @@ struct LoopTrialDiagnostics {
   std::size_t iterations = 0;
   bool iteration_limit_reached = false;
   std::vector<FactorResidual> odometry_residuals, loop_residuals;
+  double graph_build_seconds = 0;
+  double solve_seconds = 0;
 };
 
 struct LoopProposal {

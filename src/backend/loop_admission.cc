@@ -1,6 +1,7 @@
 #include "livo_atlas/backend/loop_admission.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <set>
 #include <stdexcept>
@@ -265,12 +266,17 @@ LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
   result.status = selection.status;
   if (!selection.index) return result;
   auto& chosen = hypotheses[*selection.index];
+  const auto build_start = std::chrono::steady_clock::now();
   PoseGraph graph(options.graph);
   for (std::size_t i = 0; i < input.raw_poses.size(); ++i)
     graph.AddKeyframe(i, input.raw_poses[i]);
   for (const auto& accepted : input.accepted_loops)
     graph.AddLoopConstraint(accepted.constraint);
   graph.AddLoopConstraint(chosen.loop.constraint);
+  const double input_build_seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                    build_start)
+          .count();
   PoseGraphResult trial;
   try {
     trial = graph.Optimize(input.poses);
@@ -279,9 +285,14 @@ LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
     result.optimization_error = error.what();
     return result;
   }
-  result.trial = {trial.initial_error,      trial.final_error,
-                  trial.iterations,         trial.iteration_limit_reached,
-                  trial.odometry_residuals, trial.loop_residuals};
+  result.trial = {trial.initial_error,
+                  trial.final_error,
+                  trial.iterations,
+                  trial.iteration_limit_reached,
+                  trial.odometry_residuals,
+                  trial.loop_residuals,
+                  trial.graph_build_seconds + input_build_seconds,
+                  trial.solve_seconds};
   if (trial.iteration_limit_reached) {
     result.status = LoopAdmissionStatus::kOptimizationRejected;
     return result;
