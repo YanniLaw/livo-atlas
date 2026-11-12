@@ -9,6 +9,8 @@
 #include <vector>
 
 #include <gtsam/geometry/Pose3.h>
+#include <gtsam/linear/LossFunctions.h>
+#include <gtsam/linear/linearExceptions.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 #include <gtsam/nonlinear/Values.h>
@@ -49,6 +51,35 @@ bool SamePose(const RigidTransform& a, const RigidTransform& b) {
          (a.translation.array() == b.translation.array()).all();
 }
 
+FactorResidual Residual(const gtsam::BetweenFactor<gtsam::Pose3>& factor,
+                        const gtsam::Values& initial,
+                        const gtsam::Values& final, double rotation_sigma,
+                        double translation_sigma) {
+  const auto norm = [&](const gtsam::Values& values) {
+    gtsam::Vector error = factor.unwhitenedError(values);
+    error.head<3>() /= rotation_sigma;
+    error.tail<3>() /= translation_sigma;
+    return error.norm();
+  };
+  FactorResidual result;
+  result.from_id = factor.key1();
+  result.to_id = factor.key2();
+  result.initial_whitened_norm = norm(initial);
+  result.final_whitened_norm = norm(final);
+  const auto prediction = final.at<gtsam::Pose3>(factor.key1())
+                              .between(final.at<gtsam::Pose3>(factor.key2()));
+  const auto error = factor.measured().between(prediction);
+  result.final_rotation_rad = gtsam::Rot3::Logmap(error.rotation()).norm();
+  result.final_translation_m = error.translation().norm();
+  if (!std::isfinite(result.initial_whitened_norm) ||
+      !std::isfinite(result.final_whitened_norm) ||
+      !std::isfinite(result.final_rotation_rad) ||
+      !std::isfinite(result.final_translation_m)) {
+    throw PoseGraphOptimizationError("Non-finite pose graph residual");
+  }
+  return result;
+}
+
 }  // namespace
 
 PoseGraph::PoseGraph(PoseGraphOptions options) : options_(options) {
@@ -56,7 +87,8 @@ PoseGraph::PoseGraph(PoseGraphOptions options) : options_(options) {
       !ValidSigma(options.prior_translation_sigma_m) ||
       !ValidSigma(options.odometry_rotation_sigma_rad) ||
       !ValidSigma(options.odometry_translation_sigma_m) ||
-      options.max_iterations <= 0) {
+      options.max_iterations <= 0 || !std::isfinite(options.loop_huber_delta) ||
+      options.loop_huber_delta < 0) {
     throw std::invalid_argument("Invalid pose graph options");
   }
 }
@@ -126,28 +158,44 @@ PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
         i - 1, i, odometry[i - 1].between(odometry[i]), odometry_noise);
   }
   for (const auto& loop : constraints_) {
+    auto noise = Noise(loop.rotation_sigma_rad, loop.translation_sigma_m);
+    if (options_.loop_huber_delta > 0) {
+      noise = gtsam::noiseModel::Robust::Create(
+          gtsam::noiseModel::mEstimator::Huber::Create(
+              options_.loop_huber_delta,
+              gtsam::noiseModel::mEstimator::Base::Block),
+          noise);
+    }
     graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(
-        loop.from_id, loop.to_id, ToGtsam(loop.from_body_from_to_body),
-        Noise(loop.rotation_sigma_rad, loop.translation_sigma_m));
+        loop.from_id, loop.to_id, ToGtsam(loop.from_body_from_to_body), noise);
   }
 
   PoseGraphResult result;
   result.initial_error = graph.error(initial);
   if (!std::isfinite(result.initial_error)) {
-    throw std::runtime_error("Non-finite initial pose graph error");
+    throw PoseGraphOptimizationError("Non-finite initial pose graph error");
   }
   gtsam::LevenbergMarquardtParams parameters;
   parameters.setMaxIterations(options_.max_iterations);
-  gtsam::LevenbergMarquardtOptimizer optimizer(graph, initial, parameters);
-  const auto values = optimizer.optimize();
-  result.iterations = optimizer.iterations();
+  gtsam::Values values;
+  try {
+    gtsam::LevenbergMarquardtOptimizer optimizer(graph, initial, parameters);
+    values = optimizer.optimize();
+    result.iterations = optimizer.iterations();
+  } catch (const gtsam::IndeterminantLinearSystemException& error) {
+    throw PoseGraphOptimizationError(error.what());
+  } catch (const std::runtime_error& error) {
+    // Only solver failures are normal trial rejections. Allocation failures and
+    // unknown exception types propagate to the caller.
+    throw PoseGraphOptimizationError(error.what());
+  }
   result.iteration_limit_reached =
       result.iterations >= static_cast<std::size_t>(options_.max_iterations);
   result.final_error = graph.error(values);
   if (!std::isfinite(result.final_error) ||
       result.final_error - result.initial_error >
           1e-12 * std::max(1.0, result.initial_error)) {
-    throw std::runtime_error("Invalid optimized pose graph error");
+    throw PoseGraphOptimizationError("Invalid optimized pose graph error");
   }
 
   result.update.base_version = current.version;
@@ -157,8 +205,26 @@ PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
   for (std::size_t i = 0; i < count; ++i) {
     const auto& value = values.at<gtsam::Pose3>(i);
     RigidTransform pose{value.rotation().matrix(), value.translation()};
-    ValidatePose(pose);
+    const auto error = ValidateExtrinsic(pose);
+    if (!error.empty()) throw PoseGraphOptimizationError(error);
     result.update.poses.push_back({i, pose});
+  }
+  result.odometry_residuals.reserve(count - 1);
+  result.loop_residuals.reserve(constraints_.size());
+  // Factor order is prior, adjacent odometry, then the accepted loop order.
+  for (std::size_t i = 1; i < count; ++i) {
+    const auto& factor =
+        static_cast<const gtsam::BetweenFactor<gtsam::Pose3>&>(*graph[i]);
+    result.odometry_residuals.push_back(
+        Residual(factor, initial, values, options_.odometry_rotation_sigma_rad,
+                 options_.odometry_translation_sigma_m));
+  }
+  for (std::size_t i = 0; i < constraints_.size(); ++i) {
+    const auto& factor = static_cast<const gtsam::BetweenFactor<gtsam::Pose3>&>(
+        *graph[count + i]);
+    result.loop_residuals.push_back(
+        Residual(factor, initial, values, constraints_[i].rotation_sigma_rad,
+                 constraints_[i].translation_sigma_m));
   }
   return result;
 }

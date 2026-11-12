@@ -107,7 +107,7 @@ target_link_libraries(livo_system_test livo_atlas::core)
 
 if(LIVO_ATLAS_WITH_GTSAM)
   livo_atlas_test(pose_graph_test tests/backend/pose_graph_test.cc)
-  target_link_libraries(pose_graph_test livo_atlas::backend)
+  target_link_libraries(pose_graph_test livo_atlas::backend gtsam)
   livo_atlas_test(pose_graph_system_test tests/core/pose_graph_system_test.cc)
   target_link_libraries(pose_graph_system_test livo_atlas::backend)
 endif()

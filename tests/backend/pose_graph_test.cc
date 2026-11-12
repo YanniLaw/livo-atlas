@@ -9,6 +9,9 @@
 
 #include <Eigen/Geometry>
 #include <gtest/gtest.h>
+#include <gtsam/geometry/Pose3.h>
+#include <gtsam/nonlinear/Values.h>
+#include <gtsam/slam/BetweenFactor.h>
 
 namespace livo_atlas {
 namespace {
@@ -248,9 +251,118 @@ TEST(PoseGraphTest, RejectsNonfiniteObjective) {
   raw.back().translation.x() = 1e200;
   auto graph = MakeGraph(raw);
   graph.AddLoopConstraint(ClosingLoop());
-  EXPECT_THROW(graph.Optimize(RawSnapshot(raw)), std::runtime_error);
-  EXPECT_THROW(graph.Optimize(RawSnapshot(raw)), std::runtime_error);
+  EXPECT_THROW(graph.Optimize(RawSnapshot(raw)), PoseGraphOptimizationError);
+  EXPECT_THROW(graph.Optimize(RawSnapshot(raw)), PoseGraphOptimizationError);
   EXPECT_DOUBLE_EQ(raw.back().translation.x(), 1e200);
+}
+
+TEST(PoseGraphTest, RejectsInvalidHuberThreshold) {
+  for (double delta : {-1.0, std::numeric_limits<double>::infinity(),
+                       std::numeric_limits<double>::quiet_NaN()}) {
+    PoseGraphOptions options;
+    options.loop_huber_delta = delta;
+    EXPECT_THROW(PoseGraph{options}, std::invalid_argument);
+  }
+}
+
+TEST(PoseGraphTest, HuberDownweightsTheWholeLoopAndRetainsRawResidual) {
+  const std::vector<RigidTransform> raw(3);
+  LoopConstraint loop{0, 2, {}, 0.1, 0.1};
+  loop.from_body_from_to_body.translation = {3, 4, 0};
+  auto gaussian = MakeGraph(raw);
+  gaussian.AddLoopConstraint(loop);
+  const auto gaussian_result = gaussian.Optimize(RawSnapshot(raw));
+  PoseGraphOptions options;
+  options.loop_huber_delta = 1;
+  auto robust = MakeGraph(raw, options);
+  robust.AddLoopConstraint(loop);
+  const auto result = robust.Optimize(RawSnapshot(raw));
+
+  EXPECT_NEAR(gaussian_result.initial_error, 1250, 1e-10);
+  // Block Huber on norm(30, 40) = 50, rather than separate coordinate weights.
+  EXPECT_NEAR(result.initial_error, 49.5, 1e-10);
+  ASSERT_EQ(result.loop_residuals.size(), 1u);
+  EXPECT_NEAR(result.loop_residuals[0].initial_whitened_norm, 50, 1e-10);
+  EXPECT_GT(result.loop_residuals[0].final_whitened_norm, 40);
+  EXPECT_LT(result.update.poses.back().map_from_body.translation.norm(), 0.3);
+  EXPECT_GT(
+      gaussian_result.update.poses.back().map_from_body.translation.norm(), 3);
+  const auto& translation =
+      result.update.poses.back().map_from_body.translation;
+  EXPECT_NEAR(translation.y() / translation.x(), 4.0 / 3.0, 1e-6);
+}
+
+TEST(PoseGraphTest, HuberDoesNotChangePriorOrOdometry) {
+  const auto raw = Square();
+  PoseUpdate update;
+  update.optimized_frame_count = raw.size();
+  for (std::uint64_t i = 0; i < raw.size(); ++i) {
+    auto shifted = raw[i];
+    shifted.translation.x() += 1 + i;
+    update.poses.push_back({i, shifted});
+  }
+  const auto current = MakePoseSnapshot(update, {}, raw);
+  PoseGraphOptions options;
+  options.loop_huber_delta = 1;
+  const auto result = MakeGraph(raw, options).Optimize(current);
+  const auto gaussian = MakeGraph(raw).Optimize(current);
+  EXPECT_DOUBLE_EQ(result.initial_error, gaussian.initial_error);
+  EXPECT_DOUBLE_EQ(result.final_error, gaussian.final_error);
+  EXPECT_NEAR(result.initial_error, 500200, 1e-6);
+  ASSERT_EQ(result.odometry_residuals.size(), 4u);
+  EXPECT_TRUE(result.loop_residuals.empty());
+  for (const auto& residual : result.odometry_residuals) {
+    EXPECT_EQ(residual.to_id, residual.from_id + 1);
+    EXPECT_NEAR(residual.initial_whitened_norm, 10, 1e-10);
+    EXPECT_LT(residual.final_whitened_norm, 1e-3);
+  }
+}
+
+TEST(PoseGraphTest, DiagnosticsUseActualFactorTangentAndMeasurementDirection) {
+  auto raw = Square();
+  raw.back().rotation =
+      Eigen::AngleAxisd(0.3, Eigen::Vector3d::UnitY()).toRotationMatrix();
+  auto loop = ClosingLoop();
+  loop.rotation_sigma_rad = 0.2;
+  loop.translation_sigma_m = 0.5;
+  loop.from_body_from_to_body.rotation =
+      Eigen::AngleAxisd(0.4, Eigen::Vector3d::UnitX()).toRotationMatrix();
+  loop.from_body_from_to_body.translation = {0.1, 0.2, 0.3};
+  PoseGraphOptions options;
+  options.loop_huber_delta = 1;
+  auto graph = MakeGraph(raw, options);
+  graph.AddLoopConstraint(loop);
+  const auto result = graph.Optimize(RawSnapshot(raw));
+  ASSERT_EQ(result.loop_residuals.size(), 1u);
+  const auto& residual = result.loop_residuals.front();
+  EXPECT_EQ(residual.from_id, 0u);
+  EXPECT_EQ(residual.to_id, 4u);
+  const auto to_gtsam = [](const RigidTransform& pose) {
+    return gtsam::Pose3(gtsam::Rot3(pose.rotation), pose.translation);
+  };
+  const auto measurement = to_gtsam(loop.from_body_from_to_body);
+  const gtsam::BetweenFactor<gtsam::Pose3> factor(
+      0, 4, measurement, gtsam::noiseModel::Unit::Create(6));
+  gtsam::Values initial;
+  gtsam::Values final;
+  for (std::size_t i = 0; i < raw.size(); ++i) {
+    initial.insert(i, to_gtsam(raw[i]));
+    final.insert(i, to_gtsam(result.update.poses[i].map_from_body));
+  }
+  const auto whitened_norm = [&](const gtsam::Values& values) {
+    gtsam::Vector error = factor.unwhitenedError(values);
+    error.head<3>() /= 0.2;
+    error.tail<3>() /= 0.5;
+    return error.norm();
+  };
+  EXPECT_NEAR(residual.initial_whitened_norm, whitened_norm(initial), 1e-10);
+  EXPECT_NEAR(residual.final_whitened_norm, whitened_norm(final), 1e-10);
+  const auto prediction =
+      final.at<gtsam::Pose3>(0).between(final.at<gtsam::Pose3>(4));
+  const auto error = measurement.between(prediction);
+  EXPECT_NEAR(residual.final_translation_m, error.translation().norm(), 1e-10);
+  EXPECT_NEAR(residual.final_rotation_rad,
+              Eigen::AngleAxisd(error.rotation().matrix()).angle(), 1e-10);
 }
 
 }  // namespace
