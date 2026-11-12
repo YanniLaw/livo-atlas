@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_SRC_BACKEND_LOOP_INTERNAL_H_
 
 #include <array>
+#include <optional>
 
 #include "livo_atlas/backend/loop_closure.h"
 
@@ -15,10 +16,10 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
 std::array<LoopTransformError, 4> TransformErrors(
     const RigidTransform& initial, const RigidTransform& forward,
     const RigidTransform& reverse);
-LoopStatus ClassifyQuality(const LoopMetrics& forward,
-                           const LoopMetrics& reverse,
-                           const std::array<LoopTransformError, 4>& errors,
-                           const LoopRegistrationOptions& options);
+LoopStatus ClassifyQuality(
+    const LoopMetrics& forward, const LoopMetrics& reverse,
+    const std::optional<std::array<LoopTransformError, 4>>& errors,
+    const LoopRegistrationOptions& options);
 
 }  // namespace livo_atlas::loop_internal
 

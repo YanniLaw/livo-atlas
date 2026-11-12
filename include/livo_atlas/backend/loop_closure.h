@@ -95,6 +95,11 @@ struct LoopMetrics {
   std::optional<double> eigenvalue_ratio;
 };
 
+struct LoopGeometryCheck {
+  LoopStatus status = LoopStatus::kInsufficientPoints;
+  LoopMetrics forward, reverse;
+};
+
 struct LoopAlignment {
   int iterations = 0;
   bool converged = false;
@@ -128,6 +133,11 @@ const char* LoopStatusName(LoopStatus status);
 LoopVerification VerifyLoop(const GeometrySubmap& target,
                             const GeometrySubmap& source,
                             const LoopRegistrationOptions& options = {});
+// Checks the supplied measurement and its inverse without fitting a new one.
+LoopGeometryCheck EvaluateLoopGeometry(
+    const GeometrySubmap& target, const GeometrySubmap& source,
+    const RigidTransform& target_from_source,
+    const LoopRegistrationOptions& options = {});
 
 }  // namespace livo_atlas
 

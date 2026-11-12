@@ -140,6 +140,7 @@ Cloud::Ptr Downsample(const GeometryData& data, double size) {
     std::size_t count = 0;
     Eigen::Vector3d value = Eigen::Vector3d::Zero();
   };
+
   std::map<GeometryVoxelKey, Mean> cells;
   for (const auto& voxel : data.voxels) {
     const auto scaled = (voxel.centroid / size).array().floor().eval();
@@ -216,9 +217,14 @@ LoopAlignment Align(const Cloud::ConstPtr& target,
   return result;
 }
 
-LoopVerification Solve(const GeometrySubmap& target,
-                       const GeometrySubmap& source,
-                       const LoopRegistrationOptions& options) {
+struct PreparedGeometry {
+  LoopStatus status = LoopStatus::kVerified;
+  Cloud::Ptr target, source;
+};
+
+PreparedGeometry PrepareGeometry(const GeometrySubmap& target,
+                                 const GeometrySubmap& source,
+                                 const LoopRegistrationOptions& options) {
   ValidateLoopRegistrationOptions(options);
   ValidateGeometry(target);
   ValidateGeometry(source);
@@ -230,6 +236,43 @@ LoopVerification Solve(const GeometrySubmap& target,
           source.membership.primary.keyframe_ids.front()) {
     throw std::invalid_argument("Mixed or overlapping loop geometry views");
   }
+  PreparedGeometry result;
+  if (target.data->voxels.size() > options.max_voxels ||
+      source.data->voxels.size() > options.max_voxels) {
+    result.status = LoopStatus::kResourceLimit;
+    return result;
+  }
+  ValidateVoxels(*target.data);
+  ValidateVoxels(*source.data);
+  result.target = Downsample(*target.data, options.voxel_size_m);
+  result.source = Downsample(*source.data, options.voxel_size_m);
+  if (result.target->size() > options.max_points ||
+      result.source->size() > options.max_points) {
+    result.status = LoopStatus::kResourceLimit;
+    return result;
+  }
+  if (result.target->size() < options.min_points ||
+      result.source->size() < options.min_points) {
+    result.status = LoopStatus::kInsufficientPoints;
+  }
+  return result;
+}
+
+void ValidateTransformedVoxels(const GeometryData& data,
+                               const RigidTransform& transform) {
+  for (const auto& voxel : data.voxels) {
+    if (!SafePclPoint(transform.rotation * voxel.centroid +
+                      transform.translation)) {
+      throw std::invalid_argument(
+          "Loop transform exceeds PCL arithmetic limits");
+    }
+  }
+}
+
+LoopVerification Solve(const GeometrySubmap& target,
+                       const GeometrySubmap& source,
+                       const LoopRegistrationOptions& options) {
+  const auto prepared = PrepareGeometry(target, source, options);
   LoopVerification result;
   result.target = Provenance(target);
   result.source = Provenance(source);
@@ -239,27 +282,14 @@ LoopVerification Solve(const GeometrySubmap& target,
   result.initial_target_from_source = pose_math::Compose(
       pose_math::Inverse(Projected(target.parent_from_submap)),
       Projected(source.parent_from_submap));
-  if (target.data->voxels.size() > options.max_voxels ||
-      source.data->voxels.size() > options.max_voxels) {
-    result.status = LoopStatus::kResourceLimit;
+  result.target_points = prepared.target ? prepared.target->size() : 0;
+  result.source_points = prepared.source ? prepared.source->size() : 0;
+  if (prepared.status != LoopStatus::kVerified) {
+    result.status = prepared.status;
     return result;
   }
-  ValidateVoxels(*target.data);
-  ValidateVoxels(*source.data);
-  const auto target_cloud = Downsample(*target.data, options.voxel_size_m);
-  const auto source_cloud = Downsample(*source.data, options.voxel_size_m);
-  result.target_points = target_cloud->size();
-  result.source_points = source_cloud->size();
-  if (target_cloud->size() > options.max_points ||
-      source_cloud->size() > options.max_points) {
-    result.status = LoopStatus::kResourceLimit;
-    return result;
-  }
-  if (target_cloud->size() < options.min_points ||
-      source_cloud->size() < options.min_points) {
-    result.status = LoopStatus::kInsufficientPoints;
-    return result;
-  }
+  const auto& target_cloud = prepared.target;
+  const auto& source_cloud = prepared.source;
   // Check both directions before entering either solver.
   const auto forward_guess =
       InitialGuess(*source_cloud, result.initial_target_from_source);
@@ -323,6 +353,29 @@ LoopVerification VerifyLoop(const GeometrySubmap& target,
   result.elapsed_seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
           .count();
+  return result;
+}
+
+LoopGeometryCheck EvaluateLoopGeometry(const GeometrySubmap& target,
+                                       const GeometrySubmap& source,
+                                       const RigidTransform& target_from_source,
+                                       const LoopRegistrationOptions& options) {
+  const auto transform = Projected(target_from_source);
+  const auto prepared = PrepareGeometry(target, source, options);
+  LoopGeometryCheck result;
+  result.status = prepared.status;
+  if (result.status != LoopStatus::kVerified) return result;
+  const auto inverse = pose_math::Inverse(transform);
+  // Quality uses all original voxels, so validate their transformed positions,
+  // not just the downsampled means, before any float nearest-neighbor search.
+  ValidateTransformedVoxels(*source.data, transform);
+  ValidateTransformedVoxels(*target.data, inverse);
+  result.forward = loop_internal::EvaluateMetrics(*target.data, *source.data,
+                                                  transform, options);
+  result.reverse = loop_internal::EvaluateMetrics(*source.data, *target.data,
+                                                  inverse, options);
+  result.status = loop_internal::ClassifyQuality(result.forward, result.reverse,
+                                                 std::nullopt, options);
   return result;
 }
 

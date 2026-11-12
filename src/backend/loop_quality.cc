@@ -123,10 +123,10 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
   return result;
 }
 
-LoopStatus ClassifyQuality(const LoopMetrics& forward,
-                           const LoopMetrics& reverse,
-                           const std::array<LoopTransformError, 4>& errors,
-                           const LoopRegistrationOptions& options) {
+LoopStatus ClassifyQuality(
+    const LoopMetrics& forward, const LoopMetrics& reverse,
+    const std::optional<std::array<LoopTransformError, 4>>& errors,
+    const LoopRegistrationOptions& options) {
   for (const auto* metrics : {&forward, &reverse}) {
     if (metrics->inliers < options.min_inliers ||
         metrics->source_coverage < options.min_coverage ||
@@ -140,13 +140,14 @@ LoopStatus ClassifyQuality(const LoopMetrics& forward,
         *metrics->p95_m > options.max_p95_m)
       return LoopStatus::kHighResidual;
   }
-  for (std::size_t i = 0; i < errors.size(); ++i) {
-    if (!std::isfinite(errors[i].translation_m) ||
-        !std::isfinite(errors[i].rotation_deg) ||
-        errors[i].translation_m > (i < 2 ? options.max_cycle_translation_m
-                                         : options.max_correction_m) ||
-        errors[i].rotation_deg > (i < 2 ? options.max_cycle_rotation_deg
-                                        : options.max_correction_deg)) {
+  // Fixed-transform checks have no independent cycle or fitted correction.
+  for (std::size_t i = 0; errors && i < errors->size(); ++i) {
+    if (!std::isfinite((*errors)[i].translation_m) ||
+        !std::isfinite((*errors)[i].rotation_deg) ||
+        (*errors)[i].translation_m > (i < 2 ? options.max_cycle_translation_m
+                                            : options.max_correction_m) ||
+        (*errors)[i].rotation_deg > (i < 2 ? options.max_cycle_rotation_deg
+                                           : options.max_correction_deg)) {
       return i < 2 ? LoopStatus::kInconsistentTransform
                    : LoopStatus::kLargeCorrection;
     }
