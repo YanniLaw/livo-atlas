@@ -1,11 +1,13 @@
 #include "livo_atlas/backend/loop_admission.h"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <new>
 #include <stdexcept>
 #include <vector>
 
+#include <Eigen/Geometry>
 #include <gtest/gtest.h>
 
 #include "backend/loop_fixtures.h"
@@ -523,6 +525,59 @@ TEST(LoopAdmissionTest, PreservesCallerOwnedGeometryAndAllPoseMatrices) {
       ASSERT_EQ(a.normal.has_value(), b.normal.has_value());
       if (a.normal) EXPECT_TRUE(*a.normal == *b.normal);
     }
+  }
+}
+
+TEST(LoopAdmissionTest, RoundedRotationsDoNotScalePhysicalCorrectionBounds) {
+  for (double scale : {0.99999, 1.00001}) {
+    auto input = Input();
+    std::vector<Eigen::Matrix3d> rotations;
+    for (std::size_t i = 0; i < input.raw_poses.size(); ++i) {
+      rotations.push_back(Eigen::AngleAxisd(0.001 * i, Eigen::Vector3d::UnitZ())
+                              .toRotationMatrix());
+      input.raw_poses[i].rotation = scale * rotations.back();
+    }
+    input.poses =
+        MaterializePoseSnapshot({}, input.raw_poses, input.raw_poses.size());
+    RefreshInfo(&input);
+    const auto reader = [](auto id, const auto& poses) {
+      auto geometry = ReadGeometry(id, poses);
+      auto data = std::make_shared<GeometryData>(*geometry.data);
+      const auto& rotation = geometry.parent_from_submap.rotation;
+      data->sources.front().submap_from_body.rotation =
+          rotation.transpose() * rotation;
+      geometry.data = data;
+      return geometry;
+    };
+    const auto baseline = ProposeLoopUpdate(input, reader);
+    ASSERT_EQ(baseline.status, LoopAdmissionStatus::kProposed);
+    ASSERT_TRUE(baseline.proposal);
+    double displacement = 0, angle = 0;
+    for (const auto& pose : baseline.proposal->update.poses) {
+      displacement =
+          std::max(displacement, (pose.map_from_body.translation -
+                                  input.raw_poses[pose.id].translation)
+                                     .stableNorm());
+      angle = std::max(angle, Eigen::AngleAxisd(rotations[pose.id].transpose() *
+                                                pose.map_from_body.rotation)
+                                      .angle() *
+                                  (180 / 3.14159265358979323846));
+    }
+    // The margin is smaller than rounding-induced scaling but well above
+    // floating-point roundoff. Bounds are derived from world displacement and
+    // the known rigid rotations, independently of the gate implementation.
+    const double margin = scale > 1 ? 1.000001 : 0.999999;
+    const auto expected = scale > 1 ? LoopAdmissionStatus::kProposed
+                                    : LoopAdmissionStatus::kPoseCorrection;
+    LoopAdmissionOptions options;
+    options.max_pose_correction_m = displacement * margin;
+    EXPECT_EQ(ProposeLoopUpdate(input, reader, options).status, expected)
+        << scale;
+    options = {};
+    options.max_pose_correction_deg = angle * margin;
+    EXPECT_EQ(ProposeLoopUpdate(input, reader, options).status, expected)
+        << scale;
+    EXPECT_DOUBLE_EQ(input.raw_poses[0].rotation(0, 0), scale);
   }
 }
 

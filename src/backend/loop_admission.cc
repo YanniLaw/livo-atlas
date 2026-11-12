@@ -11,6 +11,7 @@
 
 #include "backend/loop_internal.h"
 #include "backend/loop_selection.h"
+#include "common/rotation_projection.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -158,12 +159,16 @@ bool ResidualsPass(const PoseGraphResult& trial, std::size_t accepted_count,
 bool CorrectionsPass(const PoseUpdate& update, const PoseSnapshot& current,
                      const LoopAdmissionOptions& options) {
   for (const auto& pose : update.poses) {
-    const auto delta = pose_math::Compose(
-        pose_math::Inverse(current.poses[pose.id].map_from_body),
-        pose.map_from_body);
-    const double angle = Eigen::AngleAxisd(delta.rotation).angle();
-    if (!delta.translation.allFinite() || !std::isfinite(angle) ||
-        delta.translation.stableNorm() > options.max_pose_correction_m ||
+    const auto& before = current.poses[pose.id].map_from_body;
+    const Eigen::Vector3d translation =
+        pose.map_from_body.translation - before.translation;
+    // Rounded frontend rotations must not scale a physical correction bound.
+    const Eigen::Matrix3d rotation =
+        ProjectRotation(before.rotation).transpose() *
+        pose.map_from_body.rotation;
+    const double angle = Eigen::AngleAxisd(rotation).angle();
+    if (!translation.allFinite() || !std::isfinite(angle) ||
+        translation.stableNorm() > options.max_pose_correction_m ||
         angle >
             options.max_pose_correction_deg * (3.14159265358979323846 / 180)) {
       return false;

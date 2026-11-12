@@ -29,13 +29,7 @@ bool Within(const fs::path& child, const fs::path& parent) {
 
 LoopVerifierOptions ReadLoopVerifierOptions(const fs::path& path) {
   const auto yaml = dataset_metadata::ReadYaml(path);
-  if (!yaml.root().isMap())
-    throw std::invalid_argument("Loop configuration must be a map");
-  for (const auto& node : yaml.root()) {
-    if (node.name() != "search" && node.name() != "registration") {
-      throw std::invalid_argument("Unknown loop option group: " + node.name());
-    }
-  }
+  loop_options::ValidateKeys(yaml.root(), {"search", "registration"});
   LoopVerifierOptions options;
   loop_options::ReadSearch(yaml["search"], options.search);
   loop_options::ReadRegistration(yaml["registration"], options.registration);

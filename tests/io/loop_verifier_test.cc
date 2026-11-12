@@ -121,5 +121,17 @@ TEST_F(LoopVerifierTest, ParsesTypedOptionsAndRejectsUnknownOrInvalidValues) {
   EXPECT_THROW(ReadLoopVerifierOptions(config), std::invalid_argument);
 }
 
+TEST_F(LoopVerifierTest, RejectsDuplicateFieldsAndGroups) {
+  const auto config = root_ / "duplicate.yml";
+  for (const auto* body :
+       {"search:\n  max_candidates: 5\n  max_candidates: 0\n",
+        "registration:\n  neighbors: 20\n  neighbors: 0\n",
+        "search:\n  max_candidates: 5\nsearch:\n  max_candidates: 0\n"}) {
+    std::ofstream(config) << "%YAML:1.0\n---\n" << body;
+    EXPECT_THROW(ReadLoopVerifierOptions(config), std::invalid_argument)
+        << body;
+  }
+}
+
 }  // namespace
 }  // namespace livo_atlas

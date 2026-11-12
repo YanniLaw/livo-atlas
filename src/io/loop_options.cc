@@ -39,6 +39,19 @@ void RegistrationFields(LoopRegistrationOptions& o, Visit visit) {
 
 }  // namespace
 
+void ValidateKeys(const cv::FileNode& group,
+                  const std::set<std::string>& allowed) {
+  if (!group.isMap())
+    throw std::invalid_argument("Loop option group must be a map");
+  std::set<std::string> seen;
+  for (const auto& node : group) {
+    if (!allowed.count(node.name()))
+      throw std::invalid_argument("Unknown loop option: " + node.name());
+    if (!seen.insert(node.name()).second)
+      throw std::invalid_argument("Duplicate loop option: " + node.name());
+  }
+}
+
 void ReadSearch(const cv::FileNode& node, LoopSearchOptions& options) {
   ReadFields(node, options,
              [](auto& o, auto visit) { SearchFields(o, visit); });

@@ -15,14 +15,16 @@
 
 namespace livo_atlas::loop_options {
 
+void ValidateKeys(const cv::FileNode& group,
+                  const std::set<std::string>& allowed);
+
 template <typename Fields, typename Options>
 void ReadFields(const cv::FileNode& group, Options& options, Fields fields) {
   if (group.empty()) return;
-  if (!group.isMap())
-    throw std::invalid_argument("Loop option group must be a map");
   std::set<std::string> names;
+  fields(options, [&](const char* name, auto&) { names.insert(name); });
+  ValidateKeys(group, names);
   fields(options, [&](const char* name, auto& value) {
-    names.insert(name);
     const auto node = group[name];
     if (node.empty()) return;
     if (!node.isReal() && !node.isInt())
@@ -41,10 +43,6 @@ void ReadFields(const cv::FileNode& group, Options& options, Fields fields) {
     }
     value = static_cast<Value>(number);
   });
-  for (const auto& node : group) {
-    if (!names.count(node.name()))
-      throw std::invalid_argument("Unknown loop option: " + node.name());
-  }
 }
 
 template <typename Value>

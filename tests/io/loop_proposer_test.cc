@@ -232,5 +232,21 @@ TEST_F(LoopProposerTest, ParsesFourStrictOptionGroups) {
   }
 }
 
+TEST_F(LoopProposerTest, RejectsDuplicateFieldsAndGroupsBeforeKeyedReads) {
+  const auto config = root_ / "duplicate.yml";
+  for (const auto* body :
+       {"admission:\n  max_factor_residual: 3\n  max_factor_residual: 0\n",
+        "graph:\n  loop_huber_delta: 1.345\n  loop_huber_delta: 0\n",
+        "search:\n  max_candidates: 5\n  max_candidates: 0\n",
+        "registration:\n  max_iterations: 50\n  max_iterations: 0\n",
+        "admission:\n  max_factor_residual: 3\nadmission:\n  "
+        "max_factor_residual: 0\n",
+        "graph:\n  loop_huber_delta: 1.345\ngraph:\n  loop_huber_delta: 0\n"}) {
+    std::ofstream(config) << "%YAML:1.0\n---\n" << body;
+    EXPECT_THROW(ReadLoopAdmissionOptions(config), std::invalid_argument)
+        << body;
+  }
+}
+
 }  // namespace
 }  // namespace livo_atlas
