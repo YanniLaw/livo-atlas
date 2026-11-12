@@ -5,10 +5,12 @@
 #include <set>
 #include <stdexcept>
 
-namespace livo_atlas {
-namespace {
+#include "backend/loop_internal.h"
 
-void ValidateInfo(const LoopSubmapInfo& info) {
+namespace livo_atlas {
+namespace loop_internal {
+
+void ValidateLoopSubmapInfo(const LoopSubmapInfo& info) {
   const auto& group = info.membership;
   ValidateSubmap(group.primary);
   const auto& ids = group.primary.keyframe_ids;
@@ -32,7 +34,7 @@ void ValidateInfo(const LoopSubmapInfo& info) {
   }
 }
 
-}  // namespace
+}  // namespace loop_internal
 
 void ValidateLoopSearchOptions(const LoopSearchOptions& options) {
   if (!options.min_submap_gap || options.min_keyframe_gap < 2 ||
@@ -47,11 +49,11 @@ std::vector<LoopCandidate> FindLoopCandidates(
     const LoopSubmapInfo& query, const std::vector<LoopSubmapInfo>& history,
     const LoopSearchOptions& options) {
   ValidateLoopSearchOptions(options);
-  ValidateInfo(query);
+  loop_internal::ValidateLoopSubmapInfo(query);
   std::set<std::uint64_t> seen;
   std::vector<LoopCandidate> result;
   for (const auto& target : history) {
-    ValidateInfo(target);
+    loop_internal::ValidateLoopSubmapInfo(target);
     const auto id = target.membership.primary.id;
     if (!seen.insert(id).second || target.pose_version != query.pose_version ||
         target.frame_count != query.frame_count ||

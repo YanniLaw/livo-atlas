@@ -8,6 +8,8 @@
 
 namespace livo_atlas::loop_internal {
 
+void ValidateLoopSubmapInfo(const LoopSubmapInfo& info);
+
 LoopMetrics EvaluateMetrics(const GeometryData& target,
                             const GeometryData& source,
                             const RigidTransform& target_from_source,
