@@ -52,15 +52,18 @@ void ValidateKeys(const cv::FileNode& group,
   }
 }
 
-void ReadSearch(const cv::FileNode& node, LoopSearchOptions& options) {
-  ReadFields(node, options,
-             [](auto& o, auto visit) { SearchFields(o, visit); });
+void ReadSearch(const cv::FileNode& node, LoopSearchOptions& options,
+                bool serialized) {
+  ReadFields(
+      node, options, [](auto& o, auto visit) { SearchFields(o, visit); },
+      serialized);
 }
 
 void ReadRegistration(const cv::FileNode& node,
-                      LoopRegistrationOptions& options) {
-  ReadFields(node, options,
-             [](auto& o, auto visit) { RegistrationFields(o, visit); });
+                      LoopRegistrationOptions& options, bool serialized) {
+  ReadFields(
+      node, options, [](auto& o, auto visit) { RegistrationFields(o, visit); },
+      serialized);
 }
 
 void Write(cv::FileStorage& yaml, LoopSearchOptions search,

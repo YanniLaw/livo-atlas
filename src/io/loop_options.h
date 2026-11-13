@@ -19,18 +19,31 @@ void ValidateKeys(const cv::FileNode& group,
                   const std::set<std::string>& allowed);
 
 template <typename Fields, typename Options>
-void ReadFields(const cv::FileNode& group, Options& options, Fields fields) {
-  if (group.empty()) return;
+void ReadFields(const cv::FileNode& group, Options& options, Fields fields,
+                bool serialized = false) {
+  if (group.empty() && !serialized) return;
   std::set<std::string> names;
   fields(options, [&](const char* name, auto&) { names.insert(name); });
   ValidateKeys(group, names);
   fields(options, [&](const char* name, auto& value) {
     const auto node = group[name];
-    if (node.empty()) return;
+    if (node.empty() && !serialized) return;
+    using Value = std::decay_t<decltype(value)>;
+    if (serialized) {
+      if constexpr (std::is_integral_v<Value>) {
+        const auto number = dataset_metadata::Id(node);
+        if (number >
+            static_cast<std::uint64_t>(std::numeric_limits<Value>::max()))
+          throw std::invalid_argument("Stored loop count is out of range");
+        value = static_cast<Value>(number);
+      } else {
+        value = dataset_metadata::Number(node);
+      }
+      return;
+    }
     if (!node.isReal() && !node.isInt())
       throw std::invalid_argument("Loop option must be numeric");
     const double number = static_cast<double>(node);
-    using Value = std::decay_t<decltype(value)>;
     if (!std::isfinite(number))
       throw std::invalid_argument("Loop option must be finite");
     if constexpr (std::is_integral_v<Value>) {
@@ -53,9 +66,11 @@ void WriteField(cv::FileStorage& yaml, const char* name, Value value) {
     yaml << name << dataset_metadata::Decimal(value);
 }
 
-void ReadSearch(const cv::FileNode& node, LoopSearchOptions& options);
+void ReadSearch(const cv::FileNode& node, LoopSearchOptions& options,
+                bool serialized = false);
 void ReadRegistration(const cv::FileNode& node,
-                      LoopRegistrationOptions& options);
+                      LoopRegistrationOptions& options,
+                      bool serialized = false);
 void Write(cv::FileStorage& yaml, LoopSearchOptions search,
            LoopRegistrationOptions registration);
 

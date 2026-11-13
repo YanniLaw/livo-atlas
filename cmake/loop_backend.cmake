@@ -8,7 +8,7 @@ install(TARGETS livo_atlas_loop_backend EXPORT livo_atlasTargets
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-add_library(livo_atlas_loop_proposer STATIC src/io/loop_proposer.cc)
+add_library(livo_atlas_loop_proposer STATIC src/io/loop_proposer.cc src/io/loop_admission_io.cc)
 target_include_directories(livo_atlas_loop_proposer PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_loop_proposer PUBLIC livo_atlas_loop_backend
   livo_atlas_loop_io)

@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -60,7 +61,7 @@ class LoopProposerTest : public testing::Test {
 
   void TearDown() override { fs::remove_all(root_); }
 
-  void Dataset(bool dense = true) {
+  void Dataset(bool dense = true, bool preview_rejection = false) {
     Calibration calibration;
     calibration.camera = {"Pinhole", 12, 8, .5, 4, 5, 6, 4, {0, 0, 0, 0}};
     KeyframeStore frames(dataset_, calibration);
@@ -74,6 +75,8 @@ class LoopProposerTest : public testing::Test {
       frame.id = id;
       frame.timestamp = frame.cloud_timestamp = 10 + id;
       frame.odom_from_body.translation.x() = 0.02 * id;
+      if (preview_rejection && id == 3)
+        frame.odom_from_body.translation.x() = 0;
       frame.cloud = cloud;
       frames.Append(frame);
       for (const auto& group :
@@ -134,6 +137,33 @@ TEST_F(LoopProposerTest, AcceptsInMemoryAndUsesTheWholeClosedFrontier) {
   auto later = Report("result/queries/3.yml");
   EXPECT_EQ(later["base_version"].string(), "1");
   EXPECT_EQ(later["status"].string(), "correlated");
+  EXPECT_EQ(DatasetBytes(dataset_), before);
+}
+
+TEST_F(LoopProposerTest, PreviewRejectionThenLaterSuccess) {
+  Dataset(true, true);
+  const auto before = DatasetBytes(dataset_);
+  const auto config = root_ / "preview.yml";
+  // This synthetic scene separates the graph compromise from the exact final
+  // return to the first pose. Product defaults remain unchanged.
+  std::ofstream(config)
+      << "%YAML:1.0\n---\nsearch:\n  min_submap_gap: 1\n"
+         "  min_keyframe_gap: 2\n  min_time_gap_s: 0.5\n"
+         "registration:\n  max_rmse_m: 0.001\n  max_p95_m: 0.001\n";
+  const std::string command =
+      std::string("\"") + LIVO_ATLAS_PROPOSER + "\" \"" + dataset_.string() +
+      "\" \"" + (root_ / "preview").string() +
+      "\" --pose-version 0 --config \"" + config.string() + "\" > \"" +
+      (root_ / "cli.log").string() + "\" 2>&1";
+  ASSERT_EQ(std::system(command.c_str()), 0) << Bytes(root_ / "cli.log");
+  const auto rejected = Report("preview/queries/2.yml");
+  ASSERT_EQ(rejected["status"].string(), "geometry_changed")
+      << Bytes(root_ / "preview/queries/2.yml");
+  const auto accepted = Report("preview/queries/3.yml");
+  EXPECT_EQ(accepted["base_version"].string(), "0");
+  EXPECT_EQ(accepted["status"].string(), "proposed")
+      << Bytes(root_ / "preview/queries/3.yml");
+  EXPECT_EQ(Report("preview/summary.yml")["proposal_count"].string(), "1");
   EXPECT_EQ(DatasetBytes(dataset_), before);
 }
 
