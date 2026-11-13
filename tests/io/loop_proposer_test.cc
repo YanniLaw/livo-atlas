@@ -15,7 +15,7 @@
 #include <gtest/gtest.h>
 #include <opencv2/core/persistence.hpp>
 
-#include "backend/loop_fixtures.h"
+#include "backend/loop_dataset_fixtures.h"
 #include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/io/online_submap_store.h"
 
@@ -39,33 +39,11 @@ std::map<std::string, std::string> DatasetBytes(const fs::path& root) {
 }
 
 PointCloud::ConstPtr SceneCloud(bool dense) {
+  if (dense) return loop_test::DenseCloud();
   PointCloud::Ptr cloud(new PointCloud);
-  if (!dense) {
-    Point p;
-    p.x = p.y = p.z = 0.1;
-    cloud->push_back(p);
-    return cloud;
-  }
-  const auto scene = loop_test::Scene();
-  for (const auto& voxel : scene.data->voxels) {
-    const auto n = *voxel.normal;
-    const Eigen::Vector3d u =
-        n.x() ? Eigen::Vector3d::UnitY() : Eigen::Vector3d::UnitX();
-    const Eigen::Vector3d v = n.cross(u);
-    // The patch must span enough of its 0.2 m voxel to qualify as a plane.
-    for (double a : {-0.04, 0.0, 0.04}) {
-      for (double b : {-0.04, 0.0, 0.04}) {
-        const Eigen::Vector3d xyz =
-            voxel.centroid + Eigen::Vector3d::Constant(0.1) + a * u + b * v;
-        Point p;
-        p.x = xyz.x();
-        p.y = xyz.y();
-        p.z = xyz.z();
-        p.intensity = 8;
-        cloud->push_back(p);
-      }
-    }
-  }
+  Point p;
+  p.x = p.y = p.z = 0.1;
+  cloud->push_back(p);
   return cloud;
 }
 
