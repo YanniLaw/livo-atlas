@@ -38,6 +38,8 @@
 
 33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)、[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)、[使用说明](loop-admission.md)及[验证记录](p6-02c2a-validation.md)：无状态约束准入、鲁棒图试算、优化后几何复核和离线工具已完成阶段验收；在线调度与提交留待 C2b。
 
+34. [C2b 在线接纳设计](superpowers/specs/2026-11-14-p6-02c2b-online-backend-design.md)及[实施计划](superpowers/plans/2026-11-14-p6-02c2b-online-backend.md)：固定前沿读取、单 worker、所有者接纳、prepared/pose 配对、停止排空与双 ROS 接线；已完成一次独立设计检查，尚未编码。
+
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
 P1-02 已完成普通标定类型、ROS1 参数入口、相机接线、直接测试、完整回放及独立审阅问题闭环。
