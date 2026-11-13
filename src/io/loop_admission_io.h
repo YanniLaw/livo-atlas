@@ -8,9 +8,6 @@
 #include "livo_atlas/mapping/geometry_mapper.h"
 
 namespace livo_atlas {
-LoopAdmissionOptions ReadLoopAdmissionOptions(
-    const std::filesystem::path& path);
-
 namespace loop_admission_io {
 LoopAdmissionOptions ReadOptions(const cv::FileNode& node,
                                  bool with_geometry = false);

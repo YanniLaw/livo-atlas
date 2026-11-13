@@ -13,9 +13,10 @@
 namespace livo_atlas::ros1 {
 
 LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
-                   LivoSystem& system)
+                   LivoSystem& system, std::function<void()> after_process)
     : parameters_(parameters),
       system_(system),
+      after_process_(std::move(after_process)),
       transport_(node),
       publisher_(parameters.livo.system.exporter.mode,
                  parameters.livo.image_queue_size) {
@@ -86,13 +87,16 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
 }
 
 SyncStatus LivoNode::ProcessNext() {
-  return system_.ProcessNext([this](const auto& result,
-                                    const auto& colored_cloud, double elapsed) {
-    publisher_.Publish(result, colored_cloud);
-    const char* stage =
-        result.kind == UpdateKind::kVisual ? "VIO Time" : "LIO Mapping Time";
-    std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
-  });
+  const auto status = system_.ProcessNext(
+      [this](const auto& result, const auto& colored_cloud, double elapsed) {
+        publisher_.Publish(result, colored_cloud);
+        const char* stage = result.kind == UpdateKind::kVisual
+                                ? "VIO Time"
+                                : "LIO Mapping Time";
+        std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
+      });
+  if (after_process_) after_process_();
+  return status;
 }
 
 void LivoNode::ReportInputs() {

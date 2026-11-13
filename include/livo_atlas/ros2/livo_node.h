@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_ROS2_LIVO_NODE_H_
 
 #include <cstdint>
+#include <functional>
 #include <livox_ros_driver2/msg/custom_msg.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -18,7 +19,7 @@ namespace livo_atlas::ros2 {
 class LivoNode {
  public:
   LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
-           LivoSystem& system);
+           LivoSystem& system, std::function<void()> after_process = {});
   ~LivoNode();
   LivoNode(const LivoNode&) = delete;
   LivoNode& operator=(const LivoNode&) = delete;
@@ -32,6 +33,7 @@ class LivoNode {
   rclcpp::Node& node_;
   NodeOptions parameters_;
   LivoSystem& system_;
+  std::function<void()> after_process_;
   LivoPublisher publisher_;
   // Destroy callback sources before the state they access.
   rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr livox_;

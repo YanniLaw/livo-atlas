@@ -67,6 +67,21 @@ os.execvp(command[0], command)
             self.assertIn('FileExistsError', child.stderr)
             self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_online_loops_reject_grouped_submaps_before_output_io(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'output'
+            for module in ('tools.run_baseline', 'tools.run_ros2_baseline'):
+                arguments = ['--workspace', directory] if module.endswith('run_baseline') else [
+                    '--executable', '/unused']
+                child = subprocess.run(
+                    [sys.executable, '-m', module, '--bag', directory,
+                     '--output', str(output), '--loop-closure',
+                     '--submap-mode', 'keyframe_groups', *arguments],
+                    cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+                self.assertEqual(child.returncode, 2)
+                self.assertIn('--loop-closure requires online submaps', child.stderr)
+                self.assertFalse(output.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

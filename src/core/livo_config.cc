@@ -31,8 +31,12 @@ RigidTransform Transform(ParameterReader& reader, const std::string& rotation,
   return result;
 }
 }  // namespace
+
 LivoConfig LoadLivoConfig(ParameterReader& reader) {
   LivoConfig config;
+  config.loop_closure_enabled = reader.Boolean("loop_closure.enabled", false);
+  config.loop_closure_options_file =
+      reader.String("loop_closure.options_file", "");
   auto& options = config.system;
   auto& front = options.frontend;
   auto& visual = front.visual;
@@ -240,6 +244,13 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
     throw std::invalid_argument(reader.Name("common.img_topic") +
                                 " must not be empty");
   config.system = PrepareSystemOptions(std::move(config.system));
+  if (config.loop_closure_enabled &&
+      (!options.keyframes.enabled || !options.submaps.enabled ||
+       options.submap_mode != SubmapMode::kOnline ||
+       options.submaps.max_keyframes > static_cast<int>(kMaxGeometryKeyframes)))
+    throw std::invalid_argument(
+        "loop_closure.enabled requires keyframes and online submaps with at "
+        "most 64 members");
   return config;
 }
 }  // namespace livo_atlas

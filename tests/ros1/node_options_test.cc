@@ -231,5 +231,24 @@ TEST_F(Ros1ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
   node_->setParam("submaps/geometry/enabled", false);
   EXPECT_NO_THROW(ReadNodeOptions(*node_));
 }
+
+TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.loop_closure_enabled);
+  node_->setParam("loop_closure/options_file", "/nonexistent/ignored-loop.yml");
+  EXPECT_NO_THROW(ReadNodeOptions(*node_));
+  node_->setParam("loop_closure/enabled", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  node_->setParam("submaps/max_keyframes", 64);
+  const auto config = ReadNodeOptions(*node_).livo;
+  EXPECT_TRUE(config.loop_closure_enabled);
+  EXPECT_EQ(config.loop_closure_options_file, "/nonexistent/ignored-loop.yml");
+  EXPECT_FALSE(config.system.geometry.enabled);
+  node_->setParam("submaps/max_keyframes", 65);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
 }  // namespace
 }  // namespace livo_atlas::ros1

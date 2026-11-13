@@ -62,9 +62,9 @@ class LoopClosureStoreTest : public testing::Test {
 
   void TearDown() override { fs::remove_all(root_); }
 
-  LoopTaskResult Result() {
+  LoopTaskResult Result(std::uint64_t query_id = 2) {
     LoopAdmissionInput input;
-    input.query_id = 2;
+    input.query_id = query_id;
     input.poses = poses_->MaterializePoseSnapshot(0, 4);
     for (const auto& pose : input.poses.poses)
       input.raw_poses.push_back(pose.map_from_body);
@@ -294,6 +294,55 @@ TEST_F(LoopClosureStoreTest, PendingDirectoriesAreNotPublishedMetadata) {
   const auto report = InspectLoopDataset(root_);
   EXPECT_EQ(report.status, LoopRecoveryStatus::kIncomplete)
       << testing::PrintToString(report.issues);
+}
+
+TEST_F(LoopClosureStoreTest, MissingQueryDiagnosticsCannotClaimCompletion) {
+  const auto result = Result(0);
+  ASSERT_EQ(result.admission->status, LoopAdmissionStatus::kNoCandidate);
+  journal_->WriteQuery(result, LoopDisposition::kRejected, 0, 4);
+  auto stats = Stats();
+  stats.pose_version = stats.accepted = 0;
+  stats.rejected = 1;
+  journal_->Finish(stats);
+  ASSERT_EQ(InspectLoopDataset(root_).status, LoopRecoveryStatus::kConsistent);
+  const auto query = root_ / "loop_closure/queries/1.yml";
+  auto text = Bytes(query);
+  const auto diagnostics = text.find("diagnostics:");
+  ASSERT_NE(diagnostics, std::string::npos);
+  text.resize(diagnostics);
+  std::ofstream(query) << text;
+  EXPECT_EQ(InspectLoopDataset(root_).status,
+            LoopRecoveryStatus::kInconsistent);
+}
+
+TEST_F(LoopClosureStoreTest, AcceptedQueryMustMatchPreparedFrontiersAndSource) {
+  const auto result = Result();
+  journal_->WritePrepared(result, Candidate(result));
+  poses_->WritePoseSnapshot(Candidate(result));
+  journal_->WriteQuery(result, LoopDisposition::kAccepted, 1, 4);
+  journal_->Finish(Stats());
+  const auto query = root_ / "loop_closure/queries/1.yml";
+  const auto original = Bytes(query);
+  for (const auto& change : std::vector<std::pair<std::string, std::string>>{
+           {"query_id: \"2\"", "query_id: \"3\""},
+           {"dispatch_frame_count: \"4\"", "dispatch_frame_count: \"3\""}}) {
+    std::ofstream(query) << original;
+    Replace(query, change.first, change.second);
+    EXPECT_EQ(InspectLoopDataset(root_).status,
+              LoopRecoveryStatus::kInconsistent)
+        << change.first;
+  }
+  auto coherent = original;
+  const std::string dispatch = "dispatch_frame_count: \"4\"";
+  coherent.replace(coherent.find(dispatch), dispatch.size(),
+                   "dispatch_frame_count: \"3\"");
+  const auto diagnostics = coherent.find("diagnostics:");
+  const std::string count = "frame_count: \"4\"";
+  coherent.replace(coherent.find(count, diagnostics), count.size(),
+                   "frame_count: \"3\"");
+  std::ofstream(query) << coherent;
+  EXPECT_EQ(InspectLoopDataset(root_).status,
+            LoopRecoveryStatus::kInconsistent);
 }
 
 }  // namespace

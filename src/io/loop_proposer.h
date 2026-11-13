@@ -3,12 +3,10 @@
 
 #include <filesystem>
 
-#include "livo_atlas/backend/loop_admission.h"
+#include "livo_atlas/io/loop_closure_store.h"
 
 namespace livo_atlas {
 
-LoopAdmissionOptions ReadLoopAdmissionOptions(
-    const std::filesystem::path& path);
 void ProposeLoopDataset(const std::filesystem::path& dataset,
                         const std::filesystem::path& output,
                         const LoopAdmissionOptions& options = {});

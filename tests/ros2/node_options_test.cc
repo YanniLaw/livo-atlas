@@ -14,6 +14,7 @@
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/ros2/livo_node.h"
 #include "ros2/fixtures.h"
+
 namespace livo_atlas::ros2 {
 
 namespace {
@@ -25,6 +26,7 @@ void ConstructNode(const std::vector<rclcpp::Parameter>& parameters) {
   LivoNode adapter(node, config, session);
 }
 }  // namespace
+
 TEST(Ros2ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
   const auto seed = std::chrono::steady_clock::now().time_since_epoch().count();
   for (const auto& invalid : std::vector<rclcpp::Parameter>{
@@ -73,6 +75,7 @@ TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
   EXPECT_FALSE(
       node.set_parameter(rclcpp::Parameter("cam_fx", 300.0)).successful);
 }
+
 TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
   int index = 0;
   for (const auto& invalid : std::vector<rclcpp::Parameter>{
@@ -107,6 +110,38 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
       it->get_name() == invalid.get_name() ? it = params.erase(it) : ++it;
     params.push_back(invalid);
     EXPECT_THROW(ConstructNode(params), std::exception);
+    EXPECT_FALSE(std::filesystem::exists(directory));
+  }
+}
+
+TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("c2b-loop-options-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  for (int variant = 0; variant < 4; ++variant) {
+    auto params = test::Parameters(directory.string());
+    params.emplace_back("loop_closure.options_file",
+                        "/nonexistent/ignored-loop.yml");
+    if (variant) params.emplace_back("loop_closure.enabled", true);
+    if (variant >= 2) {
+      params.emplace_back("keyframes.enabled", true);
+      params.emplace_back("submaps.enabled", true);
+      params.emplace_back("submaps.mode", "online");
+      params.emplace_back("submaps.max_keyframes", variant == 3 ? 65 : 64);
+    }
+    rclcpp::Node node("c2b_loop_parameters",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    if (variant == 1 || variant == 3) {
+      EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+    } else {
+      const auto config = ReadNodeOptions(node).livo;
+      EXPECT_EQ(config.loop_closure_enabled, variant == 2);
+      EXPECT_EQ(config.loop_closure_options_file,
+                "/nonexistent/ignored-loop.yml");
+      EXPECT_FALSE(config.system.geometry.enabled);
+    }
     EXPECT_FALSE(std::filesystem::exists(directory));
   }
 }
@@ -149,6 +184,7 @@ TEST(Ros2ParametersTest, InvalidTopicsAndCovariancesPreserveExistingOutputs) {
     }
   }
 }
+
 TEST(Ros2ParametersTest,
      InvalidTopicsAndCovariancesDoNotCreateOutputDirectories) {
   const auto seed = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -219,6 +255,7 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   EXPECT_DOUBLE_EQ(options.imu_time_range.minimum, -2147483648.0);
   EXPECT_DOUBLE_EQ(options.imu_time_range.maximum, 2147483648.0);
 }
+
 TEST(Ros2ParametersTest, ReadsOnlineSubmapModeAndValidatesBounds) {
   for (const auto& mode : {"online", "keyframe_groups", "unknown"}) {
     auto params = test::Parameters("/tmp/livo_atlas_online_parameters");

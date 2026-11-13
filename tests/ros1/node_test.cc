@@ -14,6 +14,7 @@
 #include "core/fixtures.h"
 #include "livo_atlas/ros1/livo_node.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
+
 namespace livo_atlas::ros1 {
 namespace {
 bool WaitFor(const std::function<bool()>& condition) {
@@ -25,6 +26,7 @@ bool WaitFor(const std::function<bool()>& condition) {
   }
   return false;
 }
+
 void PumpCallbacks() {
   const auto until = ros::WallTime::now() + ros::WallDuration(.1);
   while (ros::WallTime::now() < until) {
@@ -32,6 +34,7 @@ void PumpCallbacks() {
     ros::WallDuration(.002).sleep();
   }
 }
+
 NodeOptions Options(int lidar_type) {
   NodeOptions params;
   params.livo.system =
@@ -44,6 +47,7 @@ NodeOptions Options(int lidar_type) {
   params.livo.image_topic = name + "/image";
   return params;
 }
+
 void VerifyRollbackPipeline(int lidar_type) {
   ros::NodeHandle node;
   auto parameters = Options(lidar_type);
@@ -141,13 +145,16 @@ void VerifyRollbackPipeline(int lidar_type) {
       testing::internal::GetCapturedStdout().find("lidar=5 imu=0 image=0"),
       std::string::npos);
 }
+
 TEST(Ros1NodeTest, LivoxTransportRejectsBadRollbackWithoutErasingPendingInput) {
   VerifyRollbackPipeline(kLivox);
 }
+
 TEST(Ros1NodeTest,
      StandardTransportRejectsBadRollbackWithoutErasingPendingInput) {
   VerifyRollbackPipeline(kVelodyne);
 }
+
 TEST(Ros1NodeTest, PublishesFromTheInjectedSystem) {
   ros::NodeHandle node;
   auto parameters = Options(kLivox);
@@ -165,8 +172,24 @@ TEST(Ros1NodeTest, PublishesFromTheInjectedSystem) {
   ASSERT_TRUE(WaitFor([&] { return poses == 1; }));
   session.Finish();
 }
+
+TEST(Ros1NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
+  ros::NodeHandle node;
+  const auto parameters = Options(kLivox);
+  LivoSystem system(parameters.livo.system);
+  int calls = 0;
+  LivoNode adapter(node, parameters, system, [&] {
+    if (++calls == 2) throw 47;
+  });
+  EXPECT_EQ(adapter.ProcessNext(), SyncStatus::kWaiting);
+  EXPECT_EQ(calls, 1);
+  EXPECT_THROW(adapter.ProcessNext(), int);
+  EXPECT_EQ(calls, 2);
+  system.Finish();
+}
 }  // namespace
 }  // namespace livo_atlas::ros1
+
 int main(int argc, char** argv) {
   ros::init(argc, argv, "lidar_callback_test");
   ::testing::InitGoogleTest(&argc, argv);

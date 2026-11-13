@@ -5,6 +5,7 @@
 #include <ros/ros.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 #include "livo_atlas/core/livo_system.h"
@@ -16,7 +17,7 @@ namespace livo_atlas::ros1 {
 class LivoNode {
  public:
   LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
-           LivoSystem& system);
+           LivoSystem& system, std::function<void()> after_process = {});
   ~LivoNode();
   LivoNode(const LivoNode&) = delete;
   LivoNode& operator=(const LivoNode&) = delete;
@@ -28,6 +29,7 @@ class LivoNode {
 
   NodeOptions parameters_;
   LivoSystem& system_;
+  std::function<void()> after_process_;
   image_transport::ImageTransport transport_;
   LivoPublisher publisher_;
   std::uint64_t lidar_count_ = 0, imu_count_ = 0, image_count_ = 0;

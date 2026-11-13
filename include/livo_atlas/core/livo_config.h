@@ -16,6 +16,8 @@ struct LivoConfig {
   int image_queue_size = 1;
   double image_time_offset = 0;
   double lidar_time_offset = 0;
+  bool loop_closure_enabled = false;
+  std::string loop_closure_options_file;
 };
 
 // Reads the shared schema and validates it without opening output files.

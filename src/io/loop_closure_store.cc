@@ -251,6 +251,60 @@ AcceptedLoop CheckPrepared(const cv::FileStorage& yaml, std::uint64_t version,
           "Prepared admission diagnostics do not match the proposal");
   return loop;
 }
+
+void CheckQueryDiagnostics(const cv::FileStorage& query,
+                           const OnlineSubmapStore& store,
+                           const std::vector<double>& timestamps) {
+  const auto disposition = meta::String(query["disposition"]);
+  const auto diagnostics = query["diagnostics"];
+  if (disposition == "failed") {
+    Require(diagnostics.empty() && !meta::String(query["error"]).empty(),
+            "Failed query must carry only its original error");
+    return;
+  }
+  Require(query["error"].empty() && diagnostics.isMap(),
+          "Query must carry admission diagnostics");
+  loop_options::ValidateKeys(
+      diagnostics, {"schema_version", "query_id", "status", "base_version",
+                    "pose_version", "frame_count", "first_timestamp",
+                    "last_timestamp", "elapsed_seconds", "source", "candidates",
+                    "optimization_error", "trial", "geometry_checks"});
+  const auto status = meta::String(diagnostics["status"]);
+  const std::set<std::string> statuses = {
+      "no_candidate",        "geometry_rejected",
+      "ambiguous",           "correlated",
+      "resource_limit",      "optimization_rejected",
+      "constraint_residual", "pose_correction",
+      "geometry_changed",    "proposed"};
+  const auto base = meta::Id(query["base_version"]);
+  const auto count = meta::Id(query["dispatch_frame_count"]);
+  Require(
+      statuses.count(status) &&
+          meta::Integer(diagnostics["schema_version"]) == 1 &&
+          meta::Id(diagnostics["query_id"]) == meta::Id(query["query_id"]) &&
+          meta::Id(diagnostics["base_version"]) == base &&
+          meta::Id(diagnostics["pose_version"]) ==
+              base + (status == "proposed") &&
+          meta::Id(diagnostics["frame_count"]) == count &&
+          diagnostics["candidates"].isSeq() &&
+          diagnostics["geometry_checks"].isSeq() &&
+          meta::Number(diagnostics["elapsed_seconds"]) >= 0,
+      "Query diagnostics differ from the dispatch header");
+  const auto source = io::ReadMembership(diagnostics["source"]);
+  Require(source.primary.id == meta::Id(query["query_id"]) &&
+              source.primary.keyframe_ids.back() < count &&
+              io::SameMembership(source, store.Read(source.primary.id)) &&
+              meta::Number(diagnostics["first_timestamp"]) ==
+                  timestamps.at(source.primary.keyframe_ids.front()) &&
+              meta::Number(diagnostics["last_timestamp"]) ==
+                  timestamps.at(source.primary.keyframe_ids.back()),
+          "Query source differs from the committed membership");
+  if (disposition == "accepted" || disposition == "stale")
+    Require(status == "proposed", "Accepted or stale query has no proposal");
+  if (disposition == "rejected")
+    Require(status != "proposed" && status != "resource_limit",
+            "Rejected query has an incompatible engine status");
+}
 }  // namespace
 
 LoopClosureStore::LoopClosureStore(const KeyframeReadView& frames,
@@ -514,11 +568,15 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
            "disposition", "error", "diagnostics"});
       Require(
           id == observed.completed + 1 && meta::Id(query["task_id"]) == id &&
+              meta::Id(query["dispatch_frame_count"]) > 0 &&
               meta::Id(query["dispatch_frame_count"]) <=
                   meta::Id(query["frame_count"]) &&
               meta::Id(query["frame_count"]) <= view.frame_count() &&
+              meta::Id(query["base_version"]) <=
+                  meta::Id(query["current_version"]) &&
               meta::Id(query["current_version"]) <= report.committed_version,
           "Invalid query identity or frontier");
+      CheckQueryDiagnostics(query, store, timestamps);
       const auto disposition = meta::String(query["disposition"]);
       if (disposition == "accepted") {
         const auto match = accepted_tasks.find(id);
@@ -527,6 +585,14 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
                     meta::Id(query["base_version"]) + 1 == match->second &&
                     meta::String(query["diagnostics"]["status"]) == "proposed",
                 "Accepted query lacks its committed version");
+        const auto prepared = Read(directory / "prepared" /
+                                   (std::to_string(match->second) + ".yml"));
+        Require(meta::Id(query["query_id"]) == meta::Id(prepared["query_id"]) &&
+                    meta::Id(query["dispatch_frame_count"]) ==
+                        meta::Id(prepared["dispatch_frame_count"]) &&
+                    meta::Id(query["frame_count"]) ==
+                        meta::Id(prepared["frame_count"]),
+                "Accepted query differs from its prepared source or frontier");
         ++observed.accepted;
       } else if (disposition == "rejected")
         ++observed.rejected;

@@ -1,4 +1,6 @@
 #include <cstdint>
+#include <chrono>
+#include <filesystem>
 #include <exception>
 #include <iostream>
 #include <memory>
@@ -14,6 +16,8 @@
 #endif
 #ifdef EXPECT_ADMISSION
 #include "livo_atlas/backend/loop_admission.h"
+#include "livo_atlas/core/loop_backend.h"
+#include "livo_atlas/core/livo_system.h"
 #endif
 
 int main() {
@@ -58,6 +62,31 @@ int main() {
         });
     if (result.status != LoopAdmissionStatus::kNoCandidate || result.proposal)
       return 1;
+    const auto directory =
+        std::filesystem::temp_directory_path() /
+        ("livo-installed-loops-" +
+         std::to_string(
+             std::chrono::steady_clock::now().time_since_epoch().count()));
+    {
+      SystemOptions options;
+      options.frontend.calibration.camera = {"Pinhole", 512, 512, 1, 200,
+                                             200,       256, 256, {}};
+      options.frontend.imu.enabled = false;
+      options.image_enabled = false;
+      options.exporter.directory = directory;
+      options.keyframes.enabled = options.submaps.enabled = true;
+      options.submap_mode = SubmapMode::kOnline;
+      LivoSystem system(options);
+      LoopBackend backend(system);
+      system.SetOnlineSubmapCallback(
+          [&](const auto& update) { backend.Observe(update); });
+      backend.Finish();
+      const auto report = InspectLoopDataset(directory / "keyframes");
+      if (report.status != LoopRecoveryStatus::kConsistent)
+        throw std::runtime_error(
+            "Installed backend did not finish consistently");
+    }
+    std::filesystem::remove_all(directory);
 #endif
     return 0;
   } catch (const std::exception& error) {

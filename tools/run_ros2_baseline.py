@@ -92,11 +92,15 @@ def main():
                         help='Select the submap index format (default: keyframe_groups)')
     parser.add_argument('--geometry-submaps', action='store_true',
                         help='Enable online geometry submaps and their required inputs')
+    parser.add_argument('--loop-closure', action='store_true',
+                        help='Enable the online loop backend and its required storage')
     args = parser.parse_args()
+    if args.loop_closure and args.submap_mode == 'keyframe_groups':
+        parser.error('--loop-closure requires online submaps')
     if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-submaps requires online submaps')
     if args.submap_mode is None:
-        args.submap_mode = 'online' if args.geometry_submaps else 'keyframe_groups'
+        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure) else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
     try:
@@ -162,6 +166,8 @@ def main():
     if args.save_submaps:
         parameters['submaps.enabled'] = True
         parameters['submaps.mode'] = args.submap_mode
+    if args.loop_closure:
+        parameters['loop_closure.enabled'] = True
     if args.geometry_submaps:
         parameters['submaps.geometry.enabled'] = True
     if args.save_products:
@@ -330,6 +336,7 @@ def main():
                    submaps_enabled=args.save_submaps,
                    submap_mode=args.submap_mode,
                    geometry_enabled=args.geometry_submaps,
+                   loop_closure_enabled=args.loop_closure,
                    geometry_timing_seconds=geometry_timings,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
                    playback_wall_s=playback_wall_s, input_span_s=input_span_s,

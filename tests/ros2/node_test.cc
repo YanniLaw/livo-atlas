@@ -12,7 +12,30 @@
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "livo_atlas/ros2/node_options.h"
 #include "ros2/fixtures.h"
+
 namespace livo_atlas::ros2 {
+TEST(Ros2NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
+  auto params = test::Parameters(
+      (std::filesystem::temp_directory_path() /
+       ("c2b-hook-" +
+        std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count())))
+          .string());
+  rclcpp::Node node("c2b_hook",
+                    rclcpp::NodeOptions().parameter_overrides(params));
+  const auto config = ReadNodeOptions(node);
+  LivoSystem system(config.livo.system);
+  int calls = 0;
+  LivoNode adapter(node, config, system, [&] {
+    if (++calls == 2) throw 47;
+  });
+  EXPECT_EQ(adapter.ProcessNext(), SyncStatus::kWaiting);
+  EXPECT_EQ(calls, 1);
+  EXPECT_THROW(adapter.ProcessNext(), int);
+  EXPECT_EQ(calls, 2);
+  system.Finish();
+}
+
 TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
   auto params = test::Parameters(
       (std::filesystem::temp_directory_path() / "livo_atlas_tests/dds")

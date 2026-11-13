@@ -21,10 +21,11 @@ rclcpp::QoS SensorQos(const NodeOptions& parameters, int depth) {
 }  // namespace
 
 LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
-                   LivoSystem& system)
+                   LivoSystem& system, std::function<void()> after_process)
     : node_(node),
       parameters_(parameters),
       system_(system),
+      after_process_(std::move(after_process)),
       publisher_(node, parameters_.livo.system.exporter.mode,
                  parameters_.livo.image_queue_size) {
   if (parameters_.livo.system.preprocess.lidar_type == kLivox) {
@@ -95,13 +96,16 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
 }
 
 SyncStatus LivoNode::ProcessNext() {
-  return system_.ProcessNext([this](const auto& result,
-                                    const auto& colored_cloud, double elapsed) {
-    publisher_.Publish(result, colored_cloud);
-    const char* stage =
-        result.kind == UpdateKind::kVisual ? "VIO Time" : "LIO Mapping Time";
-    std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
-  });
+  const auto status = system_.ProcessNext(
+      [this](const auto& result, const auto& colored_cloud, double elapsed) {
+        publisher_.Publish(result, colored_cloud);
+        const char* stage = result.kind == UpdateKind::kVisual
+                                ? "VIO Time"
+                                : "LIO Mapping Time";
+        std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
+      });
+  if (after_process_) after_process_();
+  return status;
 }
 
 void LivoNode::ReportInputs() {
