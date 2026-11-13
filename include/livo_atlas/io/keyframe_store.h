@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "livo_atlas/frontend/calibration.h"
+#include "livo_atlas/io/keyframe_read_view.h"
 #include "livo_atlas/mapping/keyframe.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
 
@@ -21,6 +22,8 @@ class KeyframeStore {
   KeyframeStore& operator=(const KeyframeStore&) = delete;
 
   void Append(const Keyframe& keyframe);
+  // Capture on the owner thread; the returned value can be read independently.
+  KeyframeReadView CaptureReadView() const;
   Keyframe Read(std::uint64_t id) const;
   // Reads body-frame XYZI without opening the image; rejects PCD point layouts
   // larger than 64 bytes before PCL can allocate their payload.
@@ -30,9 +33,11 @@ class KeyframeStore {
   RigidTransform ReadRawBodyPose(std::uint64_t id) const;
   // Reads only frame metadata; does not open the image or point cloud.
   double ReadTimestamp(std::uint64_t id) const;
+
   const std::vector<std::uint64_t>& ids() const { return ids_; }
 
   const Calibration& calibration() const { return calibration_; }
+
   void WritePoses(std::uint64_t version,
                   const std::vector<KeyframePose>& poses);
   std::vector<KeyframePose> ReadPoses(std::uint64_t version) const;

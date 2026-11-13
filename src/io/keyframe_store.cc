@@ -252,6 +252,74 @@ void ValidatePoses(const std::vector<KeyframePose>& poses,
 }
 }  // namespace
 
+KeyframeReadView::KeyframeReadView(fs::path directory,
+                                   std::uint64_t frame_count)
+    : directory_(std::move(directory)), frame_count_(frame_count) {}
+
+fs::path KeyframeReadView::FrameDirectory(std::uint64_t id) const {
+  if (id >= frame_count_)
+    throw std::out_of_range(directory_.string() +
+                            ": Unknown keyframe identifier");
+  return directory_ / "frames" / std::to_string(id);
+}
+
+RigidTransform KeyframeReadView::ReadRawBodyPose(std::uint64_t id) const {
+  const auto path = FrameDirectory(id) / "frame.yml";
+  try {
+    auto yaml = ReadYaml(path);
+    if (!yaml.isOpened() || Id(yaml["id"]) != id ||
+        Id(yaml["calibration_id"]) != 0)
+      Fail(path, "Frame identifier mismatch");
+    return ReadTransform(yaml["odom_from_body"]);
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
+double KeyframeReadView::ReadTimestamp(std::uint64_t id) const {
+  const auto path = FrameDirectory(id) / "frame.yml";
+  try {
+    const auto yaml = ReadYaml(path);
+    if (Id(yaml["id"]) != id || Id(yaml["calibration_id"]) != 0) {
+      Fail(path, "Frame identifier mismatch");
+    }
+    return Number(yaml["timestamp"]);
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
+PointCloud::ConstPtr KeyframeReadView::ReadBodyCloud(
+    std::uint64_t id, std::uint64_t max_points) const {
+  if (!max_points) throw std::invalid_argument("Point limit must be positive");
+  const auto path = FrameDirectory(id);
+  try {
+    auto yaml = ReadYaml(path / "frame.yml");
+    if (!yaml.isOpened() || Id(yaml["id"]) != id ||
+        Id(yaml["calibration_id"]) != 0) {
+      Fail(path, "Frame identifier mismatch");
+    }
+    (void)Number(yaml["timestamp"]);
+    (void)Number(yaml["cloud_timestamp"]);
+    (void)Number(yaml["inverse_exposure_time"]);
+    (void)ReadTransform(yaml["odom_from_body"]);
+    const int has_image = Integer(yaml["has_image"]);
+    if (has_image != 0 && has_image != 1) Fail(path, "Invalid image flag");
+    if (has_image) {
+      (void)Number(yaml["image_timestamp"]);
+      (void)ReadTransform(yaml["camera_from_odom"]);
+    }
+    const auto points = Id(yaml["cloud_points"]);
+    if (points > max_points) Fail(path, "Point cloud exceeds configured limit");
+    // Our saved XYZI/normal layout uses 32 bytes per point. This separate
+    // bound limits PCL allocations even if a header declares huge extra fields.
+    constexpr std::uint64_t kMaxGeometryPointStep = 64;
+    return ReadCloud(path / "cloud.pcd", points, kMaxGeometryPointStep);
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
 KeyframeStore::KeyframeStore(const fs::path& directory,
                              const Calibration& calibration)
     : directory_(directory), calibration_(calibration), append_enabled_(true) {
@@ -354,72 +422,21 @@ void KeyframeStore::Append(const Keyframe& frame) {
   }
 }
 
+KeyframeReadView KeyframeStore::CaptureReadView() const {
+  return KeyframeReadView(fs::absolute(directory_), ids_.size());
+}
+
 RigidTransform KeyframeStore::ReadRawBodyPose(std::uint64_t id) const {
-  if (id >= ids_.size())
-    throw std::out_of_range(directory_.string() +
-                            ": Unknown keyframe identifier");
-  const auto path = directory_ / "frames" / std::to_string(id) / "frame.yml";
-  try {
-    auto yaml = ReadYaml(path);
-    if (!yaml.isOpened() || Id(yaml["id"]) != id ||
-        Id(yaml["calibration_id"]) != 0)
-      Fail(path, "Frame identifier mismatch");
-    return ReadTransform(yaml["odom_from_body"]);
-  } catch (const std::exception& error) {
-    Fail(path, error.what());
-  }
+  return CaptureReadView().ReadRawBodyPose(id);
 }
 
 double KeyframeStore::ReadTimestamp(std::uint64_t id) const {
-  if (id >= ids_.size()) {
-    throw std::out_of_range(directory_.string() +
-                            ": Unknown keyframe identifier");
-  }
-  const auto path = directory_ / "frames" / std::to_string(id) / "frame.yml";
-  try {
-    const auto yaml = ReadYaml(path);
-    if (Id(yaml["id"]) != id || Id(yaml["calibration_id"]) != 0) {
-      Fail(path, "Frame identifier mismatch");
-    }
-    return Number(yaml["timestamp"]);
-  } catch (const std::exception& error) {
-    Fail(path, error.what());
-  }
+  return CaptureReadView().ReadTimestamp(id);
 }
 
 PointCloud::ConstPtr KeyframeStore::ReadBodyCloud(
     std::uint64_t id, std::uint64_t max_points) const {
-  if (!max_points) throw std::invalid_argument("Point limit must be positive");
-  if (id >= ids_.size()) {
-    throw std::out_of_range(directory_.string() +
-                            ": Unknown keyframe identifier");
-  }
-  const auto path = directory_ / "frames" / std::to_string(id);
-  try {
-    auto yaml = ReadYaml(path / "frame.yml");
-    if (!yaml.isOpened() || Id(yaml["id"]) != id ||
-        Id(yaml["calibration_id"]) != 0) {
-      Fail(path, "Frame identifier mismatch");
-    }
-    (void)Number(yaml["timestamp"]);
-    (void)Number(yaml["cloud_timestamp"]);
-    (void)Number(yaml["inverse_exposure_time"]);
-    (void)ReadTransform(yaml["odom_from_body"]);
-    const int has_image = Integer(yaml["has_image"]);
-    if (has_image != 0 && has_image != 1) Fail(path, "Invalid image flag");
-    if (has_image) {
-      (void)Number(yaml["image_timestamp"]);
-      (void)ReadTransform(yaml["camera_from_odom"]);
-    }
-    const auto points = Id(yaml["cloud_points"]);
-    if (points > max_points) Fail(path, "Point cloud exceeds configured limit");
-    // Our saved XYZI/normal layout uses 32 bytes per point. This separate
-    // bound limits PCL allocations even if a header declares huge extra fields.
-    constexpr std::uint64_t kMaxGeometryPointStep = 64;
-    return ReadCloud(path / "cloud.pcd", points, kMaxGeometryPointStep);
-  } catch (const std::exception& error) {
-    Fail(path, error.what());
-  }
+  return CaptureReadView().ReadBodyCloud(id, max_points);
 }
 
 Keyframe KeyframeStore::Read(std::uint64_t id) const {

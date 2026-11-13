@@ -13,6 +13,7 @@
 #include "livo_atlas/core/system_options.h"
 #include "livo_atlas/frontend/frontend.h"
 #include "livo_atlas/frontend/synchronized_measurements.h"
+#include "livo_atlas/io/keyframe_read_view.h"
 #include "livo_atlas/io/livo_exporter.h"
 #include "livo_atlas/mapping/cloud_colorizer.h"
 #include "livo_atlas/mapping/geometry_submap.h"
@@ -46,6 +47,7 @@ class LivoSystem {
   // throw.
   void SetOnlineSubmapCallback(OnlineSubmapCallback callback);
   std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
+  KeyframeReadView GetKeyframeReadView() const;
   void ApplyPoseUpdate(const PoseUpdate& update);
   GeometrySubmap GetGeometrySubmap(std::uint64_t id);
   GeometryCacheStats GetGeometryStats() const;

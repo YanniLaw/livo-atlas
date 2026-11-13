@@ -254,4 +254,10 @@ std::shared_ptr<const PoseSnapshot> LivoSystem::GetPoseSnapshot() const {
   return Online().GetPoseSnapshot();
 }
 
+KeyframeReadView LivoSystem::GetKeyframeReadView() const {
+  if (!keyframe_store_)
+    throw std::logic_error("Keyframe storage is not enabled");
+  return keyframe_store_->CaptureReadView();
+}
+
 }  // namespace livo_atlas
