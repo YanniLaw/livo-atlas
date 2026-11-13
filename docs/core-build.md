@@ -165,3 +165,6 @@ visual_point 归 mapping，Frame/Feature 归视觉前端；目录不强制对应
 在线模式的拥有观测通知、位姿更新及显式检查见[在线子地图说明](online-submap-dataset.md)。
 终止错误也阻止位姿提交和非空回调注册；最后成功的位姿快照仍可读取。
 三种普通构建、双ROS和完整bag结果见[P6-01记录](p6-01-validation.md)。
+
+可选回环准入需要同时开启 `LIVO_ATLAS_WITH_GTSAM` 与 `LIVO_ATLAS_WITH_LOOP_CLOSURE`，
+导出普通目标 `livo_atlas::loop_backend`；安装调用及四种开关关系见[回环准入说明](loop-admission.md)。

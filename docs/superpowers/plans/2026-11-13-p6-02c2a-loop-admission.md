@@ -10,7 +10,7 @@ C1 负责搜索与配准，GTSAM提供鲁棒因子和原始残差诊断；私有
 
 **Tech Stack:** C++17、Eigen、PCL1.10/1.12、GTSAM4.2.2、现有OpenCV YAML，Noetic/Humble。
 
-**Spec:** [C2设计](../specs/2026-11-13-p6-02c2-loop-admission-design.md)。状态：**待用户审阅的实施草案，未编码**。
+**Spec:** [C2设计](../specs/2026-11-13-p6-02c2-loop-admission-design.md)。状态：**Tasks 1–5 已完成；实测结果见 [C2a 验证报告](../../p6-02c2a-validation.md)**。
 本轮设计细节是执行者建议。正式编码前先通知用户切换模型，继续沿用当前会话内实施方式。
 
 ## Global Constraints
@@ -74,15 +74,15 @@ nice -n 10 cmake --build "$C2A_BUILD" -- -j1
 `FactorResidual`固定字段：from_id、to_id、initial_whitened_norm、final_whitened_norm、
 final_rotation_rad、final_translation_m。保留原PoseGraphResult字段/API。
 
-- [ ] 在 `tests/backend/pose_graph_test.cc` 先加测试：delta0保持既有高斯结果；正delta对大离群回环降权；
+- [x] 在 `tests/backend/pose_graph_test.cc` 先加测试：delta0保持既有高斯结果；正delta对大离群回环降权；
   prior/odometry不包装；非法delta拒绝；诊断与实际factor的未降权白化误差相同，6维Block而非逐分量。
   非交换旋转和平移用于验证测量方向，不能只测纯平移。
   验证非法配置仍为invalid_argument；有限合法输入触发非有限目标时为PoseGraphOptimizationError，
   数值失败不产生PoseUpdate；未知异常与bad_alloc不能被统一改为正常拒绝。
-- [ ] 配置阶段外构建目录，ROS_VERSION=0、GTSAM=ON、LOOP_CLOSURE=ON、BUILD_TESTING=ON。
+- [x] 配置阶段外构建目录，ROS_VERSION=0、GTSAM=ON、LOOP_CLOSURE=ON、BUILD_TESTING=ON。
   编译新增测试，预期缺字段/API的RED；实现只在回环因子上包装Huber。
-- [ ] 诊断直接调用原factor误差，按原sigma计算范数，拒绝非有限数值；不要用Robust whiten后的误差。
-- [ ] 运行 `ctest --output-on-failure -R pose_graph`（实际build工作目录），预期非零测试全部通过；
+- [x] 诊断直接调用原factor误差，按原sigma计算范数，拒绝非有限数值；不要用Robust whiten后的误差。
+- [x] 运行 `ctest --output-on-failure -R pose_graph`（实际build工作目录），预期非零测试全部通过；
   运行完整已有核心suite，确认默认行为未变。提交 `feat: add robust loop factors and graph diagnostics`。
 
 ### Task 2：给定变换的几何检查
@@ -97,13 +97,13 @@ LoopGeometryCheck EvaluateLoopGeometry(
     const LoopRegistrationOptions& options = {});
 ```
 
-- [ ] 新增 `tests/backend/loop_geometry_check_test.cc`：已知三维配准通过；固定错误变换即使重新GICP能修正也必须拒绝；
+- [x] 新增 `tests/backend/loop_geometry_check_test.cc`：已知三维配准通过；固定错误变换即使重新GICP能修正也必须拒绝；
   平面退化、双向覆盖、NaN/Inf、float有限但平方不安全、预算、sources/视图不符全部有明确断言。
-- [ ] 缺API编译RED后，将C1现有验证提取为同一内部实现供两入口调用；公共类型不暴露PCL。
+- [x] 缺API编译RED后，将C1现有验证提取为同一内部实现供两入口调用；公共类型不暴露PCL。
   固定变换及逆只做质量，不调用GICP；复用重叠→残差→退化顺序，不使用人为零闭合误差充数。
-- [ ] `LoopStatus::kVerified`在这个接口仅表示固定变换质量通过；预算/点数/质量拒绝沿用已有枚举，
+- [x] `LoopStatus::kVerified`在这个接口仅表示固定变换质量通过；预算/点数/质量拒绝沿用已有枚举，
   不可能返回迭代/收敛类状态。非法变换抛异常。空几何为insufficient_points。
-- [ ] 运行 `ctest --output-on-failure -R 'loop_'` 与全核心suite；C1历史测试保持通过。
+- [x] 运行 `ctest --output-on-failure -R 'loop_'` 与全核心suite；C1历史测试保持通过。
   提交 `feat: validate geometry at fixed loop transforms`。
 
 ### Task 3：无状态约束准入与试算
@@ -135,20 +135,20 @@ optional<string> optimization_error。求解器未返回时只保留optimization
 实施补充：为完成Task5的分阶段计时，PoseGraphResult与LoopTrialDiagnostics追加
 `graph_build_seconds`、`solve_seconds`；不参与准入，仅在求解实际返回时记录。
 
-- [ ] 内部选择函数 `SelectLoopCandidate(hypotheses, accepted, poses, options)` 的精确内部类型由实现者在
+- [x] 内部选择函数 `SelectLoopCandidate(hypotheses, accepted, poses, options)` 的精确内部类型由实现者在
   loop_selection.h定义；测试直接输入普通小型hypothesis，断言两两歧义、全部排序优先级、相等边界、
   无符号ID差、主成员交集、近邻相关、最优相关时不换次优。先缺API RED再实现。
-- [ ] `loop_admission_test` 用真实三维体素和实际图测试：合法回环返回update并减少已知漂移；
+- [x] `loop_admission_test` 用真实三维体素和实际图测试：合法回环返回update并减少已知漂移；
   pose版本与方向正确；输入所有位姿/约束/几何逐字段不变；多次拒绝后合法输入结果不受污染。
-- [ ] 为任务失败条件各设断言：图迭代到限；残差限；历史残差恶化；位姿修正限；
+- [x] 为任务失败条件各设断言：图迭代到限；残差限；历史残差恶化；位姿修正限；
   已接纳项在新预览下失效；新项几何变化；已成功提案不能绕过历史复核；版本/前缀/噪声不一致；预算边界。
   增加C2a拒绝delta0而通用图仍允许0的断言；不靠随机噪声碰运气，使用固定已知变换与明确构造几何。
-- [ ] 调用者提供的reader需要依指定快照重建；测试记录请求的version与sources，模拟cache重建改变
+- [x] 调用者提供的reader需要依指定快照重建；测试记录请求的version与sources，模拟cache重建改变
   representation_revision仍等价可用，伪造旧sources则异常。固定测量Z与预测Z_pred都须通过Task2。
-- [ ] 依设计顺序实现；临时图逐帧加入raw、再历史约束及唯一新边；仅在Optimize调用的边界将
+- [x] 依设计顺序实现；临时图逐帧加入raw、再历史约束及唯一新边；仅在Optimize调用的边界将
   PoseGraphOptimizationError转成kOptimizationRejected；Task1按设计精确转换数值失败类型。
   reader/I/O异常、未知异常和bad_alloc继续向外传播。
-- [ ] 新目标 `livo_atlas_loop_backend` 链接现有backend与loop_closure，导出alias；单开/全关不存在目标。
+- [x] 新目标 `livo_atlas_loop_backend` 链接现有backend与loop_closure，导出alias；单开/全关不存在目标。
   运行新增选择/准入测试与全suite，预期非零且全部通过；提交 `feat: propose loop updates with admission checks`。
 
 ### Task 4：只读顺序试算工具
@@ -156,36 +156,36 @@ optional<string> optimization_error。求解器未返回时只保留optimization
 **Consumes:** Task3、现有KeyframeStore/OnlineSubmapStore/GeometryMapper与YAML助手。
 **Produces:** 安装工具 `livo_atlas_propose_loops`，只写新输出目录。
 
-- [ ] 在 `loop_proposer_test` 创建小型真实数据集，覆盖零候选、全拒绝、一次提案、接纳后再次查询新视图；
+- [x] 在 `loop_proposer_test` 创建小型真实数据集，覆盖零候选、全拒绝、一次提案、接纳后再次查询新视图；
   metadata损坏、输出已存在/在输入内、非法配置、先写一项再损坏后续资产。必须验证已有记录保留、
   complete=0和失败原因，原资产字节不变；补足C1延期测试在新消费者中的风险。
-- [ ] 实现私有 `void ProposeLoopDataset(const std::filesystem::path& dataset,
+- [x] 实现私有 `void ProposeLoopDataset(const std::filesystem::path& dataset,
   const std::filesystem::path& output, const LoopAdmissionOptions& options)`；构造完整元信息与原始位姿，
   从version0按source ID顺序调用Task3；所有查询固定为整个N帧数据集和全部封存元信息。
   测试future关键帧确实在图中、但future子地图不会入选；N超预算不自动改前沿。接受提案时先构造新快照和新accepted列表，全部成功后交换内存状态。
   reader持有独占的当前/预览几何缓存；按指定快照建立几何，不能重用不匹配的cached sources。
-- [ ] 输出 `summary.yml`、`queries/ID.yml`、`proposals/VERSION.yml`，schema=1；记录完整选项、
+- [x] 输出 `summary.yml`、`queries/ID.yml`、`proposals/VERSION.yml`，schema=1；记录完整选项、
   source范围、全部候选诊断、旧/新版本、完整PoseUpdate、constraint/成员来源、RSS另由验证脚本采样。
   summary含complete、查询/提案数和状态计数。失败写failure.yml，绝不把部分运行标记完整。
-- [ ] 配置入口 `LoopAdmissionOptions ReadLoopAdmissionOptions(const std::filesystem::path& path)`
+- [x] 配置入口 `LoopAdmissionOptions ReadLoopAdmissionOptions(const std::filesystem::path& path)`
   在loop_proposer.h声明，严格解析四组，复用C1内部字段助手；禁止未知键、非数值与不可精确表示的整数。
   重构助手后C1配置测试及实际CLI必须继续通过；不扩展dataset持久化格式。
-- [ ] 运行工具测试和全suite；提交 `feat: evaluate loop admission on recorded datasets`。
+- [x] 运行工具测试和全suite；提交 `feat: evaluate loop admission on recorded datasets`。
 
 ### Task 5：跨平台、实数据与文档验收
 
 **Consumes:** 最终冻结源码、已存在官方bag及C1同平台基线。
 **Produces:** docs/loop-admission.md、docs/p6-02c2a-validation.md及独立阶段证据。
 
-- [ ] SDK四种开关组合；双开shared/static/no-OpenMP；安装消费者实际调用Task3并检查OFF目标缺席。
+- [x] SDK四种开关组合；双开shared/static/no-OpenMP；安装消费者实际调用Task3并检查OFF目标缺席。
   两种单开要保留原PoseGraph或C1能力，旧Gaussian测试保持原默认结果。
-- [ ] Noetic/Humble shared/static 双开构建、真实节点测试和安装消费；同平台默认全关配置作对照。
+- [x] Noetic/Humble shared/static 双开构建、真实节点测试和安装消费；同平台默认全关配置作对照。
   冻结source副本和实际加载库；不得覆盖任何旧阶段证据。
-- [ ] 复用同一703文件/172帧/13封存块数据集，两端顺序试算。记录每查询的版本、候选、提案/拒绝、
+- [x] 复用同一703文件/172帧/13封存块数据集，两端顺序试算。记录每查询的版本、候选、提案/拒绝、
   各因子与几何指标、图复制/构造与求解时间、RSS、原文件摘要。零提案不是失败，不固定接纳数。
-- [ ] 双端普通节点双开/全关各完整与短导出回放；比对输入、四数组、发布语义、资产和旧导出。
+- [x] 双端普通节点双开/全关各完整与短导出回放；比对输入、四数组、发布语义、资产和旧导出。
   未启用在线后端的节点不得自动调用准入函数，跨平台只做各自同环境严格比较。
-- [ ] 一次整分支独立审阅；重要问题先失败复现再修复并跑相关suite；更新设计、计划和文档索引。
+- [x] 一次整分支独立审阅；重要问题先失败复现再修复并跑相关suite；更新设计、计划和文档索引。
   检查文档链接与git diff --check，保存实际证据后提交 `docs: validate loop admission proposals`。
 
 ## 自审与后续边界

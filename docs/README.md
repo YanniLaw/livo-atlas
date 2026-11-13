@@ -34,9 +34,9 @@
 29. [移除 Pimpl 设计](superpowers/specs/2026-11-10-remove-pimpl-design.md)、[实施计划](superpowers/plans/2026-11-10-remove-pimpl.md)及[验证记录](pimpl-removal-validation.md)：移除现有 8 处 Pimpl，恢复普通类的私有成员与直接方法实现；双 ROS、普通 SDK 及配对 bag 已完成验收。
 30. [P6-02a 几何子地图设计](superpowers/specs/2026-11-10-p6-02a-geometry-submaps-design.md)、[实施计划](superpowers/plans/2026-11-10-p6-02a-geometry-submaps.md)、[使用说明](geometry-submaps.md)与[验证记录](p6-02a-validation.md)：主成员体素统计、条件有效的面元、版本修正、有限缓存和显式导出已实现，双 ROS 回归与本阶段验收已完成。
 31. [P6-02b GTSAM 位姿图设计](superpowers/specs/2026-11-11-p6-02b-pose-graph-design.md)、[实施计划](superpowers/plans/2026-11-11-p6-02b-pose-graph.md)、[使用说明](pose-graph.md)和[验证记录](p6-02b-validation.md)：可选批量优化、模拟回环和版本化几何交付已完成阶段验收。
-32. [P6-02c 真实回环设计](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)、[C1 实施计划](superpowers/plans/2026-11-12-p6-02c1-loop-verification.md)、[使用说明](loop-verification.md)和[验证记录](p6-02c1-validation.md)：C1 先验辅助几何验证与只读工具已完成阶段验收；C2 在线图准入与 C3 全局输出留待后续。
+32. [P6-02c 真实回环设计](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)、[C1 实施计划](superpowers/plans/2026-11-12-p6-02c1-loop-verification.md)、[使用说明](loop-verification.md)和[验证记录](p6-02c1-validation.md)：C1 先验辅助几何验证与只读工具已完成阶段验收；C2a 准入结果见下一项，C2b 在线接纳与 C3 全局输出留待后续。
 
-33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)及[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)：先实现无状态约束准入、图试算和优化后几何复核，再接入在线调度与提交；当前为已做独立设计检查的草案，尚未编码。
+33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)、[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)、[使用说明](loop-admission.md)及[验证记录](p6-02c2a-validation.md)：无状态约束准入、鲁棒图试算、优化后几何复核和离线工具已完成阶段验收；在线调度与提交留待 C2b。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
@@ -75,6 +75,10 @@ P5-04 已补齐历史图像写入/关闭错误，配置有界发布历史，修�
 两端各三次正常参考的完整1倍速回放严格通过，另两次启动变体由冻结旧库精确复现并单列保留。
 原版负坐标视觉索引不一致导致重复建点和图像保留，本轮明确尚未修复；正坐标固定工作集连续处理不能证明一般地图内存有界。
 整阶段独立评审无新增重要回归，1项模块启动Minor延期；完整历史bundle及恢复核对见报告。
+
+P6-02c2a 已完成离线约束准入、鲁棒图试算及优化后几何复核；6 组 SDK、8 组 ROS 构建、8 次 bag 回放与两端离线工具通过验收。
+完整回放对同平台 C1 严格一致；同一 172 帧数据集两端各产生 2 个提案，703 个输入文件保持不变。
+使用方式、独立审阅修复和延期测试见[准入说明](loop-admission.md)与[验证报告](p6-02c2a-validation.md)。
 
 当前原版参考提交：`ca556e5ad6706ba20dc8dff91010faae546b7528`。
 2026-10-11 的原版采集结果位于工作区 `validation/P0-noetic-20261011/`。

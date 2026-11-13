@@ -2,7 +2,7 @@
 
 C1 提供可选的普通 C++ 几何验证库和只读离线工具。输入为同一位姿视图的封存体素子地图，
 输出候选相对位姿、来源修订和质量诊断。它使用里程计邻域初值，适用于先验仍足够接近的场景。
-候选通过几何检查后还需要后续 C2 的一致性与图准入；当前工具不提交位姿更新。
+候选通过几何检查后还需要 [C2a 一致性与图准入](loop-admission.md)；C1 工具不提交位姿更新。
 
 各平台的实际验证与限制见 [C1 验证记录](p6-02c1-validation.md)。
 
@@ -40,7 +40,7 @@ OMP_THREAD_LIMIT=1 nice -n 10 /path/to/install/bin/livo_atlas_verify_loops \
 每个候选依次处理并写盘，不在内存保存全部历史云或全部配准结果。
 退出码 0 表示遍历完成，包括零候选和全拒绝；参数语法错误返回 2，运行失败返回 1。
 
-可通过 `--config FILE` 指定 YAML。省略字段沿用默认值，未知键、非数值和非法整数会被拒绝。
+可通过 `--config FILE` 指定 YAML。省略字段沿用默认值，未知键、重复键/组、非数值和非法整数会被拒绝。
 配置分 `search` 与 `registration` 两组，支持公共选项全部字段，默认值见
 [公共头](../include/livo_atlas/backend/loop_closure.h)和[设计](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)。
 例如：

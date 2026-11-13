@@ -107,3 +107,6 @@ frames.WritePoses(version, poses.poses);
 安装消费示例位于 tests/installed_consumer，通过 find_package(livo_atlas) 和导出目标构建，
 无需源码生产头或原构建树。其 `--online-fixtures NEW_DIRECTORY` 模式生成确定的小数据集，
 供 tests/tools/online_submap_cli_test.py 验证实际安装的检查工具。
+
+已结束、索引完整且全部封存的数据集可以运行[离线回环准入工具](loop-admission.md)。
+其提案保存在独立输出目录，不写这里的正式位姿版本；在线接纳日志与提交仍属于 C2b。

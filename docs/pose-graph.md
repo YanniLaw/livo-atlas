@@ -106,3 +106,7 @@ frames.WritePoses(version, poses.poses);
 然后运行 `livo_atlas_export_colmap DATASET OUTPUT VERSION`。写入不会替换已有同号
 文件，也不会改写原始帧；导出需要数据集中存在图像关键帧。物化的是当时完整的帧前缀，
 不自动追踪之后新增的尾帧。这个流程为后续 3DGS 数据准备提供输入，但尚不是在线 3DGS。
+
+[C2a 回环准入](loop-admission.md)在几何验证之后调用批量位姿图，并复核残差、位姿改变量及预览几何。
+`PoseGraphOptions::loop_huber_delta=0` 保持旧 Gaussian 默认值；正值仅对回环启用块 Huber。
+准入接口要求正值，图结果另提供未鲁棒降权因子残差和构图/求解计时。
