@@ -1,9 +1,9 @@
-livo_atlas_library(online_backend src/backend/loop_task.cc
+livo_atlas_library(online_backend src/core/loop_backend.cc src/core/loop_commit.cc src/backend/loop_task.cc
   src/backend/loop_worker.cc src/io/loop_closure_store.cc
   src/io/loop_admission_io.cc src/io/loop_options.cc src/io/loop_diagnostics.cc)
 target_include_directories(livo_atlas_online_backend PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_online_backend PUBLIC livo_atlas_loop_backend
-  livo_atlas_io)
+  livo_atlas_io livo_atlas_core)
 install(TARGETS livo_atlas_online_backend EXPORT livo_atlasTargets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

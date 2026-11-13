@@ -222,7 +222,28 @@ void LivoSystem::SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
 
 void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
   if (submap_error_) std::rethrow_exception(submap_error_);
+  if (loop_pose_updates_claimed_)
+    throw std::logic_error("Online loop backend owns pose updates");
   Online().ApplyPoseUpdate(update);
+}
+
+void LivoSystem::ClaimLoopPoseUpdates() {
+  CheckInputOpen();
+  if (loop_pose_updates_claimed_ || next_keyframe_id_ ||
+      Online().GetPoseSnapshot()->version)
+    throw std::logic_error("Loop backend requires a new unclaimed session");
+  loop_pose_updates_claimed_ = true;
+}
+
+void LivoSystem::ApplyLoopPoseUpdate(const PoseUpdate& update) {
+  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (!loop_pose_updates_claimed_)
+    throw std::logic_error("Loop backend has not claimed pose updates");
+  Online().ApplyPoseUpdate(update);
+}
+
+void LivoSystem::FailLoopBackend(std::exception_ptr error) noexcept {
+  if (!submap_error_) submap_error_ = std::move(error);
 }
 
 GeometrySubmap LivoSystem::GetGeometrySubmap(std::uint64_t id) {

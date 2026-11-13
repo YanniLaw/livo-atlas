@@ -30,6 +30,8 @@ namespace livo_atlas {
 class KeyframeStore;
 class OnlineSubmapManager;
 class SubmapStore;
+class LoopBackend;
+class LoopBackendTestPeer;
 
 struct PropagationResult {
   double timestamp = 0;
@@ -71,6 +73,11 @@ class LivoSystem {
   void Finish();
 
  private:
+  friend class LoopBackend;
+  friend class LoopBackendTestPeer;
+  void ClaimLoopPoseUpdates();
+  void ApplyLoopPoseUpdate(const PoseUpdate& update);
+  void FailLoopBackend(std::exception_ptr error) noexcept;
   void CheckInputOpen() const;
   void AppendSubmap(const Submap& submap);
   OnlineSubmapManager& Online() const;
@@ -93,6 +100,7 @@ class LivoSystem {
   LivoExporter writer_;
   std::uint64_t next_keyframe_id_ = 0;
   bool input_sealed_ = false;
+  bool loop_pose_updates_claimed_ = false;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
   std::uint64_t image_count_ = 0;
   std::deque<Imu> propagation_buffer_;
