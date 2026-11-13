@@ -40,7 +40,7 @@ void OnlineSubmapManager::SetCallback(
     LivoSystem::OnlineSubmapCallback callback) {
   if (callback) {
     CheckRunning();
-    if (!raw_poses_.empty())
+    if (input_sealed_ || !raw_poses_.empty())
       throw std::logic_error(
           "Register online callback before processing frames");
   }
@@ -96,6 +96,7 @@ GeometryCacheStats OnlineSubmapManager::GetGeometryStats() const {
 void OnlineSubmapManager::AppendCommittedKeyframe(
     std::shared_ptr<const Keyframe> keyframe) {
   CheckRunning();
+  if (input_sealed_) throw std::logic_error("Online input has been sealed");
   const auto previous_count = raw_poses_.size();
   bool committed = false;
   try {
@@ -133,17 +134,24 @@ void OnlineSubmapManager::ApplyPoseUpdate(const PoseUpdate& update) {
   }
 }
 
-void OnlineSubmapManager::Finish() {
-  if (failure_) std::rethrow_exception(failure_);
-  if (finished_) return;
+void OnlineSubmapManager::SealInput() {
+  RethrowFailure();
+  if (input_sealed_) return;
   try {
     auto revisions = builder_.Finish();
     for (const auto& revision : revisions) store_.AppendRevision(revision);
-    finished_ = true;
+    input_sealed_ = true;
     if (!revisions.empty()) Notify({{}, std::move(revisions), {}, {}});
   } catch (...) {
     failure_ = std::current_exception();
     throw;
   }
+}
+
+void OnlineSubmapManager::Finish() {
+  RethrowFailure();
+  if (finished_) return;
+  SealInput();
+  finished_ = true;
 }
 }  // namespace livo_atlas

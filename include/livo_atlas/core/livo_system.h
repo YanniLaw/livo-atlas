@@ -64,11 +64,14 @@ class LivoSystem {
   SyncStatus ProcessNext(const ResultCallback& callback);
   void ProcessAvailable(const ResultCallback& callback);
   std::optional<PropagationResult> PropagateLatest();
+  // Close input and seal the tail while keeping pose updates available.
+  void SealInput();
   // A submap persistence failure is terminal: subsequent processing and Finish
   // rethrow the original error. Already committed data remains readable.
   void Finish();
 
  private:
+  void CheckInputOpen() const;
   void AppendSubmap(const Submap& submap);
   OnlineSubmapManager& Online() const;
   void Propagate(const Imu& measurement);
@@ -89,6 +92,7 @@ class LivoSystem {
   std::unique_ptr<OnlineSubmapManager> online_;
   LivoExporter writer_;
   std::uint64_t next_keyframe_id_ = 0;
+  bool input_sealed_ = false;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
   std::uint64_t image_count_ = 0;
   std::deque<Imu> propagation_buffer_;

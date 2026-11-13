@@ -4,6 +4,7 @@
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/io/online_submap_store.h"
 #include "livo_atlas/mapping/geometry_mapper.h"
+
 namespace livo_atlas {
 class OnlineSubmapManager {
  public:
@@ -16,6 +17,7 @@ class OnlineSubmapManager {
   void ApplyPoseUpdate(const PoseUpdate& update);
   GeometrySubmap GetGeometrySubmap(std::uint64_t id);
   GeometryCacheStats GetGeometryStats() const;
+  void SealInput();
   void Finish();
   void CheckRunning() const;
   void RethrowFailure() const;
@@ -29,6 +31,7 @@ class OnlineSubmapManager {
   PoseSnapshot frozen_;
   LivoSystem::OnlineSubmapCallback callback_;
   std::exception_ptr failure_;
+  bool input_sealed_ = false;
   bool finished_ = false;
 };
 }  // namespace livo_atlas

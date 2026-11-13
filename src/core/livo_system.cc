@@ -73,7 +73,14 @@ LivoSystem::LivoSystem(SystemOptions options)
   preprocess_.N_SCANS = pre.scan_lines;
 }
 
+void LivoSystem::CheckInputOpen() const {
+  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (online_) online_->CheckRunning();
+  if (input_sealed_) throw std::logic_error("System input has been sealed");
+}
+
 bool LivoSystem::AddLidar(const LidarScan& scan) {
+  CheckInputOpen();
   if (!options_.lidar_enabled || !std::isfinite(scan.timestamp)) return false;
   TimedPointCloud measurement{scan.timestamp, PointCloud::Ptr(new PointCloud)};
   preprocess_.Process(scan, measurement.cloud.get());
@@ -85,6 +92,7 @@ bool LivoSystem::AddLidar(const LidarScan& scan) {
 }
 
 bool LivoSystem::AddImu(Imu measurement) {
+  CheckInputOpen();
   if (!options_.frontend.imu.enabled || last_lidar_ < 0) return false;
   if (!measurement.linear_acceleration.allFinite() ||
       !measurement.angular_velocity.allFinite()) {
@@ -109,6 +117,7 @@ bool LivoSystem::AddImu(Imu measurement) {
 }
 
 bool LivoSystem::AddImage(TimedImage measurement) {
+  CheckInputOpen();
   if (!options_.image_enabled || !std::isfinite(measurement.timestamp))
     return false;
   if (options_.hilti && ++image_count_ % 4 != 0) return false;
@@ -123,8 +132,7 @@ bool LivoSystem::AddImage(TimedImage measurement) {
 }
 
 SyncStatus LivoSystem::ProcessNext(const ResultCallback& callback) {
-  if (submap_error_) std::rethrow_exception(submap_error_);
-  if (online_) online_->CheckRunning();
+  CheckInputOpen();
   const auto status = synchronizer_.TrySynchronize(&buffers_, &measurements_);
   if (status != SyncStatus::kReady) return status;
   const auto start = std::chrono::steady_clock::now();
@@ -168,22 +176,33 @@ void LivoSystem::ProcessAvailable(const ResultCallback& callback) {
   }
 }
 
+void LivoSystem::SealInput() {
+  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (online_) online_->RethrowFailure();
+  if (input_sealed_) return;
+  try {
+    if (online_) online_->SealInput();
+    if (submap_store_) {
+      if (const auto tail = submap_builder_.Finish()) AppendSubmap(*tail);
+    }
+    input_sealed_ = true;
+  } catch (...) {
+    submap_error_ = std::current_exception();
+    throw;
+  }
+}
+
 void LivoSystem::Finish() {
   if (submap_error_) std::rethrow_exception(submap_error_);
-  if (online_) {
-    online_->RethrowFailure();
-    try {
-      writer_.Finish();
-      online_->Finish();
-    } catch (...) {
-      submap_error_ = std::current_exception();
-      throw;
-    }
-  } else {
+  if (online_) online_->RethrowFailure();
+  try {
+    // Keep the existing writer error priority for callers using only Finish.
     writer_.Finish();
-  }
-  if (submap_store_) {
-    if (const auto tail = submap_builder_.Finish()) AppendSubmap(*tail);
+    SealInput();
+    if (online_) online_->Finish();
+  } catch (...) {
+    submap_error_ = std::current_exception();
+    throw;
   }
 }
 
@@ -221,6 +240,7 @@ OnlineSubmapManager& LivoSystem::Online() const {
 }
 
 std::optional<PropagationResult> LivoSystem::PropagateLatest() {
+  CheckInputOpen();
   if (frontend_.imu_needs_initialization() || !new_imu_ || !have_estimate_)
     return {};
   new_imu_ = false;
