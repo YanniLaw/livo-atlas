@@ -47,12 +47,12 @@
 
 **Interfaces:** Consumes RigidTransform；Produces `MapCorrection {uint64_t pose_version,frame_count,optimized_frame_count; RigidTransform map_from_odom;}` 和 `RigidTransform ApplyMapCorrection(const MapCorrection&, const RigidTransform& published_odom_from_body)`。
 
-- [ ] 写 `IdentityBeforeAnyKeyframe`、`ComposesNoncommutingRigidTransforms`：默认修正可作用于任意有效发布刚体；C/O 两个非零旋转和平移，结果必须为 C*O，输入不变。
-- [ ] 写 `RejectsInvalidHeadersAndTransforms`：v0 非零优化前缀/非单位 C；v>0 优化前缀0或>N；NaN/Inf、反射和1.000045非刚体旋转均拒绝。v0 frame_count>0 合法。
-- [ ] 配置新增 test target，build `map_correction_test`。Expected：缺少新头或声明的编译 RED，原因与新增接口一致。
-- [ ] 在既有 keyframes 库实现值类型和常数规模校验/组合，严格刚体旋转以1e-9矩阵/行列式判定；不暴露 ROS 或 GTSAM。
-- [ ] 新测试及完整 native suite 通过；Expected：非零测试数，0 failures。
-- [ ] 提交 `feat: add ordinary map correction values`。
+- [x] 写 `IdentityBeforeAnyKeyframe`、`ComposesNoncommutingRigidTransforms`：默认修正可作用于任意有效发布刚体；C/O 两个非零旋转和平移，结果必须为 C*O，输入不变。
+- [x] 写 `RejectsInvalidHeadersAndTransforms`：v0 非零优化前缀/非单位 C；v>0 优化前缀0或>N；NaN/Inf、反射和1.000045非刚体旋转均拒绝。v0 frame_count>0 合法。
+- [x] 配置新增 test target，build `map_correction_test`。Expected：缺少新头或声明的编译 RED，原因与新增接口一致。
+- [x] 在既有 keyframes 库实现值类型和常数规模校验/组合，严格刚体旋转以1e-9矩阵/行列式判定；不暴露 ROS 或 GTSAM。
+- [x] 新测试及完整 native suite 通过；Expected：非零测试数，0 failures。
+- [x] 提交 `feat: add ordinary map correction values`。
 
 ### Task 2：从原位姿权威读取常数规模修正
 
