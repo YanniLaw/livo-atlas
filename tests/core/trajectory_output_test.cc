@@ -282,6 +282,21 @@ TEST_F(TrajectoryOutputTest, DestructorDoesNotReadTheExpiredSystem) {
   EXPECT_NO_THROW(output_.reset());
 }
 
+TEST_F(TrajectoryOutputTest, StopsWhileTheWorkerReturnsToIdle) {
+  TrajectoryOutputOptions options;
+  options.enabled = true;
+  // Race both stop paths against the worker returning from delivery to wait.
+  for (int i = 0; i < 2000; ++i) {
+    TrajectoryOutput output(*system_, options, [](const auto&) {});
+    output.Poll();
+    const auto deadline = Clock::now() + std::chrono::seconds(3);
+    while (output.GetStats().delivered == 0 && Clock::now() < deadline)
+      std::this_thread::yield();
+    ASSERT_EQ(output.GetStats().delivered, 1);
+    if (i % 2 == 0) output.Finish();
+  }
+}
+
 TEST_F(TrajectoryOutputTest, RestartHasANewProducerAndAResetRevision) {
   Start();
   ASSERT_TRUE(WaitForSize(1));

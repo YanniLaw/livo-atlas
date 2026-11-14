@@ -289,7 +289,11 @@ void TrajectoryOutput::Finish() {
 }
 
 void TrajectoryOutput::Stop() {
-  stopping_ = true;
+  {
+    // Use the wait's mutex so stop cannot notify between its check and sleep.
+    std::lock_guard<std::mutex> lock(mutex_);
+    stopping_ = true;
+  }
   condition_.notify_all();
   if (thread_.joinable()) thread_.join();
   pending_.reset();
