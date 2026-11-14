@@ -9,9 +9,14 @@ find_package(pcl_conversions REQUIRED)
 find_package(livox_ros_driver2 REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+# Generic type support dlopens generated RMW libraries, even with static core.
+set(livo_atlas_algorithm_shared ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS ON)
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/TrajectoryKeyframe.msg msg/KeyframeTrajectory.msg
   DEPENDENCIES std_msgs geometry_msgs)
+set(BUILD_SHARED_LIBS ${livo_atlas_algorithm_shared})
+unset(livo_atlas_algorithm_shared)
 rosidl_get_typesupport_target(livo_atlas_typesupport ${PROJECT_NAME}
   rosidl_typesupport_cpp)
 ament_export_dependencies(rosidl_default_runtime)
