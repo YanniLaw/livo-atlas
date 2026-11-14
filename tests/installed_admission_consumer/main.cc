@@ -9,6 +9,7 @@
 
 #include "livo_atlas/core/global_output_options.h"
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/core/trajectory_output.h"
 #include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
 #ifdef EXPECT_GTSAM
@@ -27,6 +28,11 @@ int main() {
   try {
     const std::vector<RigidTransform> raw(3);
     const auto poses = MaterializePoseSnapshot({}, raw, raw.size());
+    const auto history = BuildTrajectorySnapshot(poses, {1, 2, 3});
+    if (history.frame_count != 3 || history.keyframes.size() != 3 ||
+        history.keyframes[2].id != 2 || history.keyframes[2].timestamp != 3)
+      throw std::runtime_error(
+          "Installed trajectory builder lost its frontier");
 #ifdef EXPECT_GTSAM
     PoseGraph graph({});
     for (std::uint64_t i = 0; i < raw.size(); ++i) graph.AddKeyframe(i, raw[i]);
@@ -94,8 +100,21 @@ int main() {
         throw std::runtime_error("Installed map correction is not identity");
 #ifdef EXPECT_ADMISSION
       LoopBackend backend(system);
-      system.SetOnlineSubmapCallback(
-          [&](const auto& update) { backend.Observe(update); });
+#endif
+      // Read these values only after Finish has joined their sole writer.
+      std::vector<TrajectorySnapshot> received;
+      TrajectoryOutputOptions trajectory_options;
+      trajectory_options.enabled = true;
+      TrajectoryOutput trajectory(
+          system, trajectory_options,
+          [&](const auto& item) { received.push_back(item); });
+      system.SetOnlineSubmapCallback([&](const auto& update) {
+#ifdef EXPECT_ADMISSION
+        backend.Observe(update);
+#endif
+        trajectory.Observe(update);
+      });
+#ifdef EXPECT_ADMISSION
       backend.Finish();
       const auto report = InspectLoopDataset(directory / "keyframes");
       if (report.status != LoopRecoveryStatus::kConsistent)
@@ -104,6 +123,13 @@ int main() {
 #else
       system.Finish();
 #endif
+      trajectory.Finish();
+      if (received.size() != 1 || received[0].revision != 1 ||
+          received[0].producer_id.size() != 32 ||
+          received[0].frame_count != 0 ||
+          received[0].status != TrajectoryStatus::kReady)
+        throw std::runtime_error(
+            "Installed trajectory worker lost its final state");
     }
     std::filesystem::remove_all(directory);
     return 0;

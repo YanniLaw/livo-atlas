@@ -238,6 +238,25 @@ TEST_F(TrajectoryOutputTest, ReadFailureStopsOnlyTheDerivedOutput) {
   EXPECT_EQ(output_->GetStats().delivered, 1);
 }
 
+TEST_F(TrajectoryOutputTest, DefaultBudgetDoesNotRetainAnOversizedSnapshot) {
+  Start(20000);
+  auto poses = std::make_shared<PoseSnapshot>();
+  poses->frame_count = 20001;
+  poses->poses.resize(20001);
+  for (std::size_t i = 0; i < poses->poses.size(); ++i) poses->poses[i].id = i;
+  std::weak_ptr<const PoseSnapshot> borrowed = poses;
+  OnlineSubmapUpdate update;
+  update.poses = std::move(poses);
+  output_->Observe(update);
+  update.poses.reset();
+  EXPECT_TRUE(borrowed.expired());
+  // No such disk prefix exists: the resource result must not query it.
+  ASSERT_TRUE(WaitForSize(1));
+  EXPECT_EQ(Snapshot(0).status, TrajectoryStatus::kResourceLimited);
+  EXPECT_EQ(Snapshot(0).frame_count, 20001);
+  EXPECT_EQ(output_->GetStats().timestamp_reads, 0);
+}
+
 TEST_F(TrajectoryOutputTest, SinkFailureIsNotRetriedOrPropagatedToTheSystem) {
   std::atomic<int> calls{0};
   Start(20, [&](const auto&) {
