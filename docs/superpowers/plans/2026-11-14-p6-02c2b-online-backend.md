@@ -9,7 +9,7 @@ prepared 与正式 pose 配对作为接纳权威；SealInput、排空和 Finish 
 
 **Tech Stack:** C++17、std::thread/condition_variable、现有 Eigen/PCL/OpenCV/GTSAM 4.2.2、Noetic/Humble。
 
-**Spec:** [C2b 设计](../specs/2026-11-14-p6-02c2b-online-backend-design.md)。状态：**Tasks 1–6 已完成；Task 7 构建/数据验收通过，独立审阅进行中**。
+**Spec:** [C2b 设计](../specs/2026-11-14-p6-02c2b-online-backend-design.md)。状态：**Tasks 1–7 已完成，主验收、独立审阅问题闭环及受影响构建复验通过**。
 
 ## Global Constraints
 
@@ -226,8 +226,9 @@ catkin/ament导出；更新共享参数与实际ROS节点测试、安装消费�
 **Files:** 新增 docs/online-loop-backend.md、docs/p6-02c2b-validation.md；更新文档索引及本设计/计划状态。
 本阶段构建、原始日志和产物放包外独立validation目录，不覆盖C2a或旧阶段。
 
-- [x] 冻结最终产品源码，SDK六组合、双ROS shared/static全关/双开及所有安装消费者通过；
+- [x] 冻结主验收源码，SDK六组合、双ROS shared/static全关/双开及所有安装消费者通过；
   检查缺席目标、非零测试数、XML根计数、实际加载库，不重复catkin嵌套计数。
+  审阅修复单独冻结并复验受影响组合，两个产品版本的证据对照见[验证报告](../../p6-02c2b-validation.md)。
 - [x] Noetic/Humble各runtime OFF/ON完整136秒和短3秒回放，共8次；OFF严格对照C2a同平台全关/双开基线，
   ON严格核对同平台原始前端四数组、输入数量/载荷、原始帧、成员records和57旧导出。
   `online_submaps/poses` 与 `loop_closure` 的新增版本另验，不混入原资产相等比较。
@@ -237,7 +238,7 @@ catkin/ament导出；更新共享参数与实际ROS节点测试、安装消费�
   不沿用C2a wrapper对所有ON进程“禁止加载后端”的旧断言。
 - [x] 保存中途失败数据集：prepared-only、已发pose后通知失败、未知worker异常、未封存退出；
   只读检查器不改字节，返回0/3/1与schema相符，不声称恢复运行或掉电事务。
-- [ ] 做一次整分支独立审阅；重要问题先失败复现再修复，相关suite全绿；填写边界、取舍与延期项。
+- [x] 做一次整分支独立审阅；重要问题先失败复现再修复，相关suite全绿；填写边界、取舍与延期项。
   文档链接、Google格式、函数间空行和git diff --check通过，提交 `docs: validate online loop acceptance`。
 
 计划自查：读取视图→runner、worker/store→owner、owner→ROS的接口在各任务Consumes/Produces中固定。

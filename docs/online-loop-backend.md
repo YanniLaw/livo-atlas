@@ -132,6 +132,9 @@ livo_atlas_check_loops /path/to/run/keyframes /path/to/new-check-output
 
 report.yml 分别给出 committed_version、uncommitted_prepared 和 issues。
 检查器核对原始元信息、标定、固定噪声、成员、任务前沿、查询诊断及连续位姿版本，并重算位姿物化到 1e-9 容差。
+prepared 与 query 共用诊断结构校验：候选验证、来源修订、有限指标、图试算/残差和几何复查均按实际计算阶段检查，
+早期拒绝可以省略尚未计算的内容。已提交任务若存在 query，其处置必须为 accepted，且版本和前沿与 prepared 一致；
+这项约束也适用于 complete=0。发布后中断而缺少最终 query 仍可解释为 incomplete，并保留已确认版本。
 它不解码图像、不重跑 GICP、不鉴定点云全部字节，也不修复文件或恢复运行。
 资产仍要求单 writer 下不可变；当前发布过程没有 fsync，不承诺掉电事务。
 
