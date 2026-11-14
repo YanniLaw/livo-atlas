@@ -1,10 +1,13 @@
 # 全局 TF 与当前位姿（C3a）
 
-状态：实现、正式构建矩阵和 bag 主验收完成，整阶段独立审阅待执行。
+状态：实现、正式构建矩阵、bag 主验收与整阶段独立审阅完成；1项验收器 Minor 延期，见验证记录。
 设计和验收依据见 [C3a 设计](superpowers/specs/2026-11-14-p6-02c3a-global-pose-design.md)、
 [实施计划](superpowers/plans/2026-11-14-p6-02c3a-global-pose.md)及[验证记录](p6-02c3a-validation.md)。
 
 ## 配置
+
+在日常工作区按[双版本构建说明](ros-builds.md)重新构建并加载相应 setup 后使用以下配置。
+本轮验收二进制和安装位于独立的包外 validation 目录，便于保留基线与跨机器复验。
 
 将下面的配置并入启动时加载的 Avia YAML，保留原有传感器、标定和输出目录设置：
 
