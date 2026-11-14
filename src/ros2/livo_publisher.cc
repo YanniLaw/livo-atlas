@@ -15,6 +15,7 @@
 #include <nav_msgs/msg/path.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
 
@@ -102,10 +103,18 @@ geometry_msgs::msg::Pose Pose(
 }  // namespace
 
 LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode,
-                             int image_queue_size)
-    : node_(node), mode_(mode), broadcaster_(node) {
+                             int image_queue_size,
+                             GlobalOutputOptions global_output)
+    : node_(node),
+      mode_(mode),
+      global_output_(std::move(global_output)),
+      broadcaster_(node) {
+  ValidateGlobalOutputOptions(global_output_);
   if (image_queue_size <= 0)
     throw std::invalid_argument("Image queue size must be positive");
+  if (global_output_.enabled)
+    global_pose_ = node.create_publisher<geometry_msgs::msg::PoseStamped>(
+        "/global_pose", rclcpp::QoS(1).reliable().durability_volatile());
   cloud_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
       "/cloud_registered", 100);
   effect_ = node.create_publisher<sensor_msgs::msg::PointCloud2>(
@@ -142,7 +151,8 @@ void LivoPublisher::PublishCloud(const FrontendResult& result,
 }
 
 void LivoPublisher::Publish(const FrontendResult& result,
-                            const ColoredCloud::ConstPtr& colored_cloud) {
+                            const ColoredCloud::ConstPtr& colored_cloud,
+                            const std::optional<MapCorrection>& correction) {
   if (!result.updated) return;
   if (result.kind == UpdateKind::kVisual) {
     PublishCloud(result, colored_cloud);
@@ -166,6 +176,34 @@ void LivoPublisher::Publish(const FrontendResult& result,
   odometry.child_frame_id = "aft_mapped";
   odometry.header.stamp = node_.now();
   odometry.pose.pose = Pose(result.estimate, orientation);
+  geometry_msgs::msg::PoseStamped global_pose;
+  const std::int64_t stamp_ns =
+      rclcpp::Time(odometry.header.stamp).nanoseconds();
+  // Preserve raw output during clock repeats/rollbacks; gate only new output.
+  const bool publish_global = global_output_.enabled && stamp_ns > 0 &&
+                              stamp_ns > last_global_stamp_ns_;
+  if (global_output_.enabled) {
+    if (!correction)
+      throw std::invalid_argument("Global output requires a map correction");
+    // Compose the actual legacy quaternion, not a projection of filter
+    // rotation.
+    const RigidTransform published{
+        Eigen::Quaterniond(orientation.w, orientation.x, orientation.y,
+                           orientation.z)
+            .toRotationMatrix(),
+        result.estimate.pos_end};
+    const auto map_from_body = ApplyMapCorrection(*correction, published);
+    global_pose.header = odometry.header;
+    global_pose.header.frame_id = global_output_.map_frame;
+    global_pose.pose.position.x = map_from_body.translation.x();
+    global_pose.pose.position.y = map_from_body.translation.y();
+    global_pose.pose.position.z = map_from_body.translation.z();
+    const Eigen::Quaterniond rotation(map_from_body.rotation);
+    global_pose.pose.orientation.w = rotation.w();
+    global_pose.pose.orientation.x = rotation.x();
+    global_pose.pose.orientation.y = rotation.y();
+    global_pose.pose.orientation.z = rotation.z();
+  }
   geometry_msgs::msg::TransformStamped transform;
   transform.header = odometry.header;
   transform.child_frame_id = odometry.child_frame_id;
@@ -173,8 +211,32 @@ void LivoPublisher::Publish(const FrontendResult& result,
   transform.transform.translation.y = result.estimate.pos_end.y();
   transform.transform.translation.z = result.estimate.pos_end.z();
   transform.transform.rotation = orientation;
-  broadcaster_.sendTransform(transform);
+  if (publish_global && global_output_.publish_tf) {
+    const auto& map_from_odom = correction->map_from_odom;
+    geometry_msgs::msg::TransformStamped global_transform;
+    global_transform.header = odometry.header;
+    global_transform.header.frame_id = global_output_.map_frame;
+    global_transform.child_frame_id = "camera_init";
+    global_transform.transform.translation.x = map_from_odom.translation.x();
+    global_transform.transform.translation.y = map_from_odom.translation.y();
+    global_transform.transform.translation.z = map_from_odom.translation.z();
+    const Eigen::Quaterniond rotation(map_from_odom.rotation);
+    global_transform.transform.rotation.w = rotation.w();
+    global_transform.transform.rotation.x = rotation.x();
+    global_transform.transform.rotation.y = rotation.y();
+    global_transform.transform.rotation.z = rotation.z();
+    // Both edges carry the same sample time in one TFMessage.
+    broadcaster_.sendTransform(
+        std::vector<geometry_msgs::msg::TransformStamped>{global_transform,
+                                                          transform});
+  } else {
+    broadcaster_.sendTransform(transform);
+  }
   odometry_->publish(odometry);
+  if (publish_global) {
+    global_pose_->publish(global_pose);
+    last_global_stamp_ns_ = stamp_ns;
+  }
   PublishCloud(result, colored_cloud);
   if (result.effective_cloud) {
     sensor_msgs::msg::PointCloud2 message;

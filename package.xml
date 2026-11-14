@@ -41,6 +41,8 @@
   <exec_depend condition="$ROS_VERSION == 2">python3-yaml</exec_depend>
   <test_depend condition="$ROS_VERSION == 1">rostest</test_depend>
   <test_depend condition="$ROS_VERSION == 1">rosbag</test_depend>
+  <test_depend>tf2_msgs</test_depend>
+  <test_depend condition="$ROS_VERSION == 2">rosgraph_msgs</test_depend>
   <test_depend>python3-numpy</test_depend>
   <test_depend>python3-psutil</test_depend>
   <export>

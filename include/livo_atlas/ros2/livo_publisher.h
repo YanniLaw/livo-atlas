@@ -3,6 +3,8 @@
 
 #include <tf2_ros/transform_broadcaster.h>
 
+#include <cstdint>
+#include <optional>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
@@ -12,21 +14,24 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "livo_atlas/common/filter_state.h"
+#include "livo_atlas/core/global_output_options.h"
 #include "livo_atlas/frontend/frontend_result.h"
 #include "livo_atlas/frontend/synchronized_measurements.h"
+#include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/sensor/point_types.h"
 
 namespace livo_atlas::ros2 {
 
 class LivoPublisher {
  public:
-  LivoPublisher(rclcpp::Node& node, FrontendMode mode,
-                int image_queue_size = 1);
+  LivoPublisher(rclcpp::Node& node, FrontendMode mode, int image_queue_size = 1,
+                GlobalOutputOptions global_output = {});
   ~LivoPublisher();
   LivoPublisher(const LivoPublisher&) = delete;
   LivoPublisher& operator=(const LivoPublisher&) = delete;
   void Publish(const FrontendResult& result,
-               const ColoredCloud::ConstPtr& colored_cloud);
+               const ColoredCloud::ConstPtr& colored_cloud,
+               const std::optional<MapCorrection>& correction = std::nullopt);
   void PublishImuPropagation(const FilterState& state, double timestamp);
 
  private:
@@ -35,6 +40,9 @@ class LivoPublisher {
 
   rclcpp::Node& node_;
   FrontendMode mode_;
+  GlobalOutputOptions global_output_;
+  std::int64_t last_global_stamp_ns_ = 0;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr global_pose_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_, effect_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_, propagation_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_publisher_;

@@ -87,13 +87,13 @@
 
 **Interfaces:** Consumes Tasks1/3；两个 LivoPublisher 构造末尾 `GlobalOutputOptions global_output={}`，Publish 末尾 `const std::optional<MapCorrection>& correction=std::nullopt`。直接成员保存选项、global_pose publisher、`int64_t last_global_stamp_ns=0`，不增加隐藏实现。
 
-- [ ] 先写两端 `GlobalPoseUsesActualLegacyQuaternionAndPairedTf`：订阅真实 tf2_msgs/TFMessage 和 global_pose，输入近似 raw 旋转及非单位 C；raw数据保留，TFMessage含map->camera_init和camera_init->aft_mapped，整数时间相同，global pose等于这条链；与错误的 C*Project(raw) 明确有区别。
-- [ ] 写 `DisabledDoesNotAdvertiseGlobalPose`、`PoseOnlyModeKeepsSingleTf`、`MissingOrInvalidCorrectionFailsBeforePublication`：默认无新增pub；publish_tf=false只有旧TF但有global pose；启用而缺修正或无效时不产生半个新结果。
-- [ ] 新实测时钟用例 `ZeroRepeatRollbackAndResume`、`VisualWaitingAndPropagationDoNotAdvanceGlobalOutput`：0/10/10/9/11序列，仅10/11新增，恢复使用最新C，raw仍按旧分支发。Noetic 时钟为进程级，单独rostest executable；Humble 以独立 use_sim_time node测试，防污染旧用例。
-- [ ] 在本阶段独立 Noetic/Humble source copy 编译新测试，Expected：构造/Publish参数缺失的 RED；不修改C2b的source/cache/log。
-- [ ] 实现读取一次现有 raw odometry 时间、由实际raw四元数组合、先验证计算后发送、同broadcaster向量发两条TF、pose深度1和时间门控；clock异常仍保留旧TF，不改原发布Euler规则或旧消息时钟调用位置。
-- [ ] 声明 tf2_msgs 为直接测试依赖；不为产品新增消息包/自定义消息，Humble沿用已有tf2_msgs测试接线。
-- [ ] 两端实际 publisher/clock 测试、新旧普通suite全部通过；native完整suite通过，提交 `feat: publish paired global transforms and current poses`。
+- [x] 先写两端 `GlobalPoseUsesActualLegacyQuaternionAndPairedTf`：订阅真实 tf2_msgs/TFMessage 和 global_pose，输入近似 raw 旋转及非单位 C；raw数据保留，TFMessage含map->camera_init和camera_init->aft_mapped，整数时间相同，global pose等于这条链；与错误的 C*Project(raw) 明确有区别。
+- [x] 写 `DisabledDoesNotAdvertiseGlobalPose`、`PoseOnlyModeKeepsSingleTf`、`MissingOrInvalidCorrectionFailsBeforePublication`：默认无新增pub；publish_tf=false只有旧TF但有global pose；启用而缺修正或无效时不产生半个新结果。
+- [x] 新实测时钟用例 `ZeroRepeatRollbackAndResume`、`VisualWaitingAndPropagationDoNotAdvanceGlobalOutput`：0/10/10/9/11序列，仅10/11新增，恢复使用最新C，raw仍按旧分支发。Noetic 时钟为进程级，单独rostest executable；Humble 以独立 use_sim_time node测试，防污染旧用例。
+- [x] 在本阶段独立 Noetic/Humble source copy 编译新测试，Expected：构造/Publish参数缺失的 RED；不修改C2b的source/cache/log。
+- [x] 实现读取一次现有 raw odometry 时间、由实际raw四元数组合、先验证计算后发送、同broadcaster向量发两条TF、pose深度1和时间门控；clock异常仍保留旧TF，不改原发布Euler规则或旧消息时钟调用位置。
+- [x] 声明 tf2_msgs 为直接测试依赖；不为产品新增消息包/自定义消息，Humble沿用已有tf2_msgs测试接线。
+- [x] 两端实际 publisher/clock 测试、新旧普通suite全部通过；native完整suite通过，提交 `feat: publish paired global transforms and current poses`。
 
 ### Task 5：节点只读接线、安装消费与可复现回放入口
 

@@ -1,0 +1,4 @@
+<launch>
+  <test test-name="global_output_clock_test" pkg="livo_atlas"
+        type="global_output_clock_test" time-limit="30" />
+</launch>

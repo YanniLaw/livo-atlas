@@ -6,16 +6,21 @@
 #include <ros/ros.h>
 #include <tf/transform_broadcaster.h>
 
+#include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "livo_atlas/common/filter_state.h"
+#include "livo_atlas/core/global_output_options.h"
 #include "livo_atlas/frontend/frontend_result.h"
 #include "livo_atlas/frontend/synchronized_measurements.h"
+#include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/sensor/point_types.h"
 
 namespace ros {
 class NodeHandle;
 }  // namespace ros
+
 namespace image_transport {
 class ImageTransport;
 }  // namespace image_transport
@@ -25,7 +30,8 @@ namespace ros1 {
 
 class LivoPublisher {
  public:
-  explicit LivoPublisher(FrontendMode mode, int image_queue_size = 1);
+  explicit LivoPublisher(FrontendMode mode, int image_queue_size = 1,
+                         GlobalOutputOptions global_output = {});
   ~LivoPublisher();
   LivoPublisher(const LivoPublisher&) = delete;
   LivoPublisher& operator=(const LivoPublisher&) = delete;
@@ -33,7 +39,8 @@ class LivoPublisher {
   void Initialize(ros::NodeHandle& node,
                   image_transport::ImageTransport& transport);
   void Publish(const FrontendResult& result,
-               const ColoredCloud::ConstPtr& colored_cloud);
+               const ColoredCloud::ConstPtr& colored_cloud,
+               const std::optional<MapCorrection>& correction = std::nullopt);
   void PublishImuPropagation(const FilterState& state,
                              const ros::Time& timestamp);
 
@@ -43,6 +50,9 @@ class LivoPublisher {
 
   FrontendMode mode_;
   int image_queue_size_;
+  GlobalOutputOptions global_output_;
+  std::int64_t last_global_stamp_ns_ = 0;
+  ros::Publisher global_pose_;
   ros::Publisher cloud_, effect_, odometry_, path_publisher_, mavros_;
   ros::Publisher propagation_, planes_;
   image_transport::Publisher image_;

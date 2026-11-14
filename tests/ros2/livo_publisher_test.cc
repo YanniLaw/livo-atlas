@@ -1,5 +1,9 @@
 #include "livo_atlas/ros2/livo_publisher.h"
 
+#include "ros2/global_output_test_support.h"
+#include <Eigen/SVD>
+#include <limits>
+
 #include <gtest/gtest.h>
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -16,6 +20,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "livo_atlas/ros2/measurement_conversions.h"
+
 namespace livo_atlas::ros2 {
 namespace {
 
@@ -30,6 +35,7 @@ bool WaitFor(rclcpp::Executor& executor,
   }
   return false;
 }
+
 TEST(RosOutputTest, PublishesOrdinarySnapshotsWithLegacySchemasAndPoses) {
   auto node = std::make_shared<rclcpp::Node>("p4_publisher_test");
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -150,3 +156,107 @@ TEST(RosOutputTest, PublishesOrdinarySnapshotsWithLegacySchemasAndPoses) {
 
 }  // namespace
 }  // namespace livo_atlas::ros2
+
+namespace livo_atlas::ros2::test_support {
+
+TEST_F(GlobalOutputTest, GlobalPoseUsesActualLegacyQuaternionAndPairedTf) {
+  Open({true, true, "atlas/map_2"});
+  const auto result = LidarResult();
+  const auto correction = Correction();
+  publisher_->Publish(result, nullptr, correction);
+  ASSERT_TRUE(Wait([&] {
+    return odometry_.size() == 1 && transforms_.size() == 1 &&
+           global_.size() == 1;
+  }));
+  const auto& raw = odometry_[0];
+  const auto& pose = global_[0];
+  ASSERT_EQ(transforms_[0].transforms.size(), 2);
+  const auto& map_tf = transforms_[0].transforms[0];
+  const auto& raw_tf = transforms_[0].transforms[1];
+  EXPECT_EQ(map_tf.header.frame_id, "atlas/map_2");
+  EXPECT_EQ(map_tf.child_frame_id, "camera_init");
+  EXPECT_EQ(raw_tf.header.frame_id, "camera_init");
+  EXPECT_EQ(raw_tf.child_frame_id, "aft_mapped");
+  EXPECT_EQ(map_tf.header.stamp, raw.header.stamp);
+  EXPECT_EQ(raw_tf.header.stamp, raw.header.stamp);
+  EXPECT_EQ(pose.header.stamp, raw.header.stamp);
+  EXPECT_EQ(pose.header.frame_id, "atlas/map_2");
+  EXPECT_TRUE(Rotation(raw.pose.pose.orientation).isIdentity(1e-15));
+  EXPECT_TRUE(Rotation(raw_tf.transform.rotation).isIdentity(1e-15));
+  EXPECT_DOUBLE_EQ(raw_tf.transform.translation.x, 4);
+  EXPECT_DOUBLE_EQ(raw.pose.pose.position.y, 5);
+  EXPECT_DOUBLE_EQ(raw.pose.pose.position.z, 6);
+  EXPECT_TRUE(Rotation(map_tf.transform.rotation)
+                  .isApprox(correction.map_from_odom.rotation, 1e-14));
+  EXPECT_DOUBLE_EQ(map_tf.transform.translation.x, 1);
+  EXPECT_DOUBLE_EQ(map_tf.transform.translation.y, 2);
+  EXPECT_DOUBLE_EQ(map_tf.transform.translation.z, 3);
+  // Literal C * O_pub; independently check the full TF chain.
+  EXPECT_DOUBLE_EQ(pose.pose.position.x, -4);
+  EXPECT_DOUBLE_EQ(pose.pose.position.y, 6);
+  EXPECT_DOUBLE_EQ(pose.pose.position.z, 9);
+  const Eigen::Matrix3d expected_rotation =
+      Rotation(map_tf.transform.rotation) * Rotation(raw_tf.transform.rotation);
+  EXPECT_TRUE(
+      Rotation(pose.pose.orientation).isApprox(expected_rotation, 1e-14));
+  const Eigen::JacobiSVD<Eigen::Matrix3d> svd(
+      result.estimate.rot_end, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  const Eigen::Matrix3d projected = svd.matrixU() * svd.matrixV().transpose();
+  EXPECT_GT((Rotation(pose.pose.orientation) -
+             correction.map_from_odom.rotation * projected)
+                .norm(),
+            1e-5);
+  EXPECT_DOUBLE_EQ(result.estimate.rot_end(0, 1), 0.000045);
+}
+
+TEST_F(GlobalOutputTest, DisabledDoesNotAdvertiseGlobalPose) {
+  Open({});
+  publisher_->Publish(LidarResult(), nullptr);
+  ASSERT_TRUE(
+      Wait([&] { return odometry_.size() == 1 && transforms_.size() == 1; }));
+  Drain();
+  EXPECT_TRUE(global_.empty());
+  EXPECT_EQ(global_sub_->get_publisher_count(), 0U);
+  ASSERT_EQ(transforms_[0].transforms.size(), 1);
+  EXPECT_EQ(transforms_[0].transforms[0].child_frame_id, "aft_mapped");
+}
+
+TEST_F(GlobalOutputTest, PoseOnlyModeKeepsSingleTf) {
+  Open({true, false, "map"});
+  publisher_->Publish(LidarResult(), nullptr, MapCorrection{});
+  ASSERT_TRUE(
+      Wait([&] { return global_.size() == 1 && transforms_.size() == 1; }));
+  ASSERT_EQ(transforms_[0].transforms.size(), 1);
+  EXPECT_EQ(transforms_[0].transforms[0].header.frame_id, "camera_init");
+  EXPECT_DOUBLE_EQ(global_[0].pose.position.x, 4);
+  EXPECT_TRUE(Rotation(global_[0].pose.orientation).isIdentity(1e-15));
+}
+
+TEST_F(GlobalOutputTest, MissingOrInvalidCorrectionFailsBeforePublication) {
+  Open();
+  auto result = LidarResult();
+  EXPECT_THROW(publisher_->Publish(result, nullptr), std::invalid_argument);
+  auto correction = Correction();
+  correction.optimized_frame_count = 0;
+  EXPECT_THROW(publisher_->Publish(result, nullptr, correction),
+               std::invalid_argument);
+  correction = Correction();
+  correction.map_from_odom.translation.x() =
+      std::numeric_limits<double>::infinity();
+  EXPECT_THROW(publisher_->Publish(result, nullptr, correction),
+               std::invalid_argument);
+  correction = Correction();
+  result.estimate.pos_end.x() = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(publisher_->Publish(result, nullptr, correction),
+               std::invalid_argument);
+  Drain();
+  EXPECT_TRUE(global_.empty());
+  EXPECT_TRUE(transforms_.empty());
+  EXPECT_TRUE(odometry_.empty());
+}
+
+TEST_F(GlobalOutputTest, DirectOptionsRejectConflictingFrame) {
+  EXPECT_THROW(Open({true, true, "world"}), std::invalid_argument);
+}
+
+}  // namespace livo_atlas::ros2::test_support
