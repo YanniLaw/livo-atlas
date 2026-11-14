@@ -113,12 +113,12 @@
 
 **Files:** 新增 docs/global-pose-output.md、docs/p6-02c3a-validation.md；更新文档索引/本spec与plan。所有执行脚本、快照与结果位于包外本阶段validation目录。
 
-- [ ] 冻结产品源码并逐文件核对双ROS副本；SDK六组合、双ROS八组合、全部安装消费通过，统计XML根、不重复catkin wrapper；检查目标缺席、63个以上普通头（以实际数为准）、GTSAM缺席与static消费无livo共享库。
-- [ ] 按spec每端3完整+3短段共12次回放，旧四数组/资产/发布字段严格对照C2b；新参数、global_pose及新TF另验。记录实际运行库SHA/CPU/OMP/nice/RSS/时间和输入摘要。
-- [ ] 从正式pose/raw锚点算允许修正，验证paired TF/pose同整数时间、无第二父、正递增时间；同值修正对应多版本时报告可解释版本范围，不声称从无版本字段的ROS消息唯一反推版本。native测试固定真正版本。
-- [ ] 支持/不支持后端构建的启动约束、zero/paused/backward时钟、publish_tf=false、非法配置pre-I/O和最终排空行为有独立证据；仅global开启不要求GTSAM或回环文件。
-- [ ] 文档明确live TF与历史优化轨迹的区别、投影/发布表示、clock跳过与恢复、最后版本不保证补发，以及C3b/3DGS边界；状态此时为实现/主验收完成、独立审阅待完成。
-- [ ] Google格式/函数空行/本地链接/diff检查通过，完整native suite通过，提交 `docs: validate global pose outputs`。
+- [x] 冻结产品源码并逐文件核对双ROS副本；SDK六组合、双ROS八组合、全部安装消费通过，统计XML根、不重复catkin wrapper；检查目标缺席、63个以上普通头（以实际数为准）、GTSAM缺席与static消费无livo共享库。
+- [x] 按spec每端3完整+3短段共12次回放，旧四数组/资产/发布字段严格对照C2b；新参数、global_pose及新TF另验。记录实际运行库SHA/CPU/OMP/nice/RSS/时间和输入摘要。
+- [x] 从正式pose/raw锚点算允许修正，验证paired TF/pose同整数时间、无第二父、正递增时间；同值修正对应多版本时报告可解释版本范围，不声称从无版本字段的ROS消息唯一反推版本。native测试固定真正版本。
+- [x] 支持/不支持后端构建的启动约束、zero/paused/backward时钟、publish_tf=false、非法配置pre-I/O和最终排空行为有独立证据；仅global开启不要求GTSAM或回环文件。
+- [x] 文档明确live TF与历史优化轨迹的区别、投影/发布表示、clock跳过与恢复、最后版本不保证补发，以及C3b/3DGS边界；状态此时为实现/主验收完成、独立审阅待完成。
+- [x] Google格式/函数空行/本地链接/diff检查通过，完整native suite通过，提交 `docs: validate global pose outputs`。
 
 ## 整阶段审阅与结束
 

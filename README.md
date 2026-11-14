@@ -14,6 +14,8 @@
 离线导出选定位姿版本的图像、相机与 LiDAR 初始化种子见[COLMAP 研究数据导出](docs/colmap-export.md)。
 可选在线回环使用单 worker 和系统所有者持久接纳，启动时默认关闭；配置、停止及只读检查见
 [在线回环说明](docs/online-loop-backend.md)。
+当前全局位姿与 `map -> camera_init` TF 默认关闭，配置和时间语义见
+[全局输出说明](docs/global-pose-output.md)，阶段证据见[验证报告](docs/p6-02c3a-validation.md)。
 
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 

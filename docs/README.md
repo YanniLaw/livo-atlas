@@ -34,11 +34,11 @@
 29. [移除 Pimpl 设计](superpowers/specs/2026-11-10-remove-pimpl-design.md)、[实施计划](superpowers/plans/2026-11-10-remove-pimpl.md)及[验证记录](pimpl-removal-validation.md)：移除现有 8 处 Pimpl，恢复普通类的私有成员与直接方法实现；双 ROS、普通 SDK 及配对 bag 已完成验收。
 30. [P6-02a 几何子地图设计](superpowers/specs/2026-11-10-p6-02a-geometry-submaps-design.md)、[实施计划](superpowers/plans/2026-11-10-p6-02a-geometry-submaps.md)、[使用说明](geometry-submaps.md)与[验证记录](p6-02a-validation.md)：主成员体素统计、条件有效的面元、版本修正、有限缓存和显式导出已实现，双 ROS 回归与本阶段验收已完成。
 31. [P6-02b GTSAM 位姿图设计](superpowers/specs/2026-11-11-p6-02b-pose-graph-design.md)、[实施计划](superpowers/plans/2026-11-11-p6-02b-pose-graph.md)、[使用说明](pose-graph.md)和[验证记录](p6-02b-validation.md)：可选批量优化、模拟回环和版本化几何交付已完成阶段验收。
-32. [P6-02c 真实回环设计](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)、[C1 实施计划](superpowers/plans/2026-11-12-p6-02c1-loop-verification.md)、[使用说明](loop-verification.md)和[验证记录](p6-02c1-validation.md)：C1 先验辅助几何验证与只读工具已完成阶段验收；C2a 准入与 C2b 在线接纳见后两项，C3 全局输出仍为后续范围。
+32. [P6-02c 真实回环设计](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)、[C1 实施计划](superpowers/plans/2026-11-12-p6-02c1-loop-verification.md)、[使用说明](loop-verification.md)和[验证记录](p6-02c1-validation.md)：C1 先验辅助几何验证与只读工具已完成阶段验收；C2a 准入与 C2b 在线接纳见后两项，全局当前位姿见 C3a，优化历史轨迹与地图留待 C3b。
 
 33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)、[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)、[使用说明](loop-admission.md)及[验证记录](p6-02c2a-validation.md)：无状态约束准入、鲁棒图试算、优化后几何复核和离线工具已完成阶段验收；在线调度与提交见 C2b。
 34. [C2b 在线回环设计](superpowers/specs/2026-11-14-p6-02c2b-online-backend-design.md)、[实施计划](superpowers/plans/2026-11-14-p6-02c2b-online-backend.md)及[使用说明](online-loop-backend.md)：固定读取前沿、单 worker、所有者持久接纳和停止后检查已完成；主验收14组构建与8次官方回放、审阅修复后的7组受影响构建复验通过，见[验证记录](p6-02c2b-validation.md)。
-35. [C3a 全局 TF 与当前位姿设计](superpowers/specs/2026-11-14-p6-02c3a-global-pose-design.md)及[实施计划](superpowers/plans/2026-11-14-p6-02c3a-global-pose.md)：常数规模地图修正、单父 TF 树、发布时间和原始表示兼容性；已授权实施，开发与验收进行中，优化历史轨迹与版本化地图留待 C3b。
+35. [C3a 全局 TF 与当前位姿设计](superpowers/specs/2026-11-14-p6-02c3a-global-pose-design.md)、[实施计划](superpowers/plans/2026-11-14-p6-02c3a-global-pose.md)、[使用说明](global-pose-output.md)和[验证报告](p6-02c3a-validation.md)：常数规模修正、成对 TF 和当前全局位姿已实现；14组构建、12组真实入口与12次官方回放主验收通过，整阶段独立审阅待完成。优化历史轨迹与版本化地图留待 C3b。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
