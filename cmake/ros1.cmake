@@ -1,3 +1,6 @@
+add_message_files(FILES TrajectoryKeyframe.msg KeyframeTrajectory.msg)
+generate_messages(DEPENDENCIES std_msgs geometry_msgs)
+
 set(livo_atlas_runtime_libraries ${CMAKE_THREAD_LIBS_INIT})
 if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
   list(APPEND livo_atlas_runtime_libraries ${OpenMP_CXX_LIBRARIES})
@@ -34,7 +37,12 @@ add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
 target_include_directories(livo_atlas_ros1_conversions PUBLIC ${catkin_INCLUDE_DIRS})
 target_link_libraries(livo_atlas_ros1_conversions PUBLIC livo_atlas::core
   ${catkin_LIBRARIES})
-add_library(livo_atlas_ros1_node src/ros1/livo_node.cc src/ros1/node_options.cc src/ros1/livo_publisher.cc)
+add_library(livo_atlas_ros1_node src/ros1/livo_node.cc src/ros1/node_options.cc
+  src/ros1/livo_publisher.cc src/ros1/keyframe_trajectory_publisher.cc)
+add_dependencies(livo_atlas_ros1_node ${PROJECT_NAME}_generate_messages_cpp)
+target_include_directories(livo_atlas_ros1_node PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_include_directories(livo_atlas_ros1_node PUBLIC
+  $<BUILD_INTERFACE:${CATKIN_DEVEL_PREFIX}/${CATKIN_GLOBAL_INCLUDE_DESTINATION}>)
 target_link_libraries(livo_atlas_ros1_node PUBLIC livo_atlas::core livo_atlas_ros1_conversions)
 set_target_properties(livo_atlas_ros1_node livo_atlas_ros1_conversions PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 if(UNIX AND NOT APPLE)

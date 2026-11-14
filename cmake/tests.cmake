@@ -77,9 +77,11 @@ if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
   livo_atlas_test(measurement_conversions_test tests/ros1/measurement_conversions_test.cc)
   target_link_libraries(measurement_conversions_test livo_atlas_ros1_conversions)
   catkin_add_executable_with_gtest(lidar_callback_test
-    tests/ros1/node_test.cc tests/ros1/livo_publisher_test.cc tests/ros1/node_options_test.cc)
+    tests/ros1/node_test.cc tests/ros1/livo_publisher_test.cc tests/ros1/node_options_test.cc
+    tests/ros1/keyframe_trajectory_publisher_test.cc)
   target_include_directories(lidar_callback_test PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_link_libraries(lidar_callback_test livo_atlas_ros1_node)
+  add_dependencies(lidar_callback_test ${PROJECT_NAME}_generate_messages_cpp)
   find_package(tf2_msgs REQUIRED)
   target_include_directories(lidar_callback_test PRIVATE ${tf2_msgs_INCLUDE_DIRS})
   catkin_add_executable_with_gtest(global_output_clock_test tests/ros1/global_output_clock_test.cc)
@@ -95,7 +97,7 @@ endif()
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "2")
   livo_atlas_test(ros2_session_test tests/ros2/session_test.cc)
   target_link_libraries(ros2_session_test livo_atlas_core livo_atlas_ros2_conversions)
-  add_executable(ros2_node_test tests/ros2/node_options_test.cc tests/ros2/node_test.cc tests/ros2/livo_publisher_test.cc tests/ros2/global_output_clock_test.cc tests/ros2/image_history_test.cc tests/ros2/ros_main.cc)
+  add_executable(ros2_node_test tests/ros2/node_options_test.cc tests/ros2/node_test.cc tests/ros2/livo_publisher_test.cc tests/ros2/global_output_clock_test.cc tests/ros2/image_history_test.cc tests/ros2/ros_main.cc tests/ros2/keyframe_trajectory_publisher_test.cc)
   target_include_directories(ros2_node_test PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_link_libraries(ros2_node_test GTest::GTest livo_atlas_ros2_node ${CMAKE_DL_LIBS})
   find_package(tf2_msgs REQUIRED)
@@ -107,6 +109,10 @@ endif()
 
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "2")
   set_tests_properties(ros2_session_test ros2_node_test PROPERTIES TIMEOUT 30)
+  # Plain CTest does not source a colcon workspace. Generated RMW type support
+  # is loaded by name at runtime, so expose this build's libraries to this test.
+  set_tests_properties(ros2_node_test PROPERTIES
+    ENVIRONMENT "LD_LIBRARY_PATH=${PROJECT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
 endif()
 
 livo_atlas_test(livo_system_test tests/core/livo_system_test.cc)
