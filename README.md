@@ -12,6 +12,8 @@
 两端默认关闭，启用方式和跨电脑读取命令均在该文档中。
 子地图成员索引与按位姿版本重建见[子地图说明](docs/submap-dataset.md)。
 离线导出选定位姿版本的图像、相机与 LiDAR 初始化种子见[COLMAP 研究数据导出](docs/colmap-export.md)。
+可选在线回环使用单 worker 和系统所有者持久接纳，启动时默认关闭；配置、停止及只读检查见
+[在线回环说明](docs/online-loop-backend.md)。
 
 ## FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry
 

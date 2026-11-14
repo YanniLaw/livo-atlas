@@ -37,6 +37,7 @@
 32. [P6-02c 真实回环设计](superpowers/specs/2026-11-12-p6-02c-loop-closure-design.md)、[C1 实施计划](superpowers/plans/2026-11-12-p6-02c1-loop-verification.md)、[使用说明](loop-verification.md)和[验证记录](p6-02c1-validation.md)：C1 先验辅助几何验证与只读工具已完成阶段验收；C2a 准入结果见下一项，C2b 在线接纳与 C3 全局输出留待后续。
 
 33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)、[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)、[使用说明](loop-admission.md)及[验证记录](p6-02c2a-validation.md)：无状态约束准入、鲁棒图试算、优化后几何复核和离线工具已完成阶段验收；在线调度与提交留待 C2b。
+34. [C2b 在线回环设计](superpowers/specs/2026-11-14-p6-02c2b-online-backend-design.md)、[实施计划](superpowers/plans/2026-11-14-p6-02c2b-online-backend.md)及[使用说明](online-loop-backend.md)：固定读取前沿、单 worker、所有者持久接纳和停止后检查已实现，14组构建及8次官方回放通过；[验证记录](p6-02c2b-validation.md)。
 
 34. [C2b 在线接纳设计](superpowers/specs/2026-11-14-p6-02c2b-online-backend-design.md)及[实施计划](superpowers/plans/2026-11-14-p6-02c2b-online-backend.md)：固定前沿读取、单 worker、所有者接纳、prepared/pose 配对、停止排空与双 ROS 接线；已完成一次独立设计检查，尚未编码。
 

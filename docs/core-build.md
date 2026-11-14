@@ -100,7 +100,8 @@ build-catkin-consumer/catkin_consumer
 
 `LIVO_ATLAS_ROS_VERSION=2` 提供 Humble 接入，要求已 source Humble 环境。
 其 ament 安装导出同一套 namespaced core target；mode 0 不需要 ROS。
-关键帧、子地图、位姿版本及离线COLMAP研究数据导出已提供；GTSAM后端、回环/全局融合与实际3DGS训练属于后续阶段。
+关键帧、子地图、位姿版本、离线 COLMAP 导出及可选 GTSAM 回环试算/在线接纳已提供；
+全局融合与实际 3DGS 训练属于后续阶段。
 
 ## 数值与接口约定
 
@@ -167,4 +168,5 @@ visual_point 归 mapping，Frame/Feature 归视觉前端；目录不强制对应
 三种普通构建、双ROS和完整bag结果见[P6-01记录](p6-01-validation.md)。
 
 可选回环准入需要同时开启 `LIVO_ATLAS_WITH_GTSAM` 与 `LIVO_ATLAS_WITH_LOOP_CLOSURE`，
-导出普通目标 `livo_atlas::loop_backend`；安装调用及四种开关关系见[回环准入说明](loop-admission.md)。
+导出普通目标 `livo_atlas::loop_backend` 及 `livo_atlas::online_backend`；
+离线接口见[回环准入说明](loop-admission.md)，在线所有权、配置和停止后检查见[在线回环说明](online-loop-backend.md)。
