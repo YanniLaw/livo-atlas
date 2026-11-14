@@ -6,6 +6,10 @@
 namespace livo_atlas {
 
 void ValidateGlobalOutputOptions(const GlobalOutputOptions& options) {
+  if (options.trajectory.enabled && !options.enabled)
+    throw std::invalid_argument(
+        "Trajectory output requires global_output.enabled");
+  ValidateTrajectoryOutputOptions(options.trajectory);
   if (!options.enabled) return;
   const auto& frame = options.map_frame;
   if (frame.empty() || frame.front() == '/' || frame.back() == '/' ||

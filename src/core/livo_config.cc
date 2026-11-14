@@ -42,6 +42,14 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   global.publish_tf =
       reader.Boolean("global_output.publish_tf", global.publish_tf);
   global.map_frame = reader.String("global_output.map_frame", global.map_frame);
+  global.trajectory.enabled = reader.Boolean("global_output.trajectory.enabled",
+                                             global.trajectory.enabled);
+  global.trajectory.max_frequency_hz =
+      reader.Number("global_output.trajectory.max_frequency_hz",
+                    global.trajectory.max_frequency_hz);
+  global.trajectory.max_keyframes =
+      reader.Integer("global_output.trajectory.max_keyframes",
+                     global.trajectory.max_keyframes);
   ValidateGlobalOutputOptions(global);
   auto& options = config.system;
   auto& front = options.frontend;

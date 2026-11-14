@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -38,6 +39,8 @@ class GlobalParameters : public ParameterReader {
   }
 
   double Number(const std::string& name, double fallback) override {
+    const auto value = numbers_.find(name);
+    if (value != numbers_.end()) return value->second;
     if (name == "cam_fx") return 200;
     if (name == "cam_fy") return 210;
     if (name == "cam_cx" || name == "cam_cy") return 256;
@@ -74,6 +77,7 @@ class GlobalParameters : public ParameterReader {
   std::map<std::string, bool> booleans_;
   std::map<std::string, int> integers_;
   std::map<std::string, std::string> strings_;
+  std::map<std::string, double> numbers_;
 };
 
 class GlobalOutputOptionsTest : public testing::Test {
@@ -106,6 +110,42 @@ TEST_F(GlobalOutputOptionsTest, ValidFrameNamesAndIndependentControls) {
     options.map_frame = name;
     EXPECT_NO_THROW(ValidateGlobalOutputOptions(options)) << name;
   }
+}
+
+TEST_F(GlobalOutputOptionsTest,
+       TrajectoryRequiresGlobalButIgnoresDisabledBudgets) {
+  GlobalParameters parameters(directory_);
+  parameters.EnableOnlineStorage();
+  parameters.booleans_["global_output.trajectory.enabled"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["global_output.enabled"] = true;
+  parameters.numbers_["global_output.trajectory.max_frequency_hz"] = 2;
+  parameters.integers_["global_output.trajectory.max_keyframes"] = 100;
+  const auto config = LoadLivoConfig(parameters);
+  EXPECT_TRUE(config.global_output.trajectory.enabled);
+  EXPECT_DOUBLE_EQ(config.global_output.trajectory.max_frequency_hz, 2);
+  EXPECT_EQ(config.global_output.trajectory.max_keyframes, 100);
+  EXPECT_FALSE(config.loop_closure_enabled);
+  EXPECT_FALSE(config.system.geometry.enabled);
+  EXPECT_FALSE(fs::exists(directory_));
+  for (double rate : {0.0, -1.0, 10.1, std::numeric_limits<double>::infinity(),
+                      std::numeric_limits<double>::quiet_NaN()}) {
+    parameters.numbers_["global_output.trajectory.max_frequency_hz"] = rate;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  parameters.numbers_["global_output.trajectory.max_frequency_hz"] = 10;
+  for (int count : {0, -1, 100001}) {
+    parameters.integers_["global_output.trajectory.max_keyframes"] = count;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  for (int count : {1, 100000}) {
+    parameters.integers_["global_output.trajectory.max_keyframes"] = count;
+    EXPECT_NO_THROW(LoadLivoConfig(parameters));
+  }
+  parameters.booleans_["global_output.trajectory.enabled"] = false;
+  parameters.numbers_["global_output.trajectory.max_frequency_hz"] = -1;
+  parameters.integers_["global_output.trajectory.max_keyframes"] = -1;
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
 }
 
 TEST_F(GlobalOutputOptionsTest, RejectsUnsafeOrConflictingFrameNames) {
