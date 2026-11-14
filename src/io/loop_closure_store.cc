@@ -206,6 +206,7 @@ AcceptedLoop CheckPrepared(const cv::FileStorage& yaml, std::uint64_t version,
         old.constraint.from_id != c.from_id || old.constraint.to_id != c.to_id,
         "Repeated loop constraint endpoints");
   const auto verification = proposal["verification"];
+  io::CheckVerification(verification, loop.target, loop.source, base);
   const auto measurement =
       meta::ReadTransform(verification["target_from_source"]);
   Require(meta::String(verification["status"]) == "verified" &&
@@ -244,11 +245,32 @@ AcceptedLoop CheckPrepared(const cv::FileStorage& yaml, std::uint64_t version,
           io::SameSnapshot(expected, MakePoseSnapshot(update, current, prefix)),
       "Prepared expected pose does not follow the update and tail policy");
   const auto diagnostics = yaml["diagnostics"];
+  io::CheckAdmissionDiagnostics(diagnostics, store, timestamps,
+                                loop.source.primary.id, base);
   Require(meta::String(diagnostics["status"]) == "proposed" &&
               meta::Id(diagnostics["base_version"]) == version - 1 &&
               meta::Id(diagnostics["frame_count"]) == n &&
               meta::Id(diagnostics["query_id"]) == loop.source.primary.id,
           "Prepared admission diagnostics do not match the proposal");
+  bool matched = false;
+  for (const auto& row : diagnostics["candidates"]) {
+    if (meta::Id(row["target_id"]) != loop.target.primary.id) continue;
+    Require(meta::String(row["status"]) == "verified",
+            "Prepared proposal has no verified candidate");
+    for (const auto* name : {"target", "source"})
+      Require(meta::Id(row[name]["representation_revision"]) ==
+                  meta::Id(verification[name]["representation_revision"]),
+              "Prepared candidate representation provenance changed");
+    const auto original = meta::ReadTransform(row["target_from_source"]);
+    Require((original.rotation - measurement.rotation).cwiseAbs().maxCoeff() <=
+                    1e-9 &&
+                (original.translation - measurement.translation)
+                        .cwiseAbs()
+                        .maxCoeff() <= 1e-9,
+            "Prepared proposal differs from its candidate measurement");
+    matched = true;
+  }
+  Require(matched, "Prepared proposal has no candidate diagnostics");
   return loop;
 }
 
@@ -264,41 +286,12 @@ void CheckQueryDiagnostics(const cv::FileStorage& query,
   }
   Require(query["error"].empty() && diagnostics.isMap(),
           "Query must carry admission diagnostics");
-  loop_options::ValidateKeys(
-      diagnostics, {"schema_version", "query_id", "status", "base_version",
-                    "pose_version", "frame_count", "first_timestamp",
-                    "last_timestamp", "elapsed_seconds", "source", "candidates",
-                    "optimization_error", "trial", "geometry_checks"});
   const auto status = meta::String(diagnostics["status"]);
-  const std::set<std::string> statuses = {
-      "no_candidate",        "geometry_rejected",
-      "ambiguous",           "correlated",
-      "resource_limit",      "optimization_rejected",
-      "constraint_residual", "pose_correction",
-      "geometry_changed",    "proposed"};
   const auto base = meta::Id(query["base_version"]);
   const auto count = meta::Id(query["dispatch_frame_count"]);
-  Require(
-      statuses.count(status) &&
-          meta::Integer(diagnostics["schema_version"]) == 1 &&
-          meta::Id(diagnostics["query_id"]) == meta::Id(query["query_id"]) &&
-          meta::Id(diagnostics["base_version"]) == base &&
-          meta::Id(diagnostics["pose_version"]) ==
-              base + (status == "proposed") &&
-          meta::Id(diagnostics["frame_count"]) == count &&
-          diagnostics["candidates"].isSeq() &&
-          diagnostics["geometry_checks"].isSeq() &&
-          meta::Number(diagnostics["elapsed_seconds"]) >= 0,
-      "Query diagnostics differ from the dispatch header");
-  const auto source = io::ReadMembership(diagnostics["source"]);
-  Require(source.primary.id == meta::Id(query["query_id"]) &&
-              source.primary.keyframe_ids.back() < count &&
-              io::SameMembership(source, store.Read(source.primary.id)) &&
-              meta::Number(diagnostics["first_timestamp"]) ==
-                  timestamps.at(source.primary.keyframe_ids.front()) &&
-              meta::Number(diagnostics["last_timestamp"]) ==
-                  timestamps.at(source.primary.keyframe_ids.back()),
-          "Query source differs from the committed membership");
+  io::CheckAdmissionDiagnostics(diagnostics, store, timestamps,
+                                meta::Id(query["query_id"]),
+                                store.MaterializePoseSnapshot(base, count));
   if (disposition == "accepted" || disposition == "stale")
     Require(status == "proposed", "Accepted or stale query has no proposal");
   if (disposition == "rejected")
@@ -578,6 +571,10 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
           "Invalid query identity or frontier");
       CheckQueryDiagnostics(query, store, timestamps);
       const auto disposition = meta::String(query["disposition"]);
+      // A missing final query can follow interrupted publication; a present
+      // query must agree with the already verified committed task authority.
+      Require(!accepted_tasks.count(id) || disposition == "accepted",
+              "Committed task has a contradictory query disposition");
       if (disposition == "accepted") {
         const auto match = accepted_tasks.find(id);
         Require(match != accepted_tasks.end() &&

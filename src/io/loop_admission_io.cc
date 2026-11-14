@@ -8,6 +8,7 @@
 #include "io/dataset_metadata.h"
 #include "io/loop_diagnostics.h"
 #include "io/loop_options.h"
+#include "livo_atlas/io/online_submap_store.h"
 
 namespace livo_atlas {
 namespace fs = std::filesystem;
@@ -400,6 +401,273 @@ bool SameSnapshot(const PoseSnapshot& a, const PoseSnapshot& b) {
       return false;
   }
   return true;
+}
+
+namespace {
+void RequireDiagnostic(bool condition) {
+  if (!condition)
+    throw std::invalid_argument("Invalid loop admission diagnostic record");
+}
+
+bool Flag(const cv::FileNode& node) {
+  const auto value = meta::Integer(node);
+  RequireDiagnostic(value == 0 || value == 1);
+  return value != 0;
+}
+
+void Nonnegative(const cv::FileNode& node) {
+  RequireDiagnostic(meta::Number(node) >= 0);
+}
+
+void CheckStatus(const cv::FileNode& node) {
+  const std::set<std::string> statuses = {
+      "verified",      "insufficient_points",    "resource_limit",
+      "not_converged", "iteration_limit",        "low_overlap",
+      "high_residual", "inconsistent_transform", "large_correction",
+      "degenerate"};
+  RequireDiagnostic(statuses.count(meta::String(node)) != 0);
+}
+
+void CheckMetrics(const cv::FileNode& node) {
+  const auto inliers = meta::Id(node["inliers"]);
+  RequireDiagnostic(meta::Id(node["normal_pairs"]) <= inliers);
+  for (const auto* key : {"source_coverage", "target_coverage"}) {
+    const auto value = meta::Number(node[key]);
+    RequireDiagnostic(value >= 0 && value <= 1);
+  }
+  for (const auto* key : {"rmse_m", "p95_m", "eigenvalue_ratio"})
+    if (!node[key].empty()) Nonnegative(node[key]);
+  RequireDiagnostic(!inliers ||
+                    (!node["rmse_m"].empty() && !node["p95_m"].empty()));
+}
+
+bool CheckAlignment(const cv::FileNode& node) {
+  loop_options::ValidateKeys(
+      node, {"iterations", "converged", "transform", "metrics_computed",
+             "inliers", "normal_pairs", "source_coverage", "target_coverage",
+             "rmse_m", "p95_m", "eigenvalue_ratio"});
+  RequireDiagnostic(meta::Integer(node["iterations"]) >= 0);
+  const auto converged = Flag(node["converged"]);
+  const auto metrics = Flag(node["metrics_computed"]);
+  if (!node["transform"].empty()) {
+    (void)meta::ReadTransform(node["transform"]);
+    RequireDiagnostic(converged);
+  }
+  if (metrics) {
+    RequireDiagnostic(!node["transform"].empty());
+    CheckMetrics(node);
+  } else {
+    for (const auto* key :
+         {"inliers", "normal_pairs", "source_coverage", "target_coverage",
+          "rmse_m", "p95_m", "eigenvalue_ratio"})
+      RequireDiagnostic(node[key].empty());
+  }
+  return metrics;
+}
+
+void CheckProvenance(const cv::FileNode& node, const OnlineSubmap& member) {
+  loop_options::ValidateKeys(
+      node, {"submap_id", "anchor_keyframe_id", "membership_revision",
+             "representation_revision"});
+  RequireDiagnostic(meta::Id(node["submap_id"]) == member.primary.id &&
+                    meta::Id(node["anchor_keyframe_id"]) ==
+                        member.primary.anchor_keyframe_id &&
+                    meta::Id(node["membership_revision"]) ==
+                        member.membership_revision &&
+                    meta::Id(node["representation_revision"]) > 0);
+}
+
+void CheckResiduals(const cv::FileNode& node, std::uint64_t count,
+                    bool odometry) {
+  RequireDiagnostic(node.isSeq() && (!odometry || node.size() == count - 1));
+  std::uint64_t index = 0;
+  for (const auto& row : node) {
+    loop_options::ValidateKeys(
+        row,
+        {"from_id", "to_id", "initial_whitened_norm", "final_whitened_norm",
+         "final_rotation_rad", "final_translation_m"});
+    const auto from = meta::Id(row["from_id"]), to = meta::Id(row["to_id"]);
+    RequireDiagnostic(from < to && to < count &&
+                      (!odometry || (from == index && to == index + 1)));
+    for (const auto* key : {"initial_whitened_norm", "final_whitened_norm",
+                            "final_rotation_rad", "final_translation_m"})
+      Nonnegative(row[key]);
+    ++index;
+  }
+}
+
+void CheckTrial(const cv::FileNode& node, const PoseSnapshot& base) {
+  loop_options::ValidateKeys(
+      node, {"initial_error", "final_error", "iterations",
+             "iteration_limit_reached", "graph_build_seconds", "solve_seconds",
+             "odometry_residuals", "loop_residuals"});
+  for (const auto* key :
+       {"initial_error", "final_error", "graph_build_seconds", "solve_seconds"})
+    Nonnegative(node[key]);
+  (void)meta::Id(node["iterations"]);
+  (void)Flag(node["iteration_limit_reached"]);
+  CheckResiduals(node["odometry_residuals"], base.frame_count, true);
+  CheckResiduals(node["loop_residuals"], base.frame_count, false);
+  RequireDiagnostic(node["loop_residuals"].size() == base.version + 1);
+}
+
+bool CheckGeometry(const cv::FileNode& node) {
+  loop_options::ValidateKeys(node, {"status", "forward", "reverse"});
+  CheckStatus(node["status"]);
+  for (const auto* direction : {"forward", "reverse"}) {
+    const auto metrics = node[direction];
+    loop_options::ValidateKeys(
+        metrics, {"inliers", "normal_pairs", "source_coverage",
+                  "target_coverage", "rmse_m", "p95_m", "eigenvalue_ratio"});
+    CheckMetrics(metrics);
+  }
+  return meta::String(node["status"]) == "verified";
+}
+}  // namespace
+
+void CheckVerification(const cv::FileNode& node, const OnlineSubmap& target,
+                       const OnlineSubmap& source, const PoseSnapshot& base) {
+  loop_options::ValidateKeys(node, {"target_id",
+                                    "source_id",
+                                    "schema_version",
+                                    "status",
+                                    "pose_version",
+                                    "frame_count",
+                                    "optimized_frame_count",
+                                    "anchor_distance_m",
+                                    "target_points",
+                                    "source_points",
+                                    "elapsed_seconds",
+                                    "target",
+                                    "source",
+                                    "initial_target_from_source",
+                                    "forward",
+                                    "reverse",
+                                    "target_cycle",
+                                    "source_cycle",
+                                    "forward_correction",
+                                    "reverse_correction",
+                                    "target_from_source"});
+  CheckStatus(node["status"]);
+  RequireDiagnostic(meta::Integer(node["schema_version"]) == 1 &&
+                    meta::Id(node["pose_version"]) == base.version &&
+                    meta::Id(node["frame_count"]) == base.frame_count &&
+                    meta::Id(node["optimized_frame_count"]) ==
+                        base.optimized_frame_count);
+  CheckProvenance(node["target"], target);
+  CheckProvenance(node["source"], source);
+  (void)meta::Id(node["target_points"]);
+  (void)meta::Id(node["source_points"]);
+  Nonnegative(node["anchor_distance_m"]);
+  Nonnegative(node["elapsed_seconds"]);
+  (void)meta::ReadTransform(node["initial_target_from_source"]);
+  const auto forward = CheckAlignment(node["forward"]);
+  const auto reverse = CheckAlignment(node["reverse"]);
+  for (const auto* key : {"target_cycle", "source_cycle", "forward_correction",
+                          "reverse_correction"}) {
+    const auto error = node[key];
+    RequireDiagnostic(!error.empty() == (forward && reverse));
+    if (error.empty()) continue;
+    loop_options::ValidateKeys(error, {"translation_m", "rotation_deg"});
+    Nonnegative(error["translation_m"]);
+    Nonnegative(error["rotation_deg"]);
+  }
+  const auto verified = meta::String(node["status"]) == "verified";
+  RequireDiagnostic(!node["target_from_source"].empty() == verified);
+  if (verified) {
+    RequireDiagnostic(forward && reverse);
+    (void)meta::ReadTransform(node["target_from_source"]);
+    for (const auto* direction : {"forward", "reverse"})
+      RequireDiagnostic(!node[direction]["eigenvalue_ratio"].empty());
+  }
+}
+
+void CheckAdmissionDiagnostics(const cv::FileNode& node,
+                               const OnlineSubmapStore& store,
+                               const std::vector<double>& timestamps,
+                               std::uint64_t query_id,
+                               const PoseSnapshot& base) {
+  loop_options::ValidateKeys(
+      node, {"schema_version", "query_id", "status", "base_version",
+             "pose_version", "frame_count", "first_timestamp", "last_timestamp",
+             "elapsed_seconds", "source", "candidates", "optimization_error",
+             "trial", "geometry_checks"});
+  const auto status = meta::String(node["status"]);
+  const std::set<std::string> statuses = {
+      "no_candidate",        "geometry_rejected",
+      "ambiguous",           "correlated",
+      "resource_limit",      "optimization_rejected",
+      "constraint_residual", "pose_correction",
+      "geometry_changed",    "proposed"};
+  RequireDiagnostic(statuses.count(status) && base.frame_count &&
+                    meta::Integer(node["schema_version"]) == 1 &&
+                    meta::Id(node["query_id"]) == query_id &&
+                    meta::Id(node["base_version"]) == base.version &&
+                    meta::Id(node["pose_version"]) ==
+                        base.version + (status == "proposed") &&
+                    meta::Id(node["frame_count"]) == base.frame_count);
+  Nonnegative(node["elapsed_seconds"]);
+  const auto source = ReadMembership(node["source"]);
+  RequireDiagnostic(source.primary.id == query_id &&
+                    source.primary.keyframe_ids.back() < base.frame_count &&
+                    SameMembership(source, store.Read(query_id)) &&
+                    meta::Number(node["first_timestamp"]) ==
+                        timestamps.at(source.primary.keyframe_ids.front()) &&
+                    meta::Number(node["last_timestamp"]) ==
+                        timestamps.at(source.primary.keyframe_ids.back()));
+  const auto candidates = node["candidates"];
+  RequireDiagnostic(candidates.isSeq());
+  std::set<std::uint64_t> targets;
+  for (const auto& row : candidates) {
+    RequireDiagnostic(row.isMap());
+    const auto target_id = meta::Id(row["target_id"]);
+    RequireDiagnostic(target_id < query_id &&
+                      meta::Id(row["source_id"]) == query_id &&
+                      targets.insert(target_id).second);
+    const auto target = store.Read(target_id);
+    RequireDiagnostic(target.state == OnlineSubmapState::kSealed &&
+                      target.primary.keyframe_ids.back() < base.frame_count);
+    CheckVerification(row, target, source, base);
+  }
+  const bool early = status == "no_candidate" || status == "resource_limit";
+  RequireDiagnostic(early == (candidates.size() == 0));
+  const bool error = !node["optimization_error"].empty();
+  const bool trial = !node["trial"].empty();
+  const bool post_trial = status == "constraint_residual" ||
+                          status == "pose_correction" ||
+                          status == "geometry_changed" || status == "proposed";
+  RequireDiagnostic(status == "optimization_rejected"
+                        ? error != trial
+                        : !error && trial == post_trial);
+  if (error)
+    RequireDiagnostic(!meta::String(node["optimization_error"]).empty());
+  if (trial) CheckTrial(node["trial"], base);
+  const auto checks = node["geometry_checks"];
+  RequireDiagnostic(checks.isSeq());
+  const bool post_geometry =
+      status == "geometry_changed" || status == "proposed";
+  RequireDiagnostic(post_geometry == (checks.size() != 0));
+  std::set<std::pair<std::uint64_t, std::uint64_t>> checked;
+  std::size_t new_constraints = 0;
+  for (const auto& row : checks) {
+    loop_options::ValidateKeys(row, {"target_id", "source_id", "new_constraint",
+                                     "measurement", "prediction"});
+    const auto target_id = meta::Id(row["target_id"]);
+    const auto source_id = meta::Id(row["source_id"]);
+    RequireDiagnostic(target_id < source_id && source_id <= query_id &&
+                      checked.emplace(target_id, source_id).second);
+    const bool is_new = Flag(row["new_constraint"]);
+    RequireDiagnostic(!is_new ||
+                      (source_id == query_id && targets.count(target_id)));
+    new_constraints += is_new;
+    const auto measured = CheckGeometry(row["measurement"]);
+    RequireDiagnostic(measured != row["prediction"].empty());
+    const auto predicted = measured && CheckGeometry(row["prediction"]);
+    RequireDiagnostic(status != "proposed" || predicted);
+  }
+  RequireDiagnostic(
+      status != "proposed" ||
+      (new_constraints == 1 && checks.size() == base.version + 1));
 }
 
 }  // namespace loop_admission_io

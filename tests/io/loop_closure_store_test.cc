@@ -32,6 +32,25 @@ void Replace(const fs::path& path, const std::string& from,
   std::ofstream(path) << text;
 }
 
+// Replace one emitted YAML field, including its indented children.
+void ReplaceBlock(const fs::path& path, const std::string& key,
+                  const std::string& replacement) {
+  auto text = Bytes(path);
+  const auto found = text.find('\n' + key + ':');
+  ASSERT_NE(found, std::string::npos) << key;
+  const auto begin = found + 1;
+  auto end = text.find('\n', begin) + 1;
+  const auto indent = key.find_first_not_of(' ');
+  while (end < text.size()) {
+    const auto content = text.find_first_not_of(' ', end);
+    if (content == std::string::npos || content - end <= indent) break;
+    const auto newline = text.find('\n', content);
+    end = newline == std::string::npos ? text.size() : newline + 1;
+  }
+  text.replace(begin, end - begin, replacement);
+  std::ofstream(path) << text;
+}
+
 class LoopClosureStoreTest : public testing::Test {
  protected:
   void SetUp() override {
@@ -62,7 +81,9 @@ class LoopClosureStoreTest : public testing::Test {
 
   void TearDown() override { fs::remove_all(root_); }
 
-  LoopTaskResult Result(std::uint64_t query_id = 2) {
+  LoopTaskResult Result(
+      std::uint64_t query_id = 2,
+      const LoopAdmissionOptions& options = loop_test::NearbyOptions()) {
     LoopAdmissionInput input;
     input.query_id = query_id;
     input.poses = poses_->MaterializePoseSnapshot(0, 4);
@@ -74,7 +95,7 @@ class LoopClosureStoreTest : public testing::Test {
     }
     LoopTask task{
         1, std::move(input), {10, 11, 12, 13}, frames_->CaptureReadView()};
-    auto result = RunLoopTask(task, loop_test::NearbyOptions());
+    auto result = RunLoopTask(task, options);
     return {std::move(task), std::move(result), {}};
   }
 
@@ -343,6 +364,93 @@ TEST_F(LoopClosureStoreTest, AcceptedQueryMustMatchPreparedFrontiersAndSource) {
   std::ofstream(query) << coherent;
   EXPECT_EQ(InspectLoopDataset(root_).status,
             LoopRecoveryStatus::kInconsistent);
+}
+
+TEST_F(LoopClosureStoreTest, RejectsTruncatedPreparedAdmissionDiagnostics) {
+  const auto result = Result();
+  journal_->WritePrepared(result, Candidate(result));
+  poses_->WritePoseSnapshot(Candidate(result));
+  journal_->WriteQuery(result, LoopDisposition::kAccepted, 1, 4);
+  journal_->Finish(Stats());
+  ASSERT_EQ(InspectLoopDataset(root_).status, LoopRecoveryStatus::kConsistent);
+  ReplaceBlock(Prepared(), "diagnostics",
+               "diagnostics:\n   status: proposed\n   base_version: \"0\"\n"
+               "   frame_count: \"4\"\n   query_id: \"2\"\n");
+  EXPECT_EQ(InspectLoopDataset(root_).status,
+            LoopRecoveryStatus::kInconsistent);
+}
+
+TEST_F(LoopClosureStoreTest, RejectsMalformedNestedAdmissionDiagnostics) {
+  const auto result = Result();
+  journal_->WritePrepared(result, Candidate(result));
+  poses_->WritePoseSnapshot(Candidate(result));
+  journal_->WriteQuery(result, LoopDisposition::kAccepted, 1, 4);
+  journal_->Finish(Stats());
+  ASSERT_EQ(InspectLoopDataset(root_).status, LoopRecoveryStatus::kConsistent);
+  for (const auto& path : {Prepared(), root_ / "loop_closure/queries/1.yml"}) {
+    const auto original = Bytes(path);
+    for (const auto& change : std::vector<std::pair<std::string, std::string>>{
+             {"   candidates", "   candidates:\n      - invalid\n"},
+             {"   geometry_checks", "   geometry_checks:\n      - invalid\n"},
+             {"   trial", "   trial: invalid\n"},
+             {"   trial", ""},
+             {"            inliers", ""},
+             {"            source_coverage",
+              "            source_coverage: \"nan\"\n"},
+             {"            representation_revision", ""},
+             {"            submap_id", "            submap_id: \"3\"\n"},
+             {"      odometry_residuals",
+              "      odometry_residuals:\n         - invalid\n"}}) {
+      std::ofstream(path) << original;
+      ReplaceBlock(path, change.first, change.second);
+      const auto report = InspectLoopDataset(root_);
+      EXPECT_EQ(report.status, LoopRecoveryStatus::kInconsistent)
+          << path << ' ' << change.first;
+    }
+    std::ofstream(path) << original;
+  }
+}
+
+TEST_F(LoopClosureStoreTest, CommittedTaskCannotHaveNonacceptedDisposition) {
+  const auto result = Result();
+  journal_->WritePrepared(result, Candidate(result));
+  poses_->WritePoseSnapshot(Candidate(result));
+  // An absent post-publication query remains a valid interrupted session.
+  auto report = InspectLoopDataset(root_);
+  ASSERT_EQ(report.status, LoopRecoveryStatus::kIncomplete);
+  ASSERT_EQ(report.committed_version, 1u);
+  journal_->WriteQuery(result, LoopDisposition::kAccepted, 1, 4);
+  const auto query = root_ / "loop_closure/queries/1.yml";
+  const auto original = Bytes(query);
+  for (const auto* disposition : {"stale", "resource_limit"}) {
+    std::ofstream(query) << original;
+    Replace(query, "disposition: accepted",
+            std::string("disposition: ") + disposition);
+    report = InspectLoopDataset(root_);
+    EXPECT_EQ(report.status, LoopRecoveryStatus::kInconsistent) << disposition;
+    EXPECT_EQ(report.committed_version, 1u);
+  }
+}
+
+TEST_F(LoopClosureStoreTest, EarlyGeometryRejectionOmitsUncomputedDiagnostics) {
+  auto options = loop_test::NearbyOptions();
+  options.registration.min_points = options.registration.max_points;
+  const auto result = Result(2, options);
+  ASSERT_EQ(result.admission->status, LoopAdmissionStatus::kGeometryRejected);
+  ASSERT_FALSE(result.admission->trial);
+  ASSERT_FALSE(result.admission->candidates.empty());
+  const auto& verification = result.admission->candidates.front().verification;
+  ASSERT_EQ(verification.status, LoopStatus::kInsufficientPoints);
+  ASSERT_FALSE(verification.forward.metrics);
+  ASSERT_FALSE(verification.target_from_source);
+  journal_->WriteQuery(result, LoopDisposition::kRejected, 0, 4);
+  auto stats = Stats();
+  stats.pose_version = stats.accepted = 0;
+  stats.rejected = 1;
+  journal_->Finish(stats);
+  const auto report = InspectLoopDataset(root_);
+  EXPECT_EQ(report.status, LoopRecoveryStatus::kConsistent)
+      << testing::PrintToString(report.issues);
 }
 
 }  // namespace
