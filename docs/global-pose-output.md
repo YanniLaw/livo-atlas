@@ -136,4 +136,5 @@ OMP_THREAD_LIMIT=1 nice -n 10 python3 tools/run_ros2_baseline.py \
 `PoseStamped` 和 TF 没有 pose_version，不能通过 ROS1 Header.seq 携带版本。
 同一个修正值可能对应多个已提交版本；离线校验只报告可解释版本集合。
 需要精确版本的 SLAM/3DGS 消费者继续使用 `MapCorrection`、`PoseSnapshot` 与原始观测。
-C3b 将另行设计优化历史轨迹、版本化几何地图和跨 ROS 来源协议；本轮没有加入 Gaussian 训练或 iSAM2。
+C3b 的[设计提案](superpowers/specs/2026-11-15-p6-02c3b-history-design.md)先细化版本化关键帧轨迹，
+再单独设计几何地图输出；目前尚未编码。C3a 没有加入 Gaussian 训练或 iSAM2。
