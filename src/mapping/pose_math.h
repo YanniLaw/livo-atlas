@@ -4,19 +4,28 @@
 #include <stdexcept>
 
 #include "livo_atlas/sensor/extrinsics.h"
+
 namespace livo_atlas::pose_math {
 inline void Validate(const RigidTransform& pose) {
   const auto error = ValidateExtrinsic(pose);
   if (!error.empty()) throw std::invalid_argument(error);
 }
+
+RigidTransform ProjectPose(const RigidTransform& pose);
+
 inline RigidTransform Inverse(const RigidTransform& pose) {
   const Eigen::Matrix3d rotation = pose.rotation.transpose();
   return {rotation, -rotation * pose.translation};
 }
+
 inline RigidTransform Compose(const RigidTransform& a,
                               const RigidTransform& b) {
   return {a.rotation * b.rotation, a.rotation * b.translation + a.translation};
 }
+
+RigidTransform ProjectedCorrection(const RigidTransform& map_anchor,
+                                   const RigidTransform& raw_anchor);
+
 inline bool Equal(const RigidTransform& a, const RigidTransform& b) {
   return (a.translation - b.translation).norm() <= 1e-9 &&
          Eigen::AngleAxisd(a.rotation.transpose() * b.rotation).angle() <= 1e-9;

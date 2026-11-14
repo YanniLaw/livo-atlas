@@ -56,17 +56,17 @@
 
 ### Task 2：从原位姿权威读取常数规模修正
 
-**Files:** 修改 include/livo_atlas/core/livo_system.h、src/core/livo_system.cc、src/core/online_submap_manager.h/.cc、src/mapping/pose_math.h、src/mapping/pose_snapshot.cc；新增 tests/core/map_correction_system_test.cc，扩展 online_submap_manager_test.cc、cmake/tests.cmake。
+**Files:** 修改 include/livo_atlas/core/livo_system.h、src/core/livo_system.cc、src/core/online_submap_manager.h/.cc、src/mapping/pose_math.h、src/mapping/pose_snapshot.cc、cmake/core.cmake（core私有包含路径）；新增 tests/core/map_correction_system_test.cc，扩展 online_submap_manager_test.cc、cmake/tests.cmake。
 
 **Interfaces:** Consumes Task1 MapCorrection；Produces `MapCorrection LivoSystem::GetMapCorrection() const`、OnlineSubmapManager 同名 getter；私有 `pose_math::ProjectPose(const RigidTransform&)` 和 `pose_math::ProjectedCorrection(const RigidTransform& map_anchor,const RigidTransform& raw_anchor)` 复用现有投影公式。
 
-- [ ] 写 `EmptyAndGrowingVersionZero`、`ProjectedAnchorMatchesMaterializedTail`：真实 manager/store 追加近似 raw 矩阵，在2帧优化后追加尾帧；v/N/M正确，C*Project(raw_tail) 等于现有物化尾部，不改原始资产/旧快照。
-- [ ] 写 `ReadsAfterPublishedNotificationFailure`：真实 pose 文件已发布后 callback 抛异常，getter仍能诊断已提交版本，后续变更/Finish继续原错误；不通过 getter 恢复运行。
-- [ ] 写 `RejectsLegacyPositiveVersionAndNononlineSystem`：正 legacy getter 抛 invalid_argument；disabled/groups 系统 getter 抛 logic_error；版本0仍可读取。
-- [ ] 用真实 LivoSystem 的普通 ResultCallback 验证 getter 对当前已提交关键帧前沿可见；不得在 OnlineSubmapCallback 内重入。build 新测试。Expected：缺少 getter 的编译 RED。
-- [ ] 实现 getter 仅读冻结头、k和对应 raw；提取原 ProjectPose 但不改变 Make/Materialize 运算顺序、legacy 分支或校验容差。
-- [ ] 相关新旧位姿/生命周期测试及完整 native suite 通过，检查 getter 没有完整物化、历史遍历或 I/O。
-- [ ] 提交 `feat: expose committed map correction on the system owner`。
+- [x] 写 `EmptyAndGrowingVersionZero`、`ProjectedAnchorMatchesMaterializedTail`：真实 manager/store 追加近似 raw 矩阵，在2帧优化后追加尾帧；v/N/M正确，C*Project(raw_tail) 等于现有物化尾部，不改原始资产/旧快照。
+- [x] 写 `ReadsAfterPublishedNotificationFailure`：真实 pose 文件已发布后 callback 抛异常，getter仍能诊断已提交版本，后续变更/Finish继续原错误；不通过 getter 恢复运行。
+- [x] 写 `RejectsLegacyPositiveVersion`、`RejectsNononlineSystem`：正 legacy getter 抛 invalid_argument；disabled/groups 系统 getter 抛 logic_error；版本0仍可读取。
+- [x] 用真实 LivoSystem 的普通 ResultCallback 验证 getter 对当前已提交关键帧前沿可见；不得在 OnlineSubmapCallback 内重入。build 新测试。Expected：缺少 getter 的编译 RED。
+- [x] 实现 getter 仅读冻结头、k和对应 raw；提取原 ProjectPose 但不改变 Make/Materialize 运算顺序、legacy 分支或校验容差。
+- [x] 相关新旧位姿/生命周期测试及完整 native suite 通过，检查 getter 没有完整物化、历史遍历或 I/O。
+- [x] 提交 `feat: expose committed map correction on the system owner`。
 
 ### Task 3：共享输出选项与前置验证
 

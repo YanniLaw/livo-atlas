@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "mapping/pose_math.h"
+
 namespace livo_atlas {
 OnlineSubmapManager::OnlineSubmapManager(const std::filesystem::path& directory,
                                          KeyframeStore& keyframes,
@@ -51,6 +53,27 @@ std::shared_ptr<const PoseSnapshot> OnlineSubmapManager::GetPoseSnapshot()
     const {
   return std::make_shared<const PoseSnapshot>(
       MaterializePoseSnapshot(frozen_, raw_poses_, raw_poses_.size()));
+}
+
+MapCorrection OnlineSubmapManager::GetMapCorrection() const {
+  MapCorrection correction{
+      frozen_.version, raw_poses_.size(), frozen_.optimized_frame_count, {}};
+  if (frozen_.version == 0) return correction;
+  if (frozen_.tail_policy != PoseTailPolicy::kProjectedLastOptimizedAnchor ||
+      frozen_.optimized_frame_count == 0 ||
+      frozen_.optimized_frame_count > frozen_.poses.size() ||
+      frozen_.optimized_frame_count > raw_poses_.size())
+    throw std::invalid_argument(
+        "Map correction requires a projected optimized anchor");
+  // Commit already validates the full prefix. Reading its last optimized
+  // anchor stays constant-size even as additional raw frames accumulate.
+  const auto anchor = frozen_.optimized_frame_count - 1;
+  correction.map_from_odom = pose_math::ProjectedCorrection(
+      frozen_.poses[anchor].map_from_body, raw_poses_[anchor]);
+  if (!correction.map_from_odom.rotation.allFinite() ||
+      !correction.map_from_odom.translation.allFinite())
+    throw std::invalid_argument("Derived map correction must be finite");
+  return correction;
 }
 
 void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {

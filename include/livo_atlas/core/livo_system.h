@@ -18,6 +18,7 @@
 #include "livo_atlas/mapping/cloud_colorizer.h"
 #include "livo_atlas/mapping/geometry_submap.h"
 #include "livo_atlas/mapping/keyframe_selector.h"
+#include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
 #include "livo_atlas/mapping/submap.h"
 #include "livo_atlas/sensor/lidar_preprocessor.h"
@@ -49,6 +50,9 @@ class LivoSystem {
   // throw.
   void SetOnlineSubmapCallback(OnlineSubmapCallback callback);
   std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
+  // Constant-size derived view; safe for read-only diagnostics after a
+  // committed publication failure, without materializing the full trajectory.
+  MapCorrection GetMapCorrection() const;
   KeyframeReadView GetKeyframeReadView() const;
   void ApplyPoseUpdate(const PoseUpdate& update);
   GeometrySubmap GetGeometrySubmap(std::uint64_t id);

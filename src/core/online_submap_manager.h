@@ -14,6 +14,7 @@ class OnlineSubmapManager {
   void AppendCommittedKeyframe(std::shared_ptr<const Keyframe> keyframe);
   void SetCallback(LivoSystem::OnlineSubmapCallback callback);
   std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
+  MapCorrection GetMapCorrection() const;
   void ApplyPoseUpdate(const PoseUpdate& update);
   GeometrySubmap GetGeometrySubmap(std::uint64_t id);
   GeometryCacheStats GetGeometryStats() const;

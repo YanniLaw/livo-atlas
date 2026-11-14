@@ -295,6 +295,10 @@ std::shared_ptr<const PoseSnapshot> LivoSystem::GetPoseSnapshot() const {
   return Online().GetPoseSnapshot();
 }
 
+MapCorrection LivoSystem::GetMapCorrection() const {
+  return Online().GetMapCorrection();
+}
+
 KeyframeReadView LivoSystem::GetKeyframeReadView() const {
   if (!keyframe_store_)
     throw std::logic_error("Keyframe storage is not enabled");

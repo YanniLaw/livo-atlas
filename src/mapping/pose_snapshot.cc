@@ -8,6 +8,21 @@
 #include "pose_math.h"
 
 namespace livo_atlas {
+namespace pose_math {
+
+RigidTransform ProjectPose(const RigidTransform& pose) {
+  Validate(pose);
+  return {ProjectRotation(pose.rotation), pose.translation};
+}
+
+RigidTransform ProjectedCorrection(const RigidTransform& map_anchor,
+                                   const RigidTransform& raw_anchor) {
+  Validate(map_anchor);
+  return Compose(map_anchor, Inverse(ProjectPose(raw_anchor)));
+}
+
+}  // namespace pose_math
+
 namespace {
 
 bool IsProjected(PoseTailPolicy policy) {
@@ -19,11 +34,6 @@ bool IsRigidRotation(const Eigen::Matrix3d& rotation) {
                  .cwiseAbs()
                  .maxCoeff() <= 1e-9 &&
          std::abs(rotation.determinant() - 1) <= 1e-9;
-}
-
-RigidTransform ProjectPose(const RigidTransform& pose) {
-  pose_math::Validate(pose);
-  return {ProjectRotation(pose.rotation), pose.translation};
 }
 
 bool EqualProjectedPose(const RigidTransform& a, const RigidTransform& b) {
@@ -73,14 +83,15 @@ PoseSnapshot MaterializePoseSnapshot(
   RigidTransform correction;
   if (frozen.version) {
     const auto anchor = frozen.optimized_frame_count - 1;
-    const auto anchor_pose = IsProjected(frozen.tail_policy)
-                                 ? ProjectPose(raw_poses[anchor])
-                                 : raw_poses[anchor];
-    correction = pose_math::Compose(frozen.poses[anchor].map_from_body,
-                                    pose_math::Inverse(anchor_pose));
+    correction =
+        IsProjected(frozen.tail_policy)
+            ? pose_math::ProjectedCorrection(frozen.poses[anchor].map_from_body,
+                                             raw_poses[anchor])
+            : pose_math::Compose(frozen.poses[anchor].map_from_body,
+                                 pose_math::Inverse(raw_poses[anchor]));
     for (auto i = frozen.optimized_frame_count; i < frozen.frame_count; ++i) {
       const auto raw = IsProjected(frozen.tail_policy)
-                           ? ProjectPose(raw_poses[i])
+                           ? pose_math::ProjectPose(raw_poses[i])
                            : raw_poses[i];
       const auto expected = pose_math::Compose(correction, raw);
       const bool equal =
@@ -104,8 +115,9 @@ PoseSnapshot MaterializePoseSnapshot(
   if (!frozen.version) result.poses.clear();
   result.poses.reserve(frame_count);
   for (auto i = result.poses.size(); i < frame_count; ++i) {
-    const auto raw = IsProjected(frozen.tail_policy) ? ProjectPose(raw_poses[i])
-                                                     : raw_poses[i];
+    const auto raw = IsProjected(frozen.tail_policy)
+                         ? pose_math::ProjectPose(raw_poses[i])
+                         : raw_poses[i];
     result.poses.push_back({i, pose_math::Compose(correction, raw)});
   }
   ValidatePoseSnapshot(result);
@@ -139,7 +151,7 @@ PoseSnapshot MakePoseSnapshot(const PoseUpdate& update,
   optimized.tail_policy = update.tail_policy;
   if (IsProjected(optimized.tail_policy)) {
     for (auto& pose : optimized.poses) {
-      pose.map_from_body = ProjectPose(pose.map_from_body);
+      pose.map_from_body = pose_math::ProjectPose(pose.map_from_body);
     }
   }
   return MaterializePoseSnapshot(optimized, raw_poses, raw_poses.size());

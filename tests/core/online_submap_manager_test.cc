@@ -94,6 +94,12 @@ TEST_F(OnlineSubmapManagerTailTest, ProjectedTailContinuesAndReloads) {
   EXPECT_EQ(live->tail_policy, PoseTailPolicy::kProjectedLastOptimizedAnchor);
   EXPECT_NEAR(live->poses[1].map_from_body.translation.x(), 1000, 1e-10);
   EXPECT_EQ(delivered, 2);
+  const auto correction = manager.GetMapCorrection();
+  EXPECT_EQ(correction.pose_version, 1u);
+  EXPECT_EQ(correction.frame_count, 2u);
+  EXPECT_EQ(correction.optimized_frame_count, 1u);
+  EXPECT_TRUE(correction.map_from_odom.rotation.isIdentity(1e-12));
+  EXPECT_TRUE(correction.map_from_odom.translation.isZero(1e-12));
   manager.Finish();
 
   const OnlineSubmapStore reader(root_ / "online_submaps", frames);
