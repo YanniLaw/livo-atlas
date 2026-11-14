@@ -319,3 +319,61 @@ TEST(Ros2ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
   EXPECT_NO_THROW(ReadNodeOptions(disabled));
 }
 }  // namespace livo_atlas::ros2
+
+namespace livo_atlas::ros2 {
+TEST(Ros2ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("c3a-parameters-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  {
+    rclcpp::Node node("global_defaults",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_FALSE(ReadNodeOptions(node).livo.global_output.enabled);
+  }
+  params.emplace_back("global_output.enabled", true);
+  {
+    rclcpp::Node node("global_missing_storage",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+    EXPECT_FALSE(std::filesystem::exists(directory));
+  }
+  std::filesystem::create_directories(directory);
+  const auto sentinel = directory / "mat_pre.txt";
+  std::ofstream(sentinel) << "keep global output";
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  params.emplace_back("submaps.max_keyframes", 128);
+  params.emplace_back("global_output.publish_tf", false);
+  params.emplace_back("global_output.map_frame", "atlas/map_2");
+  {
+    rclcpp::Node node("global_config",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    const auto config = ReadNodeOptions(node).livo;
+    EXPECT_TRUE(config.global_output.enabled);
+    EXPECT_FALSE(config.global_output.publish_tf);
+    EXPECT_EQ(config.global_output.map_frame, "atlas/map_2");
+    EXPECT_FALSE(config.loop_closure_enabled);
+    EXPECT_FALSE(config.system.geometry.enabled);
+  }
+  for (const auto& invalid :
+       std::vector<rclcpp::Parameter>{{"global_output.enabled", "true"},
+                                      {"global_output.publish_tf", "false"},
+                                      {"global_output.map_frame", 123},
+                                      {"global_output.map_frame", "world"}}) {
+    auto bad = params;
+    for (auto& p : bad)
+      if (p.get_name() == invalid.get_name()) p = invalid;
+    rclcpp::Node node("global_invalid",
+                      rclcpp::NodeOptions().parameter_overrides(bad));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+    std::ifstream input(sentinel);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}),
+              "keep global output");
+  }
+  std::filesystem::remove_all(directory);
+}
+}  // namespace livo_atlas::ros2

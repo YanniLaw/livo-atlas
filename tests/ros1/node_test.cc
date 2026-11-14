@@ -1,4 +1,7 @@
+#include "ros1/global_output_test_support.h"
 #include <gtest/gtest.h>
+#include <filesystem>
+#include <memory>
 #include <nav_msgs/Odometry.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>
@@ -189,6 +192,128 @@ TEST(Ros1NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
 }
 }  // namespace
 }  // namespace livo_atlas::ros1
+
+namespace livo_atlas::ros1::test_support {
+namespace {
+
+class GlobalNodeTest : public GlobalOutputTest {
+ protected:
+  void OpenNode() {
+    NodeOptions parameters;
+    auto options = ::livo_atlas::test::Options(FrontendMode::kLidarOnly);
+    options.keyframes.enabled = options.submaps.enabled = true;
+    options.keyframes.time_threshold = 0;
+    options.submap_mode = SubmapMode::kOnline;
+    directory_ = options.exporter.directory;
+    parameters.livo.system = PrepareSystemOptions(options);
+    parameters.livo.global_output = {true, true, "map"};
+    system_ = std::make_unique<LivoSystem>(parameters.livo.system);
+    mapper_ = std::make_unique<LivoNode>(node_, parameters, *system_, [this] {
+      ++polls_;
+      if (pending_shift_ != 0) {
+        Commit(pending_shift_);
+        pending_shift_ = 0;
+      }
+    });
+    ASSERT_TRUE(Wait([&] {
+      return odom_sub_.getNumPublishers() && tf_sub_.getNumPublishers();
+    }));
+    // The node must advertise this, independent of backend build options.
+    ASSERT_TRUE(Wait([&] { return global_sub_.getNumPublishers(); }));
+  }
+
+  void Commit(double shift) {
+    const auto snapshot = system_->GetPoseSnapshot();
+    PoseUpdate update{snapshot->version, snapshot->frame_count, snapshot->poses,
+                      PoseTailPolicy::kProjectedLastOptimizedAnchor};
+    for (auto& pose : update.poses) pose.map_from_body.translation.x() += shift;
+    system_->ApplyPoseUpdate(update);
+  }
+
+  void Sample(int i) {
+    ASSERT_TRUE(system_->AddLidar(::livo_atlas::test::Scan(100 + .25 * i)));
+    ASSERT_EQ(mapper_->ProcessNext(), SyncStatus::kReady);
+    ASSERT_TRUE(Wait(
+        [&] { return odometry_.size() == static_cast<std::size_t>(i + 1); }));
+    Drain();
+  }
+
+  void TearDown() override {
+    mapper_.reset();
+    if (system_) system_->Finish();
+    system_.reset();
+    std::filesystem::remove_all(directory_);
+  }
+
+  std::filesystem::path directory_;
+  std::unique_ptr<LivoSystem> system_;
+  std::unique_ptr<LivoNode> mapper_;
+  int polls_ = 0;
+  double pending_shift_ = 0;
+};
+
+TEST_F(GlobalNodeTest, GlobalOutputTracksOnlyCommittedOwnerVersion) {
+  OpenNode();
+  ASSERT_FALSE(HasFatalFailure());
+  pending_shift_ = 3;
+  Sample(0);
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_EQ(global_.size(), 1);
+  ASSERT_EQ(transforms_.size(), 1);
+  ASSERT_EQ(transforms_[0].transforms.size(), 2);
+  EXPECT_DOUBLE_EQ(transforms_[0].transforms[0].transform.translation.x, 0);
+  EXPECT_NEAR(global_[0].pose.position.x, odometry_[0].pose.pose.position.x,
+              1e-9);
+  EXPECT_EQ(system_->GetMapCorrection().pose_version, 1u);
+  Sample(1);
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_EQ(global_.size(), 2);
+  EXPECT_NEAR(global_[1].pose.position.x, odometry_[1].pose.pose.position.x + 3,
+              1e-9);
+  EXPECT_NEAR(transforms_[1].transforms[0].transform.translation.x, 3, 1e-9);
+  const auto first_count = system_->GetMapCorrection().frame_count;
+  pending_shift_ = 4;
+  const int before = polls_;
+  EXPECT_EQ(mapper_->ProcessNext(), SyncStatus::kWaiting);
+  EXPECT_GT(polls_, before);
+  EXPECT_EQ(system_->GetMapCorrection().pose_version, 2u);
+  Drain();
+  EXPECT_EQ(global_.size(), 2);
+  EXPECT_EQ(transforms_.size(), 2);
+  Sample(2);
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_EQ(global_.size(), 3);
+  EXPECT_NEAR(global_[2].pose.position.x, odometry_[2].pose.pose.position.x + 7,
+              1e-9);
+  EXPECT_NEAR(transforms_[2].transforms[0].transform.translation.x, 7, 1e-9);
+  EXPECT_GE(system_->GetMapCorrection().frame_count, first_count);
+  EXPECT_EQ(system_->GetMapCorrection().pose_version, 2u);
+}
+
+TEST_F(GlobalNodeTest, FinalDrainDoesNotInventPublication) {
+  OpenNode();
+  ASSERT_FALSE(HasFatalFailure());
+  Sample(0);
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_EQ(global_.size(), 1);
+  // Main has left its callback loop before draining the owner. Stop the test
+  // node timers too, while the observer remains alive to catch extra output.
+  mapper_.reset();
+  system_->SealInput();
+  // The owner can still commit a finished backend result after input is sealed.
+  Commit(5);
+  system_->Finish();
+  EXPECT_EQ(system_->GetMapCorrection().pose_version, 1u);
+  EXPECT_TRUE(std::filesystem::is_regular_file(
+      directory_ / "keyframes/online_submaps/poses/1.yml"));
+  Drain();
+  EXPECT_EQ(global_.size(), 1);
+  EXPECT_EQ(transforms_.size(), 1);
+  EXPECT_EQ(odometry_.size(), 1);
+}
+
+}  // namespace
+}  // namespace livo_atlas::ros1::test_support
 
 int main(int argc, char** argv) {
   ros::init(argc, argv, "lidar_callback_test");

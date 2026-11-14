@@ -101,13 +101,13 @@
 
 **Interfaces:** Consumes getter/options/Publish签名；节点把配置交给publisher，仅普通结果回调 updated且非Visual时读取 correction；原 after_process/Poll顺序不变。既有runner新增 `--global-output`，只启用 global_output.enabled 与所需在线存储，不隐式开启回环。
 
-- [ ] 两端参数真实读取用例覆盖默认、enabled/storage、publish_tf/map_frame、错误类型/名称与pre-I/O sentinel；正常SDK scalar值与node参数一致。
-- [ ] 写 `GlobalOutputTracksOnlyCommittedOwnerVersion`：真实 system处理观测、发布后接纳 projected 更新，下一有效原始样本才看到新C；Waiting/idle Poll继续，无虚假新TF/pose。构造选择global开但算法全关时也能发布单位修正。
-- [ ] 写 `FinalDrainDoesNotInventPublication`：真实所有者最终排空可更新文件/getter，但没有新原始样本则无新ROS消息；原失败优先级不变。
-- [ ] Python parser RED：--global-output+keyframe_groups在任何I/O前拒绝，默认路径不变；单global开仅要求online存储、loop仍关，非法queue原规则继续。
-- [ ] 观察node未传新参数/修正导致新用例失败后接线；runner只做参数启动和观测记录，TF/pose记录与旧前端摘要分开，保留旧摘要键及原始输入校验。
-- [ ] 扩展 installed_admission_consumer：显式include新普通头，所有构建调用ApplyMapCorrection；可用在线系统 getter验证v0；不依赖src私有头、ROS或隐式GTSAM。
-- [ ] Python suite、实际双ROS节点/时钟测试、安装消费者和完整native suite通过，提交 `feat: wire global pose outputs through both ROS nodes`。
+- [x] 两端参数真实读取用例覆盖默认、enabled/storage、publish_tf/map_frame、错误类型/名称与pre-I/O sentinel；正常SDK scalar值与node参数一致。
+- [x] 写 `GlobalOutputTracksOnlyCommittedOwnerVersion`：真实 system处理观测、发布后接纳 projected 更新，下一有效原始样本才看到新C；Waiting/idle Poll继续，无虚假新TF/pose。构造选择global开但算法全关时也能发布单位修正。
+- [x] 写 `FinalDrainDoesNotInventPublication`：真实所有者最终排空可更新文件/getter，但没有新原始样本则无新ROS消息；原失败优先级不变。
+- [x] Python parser RED：--global-output+keyframe_groups在任何I/O前拒绝，默认路径不变；单global开仅要求online存储、loop仍关，非法queue原规则继续。
+- [x] 观察node未传新参数/修正导致新用例失败后接线；runner只做参数启动和观测记录，TF/pose记录与旧前端摘要分开，保留旧摘要键及原始输入校验。
+- [x] 扩展 installed_admission_consumer：显式include新普通头，所有构建调用ApplyMapCorrection；可用在线系统 getter验证v0；不依赖src私有头、ROS或隐式GTSAM。
+- [x] Python suite、实际双ROS节点/时钟测试、安装消费者和完整native suite通过，提交 `feat: wire global pose outputs through both ROS nodes`。
 
 ### Task 6：冻结、官方回归与使用文档
 

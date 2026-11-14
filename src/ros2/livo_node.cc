@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <optional>
 #include <utility>
 
 #include "livo_atlas/core/livo_system.h"
@@ -27,7 +28,8 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
       system_(system),
       after_process_(std::move(after_process)),
       publisher_(node, parameters_.livo.system.exporter.mode,
-                 parameters_.livo.image_queue_size) {
+                 parameters_.livo.image_queue_size,
+                 parameters_.livo.global_output) {
   if (parameters_.livo.system.preprocess.lidar_type == kLivox) {
     livox_ = node.create_subscription<livox_ros_driver2::msg::CustomMsg>(
         parameters_.livo.lidar_topic,
@@ -98,7 +100,11 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
 SyncStatus LivoNode::ProcessNext() {
   const auto status = system_.ProcessNext(
       [this](const auto& result, const auto& colored_cloud, double elapsed) {
-        publisher_.Publish(result, colored_cloud);
+        std::optional<MapCorrection> correction;
+        if (parameters_.livo.global_output.enabled && result.updated &&
+            result.kind != UpdateKind::kVisual)
+          correction = system_.GetMapCorrection();
+        publisher_.Publish(result, colored_cloud, correction);
         const char* stage = result.kind == UpdateKind::kVisual
                                 ? "VIO Time"
                                 : "LIO Mapping Time";

@@ -40,7 +40,8 @@ def make_trajectory_path(package, sequence_name):
     return path
 
 
-def main():
+def parse_arguments(arguments=None):
+    """Validate feature requirements before creating output or importing ROS."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace', required=True, type=Path,
                         help='Isolated catkin workspace containing src/livo-atlas and devel')
@@ -70,25 +71,34 @@ def main():
                         help='Enable online geometry submaps and their required inputs')
     parser.add_argument('--loop-closure', action='store_true',
                         help='Enable the online loop backend and its required storage')
-    args = parser.parse_args()
+    parser.add_argument('--global-output', action='store_true',
+                        help='Publish map correction and current global pose using online storage')
+    args = parser.parse_args(arguments)
+    if args.global_output and args.submap_mode == 'keyframe_groups':
+        parser.error('--global-output requires online submaps')
     if args.loop_closure and args.submap_mode == 'keyframe_groups':
         parser.error('--loop-closure requires online submaps')
     if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-submaps requires online submaps')
     if args.submap_mode is None:
-        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure) else 'keyframe_groups'
+        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output) else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
-    try:
-        from .cpu_affinity import with_cpu_affinity
-    except ImportError:
-        from cpu_affinity import with_cpu_affinity
     if args.submap_mode == 'online':
         args.save_submaps = True
     if args.save_submaps:
         args.save_keyframes = True
     if args.save_keyframes and args.legacy_output:
         parser.error('--save-keyframes requires the current standalone core')
+    return args
+
+
+def main():
+    args = parse_arguments()
+    try:
+        from .cpu_affinity import with_cpu_affinity
+    except ImportError:
+        from cpu_affinity import with_cpu_affinity
     source_package = Path(__file__).resolve().parents[1]
     workspace = args.workspace.resolve()
     package = workspace / 'src/livo-atlas'
@@ -212,6 +222,8 @@ def main():
         if args.save_submaps:
             run(['rosparam', 'set', '/submaps/enabled', 'true'])
             run(['rosparam', 'set', '/submaps/mode', args.submap_mode])
+        if args.global_output:
+            run(['rosparam', 'set', '/global_output/enabled', 'true'])
         if args.loop_closure:
             run(['rosparam', 'set', '/loop_closure/enabled', 'true'])
         if args.geometry_submaps:
@@ -230,6 +242,8 @@ def main():
         import rosbag
         import rospy as ros_module
         from nav_msgs.msg import Odometry
+        from geometry_msgs.msg import PoseStamped
+        from tf2_msgs.msg import TFMessage
         from rosgraph_msgs.msg import Clock
         from sensor_msgs.msg import Image, PointCloud2
         try:
@@ -239,6 +253,33 @@ def main():
         rospy = ros_module
         rospy.init_node('baseline_observer', disable_signals=True)
         image_queue_size = rospy.get_param('/publish/image_queue_size', 1)
+        global_observation = dict(
+            enabled=rospy.get_param('/global_output/enabled', False),
+            publish_tf=rospy.get_param('/global_output/publish_tf', True),
+            map_frame=rospy.get_param('/global_output/map_frame', 'map'),
+            raw_poses=[], global_poses=[], tf_messages=[])
+
+        def pose_record(message, pose):
+            return dict(stamp_ns=message.header.stamp.to_nsec(),
+                        frame=message.header.frame_id,
+                        translation=[pose.position.x, pose.position.y, pose.position.z],
+                        rotation_xyzw=[pose.orientation.x, pose.orientation.y,
+                                       pose.orientation.z, pose.orientation.w])
+
+        def receive_global(message):
+            with lock:
+                global_observation['global_poses'].append(pose_record(message, message.pose))
+
+        def receive_tf(message):
+            rows = []
+            for transform in message.transforms:
+                value = transform.transform
+                rows.append(dict(stamp_ns=transform.header.stamp.to_nsec(),
+                                 parent=transform.header.frame_id, child=transform.child_frame_id,
+                                 translation=[value.translation.x, value.translation.y, value.translation.z],
+                                 rotation_xyzw=[value.rotation.x, value.rotation.y, value.rotation.z, value.rotation.w]))
+            with lock:
+                global_observation['tf_messages'].append(rows)
 
         def count(topic):
             def receive(_message):
@@ -250,6 +291,7 @@ def main():
             pose = msg.pose.pose
             with lock:
                 counts['/aft_mapped_to_init'] += 1
+                global_observation['raw_poses'].append(pose_record(msg, pose))
                 odometry.append([msg.header.stamp.to_sec(), pose.position.x,
                                  pose.position.y, pose.position.z, pose.orientation.x,
                                  pose.orientation.y, pose.orientation.z, pose.orientation.w])
@@ -277,6 +319,10 @@ def main():
             rospy.Subscriber('/aft_mapped_to_init', Odometry, receive_odom, queue_size=2000),
             rospy.Subscriber('/cloud_registered', PointCloud2, receive_cloud,
                              queue_size=2000, buff_size=8 * 1024 * 1024),
+        ])
+        subscribers.extend([
+            rospy.Subscriber('/global_pose', PoseStamped, receive_global, queue_size=2000),
+            rospy.Subscriber('/tf', TFMessage, receive_tf, queue_size=2000),
         ])
         node_command = [str(binary), '__name:=laserMapping']
         if args.gdb:
@@ -342,6 +388,8 @@ def main():
         with lock:
             saved_counts = dict(counts)
         stop(node)
+        with lock:
+            (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
         if args.semantic_output:
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
         if args.save_keyframes:

@@ -69,7 +69,8 @@ def load_config(path):
     return result
 
 
-def main():
+def parse_arguments(arguments=None):
+    """Validate feature requirements before creating output or importing ROS."""
     parser = argparse.ArgumentParser(description=__doc__)
     package = Path(__file__).resolve().parents[1]
     parser.add_argument('--bag', type=Path, required=True)
@@ -94,23 +95,32 @@ def main():
                         help='Enable online geometry submaps and their required inputs')
     parser.add_argument('--loop-closure', action='store_true',
                         help='Enable the online loop backend and its required storage')
-    args = parser.parse_args()
+    parser.add_argument('--global-output', action='store_true',
+                        help='Publish map correction and current global pose using online storage')
+    args = parser.parse_args(arguments)
+    if args.global_output and args.submap_mode == 'keyframe_groups':
+        parser.error('--global-output requires online submaps')
     if args.loop_closure and args.submap_mode == 'keyframe_groups':
         parser.error('--loop-closure requires online submaps')
     if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-submaps requires online submaps')
     if args.submap_mode is None:
-        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure) else 'keyframe_groups'
+        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output) else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
-    try:
-        from .cpu_affinity import with_cpu_affinity
-    except ImportError:
-        from cpu_affinity import with_cpu_affinity
     if args.submap_mode == 'online':
         args.save_submaps = True
     if args.save_submaps:
         args.save_keyframes = True
+    return args
+
+
+def main():
+    args = parse_arguments()
+    try:
+        from .cpu_affinity import with_cpu_affinity
+    except ImportError:
+        from cpu_affinity import with_cpu_affinity
     if not math.isfinite(args.duration) or not math.isfinite(args.rate) or args.duration <= 0 or args.rate <= 0:
         raise ValueError('Duration and playback rate must be finite and positive')
     output = args.output.resolve()
@@ -125,6 +135,8 @@ def main():
     import rosbag2_py
     from rosgraph_msgs.msg import Clock
     from nav_msgs.msg import Odometry, Path as RosPath
+    from geometry_msgs.msg import PoseStamped
+    from tf2_msgs.msg import TFMessage
     from sensor_msgs.msg import Image, PointCloud2
     from rosidl_runtime_py.utilities import get_message
     import yaml
@@ -166,6 +178,8 @@ def main():
     if args.save_submaps:
         parameters['submaps.enabled'] = True
         parameters['submaps.mode'] = args.submap_mode
+    if args.global_output:
+        parameters['global_output.enabled'] = True
     if args.loop_closure:
         parameters['loop_closure.enabled'] = True
     if args.geometry_submaps:
@@ -188,6 +202,33 @@ def main():
     publishers, subscriptions = {}, []
     semantic = {'/cloud_registered': [], '/rgb_img': []}
     odometry, cloud_sizes = [], []
+    global_observation = dict(enabled=parameters.get('global_output.enabled', False),
+                              publish_tf=parameters.get('global_output.publish_tf', True),
+                              map_frame=parameters.get('global_output.map_frame', 'map'),
+                              raw_poses=[], global_poses=[], tf_messages=[])
+
+    def stamp_ns(stamp):
+        return stamp.sec * 1000000000 + stamp.nanosec
+
+    def pose_record(message, pose):
+        return dict(stamp_ns=stamp_ns(message.header.stamp), frame=message.header.frame_id,
+                    translation=[pose.position.x, pose.position.y, pose.position.z],
+                    rotation_xyzw=[pose.orientation.x, pose.orientation.y,
+                                   pose.orientation.z, pose.orientation.w])
+
+    def receive_global(message):
+        global_observation['global_poses'].append(pose_record(message, message.pose))
+
+    def receive_tf(message):
+        rows = []
+        for transform in message.transforms:
+            value = transform.transform
+            rows.append(dict(stamp_ns=stamp_ns(transform.header.stamp),
+                             parent=transform.header.frame_id, child=transform.child_frame_id,
+                             translation=[value.translation.x, value.translation.y, value.translation.z],
+                             rotation_xyzw=[value.rotation.x, value.rotation.y, value.rotation.z, value.rotation.w]))
+        global_observation['tf_messages'].append(rows)
+
     path_size = 0
     peak_rss = 0
 
@@ -208,6 +249,7 @@ def main():
     def receive_odom(message):
         outputs['/aft_mapped_to_init'] += 1
         pose = message.pose.pose
+        global_observation['raw_poses'].append(pose_record(message, pose))
         odometry.append([pose.position.x, pose.position.y, pose.position.z,
                          pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
 
@@ -228,6 +270,8 @@ def main():
                       observer.create_subscription(PointCloud2, '/cloud_registered', receive_cloud, 100),
                       observer.create_subscription(Image, '/rgb_img', receive_image, observer_image_depth),
                       observer.create_subscription(RosPath, '/path', receive_path, 10)]
+    subscriptions += [observer.create_subscription(PoseStamped, '/global_pose', receive_global, 2000),
+                      observer.create_subscription(TFMessage, '/tf', receive_tf, 2000)]
     log_path = output / 'node.log'
     process = None
     try:
@@ -328,6 +372,7 @@ def main():
     lio = node_log.count('LIO Mapping Time')
     vio = node_log.count('VIO Time')
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
+    (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
     (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2))
     np.savetxt(output / 'odometry.txt', np.asarray(odometry))
     summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues,

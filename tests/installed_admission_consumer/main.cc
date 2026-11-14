@@ -7,6 +7,9 @@
 #include <stdexcept>
 #include <vector>
 
+#include "livo_atlas/core/global_output_options.h"
+#include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
 #ifdef EXPECT_GTSAM
 #include "livo_atlas/backend/pose_graph.h"
@@ -17,7 +20,6 @@
 #ifdef EXPECT_ADMISSION
 #include "livo_atlas/backend/loop_admission.h"
 #include "livo_atlas/core/loop_backend.h"
-#include "livo_atlas/core/livo_system.h"
 #endif
 
 int main() {
@@ -62,6 +64,13 @@ int main() {
         });
     if (result.status != LoopAdmissionStatus::kNoCandidate || result.proposal)
       return 1;
+#endif
+    const GlobalOutputOptions output{true, true, "atlas/map_2"};
+    ValidateGlobalOutputOptions(output);
+    const RigidTransform published{Eigen::Matrix3d::Identity(), {1, 2, 3}};
+    if (!ApplyMapCorrection({}, published)
+             .translation.isApprox(Eigen::Vector3d(1, 2, 3)))
+      return 1;
     const auto directory =
         std::filesystem::temp_directory_path() /
         ("livo-installed-loops-" +
@@ -77,6 +86,13 @@ int main() {
       options.keyframes.enabled = options.submaps.enabled = true;
       options.submap_mode = SubmapMode::kOnline;
       LivoSystem system(options);
+      const auto correction = system.GetMapCorrection();
+      if (correction.pose_version != 0 || correction.frame_count != 0 ||
+          correction.optimized_frame_count != 0 ||
+          !ApplyMapCorrection(correction, published)
+               .translation.isApprox(published.translation))
+        throw std::runtime_error("Installed map correction is not identity");
+#ifdef EXPECT_ADMISSION
       LoopBackend backend(system);
       system.SetOnlineSubmapCallback(
           [&](const auto& update) { backend.Observe(update); });
@@ -85,9 +101,11 @@ int main() {
       if (report.status != LoopRecoveryStatus::kConsistent)
         throw std::runtime_error(
             "Installed backend did not finish consistently");
+#else
+      system.Finish();
+#endif
     }
     std::filesystem::remove_all(directory);
-#endif
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

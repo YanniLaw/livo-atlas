@@ -252,3 +252,42 @@ TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
 }
 }  // namespace
 }  // namespace livo_atlas::ros1
+
+namespace livo_atlas::ros1 {
+namespace {
+TEST_F(Ros1ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.global_output.enabled);
+  node_->setParam("global_output/map_frame", "world");
+  EXPECT_NO_THROW(ReadNodeOptions(*node_));
+  node_->setParam("global_output/enabled", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  std::filesystem::create_directories(directory_);
+  const auto sentinel = directory_ / "mat_pre.txt";
+  std::ofstream(sentinel) << "keep global output";
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  node_->setParam("submaps/max_keyframes", 128);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("global_output/map_frame", "atlas/map_2");
+  node_->setParam("global_output/publish_tf", false);
+  const auto config = ReadNodeOptions(*node_).livo;
+  EXPECT_TRUE(config.global_output.enabled);
+  EXPECT_FALSE(config.global_output.publish_tf);
+  EXPECT_EQ(config.global_output.map_frame, "atlas/map_2");
+  EXPECT_FALSE(config.loop_closure_enabled);
+  EXPECT_FALSE(config.system.geometry.enabled);
+  for (const auto* key :
+       {"global_output/enabled", "global_output/publish_tf"}) {
+    node_->setParam(key, "true");
+    EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+    node_->setParam(key, true);
+  }
+  node_->setParam("global_output/map_frame", 123);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  std::ifstream input(sentinel);
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}),
+            "keep global output");
+}
+}  // namespace
+}  // namespace livo_atlas::ros1

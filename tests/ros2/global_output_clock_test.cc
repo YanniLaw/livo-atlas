@@ -1,3 +1,5 @@
+#include "core/fixtures.h"
+#include "livo_atlas/ros2/livo_node.h"
 #include "ros2/global_output_test_support.h"
 
 #include <rosgraph_msgs/msg/clock.hpp>
@@ -88,5 +90,40 @@ TEST_F(GlobalClockTest, VisualWaitingAndPropagationDoNotAdvanceGlobalOutput) {
   EXPECT_DOUBLE_EQ(global_[0].pose.position.x, 4);
 }
 
+TEST_F(GlobalClockTest, NodePollContinuesDuringZeroAndPausedTime) {
+  NodeOptions parameters;
+  auto options = ::livo_atlas::test::Options(FrontendMode::kLidarOnly);
+  options.keyframes.enabled = options.submaps.enabled = true;
+  options.submap_mode = SubmapMode::kOnline;
+  parameters.livo.system = PrepareSystemOptions(options);
+  parameters.livo.global_output.enabled = true;
+  {
+    LivoSystem system(parameters.livo.system);
+    int polls = 0;
+    LivoNode mapper(*node_, parameters, system, [&] { ++polls; });
+    ASSERT_TRUE(Wait([&] {
+      return odom_sub_->get_publisher_count() && tf_sub_->get_publisher_count();
+    }));
+    ASSERT_TRUE(system.AddLidar(::livo_atlas::test::Scan(100)));
+    ASSERT_EQ(mapper.ProcessNext(), SyncStatus::kReady);
+    ASSERT_TRUE(Wait([&] { return odometry_.size() == 1; }));
+    const int before = polls;
+    for (int i = 0; i < 3; ++i)
+      EXPECT_EQ(mapper.ProcessNext(), SyncStatus::kWaiting);
+    EXPECT_GE(polls, before + 3);
+    Drain();
+    EXPECT_TRUE(global_.empty());
+    SetTime(10);
+    ASSERT_TRUE(system.AddLidar(::livo_atlas::test::Scan(100.25)));
+    ASSERT_EQ(mapper.ProcessNext(), SyncStatus::kReady);
+    ASSERT_TRUE(
+        Wait([&] { return global_.size() == 1 && odometry_.size() == 2; }));
+    EXPECT_EQ(system.GetMapCorrection().pose_version, 0u);
+    EXPECT_NEAR(global_[0].pose.position.x, odometry_[1].pose.pose.position.x,
+                1e-9);
+    system.Finish();
+  }
+  std::filesystem::remove_all(options.exporter.directory);
+}
 }  // namespace
 }  // namespace livo_atlas::ros2::test_support
