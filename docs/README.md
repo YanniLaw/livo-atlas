@@ -38,6 +38,7 @@
 
 33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)、[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)、[使用说明](loop-admission.md)及[验证记录](p6-02c2a-validation.md)：无状态约束准入、鲁棒图试算、优化后几何复核和离线工具已完成阶段验收；在线调度与提交见 C2b。
 34. [C2b 在线回环设计](superpowers/specs/2026-11-14-p6-02c2b-online-backend-design.md)、[实施计划](superpowers/plans/2026-11-14-p6-02c2b-online-backend.md)及[使用说明](online-loop-backend.md)：固定读取前沿、单 worker、所有者持久接纳和停止后检查已完成；主验收14组构建与8次官方回放、审阅修复后的7组受影响构建复验通过，见[验证记录](p6-02c2b-validation.md)。
+35. [C3a 全局 TF 与当前位姿设计草案](superpowers/specs/2026-11-14-p6-02c3a-global-pose-design.md)：先确定常数规模地图修正、单父 TF 树、发布时间和原始表示兼容性，再由 C3b 接入优化历史轨迹与版本化地图；已通过一次独立可实施性检查，待审阅与编码模型切换，尚未编码。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
