@@ -74,12 +74,12 @@
 
 **Interfaces:** `GlobalOutputOptions {bool enabled=false; bool publish_tf=true; string map_frame="map";}`，`void ValidateGlobalOutputOptions(const GlobalOutputOptions&)`；LivoConfig 新增 `GlobalOutputOptions global_output`，共享 schema 读取三个 global_output.* 字段。
 
-- [ ] 写 `DisabledPreservesLegacyConfiguration`、`ValidFrameNamesAndIndependentControls`：关闭不检查 map 名与在线前提；开启可用 map、atlas/map_2、123；publish_tf=false 不关闭 pose。
-- [ ] 写 `RejectsUnsafeOrConflictingFrameNames`：空、首尾/、连续/、空白、非ASCII、.、:、camera_init/aft_mapped/world均拒绝；直接选项 validator 同样校验。
-- [ ] 用仅提供普通参数值的 test ParameterReader 输入真实 LoadLivoConfig，写 `ReadsGlobalSchemaBeforeOutputIo`、`RequiresOnlineStorageOnlyWhenEnabled`：读取三个字段、依赖错误及已有 sentinel 不改；loop_closure 仍false。
-- [ ] build `global_output_options_test`。Expected：新选项类型/成员/验证接口尚不存在的 RED。
-- [ ] 实现共享选项和读取；在线依赖检查属于 LoadLivoConfig，纯选项 validator 不检查系统或打开目录。
-- [ ] 新测试及完整 native suite 通过，提交 `feat: validate shared global output options`。
+- [x] 写 `DisabledPreservesLegacyConfiguration`、`ValidFrameNamesAndIndependentControls`：关闭不检查 map 名与在线前提；开启可用 map、atlas/map_2、123；publish_tf=false 不关闭 pose。
+- [x] 写 `RejectsUnsafeOrConflictingFrameNames`：空、首尾/、连续/、空白、非ASCII、.、:、camera_init/aft_mapped/world均拒绝；直接选项 validator 同样校验。
+- [x] 用仅提供普通参数值的 test ParameterReader 输入真实 LoadLivoConfig，写 `ReadsGlobalSchemaBeforeOutputIo`、`RequiresOnlineStorageOnlyWhenEnabled`：读取三个字段、依赖错误及已有 sentinel 不改；loop_closure 仍false。
+- [x] build `global_output_options_test`。Expected：新选项类型/成员/验证接口尚不存在的 RED。
+- [x] 实现共享选项和读取；在线依赖检查属于 LoadLivoConfig，纯选项 validator 不检查系统或打开目录。
+- [x] 新测试及完整 native suite 通过，提交 `feat: validate shared global output options`。
 
 ### Task 4：两端发布器的成对 TF 与全局 PoseStamped
 

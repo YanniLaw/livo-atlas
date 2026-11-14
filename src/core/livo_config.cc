@@ -37,6 +37,12 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   config.loop_closure_enabled = reader.Boolean("loop_closure.enabled", false);
   config.loop_closure_options_file =
       reader.String("loop_closure.options_file", "");
+  auto& global = config.global_output;
+  global.enabled = reader.Boolean("global_output.enabled", global.enabled);
+  global.publish_tf =
+      reader.Boolean("global_output.publish_tf", global.publish_tf);
+  global.map_frame = reader.String("global_output.map_frame", global.map_frame);
+  ValidateGlobalOutputOptions(global);
   auto& options = config.system;
   auto& front = options.frontend;
   auto& visual = front.visual;
@@ -251,6 +257,11 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
     throw std::invalid_argument(
         "loop_closure.enabled requires keyframes and online submaps with at "
         "most 64 members");
+  if (global.enabled &&
+      (!options.keyframes.enabled || !options.submaps.enabled ||
+       options.submap_mode != SubmapMode::kOnline))
+    throw std::invalid_argument(
+        "global_output.enabled requires keyframes and online submaps");
   return config;
 }
 }  // namespace livo_atlas
