@@ -72,6 +72,21 @@ class GlobalBaselineParserTest(unittest.TestCase):
 
 
 class GlobalBaselineOptionsTest(unittest.TestCase):
+    def test_keyframe_trajectory_enables_only_its_required_inputs(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with self.subTest(module=module.__name__):
+                required = ['--bag', '/unused/bag', '--output', '/unused/output']
+                required += (['--workspace', '/unused/workspace'] if module is run_baseline
+                             else ['--executable', '/unused/node'])
+                options = module.parse_arguments(required + ['--keyframe-trajectory'])
+                self.assertTrue(options.keyframe_trajectory)
+                self.assertTrue(options.global_output)
+                self.assertTrue(options.save_keyframes)
+                self.assertTrue(options.save_submaps)
+                self.assertEqual(options.submap_mode, 'online')
+                self.assertFalse(options.loop_closure)
+                self.assertFalse(options.geometry_submaps)
+
     def test_global_only_enables_online_storage_without_loop_or_geometry(self):
         for module in (run_baseline, run_ros2_baseline):
             with self.subTest(module=module.__name__):

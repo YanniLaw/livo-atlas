@@ -3,6 +3,7 @@
 
 #include <livo_atlas/msg/keyframe_trajectory.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <rclcpp/context.hpp>
 #include <rclcpp/node.hpp>
 #include <rclcpp/publisher.hpp>
 
@@ -21,6 +22,7 @@ class KeyframeTrajectoryPublisher {
 
  private:
   std::string map_frame_;
+  rclcpp::Context::SharedPtr context_;
   rclcpp::Publisher<livo_atlas::msg::KeyframeTrajectory>::SharedPtr trajectory_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_;
 };

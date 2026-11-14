@@ -6,13 +6,16 @@
 #include <utility>
 
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/core/trajectory_output.h"
 #if LIVO_ATLAS_ONLINE_BACKEND
 #include "livo_atlas/core/loop_backend.h"
 #endif
 #if LIVO_ATLAS_ROS_VERSION == 1
+#include "livo_atlas/ros1/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros1/livo_node.h"
 namespace ros_integration = livo_atlas::ros1;
 #elif LIVO_ATLAS_ROS_VERSION == 2
+#include "livo_atlas/ros2/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros2/livo_node.h"
 namespace ros_integration = livo_atlas::ros2;
 #else
@@ -51,11 +54,37 @@ int main(int argc, char** argv) {
     std::unique_ptr<livo_atlas::LoopBackend> backend;
     if (parameters.livo.loop_closure_enabled) {
       backend = std::make_unique<livo_atlas::LoopBackend>(system, loop_options);
-      system.SetOnlineSubmapCallback(
-          [&](const auto& update) { backend->Observe(update); });
-      after_process = [&] { backend->Poll(); };
     }
 #endif
+    // The worker joins before its captured publisher handles are destroyed.
+    std::unique_ptr<ros_integration::KeyframeTrajectoryPublisher>
+        trajectory_publisher;
+    std::unique_ptr<livo_atlas::TrajectoryOutput> trajectory;
+    if (parameters.livo.global_output.trajectory.enabled) {
+      trajectory_publisher =
+          std::make_unique<ros_integration::KeyframeTrajectoryPublisher>(
+              *node, parameters.livo.global_output.map_frame);
+      trajectory = std::make_unique<livo_atlas::TrajectoryOutput>(
+          system, parameters.livo.global_output.trajectory,
+          [publisher = trajectory_publisher.get()](const auto& snapshot) {
+            publisher->Publish(snapshot);
+          });
+    }
+    if (parameters.livo.loop_closure_enabled || trajectory) {
+      system.SetOnlineSubmapCallback([&](const auto& update) {
+#if LIVO_ATLAS_ONLINE_BACKEND
+        if (backend) backend->Observe(update);
+#endif
+        if (trajectory) trajectory->Observe(update);
+      });
+      after_process = [&] {
+#if LIVO_ATLAS_ONLINE_BACKEND
+        if (backend) backend->Poll();
+#endif
+        if (trajectory) trajectory->Poll();
+      };
+    }
+    if (trajectory) trajectory->Poll();
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(after_process));
 #if LIVO_ATLAS_ROS_VERSION == 1
@@ -65,7 +94,7 @@ int main(int argc, char** argv) {
       ros::spinOnce();
       if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
         // A paused simulation clock must not prevent taking worker results.
-        if (parameters.livo.loop_closure_enabled) {
+        if (parameters.livo.loop_closure_enabled || trajectory) {
           backend_rate.sleep();
         } else {
           rate.sleep();
@@ -100,6 +129,32 @@ int main(int argc, char** argv) {
 #endif
     {
       system.Finish();
+    }
+    if (trajectory) {
+      trajectory->Finish();
+      const auto s = trajectory->GetStats();
+      // Delivery means the SDK consumer returned, including after ROS stopped.
+      std::printf(
+          "livo_atlas trajectory: observed=%llu submitted=%llu coalesced=%llu "
+          "delivered=%llu resource_limited=%llu failed=%llu revision=%llu "
+          "pose_version=%llu frames=%llu peak_work_payloads=%llu "
+          "peak_pending=%llu "
+          "timestamp_reads=%llu max_observe_seconds=%.9g max_poll_seconds=%.9g "
+          "max_worker_seconds=%.9g last_latency_seconds=%.9g\n",
+          static_cast<unsigned long long>(s.observed),
+          static_cast<unsigned long long>(s.submitted),
+          static_cast<unsigned long long>(s.coalesced),
+          static_cast<unsigned long long>(s.delivered),
+          static_cast<unsigned long long>(s.resource_limited),
+          static_cast<unsigned long long>(s.failed),
+          static_cast<unsigned long long>(s.last_revision),
+          static_cast<unsigned long long>(s.last_pose_version),
+          static_cast<unsigned long long>(s.last_frame_count),
+          static_cast<unsigned long long>(s.peak_work_payloads),
+          static_cast<unsigned long long>(s.peak_pending),
+          static_cast<unsigned long long>(s.timestamp_reads),
+          s.max_observe_seconds, s.max_poll_seconds, s.max_worker_seconds,
+          s.last_latency_seconds);
     }
     ros_node.ReportInputs();
   } catch (const std::exception& error) {

@@ -27,6 +27,7 @@ KeyframeTrajectoryPublisher::KeyframeTrajectoryPublisher(ros::NodeHandle& node,
 
 void KeyframeTrajectoryPublisher::Publish(
     const TrajectorySnapshot& snapshot) const {
+  if (!ros::ok()) return;
   auto [message, path] =
       ros_detail::MakeTrajectoryMessages<livo_atlas::KeyframeTrajectory,
                                          nav_msgs::Path>(
@@ -36,7 +37,7 @@ void KeyframeTrajectoryPublisher::Publish(
           });
   trajectory_.publish(message);
   path_.publish(path);
-  if (snapshot.status == TrajectoryStatus::kReady &&
+  if (ros::ok() && snapshot.status == TrajectoryStatus::kReady &&
       message.status == livo_atlas::KeyframeTrajectory::ERROR)
     throw std::invalid_argument(message.error);
 }

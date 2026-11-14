@@ -97,7 +97,11 @@ def parse_arguments(arguments=None):
                         help='Enable the online loop backend and its required storage')
     parser.add_argument('--global-output', action='store_true',
                         help='Publish map correction and current global pose using online storage')
+    parser.add_argument('--keyframe-trajectory', action='store_true',
+                        help='Record versioned keyframe history; enables global output and online storage')
     args = parser.parse_args(arguments)
+    if args.keyframe_trajectory:
+        args.global_output = True
     if args.global_output and args.submap_mode == 'keyframe_groups':
         parser.error('--global-output requires online submaps')
     if args.loop_closure and args.submap_mode == 'keyframe_groups':
@@ -130,7 +134,7 @@ def main():
     import numpy as np
     import psutil
     import rclpy
-    from rclpy.qos import QoSProfile, ReliabilityPolicy
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
     from rclpy.utilities import get_rmw_implementation_identifier
     import rosbag2_py
     from rosgraph_msgs.msg import Clock
@@ -180,6 +184,8 @@ def main():
         parameters['submaps.mode'] = args.submap_mode
     if args.global_output:
         parameters['global_output.enabled'] = True
+    if args.keyframe_trajectory:
+        parameters['global_output.trajectory.enabled'] = True
     if args.loop_closure:
         parameters['loop_closure.enabled'] = True
     if args.geometry_submaps:
@@ -206,6 +212,13 @@ def main():
                               publish_tf=parameters.get('global_output.publish_tf', True),
                               map_frame=parameters.get('global_output.map_frame', 'map'),
                               raw_poses=[], global_poses=[], tf_messages=[])
+    trajectory_observation = dict(
+        enabled=parameters.get('global_output.trajectory.enabled', False),
+        samples=[], path_samples=[])
+    try:
+        from .trajectory_records import trajectory_record, trajectory_path_record
+    except ImportError:
+        from trajectory_records import trajectory_record, trajectory_path_record
 
     def stamp_ns(stamp):
         return stamp.sec * 1000000000 + stamp.nanosec
@@ -272,6 +285,18 @@ def main():
                       observer.create_subscription(RosPath, '/path', receive_path, 10)]
     subscriptions += [observer.create_subscription(PoseStamped, '/global_pose', receive_global, 2000),
                       observer.create_subscription(TFMessage, '/tf', receive_tf, 2000)]
+    if trajectory_observation['enabled']:
+        from livo_atlas.msg import KeyframeTrajectory
+        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        subscriptions += [
+            observer.create_subscription(KeyframeTrajectory, '/keyframe_trajectory',
+                                         lambda msg: trajectory_observation['samples'].append(
+                                             trajectory_record(msg, stamp_ns)), qos),
+            observer.create_subscription(RosPath, '/keyframe_path',
+                                         lambda msg: trajectory_observation['path_samples'].append(
+                                             trajectory_path_record(msg, stamp_ns)), qos),
+        ]
     log_path = output / 'node.log'
     process = None
     try:
@@ -373,6 +398,8 @@ def main():
     vio = node_log.count('VIO Time')
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
     (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
+    (output / 'keyframe-trajectory.json').write_text(
+        json.dumps(trajectory_observation, indent=2) + '\n')
     (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2))
     np.savetxt(output / 'odometry.txt', np.asarray(odometry))
     summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues,

@@ -1,6 +1,7 @@
 #include "livo_atlas/ros2/keyframe_trajectory_publisher.h"
 
 #include <rclcpp/qos.hpp>
+#include <rclcpp/utilities.hpp>
 
 #include <cstdint>
 #include <stdexcept>
@@ -13,7 +14,8 @@ namespace livo_atlas::ros2 {
 
 KeyframeTrajectoryPublisher::KeyframeTrajectoryPublisher(rclcpp::Node& node,
                                                          std::string map_frame)
-    : map_frame_(std::move(map_frame)) {
+    : map_frame_(std::move(map_frame)),
+      context_(node.get_node_base_interface()->get_context()) {
   GlobalOutputOptions options;
   options.enabled = true;
   options.map_frame = map_frame_;
@@ -26,6 +28,7 @@ KeyframeTrajectoryPublisher::KeyframeTrajectoryPublisher(rclcpp::Node& node,
 
 void KeyframeTrajectoryPublisher::Publish(
     const TrajectorySnapshot& snapshot) const {
+  if (!rclcpp::ok(context_)) return;
   auto [message, path] =
       ros_detail::MakeTrajectoryMessages<livo_atlas::msg::KeyframeTrajectory,
                                          nav_msgs::msg::Path>(
@@ -37,7 +40,7 @@ void KeyframeTrajectoryPublisher::Publish(
           });
   trajectory_->publish(message);
   path_->publish(path);
-  if (snapshot.status == TrajectoryStatus::kReady &&
+  if (rclcpp::ok(context_) && snapshot.status == TrajectoryStatus::kReady &&
       message.status == livo_atlas::msg::KeyframeTrajectory::ERROR)
     throw std::invalid_argument(message.error);
 }

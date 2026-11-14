@@ -17,6 +17,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -73,7 +74,11 @@ def parse_arguments(arguments=None):
                         help='Enable the online loop backend and its required storage')
     parser.add_argument('--global-output', action='store_true',
                         help='Publish map correction and current global pose using online storage')
+    parser.add_argument('--keyframe-trajectory', action='store_true',
+                        help='Record versioned keyframe history; enables global output and online storage')
     args = parser.parse_args(arguments)
+    if args.keyframe_trajectory:
+        args.global_output = True
     if args.global_output and args.submap_mode == 'keyframe_groups':
         parser.error('--global-output requires online submaps')
     if args.loop_closure and args.submap_mode == 'keyframe_groups':
@@ -224,6 +229,8 @@ def main():
             run(['rosparam', 'set', '/submaps/mode', args.submap_mode])
         if args.global_output:
             run(['rosparam', 'set', '/global_output/enabled', 'true'])
+        if args.keyframe_trajectory:
+            run(['rosparam', 'set', '/global_output/trajectory/enabled', 'true'])
         if args.loop_closure:
             run(['rosparam', 'set', '/loop_closure/enabled', 'true'])
         if args.geometry_submaps:
@@ -241,15 +248,17 @@ def main():
         import psutil
         import rosbag
         import rospy as ros_module
-        from nav_msgs.msg import Odometry
+        from nav_msgs.msg import Odometry, Path as RosPath
         from geometry_msgs.msg import PoseStamped
         from tf2_msgs.msg import TFMessage
         from rosgraph_msgs.msg import Clock
         from sensor_msgs.msg import Image, PointCloud2
         try:
             from .output_digest import cloud_digest, image_digest
+            from .trajectory_records import trajectory_record, trajectory_path_record
         except ImportError:
             from output_digest import cloud_digest, image_digest
+            from trajectory_records import trajectory_record, trajectory_path_record
         rospy = ros_module
         rospy.init_node('baseline_observer', disable_signals=True)
         image_queue_size = rospy.get_param('/publish/image_queue_size', 1)
@@ -258,6 +267,19 @@ def main():
             publish_tf=rospy.get_param('/global_output/publish_tf', True),
             map_frame=rospy.get_param('/global_output/map_frame', 'map'),
             raw_poses=[], global_poses=[], tf_messages=[])
+        trajectory_observation = dict(
+            enabled=rospy.get_param('/global_output/trajectory/enabled', False),
+            samples=[], path_samples=[])
+
+        def receive_trajectory(message):
+            value = trajectory_record(message, lambda stamp: stamp.to_nsec())
+            with lock:
+                trajectory_observation['samples'].append(value)
+
+        def receive_trajectory_path(message):
+            value = trajectory_path_record(message, lambda stamp: stamp.to_nsec())
+            with lock:
+                trajectory_observation['path_samples'].append(value)
 
         def pose_record(message, pose):
             return dict(stamp_ns=message.header.stamp.to_nsec(),
@@ -324,6 +346,16 @@ def main():
             rospy.Subscriber('/global_pose', PoseStamped, receive_global, queue_size=2000),
             rospy.Subscriber('/tf', TFMessage, receive_tf, queue_size=2000),
         ])
+        if trajectory_observation['enabled']:
+            # Match the generated schema to the explicitly selected workspace.
+            sys.path.insert(0, str(workspace / 'devel/lib/python3/dist-packages'))
+            from livo_atlas.msg import KeyframeTrajectory
+            subscribers.extend([
+                rospy.Subscriber('/keyframe_trajectory', KeyframeTrajectory,
+                                 receive_trajectory, queue_size=1, buff_size=16 * 1024 * 1024),
+                rospy.Subscriber('/keyframe_path', RosPath, receive_trajectory_path,
+                                 queue_size=1, buff_size=32 * 1024 * 1024),
+            ])
         node_command = [str(binary), '__name:=laserMapping']
         if args.gdb:
             node_command = ['gdb', '-batch', '-ex', 'set pagination off',
@@ -390,6 +422,8 @@ def main():
         stop(node)
         with lock:
             (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
+            (output / 'keyframe-trajectory.json').write_text(
+                json.dumps(trajectory_observation, indent=2) + '\n')
         if args.semantic_output:
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
         if args.save_keyframes:

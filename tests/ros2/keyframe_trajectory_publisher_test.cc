@@ -20,6 +20,20 @@ namespace {
 using Message = livo_atlas::msg::KeyframeTrajectory;
 using Path = nav_msgs::msg::Path;
 
+TEST(KeyframeTrajectoryPublisherTest, ClosedNodeContextSkipsConversion) {
+  auto context = std::make_shared<rclcpp::Context>();
+  context->init(0, nullptr);
+  auto node = std::make_shared<rclcpp::Node>(
+      "trajectory_shutdown_test", rclcpp::NodeOptions().context(context));
+  KeyframeTrajectoryPublisher publisher(*node, "map");
+  context->shutdown("test shutdown");
+  // The process-wide default context is still valid in this test.
+  EXPECT_TRUE(rclcpp::ok());
+  auto source = test::TrajectoryFixture();
+  source.keyframes[0].timestamp = -1;
+  EXPECT_NO_THROW(publisher.Publish(source));
+}
+
 bool WaitForTrajectory(rclcpp::Executor& executor,
                        const std::function<bool()>& ready) {
   const auto deadline =

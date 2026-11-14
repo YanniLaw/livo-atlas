@@ -1,0 +1,4 @@
+<launch>
+  <test test-name="keyframe_trajectory_shutdown_test" pkg="livo_atlas"
+        type="keyframe_trajectory_shutdown_test" time-limit="20" />
+</launch>

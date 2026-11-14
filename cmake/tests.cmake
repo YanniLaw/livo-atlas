@@ -87,6 +87,10 @@ if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
   catkin_add_executable_with_gtest(global_output_clock_test tests/ros1/global_output_clock_test.cc)
   target_include_directories(global_output_clock_test PRIVATE ${PROJECT_SOURCE_DIR}/tests ${tf2_msgs_INCLUDE_DIRS})
   target_link_libraries(global_output_clock_test livo_atlas_ros1_node)
+  catkin_add_executable_with_gtest(keyframe_trajectory_shutdown_test
+    tests/ros1/keyframe_trajectory_shutdown_test.cc)
+  target_include_directories(keyframe_trajectory_shutdown_test PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_link_libraries(keyframe_trajectory_shutdown_test livo_atlas_ros1_node)
 endif()
 
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "2")

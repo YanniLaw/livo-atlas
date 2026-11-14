@@ -1,6 +1,10 @@
 #include "core/fixtures.h"
 #include "livo_atlas/ros1/livo_node.h"
+#include "livo_atlas/ros1/keyframe_trajectory_publisher.h"
 #include "ros1/global_output_test_support.h"
+#include "trajectory_fixture.h"
+
+#include <livo_atlas/KeyframeTrajectory.h>
 
 #include <opencv2/core.hpp>
 
@@ -52,6 +56,40 @@ TEST_F(GlobalClockTest, ZeroRepeatRollbackAndResume) {
   }
   EXPECT_TRUE(global_[0].header.stamp.toNSec() <
               global_[1].header.stamp.toNSec());
+}
+
+TEST_F(GlobalClockTest, HistoricalVersionsDoNotSynthesizeCurrentOutput) {
+  Open();
+  SetTime(10);
+  publisher_->Publish(LidarResult(), nullptr, MapCorrection{});
+  ASSERT_TRUE(
+      Wait([&] { return global_.size() == 1 && transforms_.size() == 1; }));
+  KeyframeTrajectoryPublisher history(node_, "map");
+  std::vector<::livo_atlas::KeyframeTrajectory> messages;
+  auto subscription = node_.subscribe<::livo_atlas::KeyframeTrajectory>(
+      "/keyframe_trajectory", 10,
+      [&](const ::livo_atlas::KeyframeTrajectory::ConstPtr& msg) {
+        messages.push_back(*msg);
+      });
+  ASSERT_TRUE(Wait([&] { return subscription.getNumPublishers() > 0; }));
+  const int times[] = {0, 10, 10, 9, 11};
+  for (std::size_t i = 0; i < 5; ++i) {
+    SetTime(times[i]);
+    auto source = ::livo_atlas::test::TrajectoryFixture();
+    source.revision = i + 1;
+    source.pose_version = i;
+    source.optimized_frame_count = i ? 2 : 0;
+    source.parent_frame = i ? PoseFrame::kMap : PoseFrame::kOdom;
+    history.Publish(source);
+    ASSERT_TRUE(Wait([&] { return messages.size() == i + 1; }));
+    EXPECT_EQ(messages.back().revision, i + 1);
+    EXPECT_EQ(messages.back().pose_version, i);
+    EXPECT_EQ(messages.back().header.stamp.toNSec(), 9500000000LL);
+  }
+  Drain();
+  EXPECT_EQ(global_.size(), 1);
+  EXPECT_EQ(transforms_.size(), 1);
+  EXPECT_EQ(odometry_.size(), 1);
 }
 
 TEST_F(GlobalClockTest, VisualWaitingAndPropagationDoNotAdvanceGlobalOutput) {
