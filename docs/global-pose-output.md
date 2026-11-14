@@ -1,6 +1,6 @@
 # 全局 TF 与当前位姿（C3a）
 
-状态：实现、正式构建矩阵、bag 主验收与整阶段独立审阅完成；1项验收器 Minor 延期，见验证记录。
+状态：实现、正式构建矩阵、bag 主验收与整阶段独立审阅完成；验收器顺序检查已[补验关闭](p6-02c3a-followup-validation.md)。
 设计和验收依据见 [C3a 设计](superpowers/specs/2026-11-14-p6-02c3a-global-pose-design.md)、
 [实施计划](superpowers/plans/2026-11-14-p6-02c3a-global-pose.md)及[验证记录](p6-02c3a-validation.md)。
 

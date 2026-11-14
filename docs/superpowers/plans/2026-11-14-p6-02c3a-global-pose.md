@@ -135,3 +135,8 @@ Important/Critical先RED再修复，一次修复轮次及完整suite，不发起
 14组构建与消费者、12组真实入口、12次官方回放通过，无Critical/Important。
 1项回放验收器版本解释顺序检查Minor延期，当前六份global ON记录已另行只读核对无回退；
 具体证据、裁定和限制见[验证记录](../../p6-02c3a-validation.md)。保留本地framework_completion，不合并或推送。
+
+
+2026-11-15补记：原验收器Minor已关闭，新版拒绝不可解释为非递减版本序列的记录，
+保留同值修正的多版本解释。5个新增用例、4个原合成用例及12份原始录制复验通过；
+源码/日志与迁移约定见[补验记录](../../p6-02c3a-followup-validation.md)。
