@@ -39,7 +39,8 @@ livo_atlas_library(calibration src/sensor/extrinsics.cc src/camera/camera_config
 target_link_libraries(livo_atlas_calibration PUBLIC Eigen3::Eigen)
 livo_atlas_library(keyframes src/mapping/keyframe.cc src/mapping/keyframe_selector.cc
   src/mapping/submap.cc src/mapping/online_submap.cc src/mapping/pose_snapshot.cc
-  src/mapping/submap_pose_change.cc src/mapping/map_correction.cc)
+  src/mapping/submap_pose_change.cc src/mapping/map_correction.cc
+  src/mapping/trajectory_snapshot.cc)
 target_include_directories(livo_atlas_keyframes PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_keyframes PUBLIC livo_atlas_calibration pcl_common opencv_core)
 livo_atlas_library(geometry src/mapping/geometry_submap.cc src/mapping/geometry_mapper.cc)
