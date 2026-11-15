@@ -6,6 +6,7 @@ import threading
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -158,6 +159,12 @@ class OnlineWorkerTest(unittest.TestCase):
         self.reset()
         self.view(generation="2")
         self.assertEqual(self.receive()["code"], "protocol_error")
+
+    def test_training_exception_is_a_worker_error(self):
+        self.reset()
+        with mock.patch.object(self.model, "train_candidate", side_effect=ValueError("bad training")):
+            self.view()
+            self.assertEqual(self.receive()["code"], "worker_error")
 
 
 class OnlineWorkerStartupTest(unittest.TestCase):

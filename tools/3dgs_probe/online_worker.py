@@ -85,7 +85,10 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
                 if kind != "decision" or _identity(header) != _identity(pending):
                     raise ValueError("Expected the matching candidate decision")
                 accept = header["action"] == "accept"
-                model.decide(accept)
+                try:
+                    model.decide(accept)
+                except Exception as error:
+                    raise RuntimeError("Gaussian decision failed: " + str(error)) from error
                 reply = dict(_base("commit_ok" if accept else "discard_ok", session),
                              **{key: pending[key] for key in
                                 ("job_id", "generation", "submap_id", "pose_version")})
@@ -100,7 +103,10 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
                 submap = header.get("submap_id")
                 if current is not None and (generation <= current[0] or version < current[1]):
                     raise ValueError("Reset generation or pose version went backwards")
-                model.reset(generation)
+                try:
+                    model.reset(generation)
+                except Exception as error:
+                    raise RuntimeError("Gaussian reset failed: " + str(error)) from error
                 current = (generation, version, submap)
                 last_frame = -1
                 last_frontier = 0
@@ -124,7 +130,11 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
                 raise ValueError("View identity or ordering is invalid")
             last_job, last_frame = job, frame
             last_frontier, last_revision = frontier, revision
-            preview, metrics = model.train_candidate(decode_view(header, body))
+            view = decode_view(header, body)
+            try:
+                preview, metrics = model.train_candidate(view)
+            except Exception as error:
+                raise RuntimeError("Gaussian training failed: " + str(error)) from error
             pending = header
             candidate = dict(_base("candidate", session), **{
                 key: header[key] for key in

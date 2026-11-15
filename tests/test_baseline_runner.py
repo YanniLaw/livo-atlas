@@ -9,6 +9,15 @@ from tools import run_baseline, run_ros2_baseline
 
 
 class BaselineRunnerTest(unittest.TestCase):
+    def test_gaussian_preview_requires_a_complete_pair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertFalse(run_baseline.gaussian_preview_available(root))
+            (root / 'preview-1.png').write_bytes(b'image')
+            self.assertFalse(run_baseline.gaussian_preview_available(root))
+            (root / 'preview-1.json').write_text('{}')
+            self.assertTrue(run_baseline.gaussian_preview_available(root))
+
     def test_mapping_process_requires_zero_exit_status(self):
         self.assertTrue(exited_cleanly(0, '', False))
         self.assertFalse(exited_cleanly(-11, '', False))
@@ -89,8 +98,46 @@ class GlobalBaselineParserTest(unittest.TestCase):
                 self.assertIn('--geometry-map requires online submaps', result.stderr)
                 self.assertFalse((root / 'output').exists())
 
+    def test_gaussian_arguments_are_paired_and_require_online_submaps(self):
+        for flags in (['--gaussian-socket', '/tmp/worker.sock'],
+                      ['--gaussian-output', '/tmp/preview'],
+                      ['--gaussian-socket', '', '--gaussian-output', '/tmp/preview'],
+                      ['--gaussian-socket', '/tmp/worker.sock', '--gaussian-output', '',],
+                      ['--gaussian-socket', '/tmp/worker.sock', '--gaussian-output', '/tmp/preview',
+                       '--submap-mode', 'keyframe_groups']):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                result = self.invoke('run_baseline.py', root, *flags)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse((root / 'output').exists())
+
+    def test_gaussian_rejects_existing_output_without_modifying_it(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            previews = root / 'previews'
+            previews.mkdir()
+            sentinel = previews / 'keep.txt'
+            sentinel.write_text('keep')
+            result = self.invoke('run_baseline.py', root,
+                                 '--gaussian-socket', str(root / 'worker.sock'),
+                                 '--gaussian-output', str(previews))
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(sentinel.read_text(), 'keep')
+            self.assertFalse((root / 'output').exists())
+
 
 class GlobalBaselineOptionsTest(unittest.TestCase):
+    def test_gaussian_arguments_enable_required_storage(self):
+        options = run_baseline.parse_arguments(
+            ['--workspace', '/unused/workspace', '--bag', '/unused/bag',
+             '--output', '/unused/output', '--gaussian-socket', '/tmp/worker.sock',
+             '--gaussian-output', '/tmp/gaussian-test-output'])
+        self.assertEqual(options.submap_mode, 'online')
+        self.assertTrue(options.save_keyframes)
+        self.assertTrue(options.save_submaps)
+        self.assertFalse(options.loop_closure)
+        self.assertFalse(options.global_output)
+
     def test_geometry_map_enables_only_its_required_inputs(self):
         for module in (run_baseline, run_ros2_baseline):
             with self.subTest(module=module.__name__):

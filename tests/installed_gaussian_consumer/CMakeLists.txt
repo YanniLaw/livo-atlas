@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+project(livo_atlas_installed_gaussian_consumer LANGUAGES CXX)
+find_package(livo_atlas REQUIRED CONFIG)
+add_executable(installed_gaussian_consumer main.cc)
+target_link_libraries(installed_gaussian_consumer PRIVATE livo_atlas::online_gaussian)

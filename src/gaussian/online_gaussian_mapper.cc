@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <random>
 #include <stdexcept>
@@ -24,7 +25,6 @@
 #include "gaussian/wire_protocol.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/io/reconstruction_view.h"
-#include "mapping/geometry_validation.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -37,6 +37,7 @@ constexpr std::uint64_t kMaxFrames = 512;
 constexpr std::size_t kMaxPixels = 1000000;
 constexpr std::size_t kMaxPoints = 100000;
 constexpr std::size_t kMaxPreviews = 8;
+constexpr std::array<double, 7> kLatencyBounds = {0.1, 0.25, 0.5, 1, 2, 5, 10};
 
 std::string NewSessionId() {
   std::random_device random;
@@ -102,33 +103,6 @@ cv::FileStorage Parse(const GaussianMessage& message, const std::string& type,
   return json;
 }
 
-bool ContainsPath(const fs::path& parent, const fs::path& path) {
-  auto left = parent.begin();
-  auto right = path.begin();
-  for (; left != parent.end(); ++left, ++right) {
-    if (right == path.end() || *left != *right) return false;
-  }
-  return true;
-}
-
-void CreateOutputDirectory(const fs::path& directory, const fs::path& dataset) {
-  const auto parent = fs::canonical(fs::absolute(directory).parent_path());
-  const auto output = parent / directory.filename();
-  const auto source = fs::weakly_canonical(dataset);
-  if (directory.filename().empty() || ContainsPath(source, output) ||
-      ContainsPath(output, source))
-    throw std::invalid_argument(
-        "Gaussian output must be separate from the dataset");
-  std::error_code error;
-  const auto existing = fs::symlink_status(output, error);
-  if ((!error && existing.type() != fs::file_type::not_found) ||
-      (error && error != std::errc::no_such_file_or_directory))
-    throw std::invalid_argument(
-        "Gaussian output directory must not already exist");
-  if (!fs::create_directory(output))
-    throw std::runtime_error("Could not create Gaussian output directory");
-}
-
 void WriteFile(const fs::path& path, const std::string& data) {
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
   file.exceptions(std::ios::failbit | std::ios::badbit);
@@ -179,6 +153,16 @@ std::vector<std::uint8_t> ViewBody(const ReconstructionView& view) {
     }
   }
   return body;
+}
+
+void ValidateRevision(const OnlineSubmap& revision, const PoseSnapshot& poses) {
+  ValidateSubmap(revision.primary);
+  const bool sealed = revision.state == OnlineSubmapState::kSealed;
+  const auto& members = revision.primary.keyframe_ids;
+  if ((revision.state != OnlineSubmapState::kActive && !sealed) ||
+      members.size() > kMaxFrames || members.back() >= poses.frame_count ||
+      revision.membership_revision != members.size() + (sealed ? 1 : 0))
+    throw std::invalid_argument("Invalid Gaussian submap revision");
 }
 
 void ApplyRevision(std::optional<OnlineSubmap>* current,
@@ -238,15 +222,14 @@ OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
   if (!options_.enabled) return;
   const auto camera_error = ValidateCameraConfig(camera_);
   if (!camera_error.empty()) throw std::invalid_argument(camera_error);
-  const auto name = fs::absolute(options_.socket_path).string();
-  if (name.size() >= sizeof(sockaddr_un::sun_path))
-    throw std::invalid_argument("Gaussian socket path is too long");
   poses_ = system.GetPoseSnapshot();
   const auto view = system.GetKeyframeReadView();
   if (!poses_ || poses_->frame_count || view.frame_count())
     throw std::invalid_argument(
         "Gaussian mapper requires a new keyframe session");
-  CreateOutputDirectory(options_.output_directory, view.directory());
+  ValidateOnlineGaussianPaths(options_, view.directory());
+  if (!fs::create_directory(options_.output_directory))
+    throw std::runtime_error("Could not create Gaussian output directory");
   state_sequence_ = 1;
   thread_ = std::thread(&OnlineGaussianMapper::Run, this);
 }
@@ -313,7 +296,7 @@ void OnlineGaussianMapper::Observe(const OnlineSubmapUpdate& update) noexcept {
     auto group = submap_;
     bool found_keyframe = false;
     for (const auto& revision : update.revisions) {
-      geometry_detail::ValidateRevision(revision, next);
+      ValidateRevision(revision, next);
       ApplyRevision(&group, revision);
       const bool contains =
           update.keyframe && !revision.primary.keyframe_ids.empty() &&
@@ -398,10 +381,22 @@ void OnlineGaussianMapper::HandleReply(Reply reply) {
       if (reply.command.accept &&
           IsCurrent(candidate_->generation, candidate_->submap_id,
                     candidate_->pose_version)) {
+        candidate_->latency_seconds = Seconds(in_flight_->observed_at);
+        candidate_->confirmed_at_unix_seconds =
+            std::chrono::duration<double>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
         ready_ = candidate_;
         unsaved_ = ready_;
         ++stats_.accepted;
-        stats_.last_latency_seconds = Seconds(in_flight_->observed_at);
+        stats_.last_latency_seconds = candidate_->latency_seconds;
+        stats_.total_latency_seconds += candidate_->latency_seconds;
+        stats_.max_latency_seconds =
+            std::max(stats_.max_latency_seconds, candidate_->latency_seconds);
+        const auto bucket =
+            std::lower_bound(kLatencyBounds.begin(), kLatencyBounds.end(),
+                             candidate_->latency_seconds);
+        ++stats_.latency_buckets[std::distance(kLatencyBounds.begin(), bucket)];
         ++state_sequence_;
       } else if (reply.command.accept) {
         ++stats_.stale;
@@ -639,6 +634,7 @@ void OnlineGaussianMapper::Run() noexcept {
           throw std::runtime_error("Gaussian reset confirmation mismatch");
         reply.kind = ReplyKind::kReset;
       } else if (command.kind == CommandKind::kView) {
+        const auto worker_started = Clock::now();
         const auto& source = command.source;
         const auto& frame = *source.keyframe;
         reply.kind = ReplyKind::kSkipped;
@@ -699,6 +695,7 @@ void OnlineGaussianMapper::Run() noexcept {
             preview->optimized_frame_count = view.optimized_frame_count;
             preview->parent_from_submap = parent_from_submap;
             preview->capture_time = view.image_timestamp;
+            preview->worker_seconds = Seconds(worker_started);
             CheckIdentity(json, *preview);
             if (ReadId(json["membership_revision"]) !=
                     preview->membership_revision ||
@@ -794,9 +791,12 @@ void OnlineGaussianMapper::Run() noexcept {
               << "[";
           for (const auto id : preview.frame_ids) out << std::to_string(id);
           out << "]"
-              << "capture_time" << preview.capture_time << "width"
-              << preview.width << "height" << preview.height << "steps"
-              << preview.steps << "rgb_l1" << preview.rgb_l1 << "depth_l1_m"
+              << "capture_time" << preview.capture_time << "latency_seconds"
+              << preview.latency_seconds << "worker_seconds"
+              << preview.worker_seconds << "confirmed_at_unix_seconds"
+              << preview.confirmed_at_unix_seconds << "width" << preview.width
+              << "height" << preview.height << "steps" << preview.steps
+              << "rgb_l1" << preview.rgb_l1 << "depth_l1_m"
               << preview.depth_l1_m << "gaussian_count"
               << preview.gaussian_count << "supervised_depth_pixels"
               << preview.supervised_depth_pixels << "nonzero_gradient"

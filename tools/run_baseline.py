@@ -41,6 +41,18 @@ def make_trajectory_path(package, sequence_name):
     return path
 
 
+def gaussian_preview_available(directory):
+    """A published metadata file and its image form one complete preview."""
+    return any(path.with_suffix('.png').is_file()
+               for path in Path(directory).glob('preview-*.json'))
+
+
+def nonempty_path(value):
+    if not value.strip():
+        raise argparse.ArgumentTypeError('path must not be empty')
+    return Path(value)
+
+
 def parse_arguments(arguments=None):
     """Validate feature requirements before creating output or importing ROS."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -78,7 +90,27 @@ def parse_arguments(arguments=None):
                         help='Record versioned keyframe history; enables global output and online storage')
     parser.add_argument('--geometry-map', action='store_true',
                         help='Record versioned geometry maps; enables global output and online storage')
+    parser.add_argument('--gaussian-socket', type=nonempty_path,
+                        help='Socket of an already started online Gaussian worker')
+    parser.add_argument('--gaussian-output', type=nonempty_path,
+                        help='New directory for online Gaussian previews')
     args = parser.parse_args(arguments)
+    if bool(args.gaussian_socket) != bool(args.gaussian_output):
+        parser.error('--gaussian-socket and --gaussian-output must be provided together')
+    if args.gaussian_socket:
+        if args.submap_mode == 'keyframe_groups':
+            parser.error('--gaussian-socket requires online submaps')
+        if len(os.fsencode(args.gaussian_socket.absolute())) > 107:
+            parser.error('--gaussian-socket path is too long')
+        if os.path.lexists(args.gaussian_output):
+            parser.error('--gaussian-output must not already exist')
+        gaussian_output = args.gaussian_output.resolve()
+        baseline_output = args.output.resolve()
+        if gaussian_output == baseline_output or gaussian_output in baseline_output.parents:
+            parser.error('--gaussian-output must not contain the baseline output')
+        dataset = baseline_output / 'node_output/keyframes'
+        if gaussian_output == dataset or dataset in gaussian_output.parents:
+            parser.error('--gaussian-output must be separate from the keyframe dataset')
     if args.geometry_map and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-map requires online submaps')
     if args.keyframe_trajectory or args.geometry_map:
@@ -90,7 +122,7 @@ def parse_arguments(arguments=None):
     if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-submaps requires online submaps')
     if args.submap_mode is None:
-        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output) else 'keyframe_groups'
+        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output or args.gaussian_socket) else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
     if args.submap_mode == 'online':
@@ -241,6 +273,10 @@ def main():
             run(['rosparam', 'set', '/loop_closure/enabled', 'true'])
         if args.geometry_submaps:
             run(['rosparam', 'set', '/submaps/geometry/enabled', 'true'])
+        if args.gaussian_socket:
+            run(['rosparam', 'set', '/gaussian/enabled', 'true'])
+            run(['rosparam', 'set', '/gaussian/socket_path', str(args.gaussian_socket.resolve())])
+            run(['rosparam', 'set', '/gaussian/output_directory', str(args.gaussian_output.resolve())])
         if args.image_queue_size is not None:
             run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
         if args.save_products:
@@ -417,12 +453,16 @@ def main():
                          '--duration', str(args.duration), '--delay', '1', '--queue', '2000'], 'player')
         process_info = psutil.Process(node.pid)
         playback_started = time.monotonic()
+        first_gaussian_preview_seconds = None
         deadline = playback_started + args.duration / args.rate + 90
         last_report = playback_started
         while player.poll() is None:
             if node.poll() is not None:
                 raise RuntimeError('Mapping node exited during playback; see mapping.log')
             now = time.monotonic()
+            if (args.gaussian_output and first_gaussian_preview_seconds is None and
+                    gaussian_preview_available(args.gaussian_output)):
+                first_gaussian_preview_seconds = now - playback_started
             if now > deadline:
                 raise TimeoutError('Playback exceeded its timeout')
             cpu = process_info.cpu_times()
@@ -531,6 +571,7 @@ def main():
             'gdb_enabled': args.gdb,
             'clean_shutdown': exited_cleanly(node.returncode, log, args.gdb),
             'player_returncode': player.returncode,
+            'first_gaussian_preview_during_playback_s': first_gaussian_preview_seconds,
             'commands': commands,
             'elapsed_wall_s': time.monotonic() - started,
             'limitations': ['No ground truth in this bag; this is a behavior baseline.',

@@ -256,6 +256,25 @@ TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
+
+TEST_F(Ros1ParametersTest, GaussianSchemaValidatesBeforeOpeningOutput) {
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.enabled);
+  node_->setParam("gaussian/socket_path", 123);
+  node_->setParam("gaussian/output_directory", 456);
+  EXPECT_NO_THROW(ReadNodeOptions(*node_));
+  node_->setParam("gaussian/enabled", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/socket_path", "/tmp/gaussian-test.sock");
+  node_->setParam("gaussian/output_directory", "/tmp/gaussian-test-output");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  const auto config = ReadNodeOptions(*node_).livo;
+  EXPECT_TRUE(config.gaussian.enabled);
+  EXPECT_EQ(config.gaussian.socket_path, "/tmp/gaussian-test.sock");
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
 }  // namespace
 }  // namespace livo_atlas::ros1
 

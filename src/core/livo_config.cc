@@ -37,6 +37,13 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   config.loop_closure_enabled = reader.Boolean("loop_closure.enabled", false);
   config.loop_closure_options_file =
       reader.String("loop_closure.options_file", "");
+  auto& gaussian = config.gaussian;
+  gaussian.enabled = reader.Boolean("gaussian.enabled", false);
+  if (gaussian.enabled) {
+    gaussian.socket_path = reader.String("gaussian.socket_path", "");
+    gaussian.output_directory = reader.String("gaussian.output_directory", "");
+    ValidateOnlineGaussianOptions(gaussian);
+  }
   auto& global = config.global_output;
   global.enabled = reader.Boolean("global_output.enabled", global.enabled);
   global.publish_tf =
@@ -289,6 +296,11 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
        options.submap_mode != SubmapMode::kOnline))
     throw std::invalid_argument(
         "global_output.enabled requires keyframes and online submaps");
+  if (gaussian.enabled &&
+      (!options.keyframes.enabled || !options.submaps.enabled ||
+       options.submap_mode != SubmapMode::kOnline))
+    throw std::invalid_argument(
+        "gaussian.enabled requires keyframes and online submaps");
   if (geometry_output.enabled &&
       options.submaps.max_keyframes > static_cast<int>(kMaxGeometryKeyframes))
     throw std::invalid_argument(

@@ -102,6 +102,49 @@ TEST_F(GlobalOutputOptionsTest, DisabledPreservesLegacyConfiguration) {
   EXPECT_FALSE(fs::exists(directory_));
 }
 
+TEST_F(GlobalOutputOptionsTest, GaussianRequiresPathsAndOnlineStorage) {
+  GlobalParameters parameters(directory_);
+  EXPECT_FALSE(LoadLivoConfig(parameters).gaussian.enabled);
+  parameters.booleans_["gaussian.enabled"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.strings_["gaussian.socket_path"] = "/tmp/gaussian-test.sock";
+  parameters.strings_["gaussian.output_directory"] =
+      "/tmp/gaussian-test-output";
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.EnableOnlineStorage();
+  const auto config = LoadLivoConfig(parameters);
+  EXPECT_TRUE(config.gaussian.enabled);
+  EXPECT_EQ(config.gaussian.socket_path, "/tmp/gaussian-test.sock");
+  EXPECT_EQ(config.gaussian.output_directory, "/tmp/gaussian-test-output");
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
+TEST_F(GlobalOutputOptionsTest,
+       GaussianPathCheckDoesNotCreateOrOverwriteFiles) {
+  fs::create_directories(directory_);
+  const auto dataset = directory_ / "future-dataset/keyframes";
+  OnlineGaussianOptions options;
+  options.enabled = true;
+  options.socket_path = directory_ / "worker.sock";
+  options.output_directory = directory_ / "previews";
+  EXPECT_NO_THROW(ValidateOnlineGaussianPaths(options, dataset));
+  EXPECT_FALSE(fs::exists(dataset));
+  EXPECT_FALSE(fs::exists(options.output_directory));
+  fs::create_directory(options.output_directory);
+  const auto sentinel = options.output_directory / "keep";
+  std::ofstream(sentinel) << "unchanged";
+  EXPECT_THROW(ValidateOnlineGaussianPaths(options, dataset), std::exception);
+  std::ifstream input(sentinel);
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}),
+            "unchanged");
+  options.output_directory = directory_ / "future-dataset";
+  EXPECT_THROW(ValidateOnlineGaussianPaths(options, dataset), std::exception);
+  options.output_directory = directory_ / "another-output";
+  options.socket_path = directory_ / std::string(108, 's');
+  EXPECT_THROW(ValidateOnlineGaussianPaths(options, dataset),
+               std::invalid_argument);
+}
+
 TEST_F(GlobalOutputOptionsTest, StartupBufferDefaultsOnAndCanBeDisabled) {
   GlobalParameters parameters(directory_);
   EXPECT_TRUE(LoadLivoConfig(parameters).system.buffer_before_first_lidar);

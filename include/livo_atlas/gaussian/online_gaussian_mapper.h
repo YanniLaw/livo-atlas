@@ -1,6 +1,7 @@
 #ifndef LIVO_ATLAS_GAUSSIAN_ONLINE_GAUSSIAN_MAPPER_H_
 #define LIVO_ATLAS_GAUSSIAN_ONLINE_GAUSSIAN_MAPPER_H_
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -30,6 +31,7 @@ struct GaussianPreview {
   std::vector<std::uint64_t> frame_ids;
   RigidTransform parent_from_submap;
   double capture_time = 0, rgb_l1 = 0, depth_l1_m = 0;
+  double latency_seconds = 0, worker_seconds = 0, confirmed_at_unix_seconds = 0;
   int width = 0, height = 0, steps = 0, gaussian_count = 0;
   int supervised_depth_pixels = 0;
   bool nonzero_gradient = false, parameter_updated = false;
@@ -49,6 +51,9 @@ struct OnlineGaussianStats {
   bool has_submap = false, finished = false;
   double max_observe_seconds = 0, max_poll_seconds = 0,
          last_latency_seconds = 0;
+  double max_latency_seconds = 0, total_latency_seconds = 0;
+  // Confirmation latency buckets: <= 0.1, 0.25, 0.5, 1, 2, 5, 10, > 10 s.
+  std::array<std::uint64_t, 8> latency_buckets{};
   std::string error;
 };
 
@@ -105,7 +110,7 @@ class OnlineGaussianMapper {
   struct Reply {
     ReplyKind kind = ReplyKind::kError;
     Command command;
-    std::shared_ptr<const GaussianPreview> preview;
+    std::shared_ptr<GaussianPreview> preview;
     std::string detail;
   };
 
@@ -124,7 +129,8 @@ class OnlineGaussianMapper {
   std::shared_ptr<const PoseSnapshot> poses_;
   std::shared_ptr<const Keyframe> latest_keyframe_;
   std::optional<Source> pending_, in_flight_;
-  std::shared_ptr<const GaussianPreview> candidate_, ready_, unsaved_;
+  std::shared_ptr<GaussianPreview> candidate_;
+  std::shared_ptr<const GaussianPreview> ready_, unsaved_;
   std::vector<std::uint64_t> remote_frame_ids_;
   std::optional<bool> decision_;
   std::uint64_t generation_ = 0, next_job_ = 1, remote_generation_ = 0;

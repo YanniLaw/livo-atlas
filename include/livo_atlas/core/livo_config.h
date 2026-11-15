@@ -4,6 +4,7 @@
 #include <string>
 
 #include "livo_atlas/core/global_output_options.h"
+#include "livo_atlas/core/online_gaussian_options.h"
 #include "livo_atlas/core/parameter_reader.h"
 #include "livo_atlas/core/system_options.h"
 
@@ -20,6 +21,7 @@ struct LivoConfig {
   bool loop_closure_enabled = false;
   std::string loop_closure_options_file;
   GlobalOutputOptions global_output;
+  OnlineGaussianOptions gaussian;
 };
 
 // Reads the shared schema and validates it without opening output files.

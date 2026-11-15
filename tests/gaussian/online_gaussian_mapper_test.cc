@@ -1,29 +1,36 @@
 #include "livo_atlas/core/online_gaussian_options.h"
 #include "livo_atlas/gaussian/online_gaussian_mapper.h"
 
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
-#include <fcntl.h>
 #include <unistd.h>
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <numeric>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <opencv2/core/persistence.hpp>
 
-#include <atomic>
-#include <chrono>
-#include <cstdlib>
-#include <filesystem>
-#include <memory>
-#include <mutex>
-#include <iostream>
-#include <stdexcept>
-#include <thread>
-#include <vector>
-
 #include "core/fixtures.h"
 #include "gaussian/wire_protocol.h"
 #include "livo_atlas/core/livo_system.h"
+#if LIVO_ATLAS_TEST_WITH_BACKEND
+#include "core/loop_backend_fixtures.h"
+#endif
 
 namespace livo_atlas {
 namespace {
@@ -360,6 +367,12 @@ TEST_F(OnlineGaussianMapperTest,
   EXPECT_EQ(preview->frame_ids, (std::vector<std::uint64_t>{0, 2}));
   EXPECT_EQ(mapper_->GetStats().coalesced, 1u);
   EXPECT_EQ(mapper_->GetStats().peak_pending, 1u);
+  const auto stats = mapper_->GetStats();
+  EXPECT_EQ(std::accumulate(stats.latency_buckets.begin(),
+                            stats.latency_buckets.end(), std::uint64_t{0}),
+            stats.accepted);
+  EXPECT_GE(stats.max_latency_seconds, stats.last_latency_seconds);
+  EXPECT_GE(preview->latency_seconds, 0);
 }
 
 TEST_F(OnlineGaussianMapperTest,
@@ -382,6 +395,35 @@ TEST_F(OnlineGaussianMapperTest,
   EXPECT_EQ(mapper_->GetLatestPreview()->frame_ids,
             (std::vector<std::uint64_t>{0}));
 }
+
+#if LIVO_ATLAS_TEST_WITH_BACKEND
+TEST_F(OnlineGaussianMapperTest,
+       BackendFinishDeliversItsFinalPoseBeforeMapperShutdown) {
+  auto options = loop_test::OnlineOptions();
+  options.exporter.directory = root_ / "loop-dataset";
+  LivoSystem system(options);
+  LoopBackend backend(system, loop_test::NearbyOptions());
+  mapper_ = std::make_unique<OnlineGaussianMapper>(
+      system, options.frontend.calibration.camera, options_);
+  system.SetOnlineSubmapCallback([&](const auto& update) {
+    backend.Observe(update);
+    mapper_->Observe(update);
+  });
+  const auto cloud = loop_test::DenseCloud();
+  for (std::uint64_t id = 0; id < 4; ++id)
+    LoopBackendTestPeer::Append(system, loop_test::DenseFrame(id, cloud));
+  backend.Finish();
+  ASSERT_GT(system.GetPoseSnapshot()->version, 0u);
+  EXPECT_EQ(mapper_->GetStats().pose_version,
+            system.GetPoseSnapshot()->version);
+  ASSERT_TRUE(Wait([&] {
+    return peer_->resets() > 0 &&
+           peer_->last_reset_generation() == mapper_->GetStats().generation;
+  }));
+  EXPECT_FALSE(mapper_->GetLatestPreview());
+  mapper_->Finish();
+}
+#endif
 
 TEST_F(OnlineGaussianMapperTest,
        PoseChangeBeforeCandidateDiscardsAndResetsLatestVersion) {
@@ -532,6 +574,14 @@ TEST_F(OnlineGaussianMapperTest, FrontierLimitDisablesOnlyTheMapper) {
   EXPECT_EQ(mapper_->GetStats().resource_limited, 1u);
   EXPECT_EQ(mapper_->GetStats().failed, 1u);
   EXPECT_NO_THROW(mapper_->Poll());
+}
+
+TEST_F(OnlineGaussianMapperTest, PrimarySubmapMayContainMoreThan64Frames) {
+  Start();
+  for (std::uint64_t frame = 0; frame <= 64; ++frame) Observe(frame);
+  EXPECT_EQ(mapper_->GetStats().failed, 0u) << mapper_->GetStats().error;
+  EXPECT_EQ(mapper_->GetStats().observed, 65u);
+  EXPECT_EQ(mapper_->GetStats().pending, 1u);
 }
 
 TEST_F(OnlineGaussianMapperTest, PeerEofDoesNotEscapeObservationOrPolling) {

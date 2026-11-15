@@ -18,6 +18,11 @@ struct OnlineGaussianOptions {
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options);
 
+// Read-only filesystem checks, performed after logical configuration validation
+// and before creating either the keyframe dataset or Gaussian output.
+void ValidateOnlineGaussianPaths(const OnlineGaussianOptions& options,
+                                 const std::filesystem::path& dataset);
+
 }  // namespace livo_atlas
 
 #endif  // LIVO_ATLAS_CORE_ONLINE_GAUSSIAN_OPTIONS_H_

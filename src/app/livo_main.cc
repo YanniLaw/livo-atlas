@@ -8,6 +8,9 @@
 #include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/core/trajectory_output.h"
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+#include "livo_atlas/gaussian/online_gaussian_mapper.h"
+#endif
 #if LIVO_ATLAS_ONLINE_BACKEND
 #include "livo_atlas/core/loop_backend.h"
 #endif
@@ -49,6 +52,16 @@ int main(int argc, char** argv) {
           "Online loops require LIVO_ATLAS_WITH_GTSAM and "
           "LIVO_ATLAS_WITH_LOOP_CLOSURE");
 #endif
+    if (parameters.livo.gaussian.enabled) {
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+      livo_atlas::ValidateOnlineGaussianPaths(
+          parameters.livo.gaussian,
+          parameters.livo.system.exporter.directory / "keyframes");
+#else
+      throw std::invalid_argument(
+          "Online Gaussian requires LIVO_ATLAS_WITH_ONLINE_GAUSSIAN");
+#endif
+    }
     livo_atlas::LivoSystem system(parameters.livo.system);
     std::function<void()> after_process;
 #if LIVO_ATLAS_ONLINE_BACKEND
@@ -57,6 +70,14 @@ int main(int argc, char** argv) {
     std::unique_ptr<livo_atlas::LoopBackend> backend;
     if (parameters.livo.loop_closure_enabled) {
       backend = std::make_unique<livo_atlas::LoopBackend>(system, loop_options);
+    }
+#endif
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+    std::unique_ptr<livo_atlas::OnlineGaussianMapper> gaussian;
+    if (parameters.livo.gaussian.enabled) {
+      gaussian = std::make_unique<livo_atlas::OnlineGaussianMapper>(
+          system, parameters.livo.system.frontend.calibration.camera,
+          parameters.livo.gaussian);
     }
 #endif
     // The worker joins before its captured publisher handles are destroyed.
@@ -86,13 +107,17 @@ int main(int argc, char** argv) {
             publisher->Publish(snapshot);
           });
     }
-    if (parameters.livo.loop_closure_enabled || trajectory || geometry) {
+    if (parameters.livo.loop_closure_enabled || trajectory || geometry ||
+        parameters.livo.gaussian.enabled) {
       system.SetOnlineSubmapCallback([&](const auto& update) {
 #if LIVO_ATLAS_ONLINE_BACKEND
         if (backend) backend->Observe(update);
 #endif
         if (trajectory) trajectory->Observe(update);
         if (geometry) geometry->Observe(update);
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+        if (gaussian) gaussian->Observe(update);
+#endif
       });
       after_process = [&] {
 #if LIVO_ATLAS_ONLINE_BACKEND
@@ -100,10 +125,16 @@ int main(int argc, char** argv) {
 #endif
         if (trajectory) trajectory->Poll();
         if (geometry) geometry->Poll();
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+        if (gaussian) gaussian->Poll();
+#endif
       };
     }
     if (trajectory) trajectory->Poll();
     if (geometry) geometry->Poll();
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+    if (gaussian) gaussian->Poll();
+#endif
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(after_process));
 #if LIVO_ATLAS_ROS_VERSION == 1
@@ -113,7 +144,8 @@ int main(int argc, char** argv) {
       ros::spinOnce();
       if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
         // A paused simulation clock must not prevent taking worker results.
-        if (parameters.livo.loop_closure_enabled || trajectory || geometry) {
+        if (parameters.livo.loop_closure_enabled || trajectory || geometry ||
+            parameters.livo.gaussian.enabled) {
           backend_rate.sleep();
         } else {
           rate.sleep();
@@ -149,6 +181,51 @@ int main(int argc, char** argv) {
     {
       system.Finish();
     }
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+    if (gaussian) {
+      gaussian->Finish();
+      const auto s = gaussian->GetStats();
+      std::printf(
+          "livo_atlas gaussian: observed=%llu submitted=%llu coalesced=%llu "
+          "no_image=%llu no_depth=%llu resource_limited=%llu completed=%llu "
+          "accepted=%llu stale=%llu resets=%llu failed=%llu pose_version=%llu "
+          "generation=%llu peak_pending=%llu peak_in_flight=%llu "
+          "max_observe_seconds=%.9g max_poll_seconds=%.9g "
+          "last_latency_seconds=%.9g max_latency_seconds=%.9g "
+          "mean_latency_seconds=%.9g\n",
+          static_cast<unsigned long long>(s.observed),
+          static_cast<unsigned long long>(s.submitted),
+          static_cast<unsigned long long>(s.coalesced),
+          static_cast<unsigned long long>(s.skipped_no_image),
+          static_cast<unsigned long long>(s.skipped_no_depth),
+          static_cast<unsigned long long>(s.resource_limited),
+          static_cast<unsigned long long>(s.completed),
+          static_cast<unsigned long long>(s.accepted),
+          static_cast<unsigned long long>(s.stale),
+          static_cast<unsigned long long>(s.resets),
+          static_cast<unsigned long long>(s.failed),
+          static_cast<unsigned long long>(s.pose_version),
+          static_cast<unsigned long long>(s.generation),
+          static_cast<unsigned long long>(s.peak_pending),
+          static_cast<unsigned long long>(s.peak_in_flight),
+          s.max_observe_seconds, s.max_poll_seconds, s.last_latency_seconds,
+          s.max_latency_seconds,
+          s.accepted ? s.total_latency_seconds / s.accepted : 0.0);
+      std::printf(
+          "livo_atlas gaussian latency buckets: le_0.1=%llu le_0.25=%llu "
+          "le_0.5=%llu le_1=%llu le_2=%llu le_5=%llu le_10=%llu gt_10=%llu\n",
+          static_cast<unsigned long long>(s.latency_buckets[0]),
+          static_cast<unsigned long long>(s.latency_buckets[1]),
+          static_cast<unsigned long long>(s.latency_buckets[2]),
+          static_cast<unsigned long long>(s.latency_buckets[3]),
+          static_cast<unsigned long long>(s.latency_buckets[4]),
+          static_cast<unsigned long long>(s.latency_buckets[5]),
+          static_cast<unsigned long long>(s.latency_buckets[6]),
+          static_cast<unsigned long long>(s.latency_buckets[7]));
+      if (!s.error.empty())
+        std::fprintf(stderr, "livo_atlas gaussian: %s\n", s.error.c_str());
+    }
+#endif
     if (trajectory) {
       trajectory->Finish();
       const auto s = trajectory->GetStats();

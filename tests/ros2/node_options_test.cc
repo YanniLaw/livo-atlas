@@ -391,4 +391,50 @@ TEST(Ros2ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
   }
   std::filesystem::remove_all(directory);
 }
+
+TEST(Ros2ParametersTest, GaussianSchemaValidatesBeforeOpeningOutput) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("gaussian-parameters-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  params.emplace_back("gaussian.socket_path", 123);
+  params.emplace_back("gaussian.output_directory", 456);
+  {
+    rclcpp::Node node("gaussian_disabled",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_FALSE(ReadNodeOptions(node).livo.gaussian.enabled);
+  }
+  params.emplace_back("gaussian.enabled", true);
+  {
+    rclcpp::Node node("gaussian_bad_types",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  for (auto& parameter : params) {
+    if (parameter.get_name() == "gaussian.socket_path")
+      parameter =
+          rclcpp::Parameter("gaussian.socket_path", "/tmp/gaussian-test.sock");
+    if (parameter.get_name() == "gaussian.output_directory")
+      parameter = rclcpp::Parameter("gaussian.output_directory",
+                                    "/tmp/gaussian-test-output");
+  }
+  {
+    rclcpp::Node node("gaussian_missing_storage",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  {
+    rclcpp::Node node("gaussian_valid",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    const auto config = ReadNodeOptions(node).livo;
+    EXPECT_TRUE(config.gaussian.enabled);
+    EXPECT_EQ(config.gaussian.socket_path, "/tmp/gaussian-test.sock");
+  }
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
 }  // namespace livo_atlas::ros2
