@@ -212,8 +212,9 @@ int main(int argc, char** argv) {
           s.max_latency_seconds,
           s.accepted ? s.total_latency_seconds / s.accepted : 0.0);
       std::printf(
-          "livo_atlas gaussian latency buckets: le_0.1=%llu le_0.25=%llu "
-          "le_0.5=%llu le_1=%llu le_2=%llu le_5=%llu le_10=%llu gt_10=%llu\n",
+          "livo_atlas gaussian latency buckets: le_0p1=%llu "
+          "gt_0p1_le_0p25=%llu gt_0p25_le_0p5=%llu gt_0p5_le_1=%llu "
+          "gt_1_le_2=%llu gt_2_le_5=%llu gt_5_le_10=%llu gt_10=%llu\n",
           static_cast<unsigned long long>(s.latency_buckets[0]),
           static_cast<unsigned long long>(s.latency_buckets[1]),
           static_cast<unsigned long long>(s.latency_buckets[2]),
