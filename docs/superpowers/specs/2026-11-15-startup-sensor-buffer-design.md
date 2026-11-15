@@ -59,3 +59,9 @@
 3. Humble 用同样的受控场景验证共享入口和参数；两端均用原始 Retail_Street 完整回放验证
    正常处理、关闭选项下与同平台旧基线一致。启用选项的不同数值如实记录，不宣称与旧基线相同。
 4. 记录命令、结果、峰值及跨机器依赖；独立审阅后保留 `framework_completion` 本地分支。
+
+## 实施状态
+
+启动暂存、双 ROS 配置与统计已实现，受控短包和完整 Retail_Street 的双平台验证及独立审阅
+已完成。使用方式和范围见[使用说明](../../startup-sensor-buffer.md)，具体结果与跨电脑复现见
+[验证记录](../../startup-sensor-buffer-validation.md)。

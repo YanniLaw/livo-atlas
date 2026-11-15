@@ -43,7 +43,7 @@
 
 37. [C3b-02 几何地图显示设计](superpowers/specs/2026-11-15-p6-02c3b2-geometry-map-design.md)、[实施计划](superpowers/plans/2026-11-15-p6-02c3b2-geometry-map.md)、[使用说明](geometry-map-output.md)和[验证记录](p6-02c3b2-validation.md)：私有几何构建、有限片段缓存、流式显示采样、版本来源和双 ROS 话题已完成；构建矩阵、官方 bag、RViz 和独立审阅结果见验证记录。
 
-38. [首帧传感器暂存设计](superpowers/specs/2026-11-15-startup-sensor-buffer-design.md)、[实施计划](superpowers/plans/2026-11-15-startup-sensor-buffer.md)、[使用说明](startup-sensor-buffer.md)与[验证记录](startup-sensor-buffer-validation.md)：首帧前有界暂存与旧行为开关已实现，双 ROS 受控顺序及完整 bag 对照已通过，独立审阅进行中。
+38. [首帧传感器暂存设计](superpowers/specs/2026-11-15-startup-sensor-buffer-design.md)、[实施计划](superpowers/plans/2026-11-15-startup-sensor-buffer.md)、[使用说明](startup-sensor-buffer.md)与[验证记录](startup-sensor-buffer-validation.md)：首帧前有界暂存与旧行为开关已实现，双 ROS 受控顺序及完整 bag 对照和独立审阅已完成。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
