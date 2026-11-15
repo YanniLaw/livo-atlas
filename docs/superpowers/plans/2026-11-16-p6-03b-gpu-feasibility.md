@@ -223,15 +223,15 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
 返回 RGB L1、带 alpha 选择的深度 L1 与有效深度数量；CLI
 `train.py --bundle DIR --output NEW_DIR --steps 100 --seed 0` 使用 Task 1 的 `render`。
 
-- [ ] **Step 1: 写 RED 测试。** 断言只从 train 帧生成种子；把 validation 图像完全改色后，
+- [x] **Step 1: 写 RED 测试。** 断言只从 train 帧生成种子；把 validation 图像完全改色后，
   初始化点/颜色及训练采样顺序不变。检查有效深度位置反投影后的父系坐标，
   小于 1,000 个和超过 1,000 个时采样结果确定且不超过上限。无深度或 alpha 全 0 时深度
   数量为 0、损失有限且 RGB 仍可反传；纯黑/纯白输入初始化必须有限，无图像有效像素必须报错。
 
-- [ ] **Step 2: 运行 RED。** `PYTHONPATH="$LIVO_REPO/tools/3dgs_probe" "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_train.py -v`。
+- [x] **Step 2: 运行 RED。** `PYTHONPATH="$LIVO_REPO/tools/3dgs_probe" "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_train.py -v`。
   Expected: 初始化/损失接口尚不存在而失败；不得将缺依赖误作预期失败。
 
-- [ ] **Step 3: 实现并 GREEN。** 有效像素按行优先索引，取 `N=min(M,1000)`、
+- [x] **Step 3: 实现并 GREEN。** 有效像素按行优先索引，取 `N=min(M,1000)`、
   `index_i=floor(i*M/N)`；用 OpenCV `K` 与 `inverse(camera_from_parent)` 反投影。
   每次渲染前通过 Task 1 的 `to_gsplat_camera` 将清单里的 OpenCV `K` 转成 `K_gsplat`，
   不修改或重复偏移原始内参。
