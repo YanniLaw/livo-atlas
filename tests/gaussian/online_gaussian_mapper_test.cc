@@ -540,6 +540,21 @@ TEST_F(OnlineGaussianMapperTest, WorkerTimeoutDoesNotBlockFrontend) {
   peer_->ReleaseCandidate();
 }
 
+TEST_F(OnlineGaussianMapperTest, FinishClearsInFlightAfterInterruptingWorker) {
+  options_.shutdown_timeout = 50ms;
+  peer_->HoldCandidate();
+  Start();
+  Observe(0);
+  ASSERT_TRUE(Wait([&] { return peer_->views() == 1; }));
+  const auto start = std::chrono::steady_clock::now();
+  mapper_->Finish();
+  peer_->ReleaseCandidate();
+  EXPECT_LT(std::chrono::steady_clock::now() - start, 1s);
+  EXPECT_TRUE(mapper_->GetStats().finished);
+  EXPECT_EQ(mapper_->GetStats().in_flight, 0u);
+  EXPECT_EQ(mapper_->GetStats().pending, 0u);
+}
+
 TEST_F(OnlineGaussianMapperTest, SkipsMissingImageAndDepthBeforeSendingViews) {
   Start();
   auto missing_image = Frame(0);
@@ -589,6 +604,7 @@ TEST_F(OnlineGaussianMapperTest, PeerEofDoesNotEscapeObservationOrPolling) {
   Start();
   Observe(0);
   ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
+  EXPECT_EQ(mapper_->GetStats().in_flight, 0u);
   EXPECT_NO_THROW(Observe(1));
   EXPECT_NO_THROW(mapper_->Poll());
 }

@@ -426,6 +426,12 @@ void OnlineGaussianMapper::HandleReply(Reply reply) {
       saved_status_sequence_ = reply.command.state_sequence;
       break;
     case ReplyKind::kError:
+      // The worker has exited, so its task is no longer in flight.
+      in_flight_.reset();
+      candidate_.reset();
+      decision_.reset();
+      awaiting_decision_ = false;
+      stats_.in_flight = 0;
       Fail(reply.detail);
       break;
   }
@@ -536,6 +542,16 @@ void OnlineGaussianMapper::Finish() noexcept {
   }
   condition_.notify_all();
   if (thread_.joinable()) thread_.join();
+  // After the join no background task or mailbox still owns a live job.
+  command_.reset();
+  reply_.reset();
+  pending_.reset();
+  in_flight_.reset();
+  candidate_.reset();
+  unsaved_.reset();
+  decision_.reset();
+  stats_.pending = 0;
+  stats_.in_flight = 0;
   const int fd = socket_fd_.exchange(-1);
   if (fd >= 0) close(fd);
   finished_ = stats_.finished = true;
