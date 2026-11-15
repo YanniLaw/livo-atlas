@@ -81,16 +81,17 @@ test "$(git -C "$LIVO_PHASE/gsplat-src" rev-parse HEAD)" = \
 git -C "$LIVO_PHASE/gsplat-src" submodule status --recursive
 test "$(git -C "$LIVO_PHASE/gsplat-src/gsplat/cuda/csrc/third_party/glm" rev-parse HEAD)" = \
   33b4a621a697a305bc3a7610d290677b96beb181
-env -u PYTHONPATH PYTHONNOUSERSITE=1 CUDA_HOME="$LIVO_ENV" \
+env -u PYTHONPATH PYTHONNOUSERSITE=1 PIP_CONFIG_FILE=/dev/null CUDA_HOME="$LIVO_ENV" \
   PATH="$LIVO_ENV/bin:$PATH" TORCH_CUDA_ARCH_LIST=8.9 MAX_JOBS=1 \
   OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 nice -n 10 \
-  "$LIVO_PYTHON" -m pip install --no-build-isolation --no-deps -v \
+  "$LIVO_PYTHON" -m pip install --no-build-isolation --no-deps -v --no-cache-dir \
   "$LIVO_PHASE/gsplat-src" > "$LIVO_PHASE/gsplat-build.log" 2>&1
 env -u PYTHONPATH PYTHONNOUSERSITE=1 "$LIVO_PYTHON" -m pip check
 ```
 
 源码、子模块、wheel、编译输出和环境版本均应留作证据。GPU 算法可能有微小数值波动；
-相同种子及输入选择不保证不同运行或设备逐字节一致。
+相同种子及输入选择不保证不同运行或设备逐字节一致。运行时必须能直接加载预编译的
+`gsplat.csrc`；扩展缺失或 ABI 不兼容时立即失败，不触发 gsplat 的运行时即时编译。
 
 ## 生成观测并训练
 

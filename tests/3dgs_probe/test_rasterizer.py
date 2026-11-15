@@ -1,5 +1,7 @@
 import os
+import sys
 import unittest
+from unittest import mock
 
 import numpy as np
 import torch
@@ -108,6 +110,21 @@ class GaussianRasterizationTest(unittest.TestCase):
         optimizer.step()
         torch.cuda.synchronize()
         self.assertFalse(torch.equal(colors.detach(), before))
+
+    def test_missing_prebuilt_extension_does_not_enter_renderer(self):
+        intrinsic, pose = to_gsplat_camera(*camera_fixture())
+        device = torch.device("cuda:0")
+        means = torch.tensor([[-1.5, 0.5, 1.0]], device=device)
+        quats = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=device)
+        scales = torch.tensor([[0.1, 0.1, 0.1]], device=device)
+        opacities = torch.tensor([0.8], device=device)
+        colors = torch.tensor([[0.9, 0.2, 0.1]], device=device)
+        with mock.patch.dict(sys.modules, {"gsplat.csrc": None}), mock.patch(
+                "rasterizer.rasterization",
+                side_effect=AssertionError("Renderer must not be entered")):
+            with self.assertRaisesRegex(RuntimeError, "prebuilt"):
+                render(means, quats, scales, opacities, colors, pose, intrinsic,
+                       8, 6)
 
 
 if __name__ == "__main__":

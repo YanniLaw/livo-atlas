@@ -1,5 +1,7 @@
 """Camera conversion and a single gsplat rendering operation."""
 
+import importlib
+
 import numpy as np
 import torch
 from gsplat import rasterization
@@ -62,6 +64,11 @@ def render(means, quats, scales, opacities, colors, viewmat, K_gsplat,
             not torch.isfinite(pose).all().item() or
             not torch.isfinite(intrinsic).all().item()):
         raise ValueError("Invalid renderer camera matrices")
+    # gsplat otherwise falls back to an uncontrolled JIT build on import failure.
+    try:
+        importlib.import_module("gsplat.csrc")
+    except (ImportError, OSError) as error:
+        raise RuntimeError("A loadable prebuilt gsplat.csrc is required") from error
     rendered, alphas, _ = rasterization(
         means, quats, scales, opacities, colors, pose.unsqueeze(0),
         intrinsic.unsqueeze(0), width, height, render_mode="RGB+ED"
