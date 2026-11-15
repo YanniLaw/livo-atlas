@@ -78,7 +78,10 @@ socket 和预览目录只在各自新建的 `$LIVO_PHASE` 子目录中建立；�
 
 所有 JSON 消息含 `schema: 1`、`type` 和 32 个小写十六进制字符的 `session_id`（128 位随机值）。
 以下 ID、版本、修订和前沿字段均为无前导零的 uint64 十进制字符串；父系是 `odom` 或 `map`。
-`reset` 和 `reset_ok` 携带 `generation`、`pose_version` 和 `submap_id`（尚无子地图时为 null）。
+`reset` 和 `reset_ok` 携带 `generation`、`pose_version`；有子地图时携带 `submap_id`，
+尚无子地图时省略该字段。OpenCV 4.2 的 JSON 解析器不支持 null，故不使用 null。
+消息中的非 ASCII 文本直接采用 UTF-8；OpenCV 4.2 不支持 JSON `\u` 转义，两端均拒绝
+实际的 `\u` 转义序列，不能因此编码的控制字符也不能用于消息文本。
 `view`、`candidate`、`decision`、`commit_ok`、`discard_ok` 携带 session、`job_id`、
 `generation`、`submap_id`、`pose_version`；任务/候选还携带 `membership_revision`、
 `frame_count`、`optimized_frame_count`。这些字段每次核对，不接受错误类型、重复任务或倒退。
@@ -86,11 +89,16 @@ socket 和预览目录只在各自新建的 `$LIVO_PHASE` 子目录中建立；�
 `view` 还携带 `keyframe_id`、`calibration_id`、三个有限时间、有限逆曝光估计、正整数
 `width/height`、有限 `fx/fy/cx/cy`、行优先 16 元 `camera_from_submap` 和
 `parent_from_submap`。body 为 BGR、图像掩码、深度掩码、小端 float32 深度的逐行数据。
-`candidate` 带所用关键帧 ID 数组、20 步、有限 RGB/深度指标、深度监督数量、有限高斯数量，
-body 为对应图像大小的 RGB uint8 预览。`decision` 的 `action` 为 `accept` 或 `discard`；
+`candidate` 带所用关键帧 ID 数组、20 步、有限 RGB/深度指标、深度监督数量、有限高斯数量及
+`width/height`，body 为对应图像大小的 RGB uint8 预览；有状态接收端核对其与任务的尺寸。
+`decision` 的 `action` 为 `accept` 或 `discard`；
 每个 accept 产生 `commit_ok`，每个 discard 清空模型/Adam 并产生 `discard_ok`。
-`hello` / `hello_ok` 确认协议及会话；成功握手记录软件、设备和起跑可用显存。握手后
-无法使用 GPU 或预编译扩展时 `error` 返回 `gpu_unavailable` 或 `extension_unavailable`；
+`hello` / `hello_ok` 确认协议及会话；成功握手记录软件、设备和起跑可用显存。
+`hello_ok` 的固定字段为字符串 `python`、`torch`、`gsplat`、`cuda`、`device`，以及
+十进制字符串 `gpu_free_bytes`、`gpu_total_bytes`。
+候选的固定指标字段为 `frame_ids`、`steps`、`rgb_l1`、`depth_l1_m`、
+`supervised_depth_pixels`、`gaussian_count`；计数及步数用非负 JSON 整数。
+握手后无法使用 GPU 或预编译扩展时 `error` 返回 `gpu_unavailable` 或 `extension_unavailable`；
 其他协议/工作错误分别为 `protocol_error` / `worker_error`，无 body，随后关闭连接。
 无法完成握手时记录 EOF/启动错误。`stop` 终止会话。没有自动重连；坏长度、截断、
 不匹配身份和错误顺序必须失败。`reset_ok` 确认模型、优化器和观测窗口均清空。
@@ -134,6 +142,7 @@ c1 只支持当前数据集的 calibration ID 0，不能从私有 `LivoSystem` �
 def encode_message(header: dict, body: bytes) -> bytes: ...
 def read_message(sock, timeout: float) -> tuple[dict, bytes]: ...
 def write_message(sock, header: dict, body: bytes, timeout: float) -> None: ...
+def decode_view(header: dict, body: bytes) -> dict: ...
 
 # tools/3dgs_probe/online_model.py
 class OnlineGaussianModel:
@@ -145,6 +154,9 @@ class OnlineGaussianModel:
 模型同一时刻至多一个候选；`train_candidate` 原地更新，`decide(False)` 必须清除整块模型、
 窗口和优化器；`decide(True)` 保留结果。重置之后要先收到与所有者最新 generation 匹配的
 `reset_ok` 才能训练。模型的 20 步轮询及采样复用 P6-03b 的数学约定，不改变该离线 CLI。
+`decode_view` 返回拥有存储的 RGB float32、两个 bool 掩码、米制 float32 深度、OpenCV K、
+`camera_from_parent`（这里即 `camera_from_submap`）、关键帧 ID 和 `split="train"`，与
+已有 P6-03b 初始化/损失函数对接；原始位姿、时间与身份从头保留。
 
 ---
 
@@ -152,29 +164,31 @@ class OnlineGaussianModel:
 
 **Files:** 创建 `src/gaussian/wire_protocol.h/.cc`、`src/gaussian/unix_socket.h/.cc`、
 `tools/3dgs_probe/online_protocol.py`、`tests/gaussian/wire_protocol_test.cc`、
+`tests/gaussian/wire_peer.cc`（用于真实跨语言 socket 往返的测试程序）、
 `tests/3dgs_probe/test_online_protocol.py`、`cmake/online_gaussian.cmake`；修改 `CMakeLists.txt`、
 `cmake/tests.cmake`。
 
 **Interfaces:** 产生 Shared Interfaces 的消息读写函数及可选 `livo_atlas::online_gaussian`；
 Python 和 C++ 使用相同 JSON 字段与长度，后续任务不得另造另一套格式。
 
-- [ ] **Step 1: 写 RED 测试。** 用 socketpair 和 8×6 样本验证 C++→Python、Python→C++ 的
+- [x] **Step 1: 写 RED 测试。** 用 socketpair 和 8×6 样本验证 C++→Python、Python→C++ 的
   字节/身份往返：BGR `(10,20,30)`、深度 4 m、小端、非单位相机变换、掩码 `0/1` 和大于
   2³¹ 的十进制 ID。分别注入半包、EOF、头/body 超长、乘法溢出、非法掩码、非有限深度、
-  错误 session、重复消息和对端关闭；断言拒绝且不会触发 SIGPIPE 终止进程。
+  非法 session 字符串和对端关闭；断言拒绝且不会触发 SIGPIPE 终止进程。错误会话和
+  重复任务跨消息顺序由 Task 3 的有状态调度器验证，帧读取器不持有会话历史。
   同时增加 cmake 测试目标，保留实现缺失。
-- [ ] **Step 2: 运行 RED。** 以 `-DLIVO_ATLAS_ROS_VERSION=0 -DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=ON`
+- [x] **Step 2: 运行 RED。** 以 `-DLIVO_ATLAS_ROS_VERSION=0 -DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=ON`
   配置新 `$LIVO_CORE_BUILD`，单任务构建 `gaussian_wire_protocol_test`；以 `$LIVO_PYTHON`
   运行 `PYTHONPATH="$LIVO_REPO/tools/3dgs_probe" "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_online_protocol.py -v`。
   Expected: C++ 和 Python 因接口缺失失败，已有 SDK 依赖可正常配置，不能把缺依赖当 RED。
-- [ ] **Step 3: 实现。** 完成固定协议与非阻塞读写，使用已有 OpenCV 内存 JSON 支持，严格
+- [x] **Step 3: 实现。** 完成固定协议与非阻塞读写，使用已有 OpenCV 内存 JSON 支持，严格
   检查字段、尺寸和数值；所有读取前先核验长度。`send` 防止 SIGPIPE；时限用单调时间，
   停止时通过关闭/唤醒 socket 结束等待。Linux 外启用选项时报明确配置错误，关闭不受影响。
-- [ ] **Step 4: 运行 GREEN。** 构建目标，运行
+- [x] **Step 4: 运行 GREEN。** 构建目标，运行
   `cmake -E chdir "$LIVO_CORE_BUILD" ctest -R '^gaussian_wire_protocol_test$' --output-on-failure -j1`
   及 Step 2 的 Python 测试。Expected: 两语言实 socket 测试非零且全部通过；头文件和 SDK
   目标不引入 CUDA/Python，构建选项 OFF 的原核心仍可配置。
-- [ ] **Step 5: 提交。** `git add` 本任务文件，`git diff --cached --check`，提交
+- [x] **Step 5: 提交。** `git add` 本任务文件，`git diff --cached --check`，提交
   `feat: add bounded Gaussian observation transport`。
 
 ### Task 2: 增量高斯工作集与真实 GPU
@@ -220,7 +234,7 @@ Python 和 C++ 使用相同 JSON 字段与长度，后续任务不得另造另�
   预览，必须发 `reset` 并收到最新 `reset_ok`，假 worker 中被污染的模型和 Adam 清空。
   在不再有新关键帧时重复后一场景。堵住 status 写入后连续更新，再解除堵塞，断言内存
   查询立即空、最终 status 最新；连续接纳 10 次只留最近 8 份预览，已有输出目录不变。
-  另测 EOF、坏 ID、超时、后台异常和关闭，前端与其他观察者继续。
+  另测 EOF、错误 session、重复任务、坏 ID、超时、后台异常和关闭，前端与其他观察者继续。
 - [ ] **Step 2: 运行 RED。** 构建 `online_gaussian_mapper_test`，运行
   `ctest --test-dir "$LIVO_CORE_BUILD" -R '^online_gaussian_mapper_test$' --output-on-failure -j1`，
   并运行 `$LIVO_PYTHON -m unittest discover -s tests/3dgs_probe -p test_online_worker.py -v`。
