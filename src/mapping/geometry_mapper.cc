@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "geometry_validation.h"
 #include "pose_math.h"
 
 namespace livo_atlas {
@@ -24,6 +25,10 @@ bool SameMembership(const OnlineSubmap& a, const OnlineSubmap& b) {
          a.support_keyframe_ids == b.support_keyframe_ids &&
          a.membership_revision == b.membership_revision && a.state == b.state;
 }
+
+}  // namespace
+
+namespace geometry_detail {
 
 void ValidateRevision(const OnlineSubmap& group, const PoseSnapshot& poses) {
   ValidateSubmap(group.primary);
@@ -64,6 +69,13 @@ void ValidateGroups(const std::vector<OnlineSubmap>& groups,
     }
   }
 }
+
+}  // namespace geometry_detail
+
+namespace {
+
+using geometry_detail::ValidateGroups;
+using geometry_detail::ValidateRevision;
 
 RigidTransform LocalPose(const OnlineSubmap& group, const PoseSnapshot& poses,
                          std::uint64_t id) {

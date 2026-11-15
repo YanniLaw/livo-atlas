@@ -58,6 +58,9 @@ struct GeometryMapSnapshot {
   double timestamp = 0;
   GeometryMapStatus status = GeometryMapStatus::kReady;
   std::string error;
+  std::string representation = "voxel_moments_v1";
+  std::string fusion_policy = "primary_only";
+  std::string sampling_policy = "geometry_rank_v1";
   GeometryOptions geometry_options;
   GeometryMapOptions options;
   // The live controller sets max_keyframes; zero is unspecified for a builder.
