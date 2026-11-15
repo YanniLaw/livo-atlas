@@ -47,7 +47,7 @@
 
 39. [P6-03a 重建观测设计](superpowers/specs/2026-11-15-p6-03a-reconstruction-view-design.md)、[实施计划](superpowers/plans/2026-11-15-p6-03a-reconstruction-view.md)、[使用说明](reconstruction-view.md)和[验证记录](p6-03a-validation.md)：为在线高斯建图准备拥有数据的去畸变图像、稀疏深度和版本化相机位姿。
 
-40. [P6-03b GPU 可行性设计](superpowers/specs/2026-11-16-p6-03b-gpu-feasibility-design.md)和[实施计划](superpowers/plans/2026-11-16-p6-03b-gpu-feasibility.md)：记录隔离环境、相机和深度约定、小规模离线实验及验收边界；目前只有设计和计划，尚未实现或运行训练。
+40. [P6-03b GPU 可行性设计](superpowers/specs/2026-11-16-p6-03b-gpu-feasibility-design.md)、[实施计划](superpowers/plans/2026-11-16-p6-03b-gpu-feasibility.md)、[实验说明](p6-03b-gpu-probe.md)与[验证记录](p6-03b-validation.md)：独立 SDK 观测与 GPU 离线训练链路已在 Noetic 主机和真实关键帧上验证；不代表在线 3DGS SLAM 已实现。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。

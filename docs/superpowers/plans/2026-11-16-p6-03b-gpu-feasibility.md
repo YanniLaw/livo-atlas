@@ -47,6 +47,9 @@
 
 ## Shared Experiment Contract
 
+执行时发现终端会继承 ROS `PYTHONPATH`；实际复现命令和整理后的环境锁定文件以
+[实验说明](../../p6-03b-gpu-probe.md)为准。下面保留实施时的计划命令和验收条件。
+
 调用前设置绝对路径：`LIVO_REPO` 指向包根，`LIVO_PHASE` 指向新建的包外实验目录，
 `LIVO_DATASET` 指向停止写入的 keyframes 目录，`LIVO_SDK` 指向独立 SDK 安装前缀；
 `LIVO_CORE_BUILD` 是该 SDK 的构建目录。新机器按 `docs/core-build.md` 新建 SDK。
@@ -245,7 +248,7 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
   运行 Step 2
   和 Task 1 的 GPU 合成测试，Expected: 全部通过。
 
-- [ ] **Step 4: 真实离线实验。** 源清单校验通过、`torch.cuda.mem_get_info()` 可用显存至少
+- [x] **Step 4: 真实离线实验。** 源清单校验通过、`torch.cuda.mem_get_info()` 可用显存至少
   4 GiB 后运行 CLI；设置 `torch.cuda.set_per_process_memory_fraction(0.4)`、单线程和 300 秒
   训练墙钟上限。保存软件/驱动版本、源码与输入哈希、固定配置、实际步数、完整日志、
   训练前后每视图 RGB L1、2 个留出帧训练前后 RGB 渲染、alpha 覆盖及深度监督数量。
@@ -254,7 +257,7 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
   深度监督像素、至少一个参数真实更新；同一批 train 视图按相同掩码逐帧平均的 RGB L1 比初始降低至少
   1%。未达到时原样报告失败，留出帧结果只用于观察，不作为必然改善的验收门槛。
 
-- [ ] **Step 5: 回归和文档。** 重新核验源 SHA-256；运行两个 Python 测试集和 SDK
+- [x] **Step 5: 回归和文档。** 重新核验源 SHA-256；运行两个 Python 测试集和 SDK
   `cmake -E chdir "$LIVO_CORE_BUILD" ctest --output-on-failure --timeout 30 -j1`，确认实际
   测试数非零且全部通过；检查产品库及准备工具未链接 GPU/vikit。记录两种操作系统依赖
   边界、固定版本、环境恢复、试验图像/指标和失败限制；不把离线结果称为实时 3DGS SLAM。
