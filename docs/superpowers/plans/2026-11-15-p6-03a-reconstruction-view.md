@@ -106,7 +106,7 @@
   增加 `src` 私有 include 目录；公开头只包含普通 C++、Eigen/OpenCV/PCL 依赖。
 
 - [ ] **Step 6: 运行 GREEN 与核心回归。** 构建并运行 `colmap_camera_test`，再串行构建完整
-  SDK 并运行 `OMP_THREAD_LIMIT=1 ctest --test-dir "$PHASE/core" --output-on-failure --timeout 30 -j1`。
+  SDK 并运行 `OMP_THREAD_LIMIT=1 cmake -E chdir "$PHASE/core" ctest --output-on-failure --timeout 30 -j1`。
   Expected: 新旧相机用例及所有注册核心测试通过。格式检查使用 Google 风格并保留 include 分组，
   同时手查所有修改文件的函数定义之间有空行；`git diff --check` 无输出。
 

@@ -1,4 +1,5 @@
 #include "io/colmap_camera.h"
+#include "livo_atlas/io/reconstruction_view.h"
 
 #include <gtest/gtest.h>
 
@@ -13,11 +14,13 @@ namespace {
 CameraConfig Config() {
   return {"Pinhole", 12, 8, .5, 8, 10, 5, 3, {0, 0, 0, 0}};
 }
+
 Eigen::Matrix3d Rz90() {
   Eigen::Matrix3d rotation;
   rotation << 0, -1, 0, 1, 0, 0, 0, 0, 1;
   return rotation;
 }
+
 cv::Mat Image(int width, int height) {
   cv::Mat image(height, width, CV_8UC3);
   for (int y = 0; y < height; ++y) {
@@ -28,6 +31,7 @@ cv::Mat Image(int width, int height) {
   }
   return image;
 }
+
 Keyframe Frame() {
   Keyframe frame;
   frame.timestamp = frame.cloud_timestamp = 1;
@@ -262,6 +266,7 @@ TEST(ColmapCameraTest,
                  cv::INTER_LINEAR, cv::BORDER_CONSTANT);
   EXPECT_LE(cv::norm(view.image, expected, cv::NORM_INF), 1);
 }
+
 TEST(ColmapCameraTest,
      UsesOneRigidRepresentationForRoundedPosesAndBodyCorrections) {
   auto frame = Frame();
@@ -288,5 +293,200 @@ TEST(ColmapCameraTest,
   EXPECT_EQ(frame.odom_from_body.rotation(0, 0), 1 + 2e-7);
   EXPECT_EQ(frame.camera_from_odom->rotation(0, 0), 1 + 1e-7);
 }
+
+PoseSnapshot RawPoses(const Keyframe& frame) {
+  PoseSnapshot poses;
+  poses.frame_count = 1;
+  poses.poses.push_back({0, frame.odom_from_body});
+  return poses;
+}
+
+TEST(ReconstructionViewTest, ProducesOwnedMaskedCameraDepthAndMetadata) {
+  auto frame = Frame();
+  frame.calibration_id = 8;
+  frame.timestamp = 12.25;
+  frame.cloud_timestamp = 12.2;
+  frame.image_timestamp = 12.24;
+  frame.inverse_exposure_time = .9;
+  const auto result =
+      MakeReconstructionView(Config(), frame, RawPoses(frame), {24, 1});
+  EXPECT_EQ(result.keyframe_id, 0u);
+  EXPECT_EQ(result.calibration_id, 8u);
+  EXPECT_EQ(result.pose_version, 0u);
+  EXPECT_EQ(result.frame_count, 1u);
+  EXPECT_EQ(result.optimized_frame_count, 0u);
+  EXPECT_EQ(result.parent_frame, PoseFrame::kOdom);
+  EXPECT_DOUBLE_EQ(result.state_timestamp, 12.25);
+  EXPECT_DOUBLE_EQ(result.cloud_timestamp, 12.2);
+  EXPECT_DOUBLE_EQ(result.image_timestamp, 12.24);
+  EXPECT_DOUBLE_EQ(result.inverse_exposure_time, .9);
+  EXPECT_EQ(result.camera.model, "Pinhole");
+  EXPECT_EQ(result.camera.width, 6);
+  EXPECT_EQ(result.camera.height, 4);
+  EXPECT_DOUBLE_EQ(result.camera.scale, 1);
+  EXPECT_DOUBLE_EQ(result.camera.fx, 4);
+  EXPECT_DOUBLE_EQ(result.camera.fy, 5);
+  EXPECT_DOUBLE_EQ(result.camera.cx, 3);
+  EXPECT_DOUBLE_EQ(result.camera.cy, 2);
+  EXPECT_EQ(result.image_bgr.type(), CV_8UC3);
+  EXPECT_EQ(result.image_mask.type(), CV_8UC1);
+  EXPECT_EQ(result.depth_m.type(), CV_32FC1);
+  EXPECT_EQ(result.depth_mask.type(), CV_8UC1);
+  EXPECT_EQ(result.image_mask.at<unsigned char>(2, 3), 1);
+  EXPECT_EQ(result.image_mask.at<unsigned char>(3, 5), 0);
+  EXPECT_EQ(result.depth_mask.at<unsigned char>(2, 3), 1);
+  EXPECT_FLOAT_EQ(result.depth_m.at<float>(2, 3), 4.0f);
+  EXPECT_EQ(result.depth_mask.at<unsigned char>(0, 0), 0);
+  EXPECT_FLOAT_EQ(result.depth_m.at<float>(0, 0), 0.0f);
+  EXPECT_EQ(result.valid_depth_pixels, 1u);
+  EXPECT_EQ(cv::countNonZero(result.depth_mask), 1);
+  EXPECT_TRUE(result.camera_from_parent.rotation.isApprox(
+      Eigen::Matrix3d::Identity(), 1e-12));
+  EXPECT_TRUE(result.camera_from_parent.translation.isApprox(
+      Eigen::Vector3d(-1, -2, -2), 1e-12));
+}
+
+TEST(ReconstructionViewTest, KeepsNearestDepthAndAllowsEmptyProjection) {
+  auto frame = Frame();
+  PointCloud::Ptr cloud(new PointCloud(*frame.cloud));
+  auto far = cloud->front();
+  far.x = 1;
+  far.z = 7;
+  cloud->points.insert(cloud->points.begin(), far);
+  auto behind = far;
+  behind.z = -10;
+  cloud->push_back(behind);
+  auto outside = far;
+  outside.x = 100;
+  cloud->push_back(outside);
+  cloud->width = cloud->size();
+  cloud->height = 1;
+  frame.cloud = cloud;
+  const auto result =
+      MakeReconstructionView(Config(), frame, RawPoses(frame), {24, 4});
+  EXPECT_EQ(result.valid_depth_pixels, 1u);
+  EXPECT_FLOAT_EQ(result.depth_m.at<float>(2, 3), 4.0f);
+  EXPECT_EQ(result.depth_mask.at<unsigned char>(2, 3), 1);
+
+  cloud->clear();
+  cloud->push_back(behind);
+  const auto empty =
+      MakeReconstructionView(Config(), frame, RawPoses(frame), {24, 1});
+  EXPECT_EQ(empty.valid_depth_pixels, 0u);
+  EXPECT_EQ(cv::countNonZero(empty.depth_mask), 0);
+  EXPECT_EQ(cv::countNonZero(empty.depth_m), 0);
+  EXPECT_GT(cv::countNonZero(empty.image_mask), 0);
+}
+
+TEST(ReconstructionViewTest, ResultDoesNotAliasSourcePixelsOrCloud) {
+  auto frame = Frame();
+  PointCloud::Ptr cloud(new PointCloud(*frame.cloud));
+  frame.cloud = cloud;
+  const auto result =
+      MakeReconstructionView(Config(), frame, RawPoses(frame), {24, 1});
+  const auto pixel = result.image_bgr.at<cv::Vec3b>(2, 3);
+  EXPECT_NE(result.image_bgr.data, frame.image.data);
+  EXPECT_NE(result.image_mask.data, result.depth_mask.data);
+  frame.image.setTo(cv::Scalar(0, 0, 0));
+  cloud->front().z = 100;
+  EXPECT_EQ(result.image_bgr.at<cv::Vec3b>(2, 3), pixel);
+  EXPECT_FLOAT_EQ(result.depth_m.at<float>(2, 3), 4.0f);
+  EXPECT_EQ(result.depth_mask.at<unsigned char>(2, 3), 1);
+}
+
+TEST(ReconstructionViewTest, PoseVersionChangesCameraButNotLocalDepth) {
+  const auto frame = Frame();
+  const auto raw_poses = RawPoses(frame);
+  auto corrected = raw_poses;
+  corrected.version = 1;
+  corrected.optimized_frame_count = 1;
+  corrected.parent_frame = PoseFrame::kMap;
+  corrected.poses[0].map_from_body = {};
+  corrected.poses[0].map_from_body.translation << 10, 0, 0;
+  const auto raw = MakeReconstructionView(Config(), frame, raw_poses, {24, 1});
+  const auto map = MakeReconstructionView(Config(), frame, corrected, {24, 1});
+  EXPECT_EQ(map.pose_version, 1u);
+  EXPECT_EQ(map.optimized_frame_count, 1u);
+  EXPECT_EQ(map.parent_frame, PoseFrame::kMap);
+  EXPECT_TRUE(map.camera_from_parent.rotation.isApprox(Rz90(), 1e-12));
+  EXPECT_TRUE(map.camera_from_parent.translation.isApprox(
+      Eigen::Vector3d(0, -10, 1), 1e-12));
+  EXPECT_EQ(cv::norm(map.depth_mask, raw.depth_mask, cv::NORM_INF), 0);
+  EXPECT_EQ(cv::norm(map.depth_m, raw.depth_m, cv::NORM_INF), 0);
+  EXPECT_EQ(cv::norm(map.image_bgr, raw.image_bgr, cv::NORM_INF), 0);
+}
+
+TEST(ReconstructionViewTest, RejectsInvalidInputAndResourceLimits) {
+  auto frame = Frame();
+  auto poses = RawPoses(frame);
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {23, 1}),
+               std::invalid_argument);
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {24, 0}),
+               std::invalid_argument);
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {0, 1}),
+               std::invalid_argument);
+  PointCloud::Ptr cloud(new PointCloud(*frame.cloud));
+  cloud->push_back(cloud->front());
+  frame.cloud = cloud;
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {24, 1}),
+               std::invalid_argument);
+  frame = Frame();
+  frame.id = 1;
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {24, 1}),
+               std::invalid_argument);
+  frame = Frame();
+  poses.poses[0].map_from_body.translation.x() += .1;
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {24, 1}),
+               std::invalid_argument);
+  poses = RawPoses(frame);
+  frame.image_timestamp.reset();
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {24, 1}),
+               std::invalid_argument);
+  frame = Frame();
+  auto config = Config();
+  config.fx = 0;
+  EXPECT_THROW(MakeReconstructionView(config, frame, poses, {24, 1}),
+               std::invalid_argument);
+  frame.inverse_exposure_time = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(MakeReconstructionView(Config(), frame, poses, {24, 1}),
+               std::invalid_argument);
+}
+
+TEST(ReconstructionViewTest, SupportsFisheyeAndRejectsUnrepresentableDepth) {
+  auto config = Config();
+  config.model = "EquidistantCamera";
+  config.distortion = {.1, -.02, .003, -.0004};
+  auto frame = Frame();
+  frame.odom_from_body = {};
+  frame.camera_from_odom = RigidTransform{};
+  PointCloud::Ptr cloud(new PointCloud(*frame.cloud));
+  cloud->front().x = 0;
+  frame.cloud = cloud;
+  const auto result =
+      MakeReconstructionView(config, frame, RawPoses(frame), {24, 1});
+  EXPECT_EQ(result.camera.model, "Pinhole");
+  EXPECT_EQ(result.depth_mask.at<unsigned char>(2, 3), 1);
+  EXPECT_FLOAT_EQ(result.depth_m.at<float>(2, 3), 3.0f);
+  EXPECT_EQ(result.valid_depth_pixels, 1u);
+
+  frame.camera_from_odom->translation.z() = 1e38;
+  cloud->front().z = std::numeric_limits<float>::max();
+  EXPECT_THROW(
+      MakeReconstructionView(Config(), frame, RawPoses(frame), {24, 1}),
+      std::overflow_error);
+}
+
+TEST(ReconstructionViewTest, ReportsMissingCloudSeparatelyFromLimits) {
+  auto frame = Frame();
+  const auto poses = RawPoses(frame);
+  frame.cloud.reset();
+  try {
+    (void)MakeReconstructionView(Config(), frame, poses, {24, 1});
+    FAIL() << "Expected a missing-cloud error";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_STREQ(error.what(), "Missing keyframe cloud");
+  }
+}
+
 }  // namespace
 }  // namespace livo_atlas
