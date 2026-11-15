@@ -166,7 +166,7 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
 `bundle.load_bundle(path: pathlib.Path) -> list[dict]` 读取 Shared Experiment Contract 并在错误时抛
 `ValueError` 或 `OSError`；返回项包含 RGB、两张掩码、米制深度、内参、`camera_from_parent` 和 split。
 
-- [ ] **Step 1: 写 RED 测试。** fixture 使用 `KeyframeStore` 写两个 8×6 BGR 关键帧，
+- [x] **Step 1: 写 RED 测试。** fixture 使用 `KeyframeStore` 写两个 8×6 BGR 关键帧，
   相机 `fx=fy=4,cx=3.5,cy=2.5`；原始 body 位姿为单位矩阵，`camera_from_odom` 为
   Task 1 的非单位变换，点 `(-1.5,0.5,1)`，BGR 像素 `(10,20,30)`。黑盒运行准备工具
   （train 0、validation 1），通过 Python 验证 `RGB=(30,20,10)`、`depth[3,4]=4`、
@@ -175,25 +175,25 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
   先创建独立 CMake 的测试脚手架，仅构建 `p603b_make_fixture`；`prepare_views.cc`、
   `bundle.py` 和正式工具目标在 Step 3 添加。
 
-- [ ] **Step 2: 运行 RED。** 单独配置 `cmake -S tools/3dgs_probe -B "$LIVO_PHASE/prepare-build" -DCMAKE_PREFIX_PATH="$LIVO_SDK" -DBUILD_TESTING=ON`，
+- [x] **Step 2: 运行 RED。** 单独配置 `cmake -S tools/3dgs_probe -B "$LIVO_PHASE/prepare-build" -DCMAKE_PREFIX_PATH="$LIVO_SDK" -DBUILD_TESTING=ON`，
   单独构建 `p603b_make_fixture`。设置 `LIVO_FIXTURE_BIN` 为该 fixture 路径、
   `LIVO_PREPARE_BIN` 为未来的工具路径并导出这两个变量，然后以隔离解释器运行：
   `PYTHONPATH="$LIVO_REPO/tools/3dgs_probe" "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_bundle.py -v`。
   Expected: 因 `bundle` 接口尚不存在而失败；fixture 使用临时目录，不访问真实 bag。
   如果 SDK 启用了 GTSAM，为该 CMake 配置另传实际 `GTSAM_DIR`。
 
-- [ ] **Step 3: 实现。** CMake 只在独立工程中 `find_package(livo_atlas CONFIG REQUIRED)`，
+- [x] **Step 3: 实现。** CMake 只在独立工程中 `find_package(livo_atlas CONFIG REQUIRED)`，
   添加正式工具目标并链接 `livo_atlas::io`，按源数据集的完整原始位姿前沿构造版本 0 `PoseSnapshot`。
   先对所选帧调用 `MakeReconstructionView` 再写图片、掩码和显式小端 IEEE-754 float；
   不直接假设宿主字节序，不支持的 float 表示明确报错。JSON 固定键、
   classic locale、17 位有效数字，64 位 ID 使用字符串。只在全部文件成功后发布清单；
   `bundle.py` 用 Pillow、NumPy 和标准库检查 Shared Experiment Contract。
 
-- [ ] **Step 4: 运行 GREEN。** 重建 fixture 与工具，运行 `test_bundle.py`；通过 `ldd` 检查
+- [x] **Step 4: 运行 GREEN。** 重建 fixture 与工具，运行 `test_bundle.py`；通过 `ldd` 检查
   该 SDK 消费工具没有 ROS、vikit、CUDA、torch 或缺失库。Expected: 文件往返、错误边界及
   拒绝覆盖全部通过。实际读取器本身和整个进程不声称受视图点数上限约束。
 
-- [ ] **Step 5: 生成真实输入。** 对 `dataset.yml` 和帧 0–11 的 `frame.yml`、`cloud.pcd`、
+- [x] **Step 5: 生成真实输入。** 对 `dataset.yml` 和帧 0–11 的 `frame.yml`、`cloud.pcd`、
   `image.png` 写 SHA-256 清单并验证，清单自身的 SHA-256 传给 `--source-sha256`。
   用 `--max-pixels 1000000 --max-cloud-points 100000` 生成新的 12 帧 bundle。
   Expected: 10 个 train、2 个 validation，所有图像和深度数据有效；再次验证源文件哈希未改变。
@@ -210,7 +210,7 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
   (cd "$LIVO_DATASET" && sha256sum --check "$LIVO_PHASE/source.sha256")
   ```
 
-- [ ] **Step 6: 提交。** 提交本任务工具、测试和最少量使用说明；不提交数据或实验 bundle。
+- [x] **Step 6: 提交。** 提交本任务工具、测试和最少量使用说明；不提交数据或实验 bundle。
   提交示例：`feat: prepare isolated Gaussian probe views`。
 
 ### Task 3: 固定规模离线训练及验收记录
