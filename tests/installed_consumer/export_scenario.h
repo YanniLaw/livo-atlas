@@ -11,6 +11,7 @@
 
 #include "livo_atlas/io/colmap_exporter.h"
 #include "livo_atlas/io/keyframe_store.h"
+#include "livo_atlas/io/reconstruction_view.h"
 
 namespace livo_atlas::test_data {
 inline bool RunColmapScenario() {
@@ -42,6 +43,36 @@ inline bool RunColmapScenario() {
     RigidTransform optimized;
     optimized.translation << 10, 0, 0;
     writer.WritePoses(1, {{0, optimized}});
+
+    auto input = frame;
+    input.image = frame.image.clone();
+    PoseSnapshot raw_poses;
+    raw_poses.frame_count = 1;
+    raw_poses.poses.push_back({0, frame.odom_from_body});
+    const auto raw_view =
+        MakeReconstructionView(calibration.camera, input, raw_poses, {48, 1});
+    auto map_poses = raw_poses;
+    map_poses.version = 1;
+    map_poses.optimized_frame_count = 1;
+    map_poses.parent_frame = PoseFrame::kMap;
+    map_poses.poses[0].map_from_body = optimized;
+    const auto map_view =
+        MakeReconstructionView(calibration.camera, input, map_poses, {48, 1});
+    input.image.setTo(cv::Scalar(0, 0, 0));
+    if (raw_view.parent_frame != PoseFrame::kOdom ||
+        map_view.parent_frame != PoseFrame::kMap ||
+        map_view.pose_version != 1 || raw_view.camera.cx != 3.5 ||
+        raw_view.camera.cy != 2.5 ||
+        !map_view.camera_from_parent.translation.isApprox(
+            Eigen::Vector3d(-10, 0, 0)) ||
+        raw_view.depth_mask.at<unsigned char>(3, 4) != 1 ||
+        map_view.depth_mask.at<unsigned char>(3, 4) != 1 ||
+        raw_view.depth_m.at<float>(3, 4) != 4 ||
+        map_view.depth_m.at<float>(3, 4) != 4 ||
+        raw_view.valid_depth_pixels != 1 ||
+        raw_view.image_bgr.at<cv::Vec3b>(3, 4) != cv::Vec3b(5, 17, 29))
+      return false;
+
     for (std::uint64_t version : {0, 1}) {
       const auto output = root / std::to_string(version);
       const auto result = ExportColmap(dataset, output, {version, 1});

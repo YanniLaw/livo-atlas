@@ -1,8 +1,10 @@
 #include "io/colmap_camera.h"
+#include "livo_atlas/camera/pinhole_camera.h"
 #include "livo_atlas/io/reconstruction_view.h"
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <opencv2/calib3d.hpp>
@@ -326,8 +328,8 @@ TEST(ReconstructionViewTest, ProducesOwnedMaskedCameraDepthAndMetadata) {
   EXPECT_DOUBLE_EQ(result.camera.scale, 1);
   EXPECT_DOUBLE_EQ(result.camera.fx, 4);
   EXPECT_DOUBLE_EQ(result.camera.fy, 5);
-  EXPECT_DOUBLE_EQ(result.camera.cx, 3);
-  EXPECT_DOUBLE_EQ(result.camera.cy, 2);
+  EXPECT_DOUBLE_EQ(result.camera.cx, 2.5);
+  EXPECT_DOUBLE_EQ(result.camera.cy, 1.5);
   EXPECT_EQ(result.image_bgr.type(), CV_8UC3);
   EXPECT_EQ(result.image_mask.type(), CV_8UC1);
   EXPECT_EQ(result.depth_m.type(), CV_32FC1);
@@ -486,6 +488,19 @@ TEST(ReconstructionViewTest, ReportsMissingCloudSeparatelyFromLimits) {
   } catch (const std::invalid_argument& error) {
     EXPECT_STREQ(error.what(), "Missing keyframe cloud");
   }
+}
+
+TEST(ReconstructionViewTest, CameraConfigUsesOpenCvPixelCenters) {
+  const auto frame = Frame();
+  const auto view =
+      MakeReconstructionView(Config(), frame, RawPoses(frame), {24, 1});
+  const PinholeCamera camera(view.camera);
+  const Eigen::Vector2d pixel = camera.Project(Eigen::Vector3d(0, .5, 4));
+  EXPECT_NEAR(pixel.x(), 2.5, 1e-12);
+  EXPECT_NEAR(pixel.y(), 2.125, 1e-12);
+  EXPECT_EQ(static_cast<int>(std::floor(pixel.x() + .5)), 3);
+  EXPECT_EQ(static_cast<int>(std::floor(pixel.y() + .5)), 2);
+  EXPECT_FLOAT_EQ(view.depth_m.at<float>(2, 3), 4.0f);
 }
 
 }  // namespace

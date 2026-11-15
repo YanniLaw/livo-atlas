@@ -18,7 +18,7 @@ struct ReconstructionViewLimits {
   std::size_t max_cloud_points = 0;
 };
 
-// Pixel centers are at (x + 0.5, y + 0.5). Masks contain 0 or 1; depth is
+// Camera intrinsics use integer pixel centers. Masks contain 0 or 1; depth is
 // camera z in meters and is meaningful only where depth_mask is 1.
 struct ReconstructionView {
   std::uint64_t keyframe_id = 0;

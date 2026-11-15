@@ -60,6 +60,9 @@ ReconstructionView MakeReconstructionView(const CameraConfig& camera,
   result.image_timestamp = *keyframe.image_timestamp;
   result.inverse_exposure_time = keyframe.inverse_exposure_time;
   result.camera = rectifier.pinhole();
+  // CameraConfig uses OpenCV pixel centers; COLMAP uses pixel corners.
+  result.camera.cx -= .5;
+  result.camera.cy -= .5;
   result.camera_from_parent = projected.camera_from_parent;
   result.image_bgr = std::move(projected.image);
   result.image_mask = rectifier.valid_mask().clone();
