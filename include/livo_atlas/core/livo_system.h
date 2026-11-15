@@ -1,6 +1,7 @@
 #ifndef LIVO_ATLAS_CORE_LIVO_SYSTEM_H_
 #define LIVO_ATLAS_CORE_LIVO_SYSTEM_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <exception>
@@ -39,6 +40,16 @@ struct PropagationResult {
   FilterState state;
 };
 
+struct StartupBufferStats {
+  std::size_t pending_imu = 0;
+  std::size_t pending_images = 0;
+  std::uint64_t buffered_imu = 0;
+  std::uint64_t buffered_images = 0;
+  std::uint64_t evicted_imu = 0;
+  std::uint64_t evicted_images = 0;
+  std::uint64_t rejected_imu = 0;
+};
+
 // All calls belong to one executor. Views
 // passed to the callback must be consumed before the next ProcessNext call.
 class LivoSystem {
@@ -67,6 +78,8 @@ class LivoSystem {
   // IMU timestamps precede the configured IMU offset and driver correction.
   bool AddImu(Imu measurement);
   bool AddImage(TimedImage measurement);
+  // Called by the same owner as input methods; counts include startup only.
+  StartupBufferStats GetStartupBufferStats() const noexcept;
   SyncStatus ProcessNext(const ResultCallback& callback);
   void ProcessAvailable(const ResultCallback& callback);
   std::optional<PropagationResult> PropagateLatest();
@@ -83,6 +96,8 @@ class LivoSystem {
   void ApplyLoopPoseUpdate(const PoseUpdate& update);
   void FailLoopBackend(std::exception_ptr error) noexcept;
   void CheckInputOpen() const;
+  bool EnqueueImu(Imu measurement);
+  void FlushStartupImu();
   void AppendSubmap(const Submap& submap);
   OnlineSubmapManager& Online() const;
   void Propagate(const Imu& measurement);
@@ -107,6 +122,8 @@ class LivoSystem {
   bool loop_pose_updates_claimed_ = false;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
   std::uint64_t image_count_ = 0;
+  std::deque<Imu> startup_imu_;
+  StartupBufferStats startup_stats_;
   std::deque<Imu> propagation_buffer_;
   Imu newest_imu_;
   bool new_imu_ = false, state_updated_ = false, have_estimate_ = false;

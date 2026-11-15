@@ -34,6 +34,7 @@ struct SystemOptions {
   bool image_enabled = true;
   bool hilti = false;
   bool driver_fix = false;
+  bool buffer_before_first_lidar = true;
   bool propagate_imu = false;
   double exposure_time = 0;
   double imu_time_offset = 0;

@@ -1,15 +1,18 @@
 #include "livo_atlas/core/livo_system.h"
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "core/fixtures.h"
 #include "test_images.h"
@@ -264,7 +267,9 @@ TEST(SystemStepTest, RepeatedVisualUpdatesConsumeCloudsWithoutRosPublishers) {
 }
 
 TEST(SystemTest, RejectsEarlyAndReverseDataWithoutBlockingValidScan) {
-  LivoSystem session(test::Options(FrontendMode::kLidarInertial));
+  auto options = test::Options(FrontendMode::kLidarInertial);
+  options.buffer_before_first_lidar = false;
+  LivoSystem session(options);
   EXPECT_FALSE(session.AddImu({100, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
   EXPECT_TRUE(session.AddLidar(test::Scan(100)));
   EXPECT_TRUE(session.AddImu({100.1, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
@@ -272,6 +277,272 @@ TEST(SystemTest, RejectsEarlyAndReverseDataWithoutBlockingValidScan) {
   EXPECT_FALSE(session.AddLidar({99, {}}));
   session.Finish();
 }
+
+TEST(SystemTest, StartupOrderDoesNotChangeInitialLivoResults) {
+  struct Observation {
+    double timestamp;
+    UpdateKind kind;
+    Eigen::Vector3d position;
+    Eigen::Matrix3d rotation;
+  };
+  struct RunResult {
+    std::vector<Observation> observations;
+    std::array<std::string, 3> files;
+  };
+  const auto run = [](bool measurements_first) {
+    auto options = test::Options(FrontendMode::kLidarInertialVisual);
+    LivoSystem system(options);
+    RunResult run_result;
+    const auto collect = [&](const auto& result, const auto&, double) {
+      run_result.observations.push_back({result.timestamp, result.kind,
+                                         result.estimate.pos_end,
+                                         result.estimate.rot_end});
+    };
+    const auto input_measurements = [&](int frame) {
+      const double time = 100 + frame * .25;
+      for (double offset : {.0625, .125, .1875}) {
+        EXPECT_TRUE(
+            system.AddImu({time + offset,
+                           Eigen::Vector3d::Zero(),
+                           {0.01 * frame + offset, 0.02 * offset, -9.81}}));
+      }
+      EXPECT_TRUE(
+          system.AddImage({time + .125, test_data::MakeImage(512, 512, 3)}));
+    };
+    if (measurements_first) input_measurements(0);
+    EXPECT_TRUE(system.AddLidar(test::Scan(100)));
+    if (!measurements_first) input_measurements(0);
+    system.ProcessAvailable(collect);
+    for (int frame = 1; frame < 6; ++frame) {
+      EXPECT_TRUE(system.AddLidar(test::Scan(100 + frame * .25)));
+      input_measurements(frame);
+      system.ProcessAvailable(collect);
+    }
+    system.Finish();
+    const std::array<const char*, 3> names = {"mat_pre.txt", "mat_out.txt",
+                                              "imu.txt"};
+    for (std::size_t i = 0; i < names.size(); ++i) {
+      std::ifstream stream(options.exporter.directory / names[i]);
+      EXPECT_TRUE(stream.good());
+      run_result.files[i] = std::string(std::istreambuf_iterator<char>(stream),
+                                        std::istreambuf_iterator<char>());
+    }
+    return run_result;
+  };
+
+  const auto lidar_first = run(false);
+  const auto measurements_first = run(true);
+  ASSERT_GT(lidar_first.observations.size(), 2u);
+  ASSERT_EQ(lidar_first.observations.size(),
+            measurements_first.observations.size());
+  for (std::size_t i = 0; i < lidar_first.observations.size(); ++i) {
+    const auto& expected = lidar_first.observations[i];
+    const auto& actual = measurements_first.observations[i];
+    EXPECT_DOUBLE_EQ(actual.timestamp, expected.timestamp);
+    EXPECT_EQ(actual.kind, expected.kind);
+    EXPECT_TRUE(actual.position.isApprox(expected.position, 0));
+    EXPECT_TRUE(actual.rotation.isApprox(expected.rotation, 0));
+  }
+  EXPECT_EQ(lidar_first.files, measurements_first.files);
+}
+
+TEST(SystemTest, StartupBufferRetainsRecentSamplesWithinLimits) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  LivoSystem system(options);
+  auto reference_options = options;
+  reference_options.exporter.directory /= "retained-suffix";
+  LivoSystem reference(reference_options);
+  const auto image = test_data::MakeImage(512, 512, 3);
+  for (int i = 0; i < 2001; ++i) {
+    ASSERT_TRUE(system.AddImu(
+        {100 + i * .001, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+    if (i != 0)
+      ASSERT_TRUE(reference.AddImu(
+          {100 + i * .001, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  }
+  for (int i = 0; i < 9; ++i) {
+    ASSERT_TRUE(system.AddImage({100 + i * .03, image}));
+    if (i != 0) ASSERT_TRUE(reference.AddImage({100 + i * .03, image}));
+  }
+  auto stats = system.GetStartupBufferStats();
+  EXPECT_EQ(stats.pending_imu, 2000u);
+  EXPECT_EQ(stats.pending_images, 8u);
+  EXPECT_EQ(stats.evicted_imu, 1u);
+  EXPECT_EQ(stats.evicted_images, 1u);
+  EXPECT_FALSE(system.AddLidar({99, {}}));
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 2000u);
+  EXPECT_TRUE(system.AddLidar(test::Scan(100)));
+  stats = system.GetStartupBufferStats();
+  EXPECT_EQ(stats.pending_imu, 0u);
+  EXPECT_EQ(stats.pending_images, 0u);
+  EXPECT_EQ(stats.evicted_imu, 1u);
+  EXPECT_EQ(stats.evicted_images, 1u);
+  EXPECT_EQ(stats.rejected_imu, 0u);
+  ASSERT_TRUE(reference.AddLidar(test::Scan(100)));
+  ASSERT_TRUE(system.AddLidar(test::Scan(100.25)));
+  ASSERT_TRUE(reference.AddLidar(test::Scan(100.25)));
+  system.ProcessAvailable({});
+  reference.ProcessAvailable({});
+  system.Finish();
+  reference.Finish();
+  for (const char* name : {"mat_pre.txt", "mat_out.txt", "imu.txt"}) {
+    std::ifstream actual(options.exporter.directory / name);
+    std::ifstream expected(reference_options.exporter.directory / name);
+    ASSERT_TRUE(actual.good());
+    ASSERT_TRUE(expected.good());
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(actual), {}),
+              std::string(std::istreambuf_iterator<char>(expected), {}));
+  }
+}
+
+TEST(SystemTest, StartupBufferRejectsInvalidInputWithoutChangingState) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  options.imu_time_range = {0, 101};
+  LivoSystem system(options);
+  const double invalid = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_FALSE(system.AddImu({100, {invalid, 0, 0}, {0, 0, -9.81}}));
+  EXPECT_THROW(system.AddImu({invalid, Eigen::Vector3d::Zero(), {0, 0, -9.81}}),
+               std::invalid_argument);
+  EXPECT_THROW(system.AddImu({-1, Eigen::Vector3d::Zero(), {0, 0, -9.81}}),
+               std::invalid_argument);
+  EXPECT_FALSE(system.AddImage({invalid, test_data::MakeImage(512, 512, 3)}));
+  const auto stats = system.GetStartupBufferStats();
+  EXPECT_EQ(stats.pending_imu, 0u);
+  EXPECT_EQ(stats.pending_images, 0u);
+  EXPECT_EQ(stats.evicted_imu, 0u);
+  EXPECT_EQ(stats.evicted_images, 0u);
+  system.Finish();
+}
+
+TEST(SystemTest, NegativeLidarTimeDoesNotReleaseStartupData) {
+  auto options = test::Options(FrontendMode::kLidarInertial);
+  LivoSystem system(options);
+  ASSERT_TRUE(system.AddImu({100, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  ASSERT_TRUE(system.AddLidar(test::Scan(-.5)));
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 1u);
+  ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 0u);
+  system.Finish();
+}
+
+TEST(SystemTest, StartupBufferCanPreserveLegacyInputBehavior) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  options.buffer_before_first_lidar = false;
+  LivoSystem system(options);
+  const auto image = test_data::MakeImage(512, 512, 3);
+  EXPECT_FALSE(system.AddImu({100.1, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  EXPECT_FALSE(system.AddImage({100.1, image}));
+  ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+  EXPECT_TRUE(system.AddImu({100.1, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  EXPECT_TRUE(system.AddImage({100.1, image}));
+  const auto stats = system.GetStartupBufferStats();
+  EXPECT_EQ(stats.buffered_imu, 0u);
+  EXPECT_EQ(stats.buffered_images, 0u);
+  system.Finish();
+}
+
+TEST(SystemTest, StartupImagesPreserveSamplingAndTimeChecks) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  LivoSystem normal(options);
+  const auto image = test_data::MakeImage(512, 512, 3);
+  EXPECT_TRUE(normal.AddImage({100.1, image}));
+  EXPECT_FALSE(normal.AddImage({100.1, image}));
+  EXPECT_FALSE(normal.AddImage({100.11, image}));
+  EXPECT_FALSE(normal.AddImage({100.08, image}));
+  EXPECT_TRUE(normal.AddImage({100.2, image}));
+  EXPECT_EQ(normal.GetStartupBufferStats().buffered_images, 2u);
+  ASSERT_TRUE(normal.AddLidar(test::Scan(100)));
+  EXPECT_TRUE(normal.AddImage({100.3, image}));
+  normal.Finish();
+
+  options.hilti = true;
+  options.exporter.directory /= "startup-hilti";
+  LivoSystem hilti(options);
+  for (int i = 1; i <= 4; ++i)
+    EXPECT_EQ(hilti.AddImage({100 + i * .05, image}), i == 4);
+  EXPECT_EQ(hilti.GetStartupBufferStats().buffered_images, 1u);
+  ASSERT_TRUE(hilti.AddLidar(test::Scan(100)));
+  for (int i = 5; i <= 8; ++i)
+    EXPECT_EQ(hilti.AddImage({100 + i * .05, image}), i == 8);
+  hilti.Finish();
+}
+
+TEST(SystemTest, SealingWithoutLidarReleasesStartupMeasurements) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  LivoSystem system(options);
+  ASSERT_TRUE(system.AddImu({100, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  ASSERT_TRUE(system.AddImage({100, test_data::MakeImage(512, 512, 3)}));
+  ASSERT_EQ(system.GetStartupBufferStats().pending_imu, 1u);
+  ASSERT_EQ(system.GetStartupBufferStats().pending_images, 1u);
+  system.SealInput();
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 0u);
+  EXPECT_EQ(system.GetStartupBufferStats().pending_images, 0u);
+  EXPECT_THROW(system.AddImu({}), std::logic_error);
+  system.Finish();
+}
+
+TEST(SystemTest, StartupImuCorrectionUsesFirstLidarAnchor) {
+  auto options = test::Options(FrontendMode::kLidarInertial);
+  options.driver_fix = true;
+  options.imu_time_offset = .25;
+  LivoSystem lidar_first(options);
+  options.exporter.directory /= "imu-first";
+  LivoSystem imu_first(options);
+  const std::array<double, 3> timestamps = {100.1, 100.25, 100.5};
+  ASSERT_TRUE(lidar_first.AddLidar(test::Scan(.975)));
+  for (double time : timestamps) {
+    ASSERT_TRUE(
+        lidar_first.AddImu({time, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+    ASSERT_TRUE(
+        imu_first.AddImu({time, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  }
+  ASSERT_TRUE(imu_first.AddLidar(test::Scan(.975)));
+  EXPECT_EQ(lidar_first.ProcessNext({}), SyncStatus::kReady);
+  EXPECT_EQ(imu_first.ProcessNext({}), SyncStatus::kReady);
+  EXPECT_EQ(imu_first.GetStartupBufferStats().rejected_imu, 0u);
+  ASSERT_TRUE(lidar_first.AddLidar(test::Scan(1.225)));
+  ASSERT_TRUE(imu_first.AddLidar(test::Scan(1.225)));
+  ASSERT_TRUE(
+      lidar_first.AddImu({100.75, Eigen::Vector3d::Zero(), {0.1, 0, -9.81}}));
+  ASSERT_TRUE(
+      imu_first.AddImu({100.75, Eigen::Vector3d::Zero(), {0.1, 0, -9.81}}));
+  EXPECT_EQ(lidar_first.ProcessNext({}), SyncStatus::kReady);
+  EXPECT_EQ(imu_first.ProcessNext({}), SyncStatus::kReady);
+  lidar_first.Finish();
+  imu_first.Finish();
+  for (const char* name : {"mat_pre.txt", "mat_out.txt", "imu.txt"}) {
+    std::ifstream expected(options.exporter.directory.parent_path() / name);
+    std::ifstream actual(options.exporter.directory / name);
+    ASSERT_TRUE(expected.good());
+    ASSERT_TRUE(actual.good());
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(actual), {}),
+              std::string(std::istreambuf_iterator<char>(expected), {}));
+  }
+}
+
+TEST(SystemTest, StartupImuRejectsOnlyBadCorrectedOrReversedSamples) {
+  auto options = test::Options(FrontendMode::kLidarInertial);
+  options.driver_fix = true;
+  options.imu_time_range = {0, 101};
+  LivoSystem out_of_range(options);
+  ASSERT_TRUE(
+      out_of_range.AddImu({100.4, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  EXPECT_TRUE(out_of_range.AddLidar(test::Scan(100.975)));
+  EXPECT_EQ(out_of_range.GetStartupBufferStats().rejected_imu, 1u);
+  EXPECT_EQ(out_of_range.GetStartupBufferStats().pending_imu, 0u);
+  out_of_range.Finish();
+
+  options.imu_time_range = {0, 1000};
+  options.exporter.directory /= "reversed";
+  LivoSystem reversed(options);
+  ASSERT_TRUE(
+      reversed.AddImu({100.25, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  ASSERT_TRUE(reversed.AddImu({100.1, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  EXPECT_TRUE(reversed.AddLidar(test::Scan(.975)));
+  EXPECT_EQ(reversed.GetStartupBufferStats().rejected_imu, 1u);
+  reversed.Finish();
+}
+
 TEST(SystemTest, IndependentPropagationCursors) {
   auto options = test::Options(FrontendMode::kLidarInertial);
   options.propagate_imu = true;
@@ -302,8 +573,10 @@ TEST(SystemTest, IndependentPropagationCursors) {
   a.Finish();
   b.Finish();
 }
+
 TEST(SystemTest, ImageRejectionAndHiltiCountersBelongToEachInstance) {
   auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  options.buffer_before_first_lidar = false;
   LivoSystem normal(options);
   const auto image = test_data::MakeImage(512, 512, 3);
   EXPECT_FALSE(normal.AddImage({100.1, image}));
@@ -347,6 +620,7 @@ void ExpectSameStates(const std::vector<FrontendResult>& reference,
     EXPECT_TRUE(b.pos_end.allFinite() && b.cov.allFinite());
   }
 }
+
 TEST(SystemTest, RejectingNonfiniteImuLeavesValidSequenceUnchanged) {
   auto options = test::Options(FrontendMode::kLidarInertial);
   LivoSystem reference(options);
@@ -382,6 +656,7 @@ TEST(SystemTest, RejectingNonfiniteImuLeavesValidSequenceUnchanged) {
   reference.Finish();
   actual.Finish();
 }
+
 TEST(SystemTest, AppliesImuOffsetAndDriverCorrectionAtActualIngress) {
   struct Case {
     double begin;

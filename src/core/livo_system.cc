@@ -19,6 +19,9 @@
 
 namespace livo_atlas {
 namespace {
+constexpr std::size_t kStartupImuLimit = 2000;
+constexpr std::size_t kStartupImageLimit = 8;
+
 // Preserve the two ROS1 fromSec/toSec stages without importing ROS into this
 // ordinary system. The source supplies its whole-second transport range.
 double NanosecondTime(double value, const TimestampRange& range) {
@@ -85,22 +88,40 @@ bool LivoSystem::AddLidar(const LidarScan& scan) {
   TimedPointCloud measurement{scan.timestamp, PointCloud::Ptr(new PointCloud)};
   preprocess_.Process(scan, measurement.cloud.get());
   if (measurement.cloud->empty()) return false;
+  const bool first_lidar = last_lidar_ < 0;
   if (scan.timestamp < last_lidar_) buffers_.point_clouds.clear();
   buffers_.point_clouds.push_back(std::move(measurement));
   last_lidar_ = scan.timestamp;
+  if (first_lidar && last_lidar_ >= 0) FlushStartupImu();
   return true;
 }
 
 bool LivoSystem::AddImu(Imu measurement) {
   CheckInputOpen();
-  if (!options_.frontend.imu.enabled || last_lidar_ < 0) return false;
+  if (!options_.frontend.imu.enabled ||
+      (last_lidar_ < 0 && !options_.buffer_before_first_lidar))
+    return false;
   if (!measurement.linear_acceleration.allFinite() ||
       !measurement.angular_velocity.allFinite()) {
     return false;
   }
-  double timestamp =
+  measurement.timestamp =
       NanosecondTime(measurement.timestamp - options_.imu_time_offset,
                      options_.imu_time_range);
+  if (last_lidar_ < 0) {
+    startup_imu_.push_back(std::move(measurement));
+    ++startup_stats_.buffered_imu;
+    if (startup_imu_.size() > kStartupImuLimit) {
+      startup_imu_.pop_front();
+      ++startup_stats_.evicted_imu;
+    }
+    return true;
+  }
+  return EnqueueImu(std::move(measurement));
+}
+
+bool LivoSystem::EnqueueImu(Imu measurement) {
+  double timestamp = measurement.timestamp;
   if (options_.driver_fix) timestamp += std::round(last_lidar_ - timestamp);
   if (last_imu_ > 0 && timestamp < last_imu_) return false;
   measurement.timestamp = NanosecondTime(timestamp, options_.imu_time_range);
@@ -116,19 +137,47 @@ bool LivoSystem::AddImu(Imu measurement) {
   return true;
 }
 
+void LivoSystem::FlushStartupImu() {
+  // Driver correction needs the first valid LiDAR timestamp as its anchor.
+  while (!startup_imu_.empty()) {
+    auto measurement = std::move(startup_imu_.front());
+    startup_imu_.pop_front();
+    try {
+      if (!EnqueueImu(std::move(measurement))) ++startup_stats_.rejected_imu;
+    } catch (const std::invalid_argument&) {
+      ++startup_stats_.rejected_imu;
+    }
+  }
+}
+
 bool LivoSystem::AddImage(TimedImage measurement) {
   CheckInputOpen();
   if (!options_.image_enabled || !std::isfinite(measurement.timestamp))
     return false;
   if (options_.hilti && ++image_count_ % 4 != 0) return false;
   const double timestamp = measurement.timestamp;
-  if (std::abs(timestamp - last_image_) < 0.001 || last_lidar_ < 0 ||
+  if (std::abs(timestamp - last_image_) < 0.001 ||
+      (last_lidar_ < 0 && !options_.buffer_before_first_lidar) ||
       timestamp < last_image_ || timestamp - last_image_ < 0.02) {
     return false;
   }
   buffers_.images.push_back(std::move(measurement));
+  if (last_lidar_ < 0) {
+    ++startup_stats_.buffered_images;
+    if (buffers_.images.size() > kStartupImageLimit) {
+      buffers_.images.pop_front();
+      ++startup_stats_.evicted_images;
+    }
+  }
   last_image_ = timestamp;
   return true;
+}
+
+StartupBufferStats LivoSystem::GetStartupBufferStats() const noexcept {
+  auto stats = startup_stats_;
+  stats.pending_imu = startup_imu_.size();
+  stats.pending_images = last_lidar_ < 0 ? buffers_.images.size() : 0;
+  return stats;
 }
 
 SyncStatus LivoSystem::ProcessNext(const ResultCallback& callback) {
@@ -184,6 +233,10 @@ void LivoSystem::SealInput() {
     if (online_) online_->SealInput();
     if (submap_store_) {
       if (const auto tail = submap_builder_.Finish()) AppendSubmap(*tail);
+    }
+    if (last_lidar_ < 0) {
+      startup_imu_.clear();
+      buffers_.images.clear();
     }
     input_sealed_ = true;
   } catch (...) {
