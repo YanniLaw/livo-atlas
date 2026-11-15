@@ -1,15 +1,17 @@
-#include <cstdint>
 #include <chrono>
-#include <filesystem>
+#include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <vector>
 
+#include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/global_output_options.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/core/trajectory_output.h"
+#include "livo_atlas/mapping/geometry_map_builder.h"
 #include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
 #ifdef EXPECT_GTSAM
@@ -33,6 +35,24 @@ int main() {
         history.keyframes[2].id != 2 || history.keyframes[2].timestamp != 3)
       throw std::runtime_error(
           "Installed trajectory builder lost its frontier");
+    auto geometry_poses = std::make_shared<PoseSnapshot>();
+    geometry_poses->frame_count = 1;
+    geometry_poses->poses.push_back({0, {}});
+    OnlineSubmap group;
+    group.primary.keyframe_ids = {0};
+    GeometryMapBuilder map_builder({}, {}, [](std::uint64_t) {
+      PointCloud::Ptr cloud(new PointCloud);
+      Point point;
+      point.x = 0.1f;
+      point.intensity = 4;
+      cloud->push_back(point);
+      return cloud;
+    });
+    const auto map = map_builder.Build({group}, geometry_poses);
+    if (map.status != GeometryMapStatus::kReady || map.points.size() != 1 ||
+        map.sources.size() != 1 || map.sources[0].input_point_count != 1)
+      throw std::runtime_error(
+          "Installed geometry map builder lost its source");
 #ifdef EXPECT_GTSAM
     PoseGraph graph({});
     for (std::uint64_t i = 0; i < raw.size(); ++i) graph.AddKeyframe(i, raw[i]);
@@ -108,11 +128,18 @@ int main() {
       TrajectoryOutput trajectory(
           system, trajectory_options,
           [&](const auto& item) { received.push_back(item); });
+      std::vector<GeometryMapSnapshot> maps;
+      GeometryMapOutputOptions geometry_options;
+      geometry_options.enabled = true;
+      GeometryMapOutput geometry(
+          system, geometry_options, options.geometry,
+          [&](const auto& item) { maps.push_back(item); });
       system.SetOnlineSubmapCallback([&](const auto& update) {
 #ifdef EXPECT_ADMISSION
         backend.Observe(update);
 #endif
         trajectory.Observe(update);
+        geometry.Observe(update);
       });
 #ifdef EXPECT_ADMISSION
       backend.Finish();
@@ -124,12 +151,18 @@ int main() {
       system.Finish();
 #endif
       trajectory.Finish();
+      geometry.Finish();
       if (received.size() != 1 || received[0].revision != 1 ||
           received[0].producer_id.size() != 32 ||
           received[0].frame_count != 0 ||
           received[0].status != TrajectoryStatus::kReady)
         throw std::runtime_error(
             "Installed trajectory worker lost its final state");
+      if (maps.size() != 1 || maps[0].revision != 1 ||
+          maps[0].producer_id.size() != 32 || maps[0].frame_count != 0 ||
+          maps[0].status != GeometryMapStatus::kReady)
+        throw std::runtime_error(
+            "Installed geometry worker lost its final state");
     }
     std::filesystem::remove_all(directory);
     return 0;
