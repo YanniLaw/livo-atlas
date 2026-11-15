@@ -262,7 +262,7 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
   测试数非零且全部通过；检查产品库及准备工具未链接 GPU/vikit。记录两种操作系统依赖
   边界、固定版本、环境恢复、试验图像/指标和失败限制；不把离线结果称为实时 3DGS SLAM。
 
-- [ ] **Step 6: 提交与整阶段审阅。** 提交本任务源码、测试和文档；完成任务检查后按
+- [x] **Step 6: 提交与整阶段审阅。** 提交本任务源码、测试和文档；完成任务检查后按
   `executing-plans` 对整个 P6-03b 范围做一次独立审阅，修复影响正确性的发现并记录证据。
   提交示例：`feat: validate offline Gaussian optimization`。
 
