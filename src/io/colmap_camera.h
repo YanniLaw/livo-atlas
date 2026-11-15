@@ -12,6 +12,7 @@ struct ColmapSample {
   Eigen::Vector3d position;
   Eigen::Vector2d pixel;
   cv::Vec3b rgb;  // RGB order, unlike the image's OpenCV BGR storage.
+  double camera_depth;
 };
 struct ColmapView {
   RigidTransform camera_from_parent;
@@ -22,15 +23,18 @@ struct ColmapView {
 // Private offline rectification/projection; never changes frontend images.
 class ColmapCamera {
  public:
+  enum class ProjectionFrame { kParent, kBody };
+
   explicit ColmapCamera(const CameraConfig& config);
   // Already scaled; principal point and observations use COLMAP corner pixels.
   const CameraConfig& pinhole() const { return pinhole_; }
 
   const cv::Mat& valid_mask() const { return valid_; }
 
-  ColmapView MakeView(const Keyframe& frame,
-                      const RigidTransform& parent_from_body,
-                      std::uint32_t max_points) const;
+  ColmapView MakeView(
+      const Keyframe& frame, const RigidTransform& parent_from_body,
+      std::uint32_t max_points,
+      ProjectionFrame projection_frame = ProjectionFrame::kParent) const;
 
  private:
   CameraConfig pinhole_;

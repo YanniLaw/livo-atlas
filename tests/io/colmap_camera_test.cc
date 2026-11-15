@@ -2,6 +2,7 @@
 #include "livo_atlas/camera/pinhole_camera.h"
 #include "livo_atlas/io/reconstruction_view.h"
 
+#include <Eigen/Geometry>
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -416,6 +417,46 @@ TEST(ReconstructionViewTest, PoseVersionChangesCameraButNotLocalDepth) {
   EXPECT_EQ(cv::norm(map.depth_mask, raw.depth_mask, cv::NORM_INF), 0);
   EXPECT_EQ(cv::norm(map.depth_m, raw.depth_m, cv::NORM_INF), 0);
   EXPECT_EQ(cv::norm(map.image_bgr, raw.image_bgr, cv::NORM_INF), 0);
+}
+
+TEST(ReconstructionViewTest, PoseCorrectionKeepsDepthAtPixelBoundaries) {
+  auto frame = Frame();
+  frame.odom_from_body = {};
+  frame.camera_from_odom = RigidTransform{};
+  PointCloud::Ptr cloud(new PointCloud);
+  Point near{};
+  near.z = 4;
+  cloud->push_back(near);
+  Point other{};
+  other.x = -.5;
+  other.y = -.5;
+  other.z = 8;
+  cloud->push_back(other);
+  frame.cloud = cloud;
+  const CameraConfig camera = {"Pinhole", 6, 4, 1, 4, 5, 2.5, 1.5, {}};
+  const auto raw_poses = RawPoses(frame);
+  auto corrected = raw_poses;
+  corrected.version = 1;
+  corrected.optimized_frame_count = 1;
+  corrected.parent_frame = PoseFrame::kMap;
+  const Eigen::Matrix3d rotation =
+      Eigen::AngleAxisd(.2, Eigen::Vector3d(1, 2, 3).normalized())
+          .toRotationMatrix();
+  const Eigen::Vector3d translation(10, 20, 30);
+  corrected.poses[0].map_from_body = {rotation, translation};
+
+  const auto raw = MakeReconstructionView(camera, frame, raw_poses, {24, 2});
+  const auto map = MakeReconstructionView(camera, frame, corrected, {24, 2});
+  ASSERT_EQ(raw.valid_depth_pixels, 2u);
+  EXPECT_FLOAT_EQ(raw.depth_m.at<float>(2, 3), 4);
+  EXPECT_FLOAT_EQ(raw.depth_m.at<float>(1, 2), 8);
+  EXPECT_EQ(map.valid_depth_pixels, 2u);
+  EXPECT_EQ(cv::norm(map.depth_mask, raw.depth_mask, cv::NORM_INF), 0);
+  EXPECT_EQ(cv::norm(map.depth_m, raw.depth_m, cv::NORM_INF), 0);
+  EXPECT_TRUE(
+      map.camera_from_parent.rotation.isApprox(rotation.transpose(), 1e-12));
+  EXPECT_TRUE(map.camera_from_parent.translation.isApprox(
+      -rotation.transpose() * translation, 1e-12));
 }
 
 TEST(ReconstructionViewTest, RejectsInvalidInputAndResourceLimits) {

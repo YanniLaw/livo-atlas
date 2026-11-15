@@ -102,8 +102,8 @@
 
 - [x] **Step 5: 实现。** 定义 spec 中的值类型和函数；`ValidateCameraConfig`/`ValidateKeyframe`/
   `ValidatePoseSnapshot` 配合前置容量检查，版本 0 使用现有 `pose_math::Equal`；调用已有
-  `ColmapCamera::MakeView`，以 `width*height` 作为点数上限使其不采样，逐样本生成 `depth_m`/
-  `depth_mask` 并拒绝转换后非有限或非正的 float 深度，拷贝图像有效区域；返回内参的
+  `ColmapCamera::MakeView` 的帧局部投影模式，以 `width*height` 作为点数上限使其不采样，
+  逐样本生成 `depth_m`/`depth_mask` 并拒绝转换后非有限或非正的 float 深度，拷贝图像有效区域；返回内参的
   主点各减 0.5 以符合现有 OpenCV 像素中心约定。只给 `livo_atlas_io`
   增加 `src` 私有 include 目录；公开头只包含普通 C++、Eigen/OpenCV/PCL 依赖。
 
@@ -141,9 +141,12 @@ create `docs/reconstruction-view.md`, `docs/p6-03a-validation.md`。真实数据
   Expected: 两端均编译通过并通过全部相机/新视图测试；`ldd` 无 vikit、CUDA、torch 或缺失库。
   这些构建只说明 CPU 观测接口兼容，不声称已运行 GPU 训练。由于未改变运行路径，完整 bag 不重复。
 
-- [ ] **Step 4: 文档及最终审阅。** 记录用法、坐标、像素中心、时间、内存上限和可移植构建；
+- [x] **Step 4: 文档及最终审阅。** 记录用法、坐标、像素中心、时间、内存上限和可移植构建；
   写入真实数据覆盖、测试、独立对照及未实现的在线 mapper。先提交文档，运行任务完成检查；
   然后按 executing-plans 进行一次整个阶段的独立审阅，处理 Critical/Important 并记录范围。
+
+  独立审阅发现像素边界的全局位姿往返误差；通过先失败后通过的两点碰撞用例修复，并重新验证
+  核心套件、安装消费、真实数据、既有 COLMAP 导出及双 ROS 构建。原始 COLMAP 输出路径保留。
 
 ## Self-review
 

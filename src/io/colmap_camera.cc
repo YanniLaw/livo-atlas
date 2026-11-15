@@ -99,7 +99,8 @@ ColmapCamera::ColmapCamera(const CameraConfig& config) : pinhole_(config) {
 
 ColmapView ColmapCamera::MakeView(const Keyframe& frame,
                                   const RigidTransform& parent_from_body,
-                                  std::uint32_t max_points) const {
+                                  std::uint32_t max_points,
+                                  ProjectionFrame projection_frame) const {
   if (max_points == 0 || max_points == UINT32_MAX)
     throw std::invalid_argument(
         "Export point limit must be in [1, UINT32_MAX)");
@@ -119,6 +120,14 @@ ColmapView ColmapCamera::MakeView(const Keyframe& frame,
       Eigen::Quaterniond(view.camera_from_parent.rotation)
           .normalized()
           .toRotationMatrix();
+  const auto camera_point_for =
+      [&](const Point& point,
+          const Eigen::Vector3d& position) -> Eigen::Vector3d {
+    if (projection_frame == ProjectionFrame::kBody)
+      return Position(point, camera_from_body);
+    return view.camera_from_parent.rotation * position +
+           view.camera_from_parent.translation;
+  };
   cv::remap(frame.image, view.image, map_x_, map_y_, cv::INTER_LINEAR,
             cv::BORDER_CONSTANT);
   const auto no_point = std::numeric_limits<std::size_t>::max();
@@ -127,8 +136,7 @@ ColmapView ColmapCamera::MakeView(const Keyframe& frame,
                              std::numeric_limits<double>::infinity());
   for (std::size_t i = 0; i < frame.cloud->size(); ++i) {
     const auto position = Position((*frame.cloud)[i], parent_pose);
-    const auto camera_point = view.camera_from_parent.rotation * position +
-                              view.camera_from_parent.translation;
+    const auto camera_point = camera_point_for((*frame.cloud)[i], position);
     if (!camera_point.allFinite() || camera_point.z() <= 0) continue;
     const auto pixel = Project(camera_point, pinhole_);
     if (!pixel.allFinite() || pixel.x() < 0 || pixel.y() < 0 ||
@@ -154,12 +162,13 @@ ColmapView ColmapCamera::MakeView(const Keyframe& frame,
     if (rank++ % stride != 0) continue;
     const auto position =
         Position((*frame.cloud)[nearest[offset]], parent_pose);
-    const auto camera_point = view.camera_from_parent.rotation * position +
-                              view.camera_from_parent.translation;
+    const auto camera_point =
+        camera_point_for((*frame.cloud)[nearest[offset]], position);
     const auto pixel = Project(camera_point, pinhole_);
     const auto bgr = view.image.at<cv::Vec3b>(offset / pinhole_.width,
                                               offset % pinhole_.width);
-    view.samples.push_back({position, pixel, {bgr[2], bgr[1], bgr[0]}});
+    view.samples.push_back(
+        {position, pixel, {bgr[2], bgr[1], bgr[0]}, camera_point.z()});
   }
   return view;
 }

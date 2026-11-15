@@ -46,8 +46,10 @@ ReconstructionView MakeReconstructionView(const CameraConfig& camera,
 
   // One nearest sample per pixel makes the existing point limit lossless.
   const ColmapCamera rectifier(camera);
+  // Rasterize in the fixed body frame so pose corrections cannot move pixels.
   auto projected = rectifier.MakeView(keyframe, parent_from_body,
-                                      static_cast<std::uint32_t>(pixels));
+                                      static_cast<std::uint32_t>(pixels),
+                                      ColmapCamera::ProjectionFrame::kBody);
   ReconstructionView result;
   result.keyframe_id = keyframe.id;
   result.calibration_id = keyframe.calibration_id;
@@ -69,9 +71,7 @@ ReconstructionView MakeReconstructionView(const CameraConfig& camera,
   result.depth_m = cv::Mat::zeros(height, width, CV_32FC1);
   result.depth_mask = cv::Mat::zeros(height, width, CV_8UC1);
   for (const auto& sample : projected.samples) {
-    const double z = (result.camera_from_parent.rotation * sample.position +
-                      result.camera_from_parent.translation)
-                         .z();
+    const double z = sample.camera_depth;
     if (!std::isfinite(z) || z <= 0 || z > std::numeric_limits<float>::max()) {
       throw std::overflow_error("Reconstruction depth is not representable");
     }
