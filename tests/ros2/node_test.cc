@@ -1,23 +1,54 @@
-#include "ros2/global_output_test_support.h"
-#include <gtest/gtest.h>
-#include <filesystem>
-#include <memory>
+#include "livo_atlas/ros2/livo_node.h"
 
 #include <chrono>
-#include <nav_msgs/msg/odometry.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <tf2_msgs/msg/tf_message.hpp>
+#include <filesystem>
+#include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <nav_msgs/msg/odometry.hpp>
+#include <opencv2/core.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <tf2_msgs/msg/tf_message.hpp>
+
+#include "core/fixtures.h"
 #include "livo_atlas/core/livo_system.h"
-#include "livo_atlas/ros2/livo_node.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "livo_atlas/ros2/node_options.h"
 #include "ros2/fixtures.h"
-#include "core/fixtures.h"
+#include "ros2/global_output_test_support.h"
 
 namespace livo_atlas::ros2 {
+
+TEST(Ros2NodeTest, ReportsStartupBufferOverflow) {
+  auto params = test::Parameters(
+      (std::filesystem::temp_directory_path() / "startup-report-test")
+          .string());
+  rclcpp::Node node("startup_report",
+                    rclcpp::NodeOptions().parameter_overrides(params));
+  auto config = ReadNodeOptions(node);
+  config.livo.system.frontend.imu.enabled = true;
+  LivoSystem session(config.livo.system);
+  LivoNode adapter(node, config, session);
+  const cv::Mat image(1, 1, CV_8UC3, cv::Scalar(1, 2, 3));
+  for (int i = 0; i < 2001; ++i)
+    ASSERT_TRUE(session.AddImu(
+        {100 + i * .001, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  for (int i = 0; i < 9; ++i)
+    ASSERT_TRUE(session.AddImage({100 + i * .03, image}));
+  session.Finish();
+  testing::internal::CaptureStdout();
+  adapter.ReportInputs();
+  const auto output = testing::internal::GetCapturedStdout();
+  EXPECT_NE(output.find("lidar=0 imu=0 image=0"), std::string::npos);
+  EXPECT_NE(output.find("imu_buffered=2001 image_buffered=9"),
+            std::string::npos);
+  EXPECT_NE(output.find("imu_evicted=1 image_evicted=1 imu_rejected=0"),
+            std::string::npos);
+}
+
 TEST(Ros2NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
   auto params = test::Parameters(
       (std::filesystem::temp_directory_path() /

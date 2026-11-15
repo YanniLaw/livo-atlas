@@ -11,6 +11,7 @@
 #include "livo_atlas/ros2/livo_publisher.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "livo_atlas/ros2/node_options.h"
+#include "ros/input_diagnostics.h"
 
 namespace livo_atlas::ros2 {
 namespace {
@@ -115,10 +116,8 @@ SyncStatus LivoNode::ProcessNext() {
 }
 
 void LivoNode::ReportInputs() {
-  std::printf("livo_atlas inputs: lidar=%llu imu=%llu image=%llu\n",
-              static_cast<unsigned long long>(lidar_count_),
-              static_cast<unsigned long long>(imu_count_),
-              static_cast<unsigned long long>(image_count_));
+  ros_detail::PrintInputDiagnostics(lidar_count_, imu_count_, image_count_,
+                                    system_.GetStartupBufferStats());
 }
 
 void LivoNode::Warn(const std::string& error) {

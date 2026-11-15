@@ -1,15 +1,15 @@
 #include "livo_atlas/ros2/node_options.h"
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
-#include <rclcpp/node_interfaces/node_topics_interface.hpp>
 #include <vector>
+
+#include <gtest/gtest.h>
+#include <rclcpp/node_interfaces/node_topics_interface.hpp>
 
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/ros2/livo_node.h"
@@ -74,6 +74,21 @@ TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
   EXPECT_TRUE(node.describe_parameter("cam_fx").read_only);
   EXPECT_FALSE(
       node.set_parameter(rclcpp::Parameter("cam_fx", 300.0)).successful);
+}
+
+TEST(Ros2ParametersTest, StartupBufferParameterCanRestoreLegacyBehavior) {
+  auto params = test::Parameters(
+      (std::filesystem::temp_directory_path() / "startup-parameter-test")
+          .string());
+  rclcpp::Node defaults("startup_defaults",
+                        rclcpp::NodeOptions().parameter_overrides(params));
+  EXPECT_TRUE(ReadNodeOptions(defaults).livo.system.buffer_before_first_lidar);
+  params.emplace_back("common.buffer_before_first_lidar", false);
+  rclcpp::Node legacy("startup_legacy",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+  EXPECT_FALSE(ReadNodeOptions(legacy).livo.system.buffer_before_first_lidar);
+  EXPECT_TRUE(
+      legacy.describe_parameter("common.buffer_before_first_lidar").read_only);
 }
 
 TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {

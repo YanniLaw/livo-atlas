@@ -53,12 +53,14 @@
 
 ### Task 2: 双 ROS 配置和启动统计
 
-**Files:** Modify `src/core/livo_config.cc`, `src/ros1/livo_node.cc`, `src/ros2/livo_node.cc`,
+**Files:** Create `src/ros/input_diagnostics.h`; modify `src/core/livo_config.cc`,
+`src/ros1/livo_node.cc`, `src/ros2/livo_node.cc`,
 `tests/core/global_output_options_test.cc`, `tests/ros1/node_options_test.cc`,
-`tests/ros2/node_options_test.cc`；按实际需要修改相关测试与配置说明。
+`tests/ros2/node_options_test.cc`, `tests/ros1/node_test.cc`, `tests/ros2/node_test.cc`；
+按实际需要修改相关配置说明。
 
 **Interfaces:** `LoadLivoConfig` 读取 `common.buffer_before_first_lidar`；两端 `ReportInputs()`
-使用 `GetStartupBufferStats()`，保留已有输入计数文本并报告启动溢出/拒绝。
+使用 `GetStartupBufferStats()` 和共享普通 C++ 格式化函数，保留已有输入计数文本并报告启动溢出/拒绝。
 
 - [ ] 先写参数默认值、显式 false、两端参数名与统计用例，运行 RED 确认未接线。
 - [ ] 接线共享参数及对称节点统计，运行普通 SDK、Noetic 和 Humble 对应节点/配置测试；

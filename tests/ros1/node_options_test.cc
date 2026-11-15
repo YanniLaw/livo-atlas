@@ -1,9 +1,5 @@
 #include "livo_atlas/ros1/node_options.h"
 
-#include <XmlRpcValue.h>
-#include <gtest/gtest.h>
-#include <ros/ros.h>
-
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -11,6 +7,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <XmlRpcValue.h>
+#include <gtest/gtest.h>
+#include <ros/ros.h>
 
 #include "livo_atlas/core/livo_system.h"
 
@@ -85,6 +85,12 @@ TEST_F(Ros1ParametersTest, ReadsPrivateCameraNumericArraysAndSharedDefaults) {
   EXPECT_DOUBLE_EQ(options.imu_time_range.minimum, 0);
   EXPECT_DOUBLE_EQ(options.imu_time_range.maximum, 4294967296.0);
   EXPECT_FALSE(std::filesystem::exists(directory_));
+}
+
+TEST_F(Ros1ParametersTest, StartupBufferParameterCanRestoreLegacyBehavior) {
+  EXPECT_TRUE(ReadNodeOptions(*node_).livo.system.buffer_before_first_lidar);
+  node_->setParam("common/buffer_before_first_lidar", false);
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.system.buffer_before_first_lidar);
 }
 
 TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {

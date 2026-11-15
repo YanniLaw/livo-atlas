@@ -1,25 +1,27 @@
-#include "ros1/global_output_test_support.h"
-#include <gtest/gtest.h>
-#include <filesystem>
-#include <memory>
-#include <nav_msgs/Odometry.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <ros/ros.h>
+#include "livo_atlas/ros1/livo_node.h"
 
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <nav_msgs/Odometry.h>
+#include <opencv2/core.hpp>
+#include <pcl_conversions/pcl_conversions.h>
+#include <ros/ros.h>
+
 #include "core/fixtures.h"
-#include "livo_atlas/ros1/livo_node.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
+#include "ros1/global_output_test_support.h"
 
 namespace livo_atlas::ros1 {
 namespace {
+
 bool WaitFor(const std::function<bool()>& condition) {
   const auto until = ros::WallTime::now() + ros::WallDuration(3);
   while (ros::ok() && ros::WallTime::now() < until) {
@@ -151,6 +153,29 @@ void VerifyRollbackPipeline(int lidar_type) {
 
 TEST(Ros1NodeTest, LivoxTransportRejectsBadRollbackWithoutErasingPendingInput) {
   VerifyRollbackPipeline(kLivox);
+}
+
+TEST(Ros1NodeTest, ReportsStartupBufferOverflow) {
+  ros::NodeHandle node;
+  auto parameters = Options(kLivox);
+  parameters.livo.system = test::Options(FrontendMode::kLidarInertialVisual);
+  LivoSystem session(parameters.livo.system);
+  LivoNode adapter(node, parameters, session);
+  const cv::Mat image(1, 1, CV_8UC3, cv::Scalar(1, 2, 3));
+  for (int i = 0; i < 2001; ++i)
+    ASSERT_TRUE(session.AddImu(
+        {100 + i * .001, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  for (int i = 0; i < 9; ++i)
+    ASSERT_TRUE(session.AddImage({100 + i * .03, image}));
+  session.Finish();
+  testing::internal::CaptureStdout();
+  adapter.ReportInputs();
+  const auto output = testing::internal::GetCapturedStdout();
+  EXPECT_NE(output.find("lidar=0 imu=0 image=0"), std::string::npos);
+  EXPECT_NE(output.find("imu_buffered=2001 image_buffered=9"),
+            std::string::npos);
+  EXPECT_NE(output.find("imu_evicted=1 image_evicted=1 imu_rejected=0"),
+            std::string::npos);
 }
 
 TEST(Ros1NodeTest,

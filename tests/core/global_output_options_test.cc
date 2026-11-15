@@ -102,6 +102,13 @@ TEST_F(GlobalOutputOptionsTest, DisabledPreservesLegacyConfiguration) {
   EXPECT_FALSE(fs::exists(directory_));
 }
 
+TEST_F(GlobalOutputOptionsTest, StartupBufferDefaultsOnAndCanBeDisabled) {
+  GlobalParameters parameters(directory_);
+  EXPECT_TRUE(LoadLivoConfig(parameters).system.buffer_before_first_lidar);
+  parameters.booleans_["common.buffer_before_first_lidar"] = false;
+  EXPECT_FALSE(LoadLivoConfig(parameters).system.buffer_before_first_lidar);
+}
+
 TEST_F(GlobalOutputOptionsTest, ValidFrameNamesAndIndependentControls) {
   GlobalOutputOptions options;
   options.enabled = true;

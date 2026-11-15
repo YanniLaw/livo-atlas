@@ -128,6 +128,8 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   config.imu_topic = reader.String("common.imu_topic", config.imu_topic);
   options.driver_fix =
       reader.Boolean("common.ros_driver_bug_fix", options.driver_fix);
+  options.buffer_before_first_lidar = reader.Boolean(
+      "common.buffer_before_first_lidar", options.buffer_before_first_lidar);
   options.image_enabled =
       reader.Integer("common.img_en", options.image_enabled ? 1 : 0) != 0;
   options.lidar_enabled =
