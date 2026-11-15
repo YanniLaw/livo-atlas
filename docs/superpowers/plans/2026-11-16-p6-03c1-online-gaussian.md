@@ -229,7 +229,7 @@ Python 和 C++ 使用相同 JSON 字段与长度，后续任务不得另造另�
 **Interfaces:** 消费 Task 1 的消息接口和 Task 2 的模型；实现 Shared Interfaces 的
 `OnlineGaussianMapper`。worker 由用户先以 `online_worker.py --socket PATH` 显式启动。
 
-- [ ] **Step 1: 写 RED 测试。** 用实际本机 socket 的受控假 worker 和拥有数据的关键帧：
+- [x] **Step 1: 写 RED 测试。** 用实际本机 socket 的受控假 worker 和拥有数据的关键帧：
   A 在途时依次到达 B、C，断言 B 被合并、C 保留，单槽峰值为 1；阻塞 worker 期间
   `Observe`/`Poll` 在对端释放前返回。测试相同版本新前沿保留 A 的接纳资格并标记实际
   覆盖；一次事件中追加后封存、旧封存与新建均按主成员切分，最后封存块直到切换仍有效。
@@ -238,20 +238,20 @@ Python 和 C++ 使用相同 JSON 字段与长度，后续任务不得另造另�
   在不再有新关键帧时重复后一场景。堵住 status 写入后连续更新，再解除堵塞，断言内存
   查询立即空、最终 status 最新；连续接纳 10 次只留最近 8 份预览，已有输出目录不变。
   另测 EOF、错误 session、重复任务、坏 ID、超时、后台异常和关闭，前端与其他观察者继续。
-- [ ] **Step 2: 运行 RED。** 构建 `online_gaussian_mapper_test`，运行
-  `ctest --test-dir "$LIVO_CORE_BUILD" -R '^online_gaussian_mapper_test$' --output-on-failure -j1`，
+- [x] **Step 2: 运行 RED。** 构建 `online_gaussian_mapper_test`，运行
+  `cmake -E chdir "$LIVO_CORE_BUILD" ctest -R '^online_gaussian_mapper_test$' --output-on-failure -j1`，
   并运行 `$LIVO_PYTHON -m unittest discover -s tests/3dgs_probe -p test_online_worker.py -v`。
   Expected: 因 mapper 或 worker 接口缺失而失败，不访问真实 bag。
-- [ ] **Step 3: 实现。** 保持 `Observe`/`Poll`/`Finish` 的所有者线程模型；后台最多一个
+- [x] **Step 3: 实现。** 保持 `Observe`/`Poll`/`Finish` 的所有者线程模型；后台最多一个
   in-flight、一个 pending 和一个最近快照，非阻塞尝试交换 mailbox，交接失败保留最新状态。
   使用实际绝对 pose/generation 处理跳过版本；区分 `candidate → decision → commit_ok` 和
   独立 `reset → reset_ok`。变更发生于任何确认边界时禁止对外发布旧结果，清除 worker
   原地模型；写滚动 PNG、同名原子 JSON 和可能滞后的状态采样。所有故障记录在 mapper 内。
-- [ ] **Step 4: 运行 GREEN。** 运行 Step 2 和 Task 1/2 全部测试；启动真实 Python GPU
+- [x] **Step 4: 运行 GREEN。** 运行 Step 2 和 Task 1/2 全部测试；启动真实 Python GPU
   worker，对两帧合成数据经 C++ 桥接实际完成至少一次 20 步确认、位姿重置和新确认。
   Expected: 不仅协议互通，还观察非零有限梯度/深度和可读 RGB 预览，旧模型及优化器未复用；
   控制器、worker 和文件输出的资源与超时记录齐全。
-- [ ] **Step 5: 提交。** 提交本任务源码、测试；示例 `feat: stream versioned online Gaussian views`。
+- [x] **Step 5: 提交。** 提交本任务源码、测试；示例 `feat: stream versioned online Gaussian views`。
 
 ### Task 4: Noetic/Humble 共用入口与配置
 
@@ -263,20 +263,22 @@ Python 和 C++ 使用相同 JSON 字段与长度，后续任务不得另造另�
 `gaussian.output_directory`（ROS1 为斜线形式）；默认关闭。开启要求已开启 keyframes 与
 online submaps、可选目标已构建、路径和超时合法。Task 3 的 `Observe/Poll/Finish` 直接接入。
 
-- [ ] **Step 1: 写 RED 测试。** Noetic/Humble 配置默认关闭，禁用时忽略 socket/输出值；
+- [x] **Step 1: 写 RED 测试。** Noetic/Humble 配置默认关闭，禁用时忽略 socket/输出值；
   开启但 keyframes/submaps/online、路径或编译选项缺失应在创建输出前拒绝。真实统一 main
   连接假 worker，并同时启用回环、轨迹、几何三个消费者，断言没有覆盖回调；暂停 `/clock`
   时仍完成轮询。验证后端 `Finish()` 期间的最终 pose 仍传给 mapper，然后才结束 mapper。
   baseline 工具只接受成对 socket/输出参数，缺一或不合法时不创建输出。
-- [ ] **Step 2: 运行 RED。** 分别运行 Noetic 和 Humble 的节点选项测试、统一入口假 worker
+- [x] **Step 2: 运行 RED。** 分别运行 Noetic 和 Humble 的节点选项测试、统一入口假 worker
   集成测试，以及 baseline 参数测试。Expected: 新配置和接入尚不存在而失败。
-- [ ] **Step 3: 实现。** 公共参数一次解析，两端保持已有 Node 适配；主入口在既有回调、
+- [x] **Step 3: 实现。** 公共参数一次解析，两端保持已有 Node 适配；主入口在既有回调、
   `after_process` 和 Noetic wall-rate 条件中加入 mapper。后端关闭、最后 pose 通知和 mapper
-  关闭顺序与设计一致，失败只记录并退化 mapper。默认关闭时不加载可选目标或启动 worker。
-- [ ] **Step 4: 运行 GREEN。** 普通 SDK 的桥接 ON/OFF 各编译测试和安装消费；Noetic 与
-  Humble 各编译并运行受影响测试。Expected: 两端共用入口和假 worker 行为通过，OFF 的
-  默认 SDK/节点 `ldd` 无 Python/CUDA/torch/vikit，保留原有参数与输出。
-- [ ] **Step 5: 提交。** 提交配置、接入、回放参数和测试；示例
+  关闭顺序与设计一致，失败只记录并退化 mapper。默认构建关闭可选目标，运行时关闭不启动
+  worker；编译选项开启时，节点会链接桥接库，即使运行时仍关闭。
+- [x] **Step 4: 运行 GREEN。** 普通 SDK 的桥接 ON/OFF 各编译测试和安装消费；Noetic 与
+  Humble 各编译并运行受影响测试。Expected: 两端共用入口和假 worker 行为通过；OFF 的
+  默认 SDK 无 ROS/Python/CUDA/torch/vikit，默认节点无 Gaussian 桥接/CUDA/torch/vikit，
+  保留原有参数与输出。本机 Noetic 的 ROS `librospack` 原有间接 Python 依赖单独记录。
+- [x] **Step 5: 提交。** 提交配置、接入、回放参数和测试；示例
   `feat: connect optional Gaussian mapper to shared ROS entry`。
 
 ### Task 5: 官方 bag 在线验收与跨电脑说明
@@ -286,7 +288,7 @@ online submaps、可选目标已构建、路径和超时合法。Task 3 的 `Obs
 **Interfaces:** 使用 Task 4 同一入口和 Task 3 `online_worker.py --socket PATH`；
 `run_baseline.py` 的 `--gaussian-socket PATH --gaussian-output NEW_DIR` 同时启用 bridge。
 
-- [ ] **Step 1: 建立可复验环境。** 使用全新包外 `$LIVO_PHASE`，确认磁盘 ≥10 GiB，
+- [x] **Step 1: 建立可复验环境。** 使用全新包外 `$LIVO_PHASE`，确认磁盘 ≥10 GiB，
   SHA-256 记录 bag、源码提交和环境；从当前提交导出独立 Noetic 源副本，不能把节点运行
   产物写入开发源码。复用 P6-03b 的 Python 环境及其锁定文件；清除继承的 ROS `PYTHONPATH`。
   Expected: 空闲 GPU ≥4 GiB，扩展可加载，源副本与提交一致，输出目录及 socket 均不存在。
@@ -305,7 +307,7 @@ online submaps、可选目标已构建、路径和超时合法。Task 3 的 `Obs
     -DLIVO_ATLAS_WITH_LOOP_CLOSURE=ON -DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=ON \
     -DSophus_DIR="$LIVO_SOPHUS_DIR" -DGTSAM_DIR="$LIVO_GTSAM_DIR"
   ```
-- [ ] **Step 2: 短段成对回放。** 按 [core-build.md](../../core-build.md) 单任务构建可选
+- [x] **Step 2: 短段成对回放。** 按 [core-build.md](../../core-build.md) 单任务构建可选
   Noetic 目标；使用 `tools/run_baseline.py --workspace "$LIVO_NOETIC_WS" --bag "$LIVO_BAG"`
   配合 `--submap-mode online --loop-closure --image-queue-size 32 --rate 1 --duration 10`
   各跑一次关闭和开启。开启时预先启动独立 worker 并提供上述两个 Gaussian 参数；输出、
@@ -344,18 +346,18 @@ online submaps、可选目标已构建、路径和超时合法。Task 3 的 `Obs
   ```
 
   `--cpu-affinity 0` 为本机示例；其他机器应先确认允许的 CPU 并在成对运行中保持一致。
-  `--gaussian-*` 是 Task 4 需要实现并测试的参数，当前版本尚无此参数。
-- [ ] **Step 3: 完整成对回放。** 使用相同条件各跑一次 `--duration 136 --rate 1`，完成后
+  `--gaussian-*` 参数已实现；开启组需提供独立 worker 和新的预览目录。
+- [x] **Step 3: 完整成对回放。** 使用相同条件各跑一次 `--duration 136 --rate 1`，完成后
   比较 `trajectory.tum`、`mat_pre.txt`、`mat_out.txt`、`imu.txt` 的数组形状、时间和数值；
   比对两次原始关键帧文件哈希与既有回环/输出统计。记录所有已选/提交/合并/过期/重置、
   在线结果时间、端到端延迟分布、前端耗时、CPU RSS、GPU allocated/reserved 与系统
   使用量。Expected: 原前端和观测严格一致；至少一个真实训练结果在输入期间被接纳，
   不丢报状态、没有越过上限。出现差异或资源超限须排查并原样记录，不能调门限掩盖。
-- [ ] **Step 4: 失败与平台边界。** 用无 GPU、缺预编译扩展、worker 崩溃和连接卡住的独立
+- [x] **Step 4: 失败与平台边界。** 用无 GPU、缺预编译扩展、worker 崩溃和连接卡住的独立
   实验检查 mapper 明确失败且前端继续；用确定性人工位姿更新确认丢弃与 RESET。Humble
   至少运行共用入口和真 socket 假 worker；若容器没有 GPU，只报告未覆盖真实 GPU，不配置
   容器运行时。重新运行 `sha256sum --check "$LIVO_PHASE/bag.sha256"` 并核对所选原始数据哈希。
-- [ ] **Step 5: 文档、回归和审阅。** 写跨电脑版本、构建、启动 worker/节点、预览与状态
+- [x] **Step 5: 文档、回归和审阅。** 写跨电脑版本、构建、启动 worker/节点、预览与状态
   时效、限制、停止顺序和可重复命令；真实数值与失败证据写验证报告。运行完整 CPU CTest、
   全部相关 Python 和 GPU 合成测试，`git diff --check`、头文件及动态依赖检查。提交后按
   `executing-plans` 对整个 c1 范围独立审阅一次，修复重要发现并记录复验；不宣称在线画质、

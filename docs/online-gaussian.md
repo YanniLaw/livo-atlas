@@ -64,7 +64,7 @@ env -u PYTHONPATH PYTHONNOUSERSITE=1 CUDA_VISIBLE_DEVICES=0 \
 ```
 
 将上述三个路径也设置到节点终端。正常停止节点会结束 worker；socket、GPU、协议或 worker
-错误会使 Gaussian 停止，前端继续运行。当前没有自动重连；要重新运行请启动新 worker，
+错误会使 Gaussian 停止并关闭连接，前端继续运行。当前没有自动重连；要重新运行请启动新 worker，
 并选择新的预览目录。worker 的错误与节点最终的 `livo_atlas gaussian:` 统计应一起检查。
 
 ## ROS1 Noetic
@@ -161,7 +161,8 @@ python3 tools/compare_gaussian_replays.py --off "$LIVO_CHECK/off" \
 
 `--cpu-affinity 0` 只是示例，两次应选用本机允许的相同 CPU。比较工具要求输入、共享参数、
 二进制、四组前端数组、发布图像/点云语义及原始关键帧文件完全一致，并检查回环最终结果、
-有界统计和播放期间真实训练确认的完整预览；差异会原样报告，不自动调整数值容差。确认短段
+有界统计和播放期间真实训练确认的完整预览。关闭组和开启组必须使用不同目录，预览目录、
+会话及图像尺寸须与开启组配置和元数据一致；差异会原样报告，不自动调整数值容差。确认短段
 后可使用新的输出路径按相同方式回放完整 bag。结果不包含真值评价，也不能替代长距离或
 长期连续运行测试。
 
