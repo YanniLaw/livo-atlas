@@ -43,7 +43,8 @@ livo_atlas_library(keyframes src/mapping/keyframe.cc src/mapping/keyframe_select
   src/mapping/trajectory_snapshot.cc)
 target_include_directories(livo_atlas_keyframes PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_keyframes PUBLIC livo_atlas_calibration pcl_common opencv_core)
-livo_atlas_library(geometry src/mapping/geometry_submap.cc src/mapping/geometry_mapper.cc)
+livo_atlas_library(geometry src/mapping/geometry_submap.cc src/mapping/geometry_mapper.cc
+  src/mapping/geometry_map_sampling.cc)
 target_link_libraries(livo_atlas_geometry PUBLIC livo_atlas_keyframes Eigen3::Eigen pcl_common)
 livo_atlas_library(camera src/camera/camera.cc src/camera/camera_factory.cc
   src/camera/pinhole_camera.cc src/camera/equidistant_camera.cc src/image/image_ops.cc)
