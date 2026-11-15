@@ -1,6 +1,7 @@
 #ifndef LIVO_ATLAS_MAPPING_GEOMETRY_MAP_BUILDER_H_
 #define LIVO_ATLAS_MAPPING_GEOMETRY_MAP_BUILDER_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>

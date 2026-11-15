@@ -1,5 +1,6 @@
-add_message_files(FILES TrajectoryKeyframe.msg KeyframeTrajectory.msg)
-generate_messages(DEPENDENCIES std_msgs geometry_msgs)
+add_message_files(FILES TrajectoryKeyframe.msg KeyframeTrajectory.msg
+  GeometryMapSource.msg GeometryMapParameters.msg GeometryMap.msg)
+generate_messages(DEPENDENCIES std_msgs geometry_msgs sensor_msgs)
 
 set(livo_atlas_runtime_libraries ${CMAKE_THREAD_LIBS_INIT})
 if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
@@ -38,7 +39,8 @@ target_include_directories(livo_atlas_ros1_conversions PUBLIC ${catkin_INCLUDE_D
 target_link_libraries(livo_atlas_ros1_conversions PUBLIC livo_atlas::core
   ${catkin_LIBRARIES})
 add_library(livo_atlas_ros1_node src/ros1/livo_node.cc src/ros1/node_options.cc
-  src/ros1/livo_publisher.cc src/ros1/keyframe_trajectory_publisher.cc)
+  src/ros1/livo_publisher.cc src/ros1/keyframe_trajectory_publisher.cc
+  src/ros1/geometry_map_publisher.cc)
 add_dependencies(livo_atlas_ros1_node ${PROJECT_NAME}_generate_messages_cpp)
 target_include_directories(livo_atlas_ros1_node PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_include_directories(livo_atlas_ros1_node PUBLIC

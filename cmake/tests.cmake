@@ -82,7 +82,8 @@ if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
   target_link_libraries(measurement_conversions_test livo_atlas_ros1_conversions)
   catkin_add_executable_with_gtest(lidar_callback_test
     tests/ros1/node_test.cc tests/ros1/livo_publisher_test.cc tests/ros1/node_options_test.cc
-    tests/ros1/keyframe_trajectory_publisher_test.cc)
+    tests/ros1/keyframe_trajectory_publisher_test.cc
+    tests/ros1/geometry_map_publisher_test.cc)
   target_include_directories(lidar_callback_test PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_link_libraries(lidar_callback_test livo_atlas_ros1_node)
   add_dependencies(lidar_callback_test ${PROJECT_NAME}_generate_messages_cpp)
@@ -105,7 +106,7 @@ endif()
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "2")
   livo_atlas_test(ros2_session_test tests/ros2/session_test.cc)
   target_link_libraries(ros2_session_test livo_atlas_core livo_atlas_ros2_conversions)
-  add_executable(ros2_node_test tests/ros2/node_options_test.cc tests/ros2/node_test.cc tests/ros2/livo_publisher_test.cc tests/ros2/global_output_clock_test.cc tests/ros2/image_history_test.cc tests/ros2/ros_main.cc tests/ros2/keyframe_trajectory_publisher_test.cc)
+  add_executable(ros2_node_test tests/ros2/node_options_test.cc tests/ros2/node_test.cc tests/ros2/livo_publisher_test.cc tests/ros2/global_output_clock_test.cc tests/ros2/image_history_test.cc tests/ros2/ros_main.cc tests/ros2/keyframe_trajectory_publisher_test.cc tests/ros2/geometry_map_publisher_test.cc)
   target_include_directories(ros2_node_test PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_link_libraries(ros2_node_test GTest::GTest livo_atlas_ros2_node ${CMAKE_DL_LIBS})
   find_package(tf2_msgs REQUIRED)

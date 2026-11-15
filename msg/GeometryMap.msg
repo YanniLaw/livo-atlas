@@ -1,0 +1,27 @@
+uint8 READY=0
+uint8 RESOURCE_LIMITED=1
+uint8 ERROR=2
+
+std_msgs/Header header
+string producer_id
+uint64 revision
+uint64 pose_version
+uint64 frame_count
+uint64 optimized_frame_count
+uint64 submap_count
+float64 timestamp
+uint8 status
+string error
+string representation
+string fusion_policy
+string sampling_policy
+GeometryMapParameters parameters
+uint64 max_keyframes
+uint64 max_points
+uint64 max_cached_points
+uint64 max_message_bytes
+uint64 effective_max_points
+uint64 source_voxel_count
+bool sampled
+GeometryMapSource[] sources
+sensor_msgs/PointCloud2 cloud

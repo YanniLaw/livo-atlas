@@ -1,8 +1,6 @@
 #ifndef LIVO_ATLAS_SRC_ROS_TRAJECTORY_MESSAGES_H_
 #define LIVO_ATLAS_SRC_ROS_TRAJECTORY_MESSAGES_H_
 
-#include <Eigen/Geometry>
-#include <Eigen/LU>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -11,19 +9,16 @@
 #include <string>
 #include <utility>
 
+#include <Eigen/Geometry>
+#include <Eigen/LU>
+
 #include "livo_atlas/mapping/trajectory_snapshot.h"
+#include "ros/time_conversion.h"
 
 namespace livo_atlas::ros_detail {
 
 inline std::int64_t TrajectoryNanoseconds(double time) {
-  if (!std::isfinite(time) || time < 0 || time >= 2147483648.0)
-    throw std::invalid_argument("Trajectory time must be in [0,2^31) seconds");
-  const auto seconds = static_cast<std::int64_t>(std::floor(time));
-  const auto result =
-      seconds * 1000000000LL + std::llround((time - seconds) * 1000000000.0);
-  if (result >= 2147483648LL * 1000000000LL)
-    throw std::invalid_argument("Rounded trajectory time exceeds ROS range");
-  return result;
+  return RosNanoseconds(time, "Trajectory", "trajectory");
 }
 
 // Both generated schemas have the same fields. Only construction of their

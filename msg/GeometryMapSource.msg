@@ -1,0 +1,15 @@
+uint8 ACTIVE=0
+uint8 SEALED=1
+
+uint64 submap_id
+uint64 anchor_keyframe_id
+uint64 first_keyframe_id
+uint64 primary_keyframe_count
+uint64 membership_revision
+uint8 state
+uint64 representation_revision
+uint64 built_pose_version
+uint64 source_voxel_count
+uint64 input_point_count
+uint64 point_offset
+uint64 point_count

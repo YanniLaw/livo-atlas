@@ -1,7 +1,5 @@
 #include "livo_atlas/core/geometry_map_output.h"
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -12,6 +10,8 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "core/fixtures.h"
 

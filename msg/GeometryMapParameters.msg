@@ -1,0 +1,7 @@
+float64 voxel_size
+int32 min_points_per_voxel
+float64 max_plane_rms
+float64 max_plane_ratio
+int32 max_voxels_per_submap
+int32 max_points_per_keyframe
+int32 max_resident_submaps

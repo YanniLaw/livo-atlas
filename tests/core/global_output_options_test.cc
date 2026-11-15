@@ -1,7 +1,5 @@
 #include "livo_atlas/core/global_output_options.h"
 
-#include <gtest/gtest.h>
-
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -10,6 +8,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "core/fixtures.h"
 #include "livo_atlas/core/livo_config.h"
