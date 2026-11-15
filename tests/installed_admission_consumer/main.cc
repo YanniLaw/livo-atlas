@@ -25,8 +25,9 @@
 #include "livo_atlas/core/loop_backend.h"
 #endif
 
-int main() {
-  using namespace livo_atlas;
+namespace livo_atlas {
+
+int RunInstalledAdmissionConsumer() {
   try {
     const std::vector<RigidTransform> raw(3);
     const auto poses = MaterializePoseSnapshot({}, raw, raw.size());
@@ -171,3 +172,7 @@ int main() {
     return 1;
   }
 }
+
+}  // namespace livo_atlas
+
+int main() { return livo_atlas::RunInstalledAdmissionConsumer(); }
