@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -95,6 +96,14 @@ class FakeWorker {
   int resets() const { return resets_; }
 
   int discards() const { return discards_; }
+
+  bool disconnected() const {
+    const int client = client_.load();
+    if (client < 0) return false;
+    char byte;
+    const auto count = recv(client, &byte, 1, MSG_PEEK | MSG_DONTWAIT);
+    return count == 0 || (count < 0 && errno == ECONNRESET);
+  }
 
   std::uint64_t last_reset_generation() const { return last_reset_generation_; }
 
@@ -328,6 +337,15 @@ class OnlineGaussianMapperTest : public ::testing::Test {
     return false;
   }
 
+  bool WaitForDisconnect() {
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (peer_->disconnected()) return true;
+      std::this_thread::sleep_for(1ms);
+    }
+    return false;
+  }
+
   fs::path root_;
   CameraConfig camera_;
   OnlineGaussianOptions options_;
@@ -502,6 +520,8 @@ TEST_F(OnlineGaussianMapperTest, RejectsCandidateCoverageNotActuallySubmitted) {
   ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
   EXPECT_NE(mapper_->GetStats().error.find("coverage"), std::string::npos);
   EXPECT_FALSE(mapper_->GetLatestPreview());
+  EXPECT_EQ(mapper_->GetStats().in_flight, 0u);
+  EXPECT_TRUE(WaitForDisconnect());
 }
 
 TEST_F(OnlineGaussianMapperTest,
@@ -532,6 +552,8 @@ TEST_F(OnlineGaussianMapperTest, WorkerTimeoutDoesNotBlockFrontend) {
   Start();
   Observe(0);
   ASSERT_TRUE(Wait([&] { return peer_->views() == 1; }));
+  // The background timeout must close the connection without another Poll.
+  EXPECT_TRUE(WaitForDisconnect());
   ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
   const auto start = std::chrono::steady_clock::now();
   Observe(1);
@@ -583,12 +605,31 @@ TEST_F(OnlineGaussianMapperTest, SkipsMissingImageAndDepthBeforeSendingViews) {
 
 TEST_F(OnlineGaussianMapperTest, FrontierLimitDisablesOnlyTheMapper) {
   Start();
+  Observe(0);
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().accepted == 1; }));
   auto poses = std::make_shared<PoseSnapshot>();
   poses->frame_count = 513;
   mapper_->Observe({{}, {}, poses, {}});
   EXPECT_EQ(mapper_->GetStats().resource_limited, 1u);
   EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(mapper_->GetStats().in_flight, 0u);
+  EXPECT_TRUE(WaitForDisconnect());
   EXPECT_NO_THROW(mapper_->Poll());
+}
+
+TEST_F(OnlineGaussianMapperTest, FrontierLimitCancelsAnInFlightView) {
+  peer_->HoldCandidate();
+  Start();
+  Observe(0);
+  ASSERT_TRUE(Wait([&] { return peer_->views() == 1; }));
+  auto poses = std::make_shared<PoseSnapshot>();
+  poses->frame_count = 513;
+  mapper_->Observe({{}, {}, poses, {}});
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(mapper_->GetStats().in_flight, 0u);
+  EXPECT_EQ(mapper_->GetStats().pending, 0u);
+  EXPECT_TRUE(WaitForDisconnect());
+  peer_->ReleaseCandidate();
 }
 
 TEST_F(OnlineGaussianMapperTest, PrimarySubmapMayContainMoreThan64Frames) {
@@ -692,6 +733,33 @@ TEST_F(OnlineGaussianMapperTest, RealPythonWorkerConfirmsAndResetsGpuModel) {
             << " worker_peak_rss_bytes=" << preview->worker_peak_rss_bytes
             << '\n';
   mapper_->Finish();
+}
+
+TEST_F(OnlineGaussianMapperTest, RealPythonWorkerExitsAfterOwnerFailure) {
+  const char* socket = std::getenv("LIVO_REAL_GAUSSIAN_SOCKET");
+  const char* output = std::getenv("LIVO_REAL_GAUSSIAN_OUTPUT");
+  if (!socket || !output) GTEST_SKIP() << "Real GPU worker was not requested";
+  peer_.reset();
+  options_.socket_path = socket;
+  options_.output_directory = output;
+  options_.connect_timeout = 20s;
+  options_.job_timeout = 30s;
+  Start();
+  Observe(0);
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetStats().accepted == 1 || mapper_->GetStats().failed;
+  }));
+  ASSERT_EQ(mapper_->GetStats().failed, 0u) << mapper_->GetStats().error;
+  auto poses = std::make_shared<PoseSnapshot>();
+  poses->frame_count = 513;
+  mapper_->Observe({{}, {}, poses, {}});
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  // The Python worker removes its socket when it observes the disconnect.
+  const auto deadline = std::chrono::steady_clock::now() + 8s;
+  while (fs::exists(socket) && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(1ms);
+  EXPECT_FALSE(fs::exists(socket));
+  EXPECT_FALSE(mapper_->GetStats().finished);
 }
 
 TEST_F(OnlineGaussianMapperTest, RefusesExistingOutputDirectory) {

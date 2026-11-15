@@ -64,13 +64,28 @@ def _previews(directory):
     if not 1 <= len(metadata) <= 8 or images.keys() != metadata.keys():
         result["readable"] = False
         return result
+    try:
+        session = json.loads((directory / "status.json").read_text())["session_id"]
+        if not isinstance(session, str) or not re.fullmatch(r"[0-9a-f]{32}", session):
+            raise ValueError("Invalid preview session")
+    except (OSError, ValueError, TypeError, KeyError):
+        result["readable"] = False
+        return result
     for stem, path in metadata.items():
         try:
+            data = json.loads(path.read_text())
+            ids = ("job_id", "generation", "submap_id", "pose_version")
+            if (data.get("schema") != 1 or data.get("type") != "preview" or
+                    data.get("session_id") != session or
+                    any(not isinstance(data.get(key), str) or
+                        not re.fullmatch(r"0|[1-9][0-9]*", data[key]) for key in ids) or
+                    stem != "preview-" + data["job_id"] or data["job_id"] == "0"):
+                raise ValueError("Invalid preview identity")
             with Image.open(images[stem]) as image:
-                if image.format != "PNG" or image.mode != "RGB":
+                if (image.format != "PNG" or image.mode != "RGB" or
+                        image.size != (data["width"], data["height"])):
                     raise ValueError("Preview must be an RGB PNG")
                 image.verify()
-            data = json.loads(path.read_text())
             values = (float(data["rgb_l1"]), float(data["depth_l1_m"]))
             if not all(math.isfinite(value) and value >= 0 for value in values):
                 raise ValueError("Invalid preview losses")
@@ -95,6 +110,19 @@ def compare(off, on, previews):
     off, on, previews = map(Path, (off, on, previews))
     summaries = [json.loads((run / "summary.json").read_text()) for run in (off, on)]
     differences = {}
+    if off.resolve() == on.resolve():
+        differences["run_directories"] = "OFF and ON must be different runs"
+    configs = []
+    for run in (off, on):
+        tree = yaml.safe_load((run / "parameters.yaml").read_text()) or {}
+        config = tree.get("gaussian", {})
+        configs.append(config if isinstance(config, dict) else {})
+    if configs[0].get("enabled", False) is not False or configs[1].get("enabled") is not True:
+        differences["gaussian_configuration"] = "OFF must disable Gaussian and ON must enable it"
+    output_directory = configs[1].get("output_directory")
+    if (not isinstance(output_directory, str) or not output_directory or
+            Path(output_directory).expanduser().resolve() != previews.resolve()):
+        differences["preview_directory"] = "Previews do not match the ON output directory"
     for index, summary in enumerate(summaries):
         expected = summary.get("expected_input_counts", {})
         observed = summary.get("observed_counts", {})

@@ -252,8 +252,22 @@ void OnlineGaussianMapper::Fail(const std::string& message) noexcept {
     // The frontend must continue even if allocating the diagnostic fails.
   }
   pending_.reset();
+  in_flight_.reset();
+  candidate_.reset();
+  unsaved_.reset();
+  decision_.reset();
+  awaiting_decision_ = false;
   stats_.pending = 0;
+  stats_.in_flight = 0;
   ready_.reset();
+  stopping_ = true;
+  // Never wait for the worker on the frontend thread. The mutex also protects
+  // the descriptor from being closed and reused while shutdown is called.
+  {
+    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+    if (lock && socket_fd_ >= 0) shutdown(socket_fd_, SHUT_RDWR);
+  }
+  condition_.notify_all();
 }
 
 bool OnlineGaussianMapper::IsCurrent(std::uint64_t generation,
@@ -426,12 +440,6 @@ void OnlineGaussianMapper::HandleReply(Reply reply) {
       saved_status_sequence_ = reply.command.state_sequence;
       break;
     case ReplyKind::kError:
-      // The worker has exited, so its task is no longer in flight.
-      in_flight_.reset();
-      candidate_.reset();
-      decision_.reset();
-      awaiting_decision_ = false;
-      stats_.in_flight = 0;
       Fail(reply.detail);
       break;
   }
@@ -557,6 +565,12 @@ void OnlineGaussianMapper::Finish() noexcept {
   finished_ = stats_.finished = true;
 }
 
+void OnlineGaussianMapper::CloseSocket() noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const int fd = socket_fd_.exchange(-1);
+  if (fd >= 0) close(fd);
+}
+
 void OnlineGaussianMapper::Run() noexcept {
   const auto post = [this](Reply reply) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -607,7 +621,10 @@ void OnlineGaussianMapper::Run() noexcept {
       fd = -1;
       if (!stopping_) std::this_thread::sleep_for(25ms);
     }
-    if (stopping_) return;
+    if (stopping_) {
+      CloseSocket();
+      return;
+    }
     if (fd < 0)
       throw std::runtime_error("Gaussian worker connection timed out");
     WriteGaussianMessage(
@@ -627,6 +644,7 @@ void OnlineGaussianMapper::Run() noexcept {
         command = std::move(*command_);
         command_.reset();
       }
+      if (stopping_) break;
       Reply reply;
       reply.command = command;
       if (command.kind == CommandKind::kReset) {
@@ -863,10 +881,13 @@ void OnlineGaussianMapper::Run() noexcept {
       }
     }
   } catch (const std::exception& error) {
+    CloseSocket();
     post({ReplyKind::kError, {}, {}, error.what()});
   } catch (...) {
+    CloseSocket();
     post({ReplyKind::kError, {}, {}, "Unknown Gaussian worker failure"});
   }
+  CloseSocket();
 }
 
 }  // namespace livo_atlas

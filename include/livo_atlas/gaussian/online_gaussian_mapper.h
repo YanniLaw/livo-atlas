@@ -115,6 +115,7 @@ class OnlineGaussianMapper {
   };
 
   void Run() noexcept;
+  void CloseSocket() noexcept;
   void HandleReply(Reply reply);
   void Dispatch();
   void Fail(const std::string& message) noexcept;

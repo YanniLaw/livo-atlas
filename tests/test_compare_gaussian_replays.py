@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -38,9 +39,16 @@ class CompareGaussianReplaysTest(unittest.TestCase):
         with (self.on / "mapping.log").open("a") as log:
             log.write("livo_atlas gaussian: observed=1 submitted=1 completed=1 accepted=1 "
                       "failed=0 peak_pending=1 peak_in_flight=1\n")
+        (self.on / "parameters.yaml").write_text(yaml.safe_dump({
+            "common": {"img_en": 1},
+            "gaussian": {"enabled": True, "output_directory": str(self.previews)}}))
         self.previews.mkdir()
         Image.new("RGB", (2, 2), (30, 20, 10)).save(self.previews / "preview-1.png")
+        (self.previews / "status.json").write_text(json.dumps({"session_id": "a" * 32}))
         (self.previews / "preview-1.json").write_text(json.dumps({
+            "schema": 1, "type": "preview", "session_id": "a" * 32,
+            "job_id": "1", "generation": "0", "submap_id": "0",
+            "pose_version": "0", "width": 2, "height": 2,
             "nonzero_gradient": 1, "parameter_updated": 1,
             "supervised_depth_pixels": 20, "rgb_l1": 0.1, "depth_l1_m": 0.2}))
 
@@ -99,6 +107,43 @@ class CompareGaussianReplaysTest(unittest.TestCase):
         result = compare(self.off, self.on, self.previews)
         self.assertFalse(result["passed"])
         self.assertIn("source_snapshot", result["differences"])
+
+    def test_same_run_cannot_be_both_off_and_on(self):
+        result = compare(self.on, self.on, self.previews)
+        self.assertFalse(result["passed"])
+        self.assertIn("run_directories", result["differences"])
+
+    def test_gaussian_enabled_state_must_match_the_run(self):
+        for run, enabled in ((self.off, True), (self.on, False)):
+            with self.subTest(run=run):
+                path = run / "parameters.yaml"
+                original = path.read_text()
+                params = yaml.safe_load(original)
+                params.setdefault("gaussian", {})["enabled"] = enabled
+                path.write_text(yaml.safe_dump(params))
+                result = compare(self.off, self.on, self.previews)
+                self.assertFalse(result["passed"])
+                self.assertIn("gaussian_configuration", result["differences"])
+                path.write_text(original)
+
+    def test_preview_directory_must_match_on_configuration(self):
+        other = self.previews.parent / "other-previews"
+        shutil.copytree(self.previews, other)
+        result = compare(self.off, self.on, other)
+        self.assertFalse(result["passed"])
+        self.assertIn("preview_directory", result["differences"])
+
+    def test_preview_identity_and_image_size_must_match(self):
+        path = self.previews / "preview-1.json"
+        original = json.loads(path.read_text())
+        for key, value in (("session_id", "b" * 32), ("job_id", "2"), ("width", 3)):
+            with self.subTest(key=key):
+                data = dict(original)
+                data[key] = value
+                path.write_text(json.dumps(data))
+                result = compare(self.off, self.on, self.previews)
+                self.assertFalse(result["passed"])
+                self.assertIn("preview_files", result["differences"])
 
 
 if __name__ == "__main__":
