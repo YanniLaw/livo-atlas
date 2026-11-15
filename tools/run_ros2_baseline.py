@@ -19,6 +19,12 @@ def exited_cleanly(returncode, log):
         'terminate called', 'Segmentation fault', 'AddressSanitizer', '[FATAL]'))
 
 
+def read_node_logs(output):
+    """Keep estimator stage counts separate from asynchronous ROS diagnostics."""
+    return ((output / 'node.log').read_text(errors='replace'),
+            (output / 'node-stderr.log').read_text(errors='replace'))
+
+
 def count_mismatches(expected, observed):
     return {topic: dict(expected=expected.get(topic, 0), observed=observed.get(topic, 0))
             for topic in expected.keys() | observed.keys()
@@ -99,8 +105,12 @@ def parse_arguments(arguments=None):
                         help='Publish map correction and current global pose using online storage')
     parser.add_argument('--keyframe-trajectory', action='store_true',
                         help='Record versioned keyframe history; enables global output and online storage')
+    parser.add_argument('--geometry-map', action='store_true',
+                        help='Record versioned geometry maps; enables global output and online storage')
     args = parser.parse_args(arguments)
-    if args.keyframe_trajectory:
+    if args.geometry_map and args.submap_mode == 'keyframe_groups':
+        parser.error('--geometry-map requires online submaps')
+    if args.keyframe_trajectory or args.geometry_map:
         args.global_output = True
     if args.global_output and args.submap_mode == 'keyframe_groups':
         parser.error('--global-output requires online submaps')
@@ -186,6 +196,8 @@ def main():
         parameters['global_output.enabled'] = True
     if args.keyframe_trajectory:
         parameters['global_output.trajectory.enabled'] = True
+    if args.geometry_map:
+        parameters['global_output.geometry.enabled'] = True
     if args.loop_closure:
         parameters['loop_closure.enabled'] = True
     if args.geometry_submaps:
@@ -215,13 +227,24 @@ def main():
     trajectory_observation = dict(
         enabled=parameters.get('global_output.trajectory.enabled', False),
         samples=[], path_samples=[])
+    geometry_observation = dict(
+        enabled=parameters.get('global_output.geometry.enabled', False),
+        samples=[], errors=[])
     try:
+        from .geometry_map_records import geometry_map_record
         from .trajectory_records import trajectory_record, trajectory_path_record
     except ImportError:
+        from geometry_map_records import geometry_map_record
         from trajectory_records import trajectory_record, trajectory_path_record
 
     def stamp_ns(stamp):
         return stamp.sec * 1000000000 + stamp.nanosec
+
+    def receive_geometry(message):
+        try:
+            geometry_observation['samples'].append(geometry_map_record(message, stamp_ns))
+        except Exception as error:
+            geometry_observation['errors'].append(str(error))
 
     def pose_record(message, pose):
         return dict(stamp_ns=stamp_ns(message.header.stamp), frame=message.header.frame_id,
@@ -297,20 +320,28 @@ def main():
                                          lambda msg: trajectory_observation['path_samples'].append(
                                              trajectory_path_record(msg, stamp_ns)), qos),
         ]
+    if geometry_observation['enabled']:
+        from livo_atlas.msg import GeometryMap
+        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        subscriptions.append(observer.create_subscription(
+            GeometryMap, '/geometry_map', receive_geometry, qos))
     log_path = output / 'node.log'
+    stderr_path = output / 'node-stderr.log'
     process = None
     try:
-        with log_path.open('w') as log:
+        with log_path.open('w') as log, stderr_path.open('w') as stderr_log:
             command = with_cpu_affinity(
                 ['nice', '-n', '10', str(args.executable), '--ros-args', '--params-file', str(config)],
                 args.cpu_affinity)
             process = subprocess.Popen(command, env=child_env,
-                                       stdout=log, stderr=subprocess.STDOUT)
+                                       stdout=log, stderr=stderr_log)
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
                 rclpy.spin_once(observer, timeout_sec=.02)
                 if process.poll() is not None:
-                    raise RuntimeError('Node failed during startup: ' + log_path.read_text())
+                    raise RuntimeError('Node failed during startup: ' +
+                                       '\n'.join(read_node_logs(output)))
                 if all(pub.get_subscription_count() >= 2 for pub in publishers.values()):
                     break
             else:
@@ -366,7 +397,7 @@ def main():
                 process.wait()
         observer.destroy_node()
         rclpy.shutdown()
-    node_log = log_path.read_text()
+    node_log, node_stderr = read_node_logs(output)
     try:
         from .geometry_diagnostics import summarize_geometry_timings
     except ImportError:
@@ -393,21 +424,27 @@ def main():
     trajectory_valid = (poses.shape[1] == 8 and len(poses) > 0 and
                         bool((np.diff(poses[:, 0]) > 0).all()) and
                         bool(np.allclose(np.linalg.norm(poses[:, 4:8], axis=1), 1, atol=1e-5)))
-    clean = exited_cleanly(process.returncode, node_log)
+    clean = exited_cleanly(process.returncode, node_log + '\n' + node_stderr)
     lio = node_log.count('LIO Mapping Time')
     vio = node_log.count('VIO Time')
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
+    if geometry_observation['enabled'] and not geometry_observation['samples']:
+        geometry_observation['errors'].append('No geometry map messages received')
     (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
     (output / 'keyframe-trajectory.json').write_text(
         json.dumps(trajectory_observation, indent=2) + '\n')
+    (output / 'geometry-map.json').write_text(
+        json.dumps(geometry_observation, indent=2) + '\n')
     (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2))
     np.savetxt(output / 'odometry.txt', np.asarray(odometry))
-    summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues,
+    summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues and not geometry_observation['errors'],
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
                    keyframes_enabled=args.save_keyframes,
                    submaps_enabled=args.save_submaps,
                    submap_mode=args.submap_mode,
                    geometry_enabled=args.geometry_submaps,
+                   geometry_map_enabled=geometry_observation['enabled'],
+                   geometry_map_samples=len(geometry_observation['samples']),
                    loop_closure_enabled=args.loop_closure,
                    geometry_timing_seconds=geometry_timings,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),

@@ -1,9 +1,12 @@
 #include "core/fixtures.h"
-#include "livo_atlas/ros1/livo_node.h"
+#include "geometry_map_fixture.h"
+#include "livo_atlas/ros1/geometry_map_publisher.h"
 #include "livo_atlas/ros1/keyframe_trajectory_publisher.h"
+#include "livo_atlas/ros1/livo_node.h"
 #include "ros1/global_output_test_support.h"
 #include "trajectory_fixture.h"
 
+#include <livo_atlas/GeometryMap.h>
 #include <livo_atlas/KeyframeTrajectory.h>
 
 #include <opencv2/core.hpp>
@@ -65,13 +68,22 @@ TEST_F(GlobalClockTest, HistoricalVersionsDoNotSynthesizeCurrentOutput) {
   ASSERT_TRUE(
       Wait([&] { return global_.size() == 1 && transforms_.size() == 1; }));
   KeyframeTrajectoryPublisher history(node_, "map");
+  GeometryMapPublisher geometry(node_, "map");
   std::vector<::livo_atlas::KeyframeTrajectory> messages;
+  std::vector<::livo_atlas::GeometryMap> maps;
   auto subscription = node_.subscribe<::livo_atlas::KeyframeTrajectory>(
       "/keyframe_trajectory", 10,
       [&](const ::livo_atlas::KeyframeTrajectory::ConstPtr& msg) {
         messages.push_back(*msg);
       });
-  ASSERT_TRUE(Wait([&] { return subscription.getNumPublishers() > 0; }));
+  auto map_subscription = node_.subscribe<::livo_atlas::GeometryMap>(
+      "/geometry_map", 10, [&](const ::livo_atlas::GeometryMap::ConstPtr& msg) {
+        maps.push_back(*msg);
+      });
+  ASSERT_TRUE(Wait([&] {
+    return subscription.getNumPublishers() > 0 &&
+           map_subscription.getNumPublishers() > 0;
+  }));
   const int times[] = {0, 10, 10, 9, 11};
   for (std::size_t i = 0; i < 5; ++i) {
     SetTime(times[i]);
@@ -81,10 +93,20 @@ TEST_F(GlobalClockTest, HistoricalVersionsDoNotSynthesizeCurrentOutput) {
     source.optimized_frame_count = i ? 2 : 0;
     source.parent_frame = i ? PoseFrame::kMap : PoseFrame::kOdom;
     history.Publish(source);
-    ASSERT_TRUE(Wait([&] { return messages.size() == i + 1; }));
+    auto map = ::livo_atlas::test::GeometryMapFixture();
+    map.revision = i + 1;
+    map.pose_version = i;
+    map.optimized_frame_count = i ? 3 : 0;
+    map.parent_frame = i ? PoseFrame::kMap : PoseFrame::kOdom;
+    geometry.Publish(map);
+    ASSERT_TRUE(
+        Wait([&] { return messages.size() == i + 1 && maps.size() == i + 1; }));
     EXPECT_EQ(messages.back().revision, i + 1);
     EXPECT_EQ(messages.back().pose_version, i);
     EXPECT_EQ(messages.back().header.stamp.toNSec(), 9500000000LL);
+    EXPECT_EQ(maps.back().revision, i + 1);
+    EXPECT_EQ(maps.back().pose_version, i);
+    EXPECT_EQ(maps.back().header.stamp.toNSec(), 9500000000LL);
   }
   Drain();
   EXPECT_EQ(global_.size(), 1);

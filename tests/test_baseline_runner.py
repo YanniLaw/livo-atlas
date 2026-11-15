@@ -39,6 +39,16 @@ class BaselineRunnerTest(unittest.TestCase):
                 make_trajectory_path(package, 'test')
             self.assertEqual(stale.read_text(), 'old trajectory\n')
 
+    def test_ros2_separate_logs_preserve_stage_counts_and_fatal_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'node.log').write_text('LIO Mapping Time\nVIO Time\n')
+            (root / 'node-stderr.log').write_text('[FATAL] shutdown failed\n')
+            stdout, stderr = run_ros2_baseline.read_node_logs(root)
+            self.assertEqual(stdout.count('LIO Mapping Time'), 1)
+            self.assertEqual(stdout.count('VIO Time'), 1)
+            self.assertFalse(run_ros2_baseline.exited_cleanly(0, stdout + stderr))
+
 
 class GlobalBaselineParserTest(unittest.TestCase):
     def invoke(self, script, directory, *flags):
@@ -70,8 +80,33 @@ class GlobalBaselineParserTest(unittest.TestCase):
                 self.assertIn('--image-queue-size must be positive', result.stderr)
                 self.assertFalse((root / 'output').exists())
 
+    def test_geometry_map_rejects_groups_before_io(self):
+        for script in ('run_baseline.py', 'run_ros2_baseline.py'):
+            with self.subTest(script=script), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                result = self.invoke(script, root, '--geometry-map', '--submap-mode', 'keyframe_groups')
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('--geometry-map requires online submaps', result.stderr)
+                self.assertFalse((root / 'output').exists())
+
 
 class GlobalBaselineOptionsTest(unittest.TestCase):
+    def test_geometry_map_enables_only_its_required_inputs(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with self.subTest(module=module.__name__):
+                required = ['--bag', '/unused/bag', '--output', '/unused/output']
+                required += (['--workspace', '/unused/workspace'] if module is run_baseline
+                             else ['--executable', '/unused/node'])
+                options = module.parse_arguments(required + ['--geometry-map'])
+                self.assertTrue(options.geometry_map)
+                self.assertTrue(options.global_output)
+                self.assertTrue(options.save_keyframes)
+                self.assertTrue(options.save_submaps)
+                self.assertEqual(options.submap_mode, 'online')
+                self.assertFalse(options.loop_closure)
+                self.assertFalse(options.geometry_submaps)
+                self.assertFalse(options.keyframe_trajectory)
+
     def test_keyframe_trajectory_enables_only_its_required_inputs(self):
         for module in (run_baseline, run_ros2_baseline):
             with self.subTest(module=module.__name__):

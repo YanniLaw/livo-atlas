@@ -76,8 +76,12 @@ def parse_arguments(arguments=None):
                         help='Publish map correction and current global pose using online storage')
     parser.add_argument('--keyframe-trajectory', action='store_true',
                         help='Record versioned keyframe history; enables global output and online storage')
+    parser.add_argument('--geometry-map', action='store_true',
+                        help='Record versioned geometry maps; enables global output and online storage')
     args = parser.parse_args(arguments)
-    if args.keyframe_trajectory:
+    if args.geometry_map and args.submap_mode == 'keyframe_groups':
+        parser.error('--geometry-map requires online submaps')
+    if args.keyframe_trajectory or args.geometry_map:
         args.global_output = True
     if args.global_output and args.submap_mode == 'keyframe_groups':
         parser.error('--global-output requires online submaps')
@@ -231,6 +235,8 @@ def main():
             run(['rosparam', 'set', '/global_output/enabled', 'true'])
         if args.keyframe_trajectory:
             run(['rosparam', 'set', '/global_output/trajectory/enabled', 'true'])
+        if args.geometry_map:
+            run(['rosparam', 'set', '/global_output/geometry/enabled', 'true'])
         if args.loop_closure:
             run(['rosparam', 'set', '/loop_closure/enabled', 'true'])
         if args.geometry_submaps:
@@ -255,9 +261,11 @@ def main():
         from sensor_msgs.msg import Image, PointCloud2
         try:
             from .output_digest import cloud_digest, image_digest
+            from .geometry_map_records import geometry_map_record
             from .trajectory_records import trajectory_record, trajectory_path_record
         except ImportError:
             from output_digest import cloud_digest, image_digest
+            from geometry_map_records import geometry_map_record
             from trajectory_records import trajectory_record, trajectory_path_record
         rospy = ros_module
         rospy.init_node('baseline_observer', disable_signals=True)
@@ -270,6 +278,19 @@ def main():
         trajectory_observation = dict(
             enabled=rospy.get_param('/global_output/trajectory/enabled', False),
             samples=[], path_samples=[])
+        geometry_observation = dict(
+            enabled=rospy.get_param('/global_output/geometry/enabled', False),
+            samples=[], errors=[])
+
+        def receive_geometry(message):
+            try:
+                value = geometry_map_record(message, lambda stamp: stamp.to_nsec())
+            except Exception as error:
+                with lock:
+                    geometry_observation['errors'].append(str(error))
+                return
+            with lock:
+                geometry_observation['samples'].append(value)
 
         def receive_trajectory(message):
             value = trajectory_record(message, lambda stamp: stamp.to_nsec())
@@ -346,9 +367,10 @@ def main():
             rospy.Subscriber('/global_pose', PoseStamped, receive_global, queue_size=2000),
             rospy.Subscriber('/tf', TFMessage, receive_tf, queue_size=2000),
         ])
-        if trajectory_observation['enabled']:
+        if trajectory_observation['enabled'] or geometry_observation['enabled']:
             # Match the generated schema to the explicitly selected workspace.
             sys.path.insert(0, str(workspace / 'devel/lib/python3/dist-packages'))
+        if trajectory_observation['enabled']:
             from livo_atlas.msg import KeyframeTrajectory
             subscribers.extend([
                 rospy.Subscriber('/keyframe_trajectory', KeyframeTrajectory,
@@ -356,6 +378,11 @@ def main():
                 rospy.Subscriber('/keyframe_path', RosPath, receive_trajectory_path,
                                  queue_size=1, buff_size=32 * 1024 * 1024),
             ])
+        if geometry_observation['enabled']:
+            from livo_atlas.msg import GeometryMap
+            subscribers.append(rospy.Subscriber(
+                '/geometry_map', GeometryMap, receive_geometry,
+                queue_size=1, buff_size=72 * 1024 * 1024))
         node_command = [str(binary), '__name:=laserMapping']
         if args.gdb:
             node_command = ['gdb', '-batch', '-ex', 'set pagination off',
@@ -421,9 +448,13 @@ def main():
             saved_counts = dict(counts)
         stop(node)
         with lock:
+            if geometry_observation['enabled'] and not geometry_observation['samples']:
+                geometry_observation['errors'].append('No geometry map messages received')
             (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
             (output / 'keyframe-trajectory.json').write_text(
                 json.dumps(trajectory_observation, indent=2) + '\n')
+            (output / 'geometry-map.json').write_text(
+                json.dumps(geometry_observation, indent=2) + '\n')
         if args.semantic_output:
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
         if args.save_keyframes:
@@ -464,6 +495,7 @@ def main():
             if match and stage:
                 timings[stage].append(float(match.group(1)))
         errors = [line for line in log.splitlines() if '[ERROR]' in line or 'Assertion' in line]
+        errors.extend('Geometry map record: ' + error for error in geometry_observation['errors'])
         summary = {
             'source': source, 'bag_path': str(bag),
             'sequence_name': seq_name,
@@ -492,6 +524,8 @@ def main():
             'submaps_enabled': args.save_submaps,
             'submap_mode': args.submap_mode,
             'geometry_enabled': args.geometry_submaps,
+            'geometry_map_enabled': geometry_observation['enabled'],
+            'geometry_map_samples': len(geometry_observation['samples']),
             'loop_closure_enabled': args.loop_closure,
             'geometry_timing_seconds': geometry_timings,
             'gdb_enabled': args.gdb,

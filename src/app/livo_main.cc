@@ -5,16 +5,19 @@
 #include <stdexcept>
 #include <utility>
 
+#include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/core/trajectory_output.h"
 #if LIVO_ATLAS_ONLINE_BACKEND
 #include "livo_atlas/core/loop_backend.h"
 #endif
 #if LIVO_ATLAS_ROS_VERSION == 1
+#include "livo_atlas/ros1/geometry_map_publisher.h"
 #include "livo_atlas/ros1/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros1/livo_node.h"
 namespace ros_integration = livo_atlas::ros1;
 #elif LIVO_ATLAS_ROS_VERSION == 2
+#include "livo_atlas/ros2/geometry_map_publisher.h"
 #include "livo_atlas/ros2/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros2/livo_node.h"
 namespace ros_integration = livo_atlas::ros2;
@@ -70,21 +73,37 @@ int main(int argc, char** argv) {
             publisher->Publish(snapshot);
           });
     }
-    if (parameters.livo.loop_closure_enabled || trajectory) {
+    std::unique_ptr<ros_integration::GeometryMapPublisher> geometry_publisher;
+    std::unique_ptr<livo_atlas::GeometryMapOutput> geometry;
+    if (parameters.livo.global_output.geometry.enabled) {
+      geometry_publisher =
+          std::make_unique<ros_integration::GeometryMapPublisher>(
+              *node, parameters.livo.global_output.map_frame);
+      geometry = std::make_unique<livo_atlas::GeometryMapOutput>(
+          system, parameters.livo.global_output.geometry,
+          parameters.livo.system.geometry,
+          [publisher = geometry_publisher.get()](const auto& snapshot) {
+            publisher->Publish(snapshot);
+          });
+    }
+    if (parameters.livo.loop_closure_enabled || trajectory || geometry) {
       system.SetOnlineSubmapCallback([&](const auto& update) {
 #if LIVO_ATLAS_ONLINE_BACKEND
         if (backend) backend->Observe(update);
 #endif
         if (trajectory) trajectory->Observe(update);
+        if (geometry) geometry->Observe(update);
       });
       after_process = [&] {
 #if LIVO_ATLAS_ONLINE_BACKEND
         if (backend) backend->Poll();
 #endif
         if (trajectory) trajectory->Poll();
+        if (geometry) geometry->Poll();
       };
     }
     if (trajectory) trajectory->Poll();
+    if (geometry) geometry->Poll();
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(after_process));
 #if LIVO_ATLAS_ROS_VERSION == 1
@@ -94,7 +113,7 @@ int main(int argc, char** argv) {
       ros::spinOnce();
       if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
         // A paused simulation clock must not prevent taking worker results.
-        if (parameters.livo.loop_closure_enabled || trajectory) {
+        if (parameters.livo.loop_closure_enabled || trajectory || geometry) {
           backend_rate.sleep();
         } else {
           rate.sleep();
@@ -152,6 +171,45 @@ int main(int argc, char** argv) {
           static_cast<unsigned long long>(s.last_frame_count),
           static_cast<unsigned long long>(s.peak_work_payloads),
           static_cast<unsigned long long>(s.peak_pending),
+          static_cast<unsigned long long>(s.timestamp_reads),
+          s.max_observe_seconds, s.max_poll_seconds, s.max_worker_seconds,
+          s.last_latency_seconds);
+    }
+    if (geometry) {
+      geometry->Finish();
+      const auto s = geometry->GetStats();
+      // Delivery means the consumer returned; ROS may already be shut down.
+      std::printf(
+          "livo_atlas geometry map: observed=%llu submitted=%llu "
+          "coalesced=%llu delivered=%llu resource_limited=%llu failed=%llu "
+          "revision=%llu pose_version=%llu frames=%llu optimized_frames=%llu "
+          "submaps=%llu source_voxels=%llu points=%llu peak_work_payloads=%llu "
+          "peak_pending=%llu cache_hits=%llu cache_evictions=%llu "
+          "cache_invalidations=%llu peak_cached_points=%llu full_builds=%llu "
+          "cloud_reads=%llu timestamp_reads=%llu max_observe_seconds=%.9g "
+          "max_poll_seconds=%.9g max_worker_seconds=%.9g "
+          "last_latency_seconds=%.9g\n",
+          static_cast<unsigned long long>(s.observed),
+          static_cast<unsigned long long>(s.submitted),
+          static_cast<unsigned long long>(s.coalesced),
+          static_cast<unsigned long long>(s.delivered),
+          static_cast<unsigned long long>(s.resource_limited),
+          static_cast<unsigned long long>(s.failed),
+          static_cast<unsigned long long>(s.last_revision),
+          static_cast<unsigned long long>(s.last_pose_version),
+          static_cast<unsigned long long>(s.last_frame_count),
+          static_cast<unsigned long long>(s.last_optimized_frame_count),
+          static_cast<unsigned long long>(s.last_submap_count),
+          static_cast<unsigned long long>(s.last_source_voxel_count),
+          static_cast<unsigned long long>(s.last_point_count),
+          static_cast<unsigned long long>(s.peak_work_payloads),
+          static_cast<unsigned long long>(s.peak_pending),
+          static_cast<unsigned long long>(s.geometry.cache_hits),
+          static_cast<unsigned long long>(s.geometry.cache_evictions),
+          static_cast<unsigned long long>(s.geometry.cache_invalidations),
+          static_cast<unsigned long long>(s.geometry.peak_cached_points),
+          static_cast<unsigned long long>(s.geometry.geometry.full_builds),
+          static_cast<unsigned long long>(s.geometry.geometry.cloud_reads),
           static_cast<unsigned long long>(s.timestamp_reads),
           s.max_observe_seconds, s.max_poll_seconds, s.max_worker_seconds,
           s.last_latency_seconds);
