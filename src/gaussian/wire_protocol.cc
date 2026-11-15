@@ -249,6 +249,16 @@ void Candidate(const cv::FileNode& root,
   Require(Number(root["rgb_l1"], "Invalid RGB loss") >= 0 &&
               Number(root["depth_l1_m"], "Invalid depth loss") >= 0,
           "Losses must be nonnegative");
+  for (const char* name : {"nonzero_gradient", "parameter_updated"}) {
+    if (!root[name].empty())
+      (void)Integer(root[name], "Invalid training flag", 0, 1);
+  }
+  for (const char* name :
+       {"gpu_peak_allocated_bytes", "gpu_peak_reserved_bytes",
+        "worker_peak_rss_bytes"}) {
+    if (!root[name].empty())
+      (void)Unsigned(root[name], "Invalid memory counter");
+  }
 }
 
 void Validate(const GaussianMessage& message) {

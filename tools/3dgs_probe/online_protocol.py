@@ -143,6 +143,13 @@ def _validate_message(header, body):
         if any(_number(header.get(name), name) < 0
                for name in ("rgb_l1", "depth_l1_m")):
             raise ValueError("Losses must be nonnegative")
+        for name in ("nonzero_gradient", "parameter_updated"):
+            if name in header:
+                _integer(header[name], name, 0, 1)
+        for name in ("gpu_peak_allocated_bytes", "gpu_peak_reserved_bytes",
+                     "worker_peak_rss_bytes"):
+            if name in header:
+                _unsigned(header[name], name)
     elif body:
         raise ValueError("Unexpected body")
     if kind == "decision" and header.get("action") not in ("accept", "discard"):

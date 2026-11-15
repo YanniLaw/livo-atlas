@@ -98,6 +98,9 @@ socket 和预览目录只在各自新建的 `$LIVO_PHASE` 子目录中建立；�
 十进制字符串 `gpu_free_bytes`、`gpu_total_bytes`。
 候选的固定指标字段为 `frame_ids`、`steps`、`rgb_l1`、`depth_l1_m`、
 `supervised_depth_pixels`、`gaussian_count`；计数及步数用非负 JSON 整数。
+候选还可包含整数标志 `nonzero_gradient`、`parameter_updated`（只能为 0 或 1），
+以及十进制字符串 `gpu_peak_allocated_bytes`、`gpu_peak_reserved_bytes`、
+`worker_peak_rss_bytes`。这些采样是进程级峰值，不代表整机资源占用。
 握手后无法使用 GPU 或预编译扩展时 `error` 返回 `gpu_unavailable` 或 `extension_unavailable`；
 其他协议/工作错误分别为 `protocol_error` / `worker_error`，无 body，随后关闭连接。
 无法完成握手时记录 EOF/启动错误。`stop` 终止会话。没有自动重连；坏长度、截断、

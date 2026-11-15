@@ -107,8 +107,18 @@ class OnlineProtocolTest(unittest.TestCase):
         candidate.update({"schema": 1, "type": "candidate",
                           "frame_ids": ["2147483649"], "steps": 20,
                           "rgb_l1": 0.2, "depth_l1_m": 0.1,
-                          "supervised_depth_pixels": 1, "gaussian_count": 1})
+                          "supervised_depth_pixels": 1, "gaussian_count": 1,
+                          "nonzero_gradient": 1, "parameter_updated": 1,
+                          "gpu_peak_allocated_bytes": "20",
+                          "gpu_peak_reserved_bytes": "30",
+                          "worker_peak_rss_bytes": "40"})
         self.round_trip(candidate, bytes([30, 20, 10]) * 48)
+        for key, value in (("nonzero_gradient", 2), ("parameter_updated", True),
+                           ("gpu_peak_allocated_bytes", "-1"),
+                           ("gpu_peak_reserved_bytes", "bad"),
+                           ("worker_peak_rss_bytes", 3)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                encode_message(dict(candidate, **{key: value}), bytes([30, 20, 10]) * 48)
         reset = {"schema": 1, "type": "reset", "session_id": "a" * 32,
                  "generation": "2", "pose_version": "1"}
         self.round_trip(reset, b"")

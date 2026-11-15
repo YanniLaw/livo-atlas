@@ -91,6 +91,24 @@ TEST(GaussianWireProtocolTest, PreservesViewBytesAndLargeIdsOverSocket) {
   EXPECT_EQ(actual.body, expected.body);
 }
 
+TEST(GaussianWireProtocolTest, RejectsMalformedOptionalTelemetry) {
+  GaussianMessage message;
+  message.header_json =
+      R"({"schema":1,"type":"candidate",)"
+      R"("session_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",)"
+      R"("job_id":"1","generation":"1","submap_id":"0",)"
+      R"("pose_version":"0","membership_revision":"1",)"
+      R"("frame_count":"1","optimized_frame_count":"0",)"
+      R"("width":1,"height":1,"frame_ids":["0"],"steps":20,)"
+      R"("rgb_l1":0.2,"depth_l1_m":0.1,"supervised_depth_pixels":1,)"
+      R"("gaussian_count":1,"nonzero_gradient":2})";
+  message.body = {1, 2, 3};
+  EXPECT_THROW(EncodeGaussianMessage(message), std::exception);
+  Replace(&message.header_json, "\"nonzero_gradient\":2",
+          "\"gpu_peak_reserved_bytes\":\"-1\"");
+  EXPECT_THROW(EncodeGaussianMessage(message), std::exception);
+}
+
 TEST(GaussianWireProtocolTest, RejectsInvalidMasksDepthDimensionsAndSession) {
   auto message = View();
   message.body[3 * 48] = 255;
