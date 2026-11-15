@@ -199,21 +199,21 @@ Python 和 C++ 使用相同 JSON 字段与长度，后续任务不得另造另�
 **Interfaces:** 消费 Task 1 解码后的 `view`；提供 Shared Interfaces 的 `reset`、
 `train_candidate`、`decide`，返回 RGB uint8 预览和可序列化有限指标。
 
-- [ ] **Step 1: 写 RED 测试。** 两帧非单位 SE(3) 合成数据检查 `T_camera_S`、BGR→RGB、
+- [x] **Step 1: 写 RED 测试。** 两帧非单位 SE(3) 合成数据检查 `T_camera_S`、BGR→RGB、
   深度掩码和 20 步调度；先训练 11 个有深度视图，断言最多保留最近 10 个及其来源高斯，
   每帧 ≤1,000、总数 ≤10,000，添加/逐出后 Adam 动量重置。断言无深度帧不插入，纯黑白
   参数和损失有限；拒绝候选后所有模型、窗口和优化器为空，再以新 generation 从头训练。
   真 CUDA 合成测试要求前向、有限非零梯度和参数更新；设置 `LIVO_REQUIRE_GPU=1` 后缺
   GPU 必须失败，不能作为跳过通过。
-- [ ] **Step 2: 运行 RED。** `PYTHONPATH="$LIVO_REPO/tools/3dgs_probe" "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_online_model.py -v`。
+- [x] **Step 2: 运行 RED。** `PYTHONPATH="$LIVO_REPO/tools/3dgs_probe" "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_online_model.py -v`。
   Expected: 因 `online_model` 尚未实现而失败，torch/gsplat 已可导入。
-- [ ] **Step 3: 实现。** 复用 P6-03b 的反投影、gsplat 主点转换、有限性和掩码损失；
+- [x] **Step 3: 实现。** 复用 P6-03b 的反投影、gsplat 主点转换、有限性和掩码损失；
   建立固定数量和来源 ID 的活动高斯、20 步顺序、淘汰及重置，不引入 densification。
   运行前核验空闲显存、设置 40% 分配比例，并调用已有预编译扩展检查，拒绝隐式 JIT。
-- [ ] **Step 4: 运行 GREEN。** 执行 Step 2、已有 `test_train.py` 与
+- [x] **Step 4: 运行 GREEN。** 执行 Step 2、已有 `test_train.py` 与
   `LIVO_REQUIRE_GPU=1` 的 `test_rasterizer.py`；Expected: 所有 CPU 和实际 CUDA 项通过，
   记录非零深度监督、实际步数及 PyTorch 峰值，不把同步 GPU 耗时当在线吞吐。
-- [ ] **Step 5: 提交。** 提交本任务源码与测试，示例 `feat: add bounded incremental Gaussian model`。
+- [x] **Step 5: 提交。** 提交本任务源码与测试，示例 `feat: add bounded incremental Gaussian model`。
 
 ### Task 3: 在线调度、过期提交和滚动预览
 
