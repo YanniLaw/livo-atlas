@@ -1,6 +1,6 @@
 # C3b-02：版本化几何地图显示设计
 
-2026-11-15，基于 `9257f44`。状态：设计及独立可实施性检查完成；实施代码已提交，完整验收正在进行。
+2026-11-15，基于 `9257f44`。状态：实施、构建矩阵和 bag/RViz 验证完成；整阶段审阅待完成。
 本设计最初在编码前编写，并在用户切换模型后执行；实现和使用方式见[几何地图显示说明](../../geometry-map-output.md)。
 下述路线和默认值由执行者按此前“按照推荐的来”的委托提出，并非用户逐项确认的要求。
 
@@ -224,7 +224,9 @@ sink自身失败只记录一次，不向同一个失败sink递归发送错误，
 这一限制来自核对[Noetic PointCloud2Display](https://github.com/ros-visualization/rviz/blob/noetic-devel/src/rviz/default_plugin/point_cloud2_display.cpp)、
 [Noetic替换路径](https://github.com/ros-visualization/rviz/blob/noetic-devel/src/rviz/default_plugin/point_cloud_common.cpp)、
 [Humble PointCloud2Display](https://github.com/ros2/rviz/blob/humble/rviz_default_plugins/src/rviz_default_plugins/displays/pointcloud/point_cloud2_display.cpp)
-和[Humble替换路径](https://github.com/ros2/rviz/blob/humble/rviz_default_plugins/src/rviz_default_plugins/displays/pointcloud/point_cloud_common.cpp)的源码推断，尚未进行GUI实测。
+和[Humble替换路径](https://github.com/ros2/rviz/blob/humble/rviz_default_plugins/src/rviz_default_plugins/displays/pointcloud/point_cloud_common.cpp)的源码推断。
+后续在两端用已录制点云和空云完成了限定配置下的 GUI 实测，具体条件和截图位置见
+[验证报告](../../p6-02c3b2-validation.md)；它不覆盖所有 TF、时钟和衰减配置。
 
 ## 配置和启用
 
