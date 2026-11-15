@@ -52,7 +52,7 @@ NVIDIA 的 [CUDA 12.1 发布说明](https://docs.nvidia.com/cuda/archive/12.1.0/
 
 第一候选是 [gsplat v1.5.3](https://github.com/nerfstudio-project/gsplat/tree/v1.5.3)
 源码提交 `937e29912570c372bed6747a5c9bf85fed877bae`，在用户目录的隔离 Python 3.10 环境中
-尝试 PyTorch 2.3.0 CUDA 12.1 构建与 CUDA Toolkit 12.1.1；版本组合参考其
+尝试 PyTorch 2.3.0 CUDA 12.1 构建与 CUDA Toolkit 12.1.1 的最小开发组件；版本组合参考其
 [构建矩阵](https://github.com/nerfstudio-project/gsplat/blob/v1.5.3/.github/workflows/building.yml)
 和 [PyTorch 官方旧版本说明](https://pytorch.org/get-started/previous-versions/)。
 该组合是**待试验的候选**，不是已经验证的兼容矩阵或长期后端承诺。

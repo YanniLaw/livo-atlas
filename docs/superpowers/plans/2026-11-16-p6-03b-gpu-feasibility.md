@@ -84,11 +84,11 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
 变换；`render(means, quats, scales, opacities, colors, viewmat, K_gsplat, width, height)` 调用
 `gsplat.rasterization(..., render_mode="RGB+ED")`，返回 RGB、alpha 和相机 z 深度 Tensor。
 
-- [ ] **Step 1: 新建环境。** 在新 `$LIVO_PHASE` 使用官方发布的 micromamba `2.9.0-0`
+- [x] **Step 1: 新建环境。** 在新 `$LIVO_PHASE` 使用官方发布的 micromamba `2.9.0-0`
   Linux x86_64 二进制，下载后核对 SHA-256
   `366cd9cd8be14df1ab8ed50352a82111082a36686b2d389fdb79a92c3fafb3e3`。
-  按 NVIDIA `nvidia/label/cuda-12.1.1` 创建仅用户目录可写的 Python 3.10、CUDA Toolkit
-  12.1.1 环境；用 PyTorch 官方 `cu121` 索引安装 `torch==2.3.0`，另安装 NumPy 1.26.4、
+  按 NVIDIA `nvidia/label/cuda-12.1.1` 创建仅用户目录可写的 Python 3.10、CUDA 12.1.1
+  最小编译环境；用 PyTorch 官方 `cu121` 索引安装 `torch==2.3.0`，另安装 NumPy 1.26.4、
   Pillow 10.4.0、ninja 和 gsplat v1.5.3 的普通依赖。把完整 conda 显式清单、pip freeze、
   下载来源和哈希写到实验目录，不改 shell 启动文件。
 
@@ -102,15 +102,18 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
   export MAMBA_ROOT_PREFIX="$LIVO_PHASE/mamba-root"
   "$LIVO_PHASE/bin/micromamba" create -y -p "$LIVO_ENV" -c conda-forge python=3.10 pip
   "$LIVO_PHASE/bin/micromamba" install -y -p "$LIVO_ENV" \
-    -c nvidia/label/cuda-12.1.1 -c conda-forge cuda-toolkit=12.1.1
+    -c nvidia/label/cuda-12.1.1 -c conda-forge \
+    cuda-nvcc=12.1.105 cuda-cudart-dev=12.1.105 cuda-cccl=12.1.109
   "$LIVO_PYTHON" -m pip install --index-url https://download.pytorch.org/whl/cu121 torch==2.3.0
   "$LIVO_PYTHON" -m pip install numpy==1.26.4 Pillow==10.4.0 ninja jaxtyping rich wheel
   ```
 
   Expected: 每一步成功，`$LIVO_ENV/bin/nvcc --version` 显示 12.1；实际解析到的全部版本
-  后续通过 `micromamba list --explicit` 和 `pip freeze --all` 固化。创建环境和安装前均复查磁盘。
+  后续通过 `micromamba list --explicit` 和 `pip freeze --all` 固化。完整工具包的 dry-run
+  显示约 4 GB 下载；这组组件约 57 MB，实际 CUDA 编译和内核结果决定它是否足够。
+  创建环境和安装前均复查磁盘。
 
-- [ ] **Step 2: 本机编译固定源码。** 克隆 gsplat tag `v1.5.3` 和其递归 submodule，核对
+- [x] **Step 2: 本机编译固定源码。** 克隆 gsplat tag `v1.5.3` 和其递归 submodule，核对
   提交 `937e29912570c372bed6747a5c9bf85fed877bae`。设置 `CUDA_HOME` 指向隔离 toolkit、
   `TORCH_CUDA_ARCH_LIST=8.9`，单任务编译并安装到该环境。记录编译日志、submodule SHA、
   `nvcc --version`、gcc、Python、torch 和 CUDA 版本。若下载、ABI、CUDA 或磁盘检查失败，
@@ -134,23 +137,23 @@ bundle 中 ID 唯一，train 与 validation 均非空且不重叠；拒绝越界
   Expected: 构建退出码为 0，CUDA 可用断言通过；实际内核是否可执行由 Step 5 判定。
   `8.9` 对应本机计算能力，其他 GPU 要先实测其架构并使用该 toolkit 支持的值。
 
-- [ ] **Step 3: 写 RED 测试。** 合成图像 8×6、`fx=fy=4`、OpenCV `cx=3.5,cy=2.5`；
+- [x] **Step 3: 写 RED 测试。** 合成图像 8×6、`fx=fy=4`、OpenCV `cx=3.5,cy=2.5`；
   `T_C_parent` 使用 z 轴 90° 旋转与平移 `(1,2,3)`，父系点 `(-1.5,0.5,1)` 对应相机
   点 `(0.5,0.5,4)` 和整数像素 `(4,3)`。一个单位四元数、正尺度、非灰色 RGB 高斯应在
-  该像素有非零 alpha 且严格高于左侧和上方邻点，`ED≈4 m`；除以 alpha 后 RGB 顺序正确。
+  该像素有非零 alpha，且比左侧和上方邻点至少高 0.05；`ED≈4 m`，除以 alpha 后 RGB 顺序正确。
   对有意不同的目标计算损失并反传，至少一个颜色参数梯度有限非零且一次优化改变参数。
   在运行任何 GPU 测试前检查 4 GiB 可用显存并设置 PyTorch 40% 分配比例。
   `LIVO_REQUIRE_GPU=1` 时没有 CUDA 或 gsplat 内核必须报错，不能 skip 为成功。
 
-- [ ] **Step 4: 运行 RED。** 使用隔离环境 Python 运行
+- [x] **Step 4: 运行 RED。** 使用隔离环境 Python 运行
   `LIVO_REQUIRE_GPU=1 PYTHONPATH="$LIVO_REPO/tools/3dgs_probe" "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_rasterizer.py -v`。
   Expected: 因适配实现尚不存在而失败，保留完整日志；环境加载失败要先诊断，不算预期 RED。
 
-- [ ] **Step 5: 实现并运行 GREEN。** 实现 Interfaces 中的两个简单函数，保持图像宽高和
+- [x] **Step 5: 实现并运行 GREEN。** 实现 Interfaces 中的两个简单函数，保持图像宽高和
   颜色原样，主点仅在 gsplat 边界加 0.5；`render` 返回前验证形状和有限值。运行 Step 4。
   Expected: 实际 CUDA 前向/反向及像素、颜色、米制深度断言全部通过，记录 GPU 显存和耗时。
 
-- [ ] **Step 6: 提交。** 仅提交本任务的源文件、测试与必要的依赖说明；环境和日志留在
+- [x] **Step 6: 提交。** 仅提交本任务的源文件、测试与必要的依赖说明；环境和日志留在
   `$LIVO_PHASE`。提交示例：`test: verify isolated Gaussian rasterization`。
 
 ### Task 2: SDK 观测数据交接
