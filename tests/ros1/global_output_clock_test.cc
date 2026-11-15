@@ -1,3 +1,7 @@
+#include <livo_atlas/GeometryMap.h>
+#include <livo_atlas/KeyframeTrajectory.h>
+#include <opencv2/core.hpp>
+
 #include "core/fixtures.h"
 #include "geometry_map_fixture.h"
 #include "livo_atlas/ros1/geometry_map_publisher.h"
@@ -5,11 +9,6 @@
 #include "livo_atlas/ros1/livo_node.h"
 #include "ros1/global_output_test_support.h"
 #include "trajectory_fixture.h"
-
-#include <livo_atlas/GeometryMap.h>
-#include <livo_atlas/KeyframeTrajectory.h>
-
-#include <opencv2/core.hpp>
 
 namespace livo_atlas::ros1::test_support {
 namespace {

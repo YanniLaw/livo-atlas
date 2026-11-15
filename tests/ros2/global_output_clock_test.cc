@@ -1,3 +1,6 @@
+#include <opencv2/core.hpp>
+#include <rosgraph_msgs/msg/clock.hpp>
+
 #include "core/fixtures.h"
 #include "geometry_map_fixture.h"
 #include "livo_atlas/ros2/geometry_map_publisher.h"
@@ -5,9 +8,6 @@
 #include "livo_atlas/ros2/livo_node.h"
 #include "ros2/global_output_test_support.h"
 #include "trajectory_fixture.h"
-
-#include <rosgraph_msgs/msg/clock.hpp>
-#include <opencv2/core.hpp>
 
 namespace livo_atlas::ros2::test_support {
 namespace {
