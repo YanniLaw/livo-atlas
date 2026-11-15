@@ -45,6 +45,8 @@
 
 38. [首帧传感器暂存设计](superpowers/specs/2026-11-15-startup-sensor-buffer-design.md)、[实施计划](superpowers/plans/2026-11-15-startup-sensor-buffer.md)、[使用说明](startup-sensor-buffer.md)与[验证记录](startup-sensor-buffer-validation.md)：首帧前有界暂存与旧行为开关已实现，双 ROS 受控顺序及完整 bag 对照和独立审阅已完成。
 
+39. [P6-03a 重建观测设计](superpowers/specs/2026-11-15-p6-03a-reconstruction-view-design.md)和[实施计划](superpowers/plans/2026-11-15-p6-03a-reconstruction-view.md)：为在线高斯建图准备拥有数据的去畸变图像、稀疏深度和版本化相机位姿；设计已完成，实施待验证。
+
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
 P1-02 已完成普通标定类型、ROS1 参数入口、相机接线、直接测试、完整回放及独立审阅问题闭环。
