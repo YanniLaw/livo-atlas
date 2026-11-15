@@ -39,9 +39,9 @@
 33. [C2 回环准入与在线接纳设计](superpowers/specs/2026-11-13-p6-02c2-loop-admission-design.md)、[C2a 实施计划](superpowers/plans/2026-11-13-p6-02c2a-loop-admission.md)、[使用说明](loop-admission.md)及[验证记录](p6-02c2a-validation.md)：无状态约束准入、鲁棒图试算、优化后几何复核和离线工具已完成阶段验收；在线调度与提交见 C2b。
 34. [C2b 在线回环设计](superpowers/specs/2026-11-14-p6-02c2b-online-backend-design.md)、[实施计划](superpowers/plans/2026-11-14-p6-02c2b-online-backend.md)及[使用说明](online-loop-backend.md)：固定读取前沿、单 worker、所有者持久接纳和停止后检查已完成；主验收14组构建与8次官方回放、审阅修复后的7组受影响构建复验通过，见[验证记录](p6-02c2b-validation.md)。
 35. [C3a 全局 TF 与当前位姿设计](superpowers/specs/2026-11-14-p6-02c3a-global-pose-design.md)、[实施计划](superpowers/plans/2026-11-14-p6-02c3a-global-pose.md)、[使用说明](global-pose-output.md)和[验证报告](p6-02c3a-validation.md)：常数规模修正、成对 TF 和当前全局位姿已实现；14组构建、12组真实入口、12次官方回放及整阶段独立审阅完成；原验收器Minor已[补验关闭](p6-02c3a-followup-validation.md)，新版自动检查版本解释顺序。优化历史轨迹与版本化地图留待 C3b。
-36. [C3b 历史轨迹与几何地图设计](superpowers/specs/2026-11-15-p6-02c3b-history-design.md)、[C3b-01 计划](superpowers/plans/2026-11-15-p6-02c3b1-keyframe-trajectory.md)、[使用说明](keyframe-trajectory.md)与[验证记录](p6-02c3b1-validation.md)：版本化逐帧轨迹、双 ROS 消息、有限后台输出已完成；14组构建、22个安装消费者及10次官方回放通过，两项重要问题闭环；C3b-02 几何显示另行设计。
+36. [C3b 历史轨迹与几何地图设计](superpowers/specs/2026-11-15-p6-02c3b-history-design.md)、[C3b-01 计划](superpowers/plans/2026-11-15-p6-02c3b1-keyframe-trajectory.md)、[使用说明](keyframe-trajectory.md)与[验证记录](p6-02c3b1-validation.md)：版本化逐帧轨迹、双 ROS 消息、有限后台输出已完成；14组构建、22个安装消费者及10次官方回放通过，两项重要问题闭环；C3b-02 几何显示在后续阶段实施。
 
-37. [C3b-02 几何地图显示设计](superpowers/specs/2026-11-15-p6-02c3b2-geometry-map-design.md)、[实施计划](superpowers/plans/2026-11-15-p6-02c3b2-geometry-map.md)、[使用说明](geometry-map-output.md)和[验证进度](p6-02c3b2-validation.md)：私有几何构建、有限片段缓存、流式显示采样、版本来源和双 ROS 话题已实现，完整验收正在进行。
+37. [C3b-02 几何地图显示设计](superpowers/specs/2026-11-15-p6-02c3b2-geometry-map-design.md)、[实施计划](superpowers/plans/2026-11-15-p6-02c3b2-geometry-map.md)、[使用说明](geometry-map-output.md)和[验证记录](p6-02c3b2-validation.md)：私有几何构建、有限片段缓存、流式显示采样、版本来源和双 ROS 话题已完成；构建矩阵、官方 bag、RViz 和独立审阅结果见验证记录。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
