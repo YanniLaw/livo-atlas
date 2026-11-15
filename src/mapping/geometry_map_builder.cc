@@ -24,9 +24,11 @@ RigidTransform LocalPose(const OnlineSubmap& group, const PoseSnapshot& poses,
 
 GeometryMapBuilder::GeometryMapBuilder(GeometryOptions geometry,
                                        GeometryMapOptions options,
-                                       GeometryMapper::CloudReader reader)
+                                       GeometryMapper::CloudReader reader,
+                                       std::function<bool()> cancelled)
     : geometry_options_(std::move(geometry)),
       options_(std::move(options)),
+      cancelled_(std::move(cancelled)),
       mapper_(geometry_options_, std::move(reader)) {
   ValidateGeometryMapOptions(options_);
 }
@@ -79,6 +81,11 @@ void GeometryMapBuilder::Touch(std::size_t id) {
 GeometryMapSnapshot GeometryMapBuilder::Build(
     const std::vector<OnlineSubmap>& groups,
     std::shared_ptr<const PoseSnapshot> poses) {
+  const auto check_cancel = [&] {
+    if (cancelled_ && cancelled_())
+      throw std::runtime_error("Geometry map build cancelled");
+  };
+  check_cancel();
   if (!poses) throw std::invalid_argument("Missing geometry map poses");
   ValidatePoseSnapshot(*poses);
   if (poses->version &&
@@ -113,6 +120,7 @@ GeometryMapSnapshot GeometryMapBuilder::Build(
   geometry_map_detail::GeometryMapSampler sampler(result.effective_max_points);
   result.sources.reserve(groups.size());
   for (std::size_t i = 0; i < groups.size(); ++i) {
+    check_cancel();
     const auto& group = groups[i];
     auto& entry = entries_[i];
     if (entry.fragment && !Matches(*entry.fragment, group, *poses)) {
@@ -179,12 +187,17 @@ GeometryMapSnapshot GeometryMapBuilder::Build(
                    key,
                    {parent.rotation * local + parent.translation, intensity}});
     };
+    std::size_t checked = 0;
     if (fragment) {
-      for (const auto& point : fragment->points)
+      for (const auto& point : fragment->points) {
+        if ((checked++ % 1024) == 0) check_cancel();
         add(point.key, point.centroid, point.intensity);
+      }
     } else {
-      for (const auto& voxel : geometry.data->voxels)
+      for (const auto& voxel : geometry.data->voxels) {
+        if ((checked++ % 1024) == 0) check_cancel();
         add(voxel.key, voxel.centroid, voxel.mean_intensity);
+      }
     }
   }
 

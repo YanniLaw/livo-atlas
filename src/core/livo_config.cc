@@ -50,6 +50,22 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   global.trajectory.max_keyframes =
       reader.Integer("global_output.trajectory.max_keyframes",
                      global.trajectory.max_keyframes);
+  auto& geometry_output = global.geometry;
+  geometry_output.enabled =
+      reader.Boolean("global_output.geometry.enabled", geometry_output.enabled);
+  geometry_output.max_frequency_hz =
+      reader.Number("global_output.geometry.max_frequency_hz",
+                    geometry_output.max_frequency_hz);
+  geometry_output.max_keyframes = reader.Integer(
+      "global_output.geometry.max_keyframes", geometry_output.max_keyframes);
+  geometry_output.map.max_points = reader.Integer(
+      "global_output.geometry.max_points", geometry_output.map.max_points);
+  geometry_output.map.max_cached_points =
+      reader.Integer("global_output.geometry.max_cached_points",
+                     geometry_output.map.max_cached_points);
+  geometry_output.map.max_message_bytes =
+      reader.Integer("global_output.geometry.max_message_bytes",
+                     geometry_output.map.max_message_bytes);
   ValidateGlobalOutputOptions(global);
   auto& options = config.system;
   auto& front = options.frontend;
@@ -89,7 +105,7 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   auto& geometry = options.geometry;
   geometry.enabled =
       reader.Boolean("submaps.geometry.enabled", geometry.enabled);
-  if (geometry.enabled) {
+  if (geometry.enabled || geometry_output.enabled) {
     geometry.voxel_size =
         reader.Number("submaps.geometry.voxel_size", geometry.voxel_size);
     geometry.min_points_per_voxel = reader.Integer(
@@ -106,6 +122,7 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
                        geometry.max_points_per_keyframe);
     geometry.max_resident_submaps = reader.Integer(
         "submaps.geometry.max_resident_submaps", geometry.max_resident_submaps);
+    ValidateGeometryOptions(geometry);
   }
   config.lidar_topic = reader.String("common.lid_topic", config.lidar_topic);
   config.imu_topic = reader.String("common.imu_topic", config.imu_topic);
@@ -270,6 +287,10 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
        options.submap_mode != SubmapMode::kOnline))
     throw std::invalid_argument(
         "global_output.enabled requires keyframes and online submaps");
+  if (geometry_output.enabled &&
+      options.submaps.max_keyframes > static_cast<int>(kMaxGeometryKeyframes))
+    throw std::invalid_argument(
+        "Geometry map output requires at most 64 members per submap");
   return config;
 }
 }  // namespace livo_atlas

@@ -3,6 +3,7 @@
 
 #include <string>
 
+#include "livo_atlas/core/geometry_map_output_options.h"
 #include "livo_atlas/core/trajectory_output_options.h"
 
 namespace livo_atlas {
@@ -12,6 +13,7 @@ struct GlobalOutputOptions {
   bool publish_tf = true;
   std::string map_frame = "map";
   TrajectoryOutputOptions trajectory;
+  GeometryMapOutputOptions geometry;
 };
 
 // Validates the output's own frame contract when enabled. Storage requirements

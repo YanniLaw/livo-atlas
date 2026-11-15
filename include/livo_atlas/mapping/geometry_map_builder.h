@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_MAPPING_GEOMETRY_MAP_BUILDER_H_
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -22,7 +23,8 @@ struct GeometryMapBuilderStats {
 class GeometryMapBuilder {
  public:
   GeometryMapBuilder(GeometryOptions geometry, GeometryMapOptions options,
-                     GeometryMapper::CloudReader reader);
+                     GeometryMapper::CloudReader reader,
+                     std::function<bool()> cancelled = {});
 
   GeometryMapSnapshot Build(const std::vector<OnlineSubmap>& groups,
                             std::shared_ptr<const PoseSnapshot> poses);
@@ -60,6 +62,7 @@ class GeometryMapBuilder {
 
   GeometryOptions geometry_options_;
   GeometryMapOptions options_;
+  std::function<bool()> cancelled_;
   GeometryMapper mapper_;
   std::vector<Entry> entries_;
   GeometryMapBuilderStats stats_;

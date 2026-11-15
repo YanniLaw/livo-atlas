@@ -259,5 +259,20 @@ TEST(GeometryMapBuilderTest, RejectsMissingCoverageAndLegacyPositiveTail) {
                std::invalid_argument);
 }
 
+TEST(GeometryMapBuilderTest, CancellationStopsBeforeReadingAnotherBlock) {
+  int reads = 0;
+  bool cancelled = true;
+  GeometryMapBuilder builder(
+      {}, {},
+      [&](std::uint64_t) {
+        ++reads;
+        return Cloud(0);
+      },
+      [&] { return cancelled; });
+  EXPECT_THROW(builder.Build({Group(0, {0}, false)}, Poses(1)),
+               std::runtime_error);
+  EXPECT_EQ(reads, 0);
+}
+
 }  // namespace
 }  // namespace livo_atlas

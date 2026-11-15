@@ -9,9 +9,15 @@ void ValidateGlobalOutputOptions(const GlobalOutputOptions& options) {
   if (options.trajectory.enabled && !options.enabled)
     throw std::invalid_argument(
         "Trajectory output requires global_output.enabled");
+  if (options.geometry.enabled && !options.enabled)
+    throw std::invalid_argument(
+        "Geometry map output requires global_output.enabled");
   ValidateTrajectoryOutputOptions(options.trajectory);
+  ValidateGeometryMapOutputOptions(options.geometry);
   if (!options.enabled) return;
   const auto& frame = options.map_frame;
+  if (options.geometry.enabled && frame.size() > 256)
+    throw std::invalid_argument("Geometry map frame exceeds 256 bytes");
   if (frame.empty() || frame.front() == '/' || frame.back() == '/' ||
       frame.find("//") != std::string::npos || frame == "camera_init" ||
       frame == "aft_mapped" || frame == "world" ||

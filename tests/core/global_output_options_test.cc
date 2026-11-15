@@ -180,6 +180,62 @@ TEST_F(GlobalOutputOptionsTest, ReadsGlobalSchemaBeforeOutputIo) {
   EXPECT_FALSE(fs::exists(directory_));
 }
 
+TEST_F(GlobalOutputOptionsTest,
+       GeometryDisplayReadsSharedOptionsIndependently) {
+  GlobalParameters parameters(directory_);
+  parameters.EnableOnlineStorage();
+  parameters.booleans_["global_output.enabled"] = true;
+  parameters.booleans_["global_output.geometry.enabled"] = true;
+  parameters.numbers_["submaps.geometry.voxel_size"] = 0.4;
+  parameters.integers_["global_output.geometry.max_points"] = 1000;
+  const auto config = LoadLivoConfig(parameters);
+  EXPECT_TRUE(config.global_output.geometry.enabled);
+  EXPECT_EQ(config.global_output.geometry.map.max_points, 1000);
+  EXPECT_DOUBLE_EQ(config.system.geometry.voxel_size, 0.4);
+  EXPECT_FALSE(config.system.geometry.enabled);
+  EXPECT_FALSE(config.global_output.trajectory.enabled);
+  EXPECT_FALSE(fs::exists(directory_));
+  parameters.numbers_["submaps.geometry.voxel_size"] = -1;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["global_output.geometry.enabled"] = false;
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+}
+
+TEST_F(GlobalOutputOptionsTest,
+       GeometryDisplayRejectsInvalidBudgetsAndStorage) {
+  GlobalParameters parameters(directory_);
+  parameters.booleans_["global_output.geometry.enabled"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["global_output.enabled"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.EnableOnlineStorage();
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+  parameters.integers_["submaps.max_keyframes"] = 65;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.integers_["submaps.max_keyframes"] = 64;
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+  parameters.strings_["global_output.map_frame"] = std::string(257, 'a');
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.strings_["global_output.map_frame"] = std::string(256, 'a');
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+  for (double rate : {0.0, 2.1, std::numeric_limits<double>::infinity(),
+                      std::numeric_limits<double>::quiet_NaN()}) {
+    parameters.numbers_["global_output.geometry.max_frequency_hz"] = rate;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  parameters.numbers_["global_output.geometry.max_frequency_hz"] = 2;
+  for (int count : {0, 100001}) {
+    parameters.integers_["global_output.geometry.max_keyframes"] = count;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  parameters.integers_["global_output.geometry.max_keyframes"] = 100000;
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+  parameters.integers_["global_output.geometry.max_points"] = 0;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["global_output.geometry.enabled"] = false;
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+}
+
 TEST_F(GlobalOutputOptionsTest, RequiresOnlineStorageOnlyWhenEnabled) {
   GlobalParameters parameters(directory_);
   EXPECT_NO_THROW(LoadLivoConfig(parameters));
