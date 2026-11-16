@@ -4,7 +4,7 @@
 使用方式见[在线说明](online-gaussian.md)，契约见[设计](superpowers/specs/2026-11-17-p6-03c2b-online-gaussian-submaps-design.md)
 与[计划](superpowers/plans/2026-11-17-p6-03c2b-online-gaussian-submaps.md)。
 
-本文先记录候选源码的实际证据；独立审阅后，最后一节补充最终源码身份及复验结果。
+本文保留候选源码的证据，最后一节记录独立审阅修复后的最终源码身份与复验结果。
 候选数据不冒充修复后的二进制验证。所有产物位于包外
 `validation/P6-03c2b-20261117/`，迁移机器需另行保存或按命令重新生成。
 
@@ -33,9 +33,9 @@ CPU 资产检查另外在本机 Python 3.8/NumPy 1.22.3 上通过。推迟类型
 ## 自动检查与构建
 
 - 普通核心 Gaussian/GTSAM/回环开启构建的 66 个 CTest 目标通过；Gaussian map writer
-  8 项、持久 mapper 20 项（18 项受控 socket，2 项真实 GPU 单独运行）、原 C1 mapper
-  23 项（21 项受控，2 项真实 GPU 单独运行）。跳过的 GPU 用例不计为 GPU 通过。
-- Python/CUDA 107 项通过；比较器 21 项、runner 18 项通过。新增检查拒绝零步重用冒充训练、
+  10 项、持久 mapper 23 项（21 项受控 socket，2 项真实 GPU 单独运行）、C1 mapper/选项
+  24 项（22 项受控，2 项真实 GPU 单独运行）。跳过的 GPU 用例不计为 GPU 通过。
+- 最终修复后 Python/CUDA 110 项通过；比较器 26 项、runner 18 项通过。新增检查拒绝零步重用冒充训练、
   错会话/绑定、错误或缺失资产、超预算、volatile 冒充持久化、组内变形误报 current、
   incomplete 停机；允许明确标记的历史重建输入。
 - 普通 shared/static Gaussian OFF/ON 安装消费通过；OFF 不导出可选目标，ON 可只链接
@@ -118,5 +118,70 @@ CUDA_VISIBLE_DEVICES=0 PYTHONNOUSERSITE=1 "$LIVO_PYTHON" \
 
 ## 最终审阅与复验
 
-独立整范围审阅、修复后的源码身份和最后一次受影响构建/回放结果待本轮收尾填入。
-本节未完成前，前面的候选数据只证明对应源码与环境；不将未运行项计为通过。
+独立整范围审阅基于 `bcbd610..814162b`，没有 Critical 或 Minor，发现以下四项 Important。
+执行者核对用户可见影响后全部接纳，逐项先复现再修正；只做一次整范围审阅，没有追加复审。
+
+| 问题 | 复现与修正 |
+| --- | --- |
+| 过期前台激活不消耗公平预算 | 旧代码 63 次 reuse 或 946 次 empty 激活后历史块仍未再修复；两项受控回归现保证至多两次前台尝试后让出，成功激活和后续 view 不重复计数；历史轮转另有目录用例 |
+| C1 会话接受 schema 2 消息 | Python view/decision/stop 与真实 socket 的 C++ 混版本确认先失败后通过；派发/接纳前统一校验协商版本 |
+| 目录遗漏末尾逻辑组仍获通过 | writer 和比较器分别拒绝遗漏组/截断组，比较最新正式分组记录；旧资产窗口可小于完整逻辑覆盖的正例保留 |
+| 无效训练仍可通过持久验收 | 无监督/梯度/更新的接纳和零有效训练历史先失败；新增仅确认后累加的 effective_training，0 步 reuse 不计入，最近预览全为 reuse 时才允许持久历史回退 |
+
+最终产品代码提交为 `de4f303b909a89e84dc2e1a2beab79258b812bad`，其 `source-final.tar` 的 SHA-256：
+
+```text
+57475781756a4361ef8b68a4c547ab33f75c7e6c685794c454452d5e76f8abb8
+```
+
+最终源码 66 个 CTest 目标通过（13.93 秒），110 项 Python/CUDA 通过（26.476 秒），
+比较器 26 项、runner 18 项通过。runner 首次复验误用文件名匹配到 0 项，纠正为
+`test_baseline_runner.py` 后实际 18 项通过；0 项运行不计为测试证据。
+新源码的四项 C++/Python 真实 CUDA 桥接通过，无跳过。Noetic 11 项、Humble 13 项参数及
+两端 C1/持久/编译 OFF 真实入口通过，Humble 安装消费通过；容器 GPU 仍未宣称覆盖。
+
+shared/static OFF/ON 的安装消费者、导出边界和公开头已以修复源码刷新。一次 OFF 安装检查
+错误地保留了 GTSAM ON，却沿用无 GTSAM 路径的旧消费者配置；恢复全可选项 OFF 的默认
+SDK 配置后通过，再恢复 ON 构建。该失败和原始日志保留，没有改动系统依赖。
+
+最终 Noetic 节点 SHA-256 为
+`c962dfa31b507c73bfffc9ec40f45aef560e3eae3fa359ed740ec7e0206afacf`；20 个本包共享库身份保存于
+`native-libraries-final.sha256`，每次回放复核 bag 和库，三组比较均核对源码、二进制及共享配置。
+Humble 同一归档构建的节点 SHA-256 为
+`908f6fa4d593cd4fe8b6b0f1cabcd62822d71105efe62db7f856a5b9e2e2c6dd`。
+
+最终正式回放使用新的 `verified-*` 路径，三份比较 JSON 的 passed 均为 true：
+
+| 最终验证 | 10 秒 OFF/持久 ON | 完整 bag OFF/持久 ON | C1 短段 |
+| --- | --- | --- | --- |
+| LIO / VIO | 98 / 97 | 1352 / 1351 | 98 / 97 |
+| 四数组与发布语义 | 一致 | 一致 | 一致 |
+| 原始文件 | 16 个 SHA-256 一致 | 517 个 SHA-256 一致 | 16 个 SHA-256 一致 |
+| 持久资产 | 1 块，29,824,607 字节 | 13 块，703,846,404 字节 | C1 不生成持久目录 |
+| current / needs_rebuild | 1 / 0 | 4 / 9 | 不适用 |
+| 失败 / volatile / 未引用 / incomplete | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 无失败 |
+
+完整四数组形状分别为 1352×8、2707×19、2703×20、27385×7；严格逐值比较通过，没有引入
+数值容差。输入仍为 27,447 条 IMU、1,355 帧 LiDAR、1,355 帧图像；后端 172 关键帧、版本 2、
+两次回环接纳，两组状态一致。C1 短段 5 次实际训练确认、2 次 reset，保持旧模式。
+
+完整 Gaussian 观察 172 帧，提交/完成 175 次、确认 173 次，其中有效训练 166 次、
+重绑 7 次、重建 9 次；合并 15 次，checkpoint 29、load 15、prune 16，map_sequence 391，
+pending/in-flight 峰值各 1。耗时修正后平均确认 0.533574541 秒、最大 2.32505295 秒、
+最后一次 1.70346285 秒；不同操作的计时起点见使用说明，不等同 kernel 时间。
+owner 最大 Observe/Poll 为 0.000275547 / 0.008133482 秒。节点采样峰值 RSS 为 OFF
+818.49 MiB、ON 834.37 MiB；保留预览记录的 GPU allocated/reserved 峰值
+101,221,888 / 117,440,512 字节，worker RSS 峰值 1,197,862,912 字节，均为本轮实测。
+
+最后仍有 9 块明确需要重建，不能当作当前优化地图；这不影响确认内容与引用的持久完整性。
+独立冷恢复复验在 `real-controls-final/` 完成：13 块全部由新模型恢复，2 个匹配预览最大
+RGB8 差为 0；拒绝新视图/跨块激活的 RGB/alpha/z 差均为 0，刚性重用 0 步，非窗口成员
+28 修正及版本 1→4 跳变重建 180 步。32/33 槽位仍是重复真实观测、人工 ID 的受控检查；
+第 33 块被拒绝，提交不确定时资产 1/3/4 保留。源清单哈希全部未变。GPU allocated/reserved
+峰值 101,128,704 / 117,440,512 字节，RSS 峰值 1,269,227,520 字节。
+
+阶段执行台账、逐项 brief、RED/GREEN 日志及独立审阅原文归档到包外
+`validation/P6-03c2b-20261117/execution-review-record/`，最终对照摘要见同目录的
+`verified-short-comparison.json`、`verified-full-comparison.json`、`verified-c1-comparison.json`。
+代码保留在 `framework_completion`，未合并、推送或打标签。后续方向为跨块渲染和修复队列
+收敛策略的单独设计；本轮未把这些新增内容混入验收范围。

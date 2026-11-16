@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 用户已选择当前会话直接实施，保留此执行方式；最后一次独立整阶段代码审阅，不增加逐任务代理链。
 
+实施与阶段验收已完成；最终源码、独立审阅修复及实际证据见[验证记录](../../p6-03c2b-validation.md)。
+
 **Goal:** 在线保留并恢复已确认 Gaussian 工作集，按完整绝对位姿区分刚性重用与组内重建，输出有版本和真实覆盖的持久目录。
 
 **Architecture:** C++ 所有者控制有界目录、目标版本和接纳，现有后台线程处理 IPC/目录写入；Python 单 GPU worker 保留一个 CPU 确认快照、管理不可变资产。IPC schema 2 仅在新持久化开关开启时使用；默认 C1 路径保持不变。
@@ -25,7 +27,7 @@
 - 资产保留 C2a schema 1 和上限；map.json ≤512 KiB；新写入前预留最大资产及 1 GiB 空间。
 - 仅全部源 primary 在 pose_math::Equal 的 1e-9 位姿门限内不变才允许刚性复用。
 - view 20 步，reuse 0 步，rebuild 每保留帧 20 步且最多 200；不以假 worker 替代 CUDA 验收。
-- pending / in-flight 各一个；前台 view 最多两个后必须尝试一个历史 repair；目标绝对合并。
+- pending / in-flight 各一个；前台尝试（含激活前置）最多两个后必须尝试一个历史 repair；目标绝对合并。
 - 先资产提交、再目录文件+目录 fsync、再 map_committed 确认、最后 prune；不确定时停止写入/清理。
 - 本轮只写设计/计划。按用户要求先通知切换模型，之后才开始以下产品代码步骤。
 
@@ -299,17 +301,17 @@ tests/test_compare_gaussian_replays.py、docs/online-gaussian.md、docs/README.m
 - [x] **Step 2: 实现并 GREEN。** 更新 runner/比较器/对应测试，保留 C1 使用方式；
   `python3 -m unittest discover -s tests -p test_compare_gaussian_replays.py -v` 和完整
   3dgs_probe suite 通过；必要的其他工具回归依实际改动运行。不得写只比源文本的测试。
-- [ ] **Step 3: 构建矩阵与受控实测。** 新源码普通 shared/static Gaussian OFF/ON，
+- [x] **Step 3: 构建矩阵与受控实测。** 新源码普通 shared/static Gaussian OFF/ON，
   Noetic/Humble Gaussian OFF/ON（ON同时有现有GTSAM/回环依赖），双ROS真实参数/入口、
   安装消费者和公开头检查；CPU对照同源。实际CUDA用保存的真实观测覆盖2块切换、纯刚性、
   非窗口成员变形、跳版本、拒绝回退、写盘期间修正、32/33块容量和提交故障。记录真实 GPU
   覆盖平台；无容器GPU只能标明Humble受控peer，不补写成GPU成功。
-- [ ] **Step 4: 官方 bag 成对回放。** 先10秒 OFF/持久ON短段，再完整约135秒成对回放；
+- [x] **Step 4: 官方 bag 成对回放。** 先10秒 OFF/持久ON短段，再完整约135秒成对回放；
   同源码/二进制/共享配置/CPU设置，比较四数组、发布语义、原始关键帧文件、后端最终状态。
   C1模式另做同源码短段回归。核验 bag/源码哈希；检查运行中已产生真实确认及正常停机后
   历史资产可由新GPU实例恢复，保存/加载文件不借用运行实例。Expected: 前端逐值/逐字节
   一致、目录/资产自洽、预算不超；性能只记实测，不设掩盖差异的宽容差。
-- [ ] **Step 5: 文档、提交、一次独立审阅与最终复验。** 记录准确源码身份、环境、命令、
+- [x] **Step 5: 文档、提交、一次独立审阅与最终复验。** 记录准确源码身份、环境、命令、
   结果、失败案例、稀疏/短数据/平台局限；检查 Google 格式、链接/围栏、依赖/安装边界。
   提交后独立整范围审阅一次，Important先RED再修复；修复后的最终源码复跑受影响测试及
   实际入口/回放，不沿用旧二进制证据。更新完成台账，归档本计划执行记录，保留分支，

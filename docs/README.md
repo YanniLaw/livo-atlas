@@ -53,7 +53,7 @@
 
 42. [P6-03c2 多子地图与模型恢复设计](superpowers/specs/2026-11-17-p6-03c2-gaussian-submaps-design.md)、[C2a 实施计划](superpowers/plans/2026-11-17-p6-03c2a-gaussian-state.md)、[资产使用说明](gaussian-state.md)和[验证记录](p6-03c2a-validation.md)：C2a 独立 Gaussian 工作集保存、CPU 检查、GPU 恢复和继续训练已完成；80 项 Python/CUDA、62 项普通核心 CTest、真实来源冷恢复及独立审阅问题闭环通过，在线多块和闭环一致性见后续 C2b。
 
-43. [P6-03c2b 在线 Gaussian 子地图设计](superpowers/specs/2026-11-17-p6-03c2b-online-gaussian-submaps-design.md)与[实施计划](superpowers/plans/2026-11-17-p6-03c2b-online-gaussian-submaps.md)及[验证记录](p6-03c2b-validation.md)：单 GPU/CPU 确认回退、历史资产/目录、刚性重用/组内重建、持久提交与公平调度已实现；候选官方回放、冷恢复和受控真实观测通过，最终独立审阅与复验正在收尾。
+43. [P6-03c2b 在线 Gaussian 子地图设计](superpowers/specs/2026-11-17-p6-03c2b-online-gaussian-submaps-design.md)与[实施计划](superpowers/plans/2026-11-17-p6-03c2b-online-gaussian-submaps.md)及[验证记录](p6-03c2b-validation.md)：单 GPU/CPU 确认回退、历史资产/目录、刚性重用/组内重建、持久提交与公平调度已实现；四项独立审阅问题已复现修正，最终同源官方短/完整配对与 C1 回归、13 块 GPU 冷恢复和受控真实观测通过；退出仍保留明确标记的历史 needs_rebuild，不代表完整在线 3DGS SLAM。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。

@@ -8,7 +8,7 @@
 进展：C2a 已完成保存/恢复与真实来源验收，见[记录](../../p6-03c2a-validation.md)。
 C2b 的[详细设计](2026-11-17-p6-03c2b-online-gaussian-submaps-design.md)和
 [实施计划](../plans/2026-11-17-p6-03c2b-online-gaussian-submaps.md)已写出并完成独立
-可实施性检查；C2b 已实现并进入最终验收，见[阶段记录](../../p6-03c2b-validation.md)。下文 C2a 的“本轮”保留原阶段语境。
+可实施性检查；C2b 已实现并完成阶段验收，见[阶段记录](../../p6-03c2b-validation.md)。下文 C2a 的“本轮”保留原阶段语境。
 
 ## 目标与实施范围
 
