@@ -123,30 +123,30 @@ tests/gaussian/gaussian_map_index_test.cc；修改可选库和测试 CMake。
   `MakeTarget(std::uint64_t submap_id, std::uint64_t generation) const -> GaussianTarget`；
   `CanTrain(std::uint64_t submap_id) const -> bool`；
   `RecordConfirmed(const GaussianTarget&, GaussianOperation, std::uint64_t job_id,
-  const std::vector<std::uint64_t>& frame_ids) -> void`；
+  const std::vector<std::uint64_t>& frame_ids, int gaussian_count) -> void`；
   `RecordCheckpoint(const GaussianAssetReference&) -> bool`（仅匹配现存确认内容才附加）；
   `NextRepair() const -> std::optional<std::uint64_t>`、
   `MarkRepairAttempt(std::uint64_t) -> void`；`Snapshot() const -> GaussianMapSnapshot`。
   RecordConfirmed 保留源身份，并立即用最新绝对目标重判；不能拿旧确认覆盖新目标状态。
 
-- [ ] **Step 1: 写 RED。** 添加 WholeBlockMotionKeepsCanonicalContentAndUpdatesBinding、
+- [x] **Step 1: 写 RED。** 添加 WholeBlockMotionKeepsCanonicalContentAndUpdatesBinding、
   ChangedEvictedPrimaryRequiresRebuild、SameVersionFrontierGrowthPreservesOlderCoverage、
   VersionJumpUsesAbsoluteTarget、RepeatedSmallChangesDoNotMoveCanonicalBaseline、
   LogicalTailAndAssetCoverageRemainDistinct、LateConfirmationAndCheckpointCannotRegressTarget、
   ThirtyThirdContentSlotIsMissingWithoutEvictingOldAssets、RepeatedUpdatesStayBounded。
   用手算 Rz90+t(4,-2,1) 检查局部坐标；只改变已被窗口淘汰的源成员仍必须 needs_rebuild；
   分别连续施加小于 1e-9、累计大于 1e-9 的偏移，证明不是逐次近似复用。
-- [ ] **Step 2: 运行 RED。** 构建并执行新增测试目标。
+- [x] **Step 2: 运行 RED。** 构建并执行新增测试目标。
   Run: `nice -n 10 cmake --build "$LIVO_PHASE/core" --target gaussian_map_index_test -j1`，
   再执行 `"$LIVO_PHASE/core/gaussian_map_index_test"`。
   Expected: 新类型/行为缺失导致失败，不是 fixture 本身非法。
-- [ ] **Step 3: 实现。** 只存有限元数据；复用 pose_math 验证/比较，检查完整源 primary。
+- [x] **Step 3: 实现。** 只存有限元数据；复用 pose_math 验证/比较，检查完整源 primary。
   CanTrain 在分配新组 GPU 工作前检查 32 槽位；missing 行不持有内容或数组。
   reuse 不替换 canonical 内容，view/rebuild 确认才建立新内容基准。修复选择按尝试序号轮转。
-- [ ] **Step 4: GREEN。** Step 2 通过；运行既有 submap_pose_change_test、pose_snapshot_test
+- [x] **Step 4: GREEN。** Step 2 通过；运行既有 submap_pose_change_test、pose_snapshot_test
   以及完整 CTest：`cmake -E chdir "$LIVO_PHASE/core" ctest --output-on-failure -j1`。
   Expected: 新目录测试和既有几何契约全部通过，快照无图像/点云借用。
-- [ ] **Step 5: 提交。** `git diff --check` 后提交目录类型、算法、测试和构建接线。
+- [x] **Step 5: 提交。** `git diff --check` 后提交目录类型、算法、测试和构建接线。
 
 ### Task 2: 受限 schema 2 跨语言协议
 
