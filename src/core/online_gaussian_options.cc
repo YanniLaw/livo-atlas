@@ -19,6 +19,9 @@ bool ContainsPath(const fs::path& parent, const fs::path& path) {
 }  // namespace
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options) {
+  if (options.persist_submaps && !options.enabled)
+    throw std::invalid_argument(
+        "Gaussian persistence requires gaussian.enabled");
   if (!options.enabled) return;
   if (options.socket_path.empty() || options.output_directory.empty() ||
       options.connect_timeout.count() <= 0 ||

@@ -26,6 +26,8 @@ class GaussianMapIndex {
                        const std::vector<std::uint64_t>& frame_ids,
                        int gaussian_count);
   bool RecordCheckpoint(const GaussianAssetReference& asset);
+  // Empty activation releases the previous durable CPU/GPU confirmation.
+  void RecordResidentReleased();
   std::optional<std::uint64_t> NextRepair() const;
   void MarkRepairAttempt(std::uint64_t submap_id);
   GaussianMapSnapshot Snapshot() const;

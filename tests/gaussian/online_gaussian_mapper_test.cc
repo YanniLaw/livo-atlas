@@ -762,6 +762,16 @@ TEST_F(OnlineGaussianMapperTest, RealPythonWorkerExitsAfterOwnerFailure) {
   EXPECT_FALSE(mapper_->GetStats().finished);
 }
 
+TEST_F(OnlineGaussianMapperTest, PersistentModeRejectsLegacyWorker) {
+  options_.persist_submaps = true;
+  Start();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
+  EXPECT_NE(mapper_->GetStats().error.find("mode mismatch"), std::string::npos);
+  EXPECT_FALSE(fs::exists(options_.output_directory / "states"));
+  EXPECT_FALSE(fs::exists(options_.output_directory / "map.json"));
+  EXPECT_EQ(system_->GetPoseSnapshot()->frame_count, 0u);
+}
+
 TEST_F(OnlineGaussianMapperTest, RefusesExistingOutputDirectory) {
   fs::create_directory(options_.output_directory);
   EXPECT_THROW(Start(), std::exception);

@@ -39,9 +39,15 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.String("loop_closure.options_file", "");
   auto& gaussian = config.gaussian;
   gaussian.enabled = reader.Boolean("gaussian.enabled", false);
+  gaussian.persist_submaps = reader.Boolean("gaussian.persist_submaps", false);
+  if (gaussian.persist_submaps && !gaussian.enabled)
+    throw std::invalid_argument(
+        "Gaussian persistence requires gaussian.enabled");
   if (gaussian.enabled) {
     gaussian.socket_path = reader.String("gaussian.socket_path", "");
     gaussian.output_directory = reader.String("gaussian.output_directory", "");
+    gaussian.shutdown_timeout = std::chrono::milliseconds(
+        reader.Integer("gaussian.shutdown_timeout_ms", 3000));
     ValidateOnlineGaussianOptions(gaussian);
   }
   auto& global = config.global_output;

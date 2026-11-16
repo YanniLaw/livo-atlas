@@ -302,6 +302,15 @@ bool GaussianMapIndex::RecordCheckpoint(const GaussianAssetReference& asset) {
   return true;
 }
 
+void GaussianMapIndex::RecordResidentReleased() {
+  for (const auto& entry : entries_)
+    if (entry.resident && entry.dirty)
+      throw std::invalid_argument(
+          "Cannot release volatile Gaussian confirmation");
+  for (auto& entry : entries_) entry.resident = false;
+  Advance(&sequence_);
+}
+
 std::optional<std::uint64_t> GaussianMapIndex::NextRepair() const {
   const GaussianSubmapEntry* selected = nullptr;
   for (const auto& entry : entries_) {

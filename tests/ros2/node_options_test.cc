@@ -392,6 +392,54 @@ TEST(Ros2ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
   std::filesystem::remove_all(directory);
 }
 
+TEST(Ros2ParametersTest, GaussianPersistenceAndTimeoutUseStrictSharedSchema) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("gaussian-schema-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  params.emplace_back("gaussian.persist_submaps", 1);
+  {
+    rclcpp::Node node("gaussian_boolean",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() = rclcpp::Parameter("gaussian.persist_submaps", true);
+  {
+    rclcpp::Node node("gaussian_dependency",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.enabled", true);
+  params.emplace_back("gaussian.socket_path", "/tmp/gaussian-test.sock");
+  params.emplace_back("gaussian.output_directory", "/tmp/gaussian-test-output");
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  params.emplace_back("gaussian.shutdown_timeout_ms", 1.5);
+  {
+    rclcpp::Node node("gaussian_integer",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() = rclcpp::Parameter("gaussian.shutdown_timeout_ms", 0);
+  {
+    rclcpp::Node node("gaussian_positive",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.back() = rclcpp::Parameter("gaussian.shutdown_timeout_ms", 30000);
+  {
+    rclcpp::Node node("gaussian_persist",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    const auto config = ReadNodeOptions(node).livo.gaussian;
+    EXPECT_TRUE(config.persist_submaps);
+    EXPECT_EQ(config.shutdown_timeout.count(), 30000);
+  }
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
 TEST(Ros2ParametersTest, GaussianSchemaValidatesBeforeOpeningOutput) {
   const auto directory =
       std::filesystem::temp_directory_path() /

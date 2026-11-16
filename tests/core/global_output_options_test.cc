@@ -120,6 +120,27 @@ TEST_F(GlobalOutputOptionsTest, GaussianRequiresPathsAndOnlineStorage) {
 }
 
 TEST_F(GlobalOutputOptionsTest,
+       GaussianPersistenceRequiresEnabledAndPositiveTimeout) {
+  GlobalParameters parameters(directory_);
+  EXPECT_FALSE(LoadLivoConfig(parameters).gaussian.persist_submaps);
+  EXPECT_EQ(LoadLivoConfig(parameters).gaussian.shutdown_timeout.count(), 3000);
+  parameters.booleans_["gaussian.persist_submaps"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["gaussian.enabled"] = true;
+  parameters.strings_["gaussian.socket_path"] = "/tmp/gaussian-test.sock";
+  parameters.strings_["gaussian.output_directory"] =
+      "/tmp/gaussian-test-output";
+  parameters.EnableOnlineStorage();
+  parameters.integers_["gaussian.shutdown_timeout_ms"] = 30000;
+  EXPECT_TRUE(LoadLivoConfig(parameters).gaussian.persist_submaps);
+  EXPECT_EQ(LoadLivoConfig(parameters).gaussian.shutdown_timeout.count(),
+            30000);
+  parameters.integers_["gaussian.shutdown_timeout_ms"] = 0;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
+TEST_F(GlobalOutputOptionsTest,
        GaussianPathCheckDoesNotCreateOrOverwriteFiles) {
   fs::create_directories(directory_);
   const auto dataset = directory_ / "future-dataset/keyframes";

@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--system", choices=("1", "2"), required=True)
     parser.add_argument("--node", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--persistent", action="store_true")
     parser.add_argument("--expect-unavailable", action="store_true",
                         help="Check that a build without the optional bridge fails before output")
     args = parser.parse_args()
@@ -82,6 +83,9 @@ def main():
                   "global_output.geometry.enabled": True, "gaussian.enabled": True,
                   "gaussian.socket_path": str(socket_path),
                   "gaussian.output_directory": str(previews)}
+        if args.persistent:
+            common.update({"gaussian.persist_submaps": True,
+                           "gaussian.shutdown_timeout_ms": 30000})
         if args.system == "1":
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", 0))
@@ -140,9 +144,18 @@ def main():
                        "livo_atlas geometry map:", "livo_atlas gaussian:"):
             if marker not in text:
                 raise RuntimeError("Missing consumer shutdown report: " + marker)
-        if "reset 0" not in (output / "worker.log").read_text():
+        if args.persistent:
+            state = json.loads((previews / "map.json").read_text())
+            if state["entries"] or state["frame_count"] != "0" or not (previews / "states").is_dir():
+                raise RuntimeError("Persistent startup map is inconsistent")
+            if "incomplete=0" not in text or "map_committed" not in (output / "worker.log").read_text():
+                raise RuntimeError("Persistent shutdown did not acknowledge durable map")
+        elif "reset 0" not in (output / "worker.log").read_text():
             raise RuntimeError("Initial reset was not processed while the clock was paused")
-        print("ROS%s shared entry: paused-clock reset and four consumers passed" % args.system)
+        elif (previews / "states").exists() or (previews / "map.json").exists():
+            raise RuntimeError("Legacy mode created persistent state")
+        print("ROS%s shared entry: paused-clock %s and four consumers passed" %
+              (args.system, "persistent map" if args.persistent else "reset"))
     finally:
         for process in reversed(processes):
             stop(process)

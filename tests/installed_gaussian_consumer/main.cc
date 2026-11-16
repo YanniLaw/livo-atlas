@@ -5,6 +5,8 @@
 // though the executable does not start a mapping session.
 void ConstructOptionalMapper(livo_atlas::LivoSystem& system) {
   livo_atlas::OnlineGaussianMapper mapper(system, {}, {});
+  (void)mapper.GetMapSnapshot();
+  (void)mapper.GetStats();
 }
 
 int main() { return 0; }

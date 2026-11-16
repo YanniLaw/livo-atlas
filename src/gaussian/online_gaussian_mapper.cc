@@ -23,6 +23,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "gaussian/wire_protocol.h"
+#include "gaussian/mapper_io.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/io/reconstruction_view.h"
 #include "mapping/pose_math.h"
@@ -52,107 +53,19 @@ std::string NewSessionId() {
   return result;
 }
 
-std::string Json(const std::function<void(cv::FileStorage&)>& write) {
-  cv::FileStorage json(".json", cv::FileStorage::WRITE |
-                                    cv::FileStorage::MEMORY |
-                                    cv::FileStorage::FORMAT_JSON);
-  write(json);
-  return json.releaseAndGetString();
-}
-
-void Base(cv::FileStorage& json, const std::string& kind,
-          const std::string& session) {
-  json << "schema" << 1 << "type" << kind << "session_id" << session;
-}
-
-void Id(cv::FileStorage& json, const char* key, std::uint64_t value) {
-  json << key << std::to_string(value);
-}
-
-std::uint64_t ReadId(const cv::FileNode& node) {
-  return std::stoull(static_cast<std::string>(node));
-}
-
-void Transform(cv::FileStorage& json, const char* key,
-               const RigidTransform& t) {
-  json << key << "[";
-  for (int row = 0; row < 4; ++row) {
-    for (int col = 0; col < 4; ++col) {
-      const double value = row == 3   ? (col == 3 ? 1.0 : 0.0)
-                           : col == 3 ? t.translation[row]
-                                      : t.rotation(row, col);
-      json << value;
-    }
-  }
-  json << "]";
-}
-
-cv::FileStorage Parse(const GaussianMessage& message, const std::string& type,
-                      const std::string& session) {
-  cv::FileStorage json(message.header_json, cv::FileStorage::READ |
-                                                cv::FileStorage::MEMORY |
-                                                cv::FileStorage::FORMAT_JSON);
-  if (static_cast<std::string>(json["session_id"]) != session)
-    throw std::runtime_error("Gaussian worker session mismatch");
-  const auto actual = static_cast<std::string>(json["type"]);
-  if (actual == "error")
-    throw std::runtime_error("Gaussian worker error: " +
-                             static_cast<std::string>(json["code"]));
-  if (actual != type)
-    throw std::runtime_error("Unexpected Gaussian worker message");
-  return json;
-}
-
-void WriteFile(const fs::path& path, const std::string& data) {
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
-  file.exceptions(std::ios::failbit | std::ios::badbit);
-  file.write(data.data(), static_cast<std::streamsize>(data.size()));
-  file.close();
-}
+using gaussian_mapper_io::Base;
+using gaussian_mapper_io::CheckIdentity;
+using gaussian_mapper_io::Id;
+using gaussian_mapper_io::Json;
+using gaussian_mapper_io::Parse;
+using gaussian_mapper_io::PreviewIdentity;
+using gaussian_mapper_io::ReadId;
+using gaussian_mapper_io::Transform;
+using gaussian_mapper_io::ViewBody;
+using gaussian_mapper_io::WriteFile;
 
 double Seconds(Clock::time_point start) {
   return std::chrono::duration<double>(Clock::now() - start).count();
-}
-
-void CheckIdentity(const cv::FileStorage& json,
-                   const GaussianPreview& preview) {
-  if (ReadId(json["job_id"]) != preview.job_id ||
-      ReadId(json["generation"]) != preview.generation ||
-      ReadId(json["submap_id"]) != preview.submap_id ||
-      ReadId(json["pose_version"]) != preview.pose_version)
-    throw std::runtime_error("Gaussian worker job identity mismatch");
-}
-
-void PreviewIdentity(cv::FileStorage& json, const GaussianPreview& preview) {
-  Id(json, "job_id", preview.job_id);
-  Id(json, "generation", preview.generation);
-  Id(json, "submap_id", preview.submap_id);
-  Id(json, "pose_version", preview.pose_version);
-}
-
-std::vector<std::uint8_t> ViewBody(const ReconstructionView& view) {
-  const auto pixels =
-      static_cast<std::size_t>(view.image_bgr.cols) * view.image_bgr.rows;
-  std::vector<std::uint8_t> body(pixels * 9);
-  for (int y = 0; y < view.image_bgr.rows; ++y) {
-    const auto row = static_cast<std::size_t>(y) * view.image_bgr.cols;
-    std::memcpy(body.data() + 3 * row, view.image_bgr.ptr(y),
-                3 * view.image_bgr.cols);
-    std::memcpy(body.data() + 3 * pixels + row, view.image_mask.ptr(y),
-                view.image_bgr.cols);
-    std::memcpy(body.data() + 4 * pixels + row, view.depth_mask.ptr(y),
-                view.image_bgr.cols);
-    for (int x = 0; x < view.image_bgr.cols; ++x) {
-      std::uint32_t bits;
-      const float depth = view.depth_m.at<float>(y, x);
-      static_assert(sizeof(bits) == sizeof(depth), "float must use 32 bits");
-      std::memcpy(&bits, &depth, sizeof(bits));
-      const auto index = 5 * pixels + 4 * (row + x);
-      for (int byte = 0; byte < 4; ++byte)
-        body[index + byte] = static_cast<std::uint8_t>(bits >> (8 * byte));
-    }
-  }
-  return body;
 }
 
 void ValidateRevision(const OnlineSubmap& revision, const PoseSnapshot& poses) {
@@ -217,7 +130,8 @@ OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
                                            OnlineGaussianOptions options)
     : camera_(std::move(camera)),
       options_(std::move(options)),
-      session_id_(NewSessionId()) {
+      session_id_(NewSessionId()),
+      map_index_(session_id_) {
   ValidateOnlineGaussianOptions(options_);
   if (!options_.enabled) return;
   const auto camera_error = ValidateCameraConfig(camera_);
@@ -230,6 +144,7 @@ OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
   ValidateOnlineGaussianPaths(options_, view.directory());
   if (!fs::create_directory(options_.output_directory))
     throw std::runtime_error("Could not create Gaussian output directory");
+  if (options_.persist_submaps) map_index_.Observe({{}, {}, poses_, {}});
   state_sequence_ = 1;
   thread_ = std::thread(&OnlineGaussianMapper::Run, this);
 }
@@ -251,6 +166,8 @@ void OnlineGaussianMapper::Fail(const std::string& message) noexcept {
   } catch (...) {
     // The frontend must continue even if allocating the diagnostic fails.
   }
+  submap_work_.reset();
+  candidate_command_.reset();
   pending_.reset();
   in_flight_.reset();
   candidate_.reset();
@@ -281,6 +198,12 @@ void OnlineGaussianMapper::Observe(const OnlineSubmapUpdate& update) noexcept {
   if (!options_.enabled || finished_ || failed_) return;
   const auto start = Clock::now();
   try {
+    if (options_.persist_submaps) {
+      ObserveSubmaps(update);
+      stats_.max_observe_seconds =
+          std::max(stats_.max_observe_seconds, Seconds(start));
+      return;
+    }
     if (!update.poses)
       throw std::invalid_argument("Missing Gaussian pose snapshot");
     const auto& next = *update.poses;
@@ -359,6 +282,10 @@ void OnlineGaussianMapper::Observe(const OnlineSubmapUpdate& update) noexcept {
 }
 
 void OnlineGaussianMapper::HandleReply(Reply reply) {
+  if (options_.persist_submaps) {
+    HandleSubmapReply(std::move(reply));
+    return;
+  }
   busy_ = false;
   switch (reply.kind) {
     case ReplyKind::kConnected:
@@ -439,6 +366,12 @@ void OnlineGaussianMapper::HandleReply(Reply reply) {
     case ReplyKind::kStatus:
       saved_status_sequence_ = reply.command.state_sequence;
       break;
+    case ReplyKind::kActivated:
+    case ReplyKind::kCheckpoint:
+    case ReplyKind::kMapWritten:
+    case ReplyKind::kMapCommitted:
+    case ReplyKind::kPruned:
+      throw std::runtime_error("Unexpected persistent Gaussian reply");
     case ReplyKind::kError:
       Fail(reply.detail);
       break;
@@ -447,6 +380,10 @@ void OnlineGaussianMapper::HandleReply(Reply reply) {
 
 void OnlineGaussianMapper::Dispatch() {
   if (!connected_ || busy_ || failed_) return;
+  if (options_.persist_submaps) {
+    DispatchSubmaps();
+    return;
+  }
   Command command;
   if (awaiting_decision_) {
     if (!decision_) return;
@@ -528,20 +465,52 @@ std::shared_ptr<const GaussianPreview> OnlineGaussianMapper::GetLatestPreview()
   return ready_;
 }
 
-OnlineGaussianStats OnlineGaussianMapper::GetStats() const { return stats_; }
+OnlineGaussianStats OnlineGaussianMapper::GetStats() const {
+  auto result = stats_;
+  if (options_.persist_submaps) {
+    const auto map = map_index_.Snapshot();
+    result.map_sequence = acknowledged_map_;
+    result.indexed = map.entries.size();
+    for (const auto& entry : map.entries) {
+      result.dirty += entry.dirty;
+      result.missing += entry.availability == GaussianAvailability::kMissing;
+      result.needs_rebuild +=
+          entry.availability == GaussianAvailability::kNeedsRebuild;
+      if (entry.asset)
+        result.asset_bytes += entry.asset->manifest_bytes +
+                              entry.asset->gaussian_bytes +
+                              entry.asset->observation_bytes;
+    }
+  }
+  return result;
+}
+
+std::shared_ptr<const GaussianMapSnapshot>
+OnlineGaussianMapper::GetMapSnapshot() const {
+  if (!options_.enabled || !options_.persist_submaps) return {};
+  return std::make_shared<GaussianMapSnapshot>(map_index_.Snapshot());
+}
 
 void OnlineGaussianMapper::Finish() noexcept {
   if (finished_) return;
+  if (options_.persist_submaps) {
+    finishing_ = true;
+    pending_.reset();
+    stats_.pending = 0;
+  }
   if (options_.enabled && !failed_) {
     const auto deadline = Clock::now() + options_.shutdown_timeout;
     while (Clock::now() < deadline) {
       Poll();
-      if (connected_ && !busy_ && !pending_ && !in_flight_ && !unsaved_ &&
-          state_sequence_ == saved_status_sequence_)
+      if (options_.persist_submaps && SubmapsDrained()) break;
+      if (!options_.persist_submaps && connected_ && !busy_ && !pending_ &&
+          !in_flight_ && !unsaved_ && state_sequence_ == saved_status_sequence_)
         break;
       std::this_thread::sleep_for(1ms);
     }
   }
+  if (options_.persist_submaps)
+    stats_.incomplete_shutdown = failed_ || !SubmapsDrained();
   const bool graceful = connected_ && !busy_ && !failed_;
   stopping_ = true;
   {
@@ -550,6 +519,8 @@ void OnlineGaussianMapper::Finish() noexcept {
   }
   condition_.notify_all();
   if (thread_.joinable()) thread_.join();
+  if (options_.enabled && options_.persist_submaps && !stop_acknowledged_)
+    stats_.incomplete_shutdown = true;
   // After the join no background task or mailbox still owns a live job.
   command_.reset();
   reply_.reset();
@@ -628,10 +599,21 @@ void OnlineGaussianMapper::Run() noexcept {
     if (fd < 0)
       throw std::runtime_error("Gaussian worker connection timed out");
     WriteGaussianMessage(
-        fd, {Json([&](auto& out) { Base(out, "hello", session_id_); }), {}},
+        fd,
+        {Json([&](auto& out) {
+           Base(out, "hello", session_id_, options_.persist_submaps ? 2 : 1);
+           if (options_.persist_submaps)
+             out << "state_directory"
+                 << (fs::canonical(options_.output_directory) / "states")
+                        .string();
+         }),
+         {}},
         options_.transfer_timeout);
     const auto hello = ReadGaussianMessage(fd, options_.connect_timeout);
-    (void)Parse(hello, "hello_ok", session_id_);
+    const auto greeting = Parse(hello, "hello_ok", session_id_);
+    if (static_cast<int>(greeting["schema"]) !=
+        (options_.persist_submaps ? 2 : 1))
+      throw std::runtime_error("Gaussian worker protocol mode mismatch");
     post({ReplyKind::kConnected});
 
     while (!stopping_) {
@@ -647,7 +629,10 @@ void OnlineGaussianMapper::Run() noexcept {
       if (stopping_) break;
       Reply reply;
       reply.command = command;
-      if (command.kind == CommandKind::kReset) {
+      if (options_.persist_submaps && command.kind != CommandKind::kSave &&
+          command.kind != CommandKind::kStatus) {
+        reply = RunSubmapCommand(fd, command);
+      } else if (command.kind == CommandKind::kReset) {
         GaussianMessage message;
         message.header_json = Json([&](auto& out) {
           Base(out, "reset", session_id_);
@@ -818,6 +803,13 @@ void OnlineGaussianMapper::Run() noexcept {
         const auto metadata = Json([&](auto& out) {
           Base(out, "preview", session_id_);
           PreviewIdentity(out, preview);
+          if (options_.persist_submaps)
+            out << "operation"
+                << (preview.operation == GaussianOperation::kView
+                        ? "view"
+                        : preview.operation == GaussianOperation::kReuse
+                              ? "reuse"
+                              : "rebuild");
           Id(out, "membership_revision", preview.membership_revision);
           Id(out, "frame_count", preview.frame_count);
           Id(out, "optimized_frame_count", preview.optimized_frame_count);
@@ -875,8 +867,35 @@ void OnlineGaussianMapper::Run() noexcept {
     if (fd >= 0) {
       try {
         WriteGaussianMessage(
-            fd, {Json([&](auto& out) { Base(out, "stop", session_id_); }), {}},
+            fd,
+            {Json([&](auto& out) {
+               Base(out, "stop", session_id_, options_.persist_submaps ? 2 : 1);
+               if (options_.persist_submaps) {
+                 Id(out, "job_id", next_job_);
+                 Id(out, "generation", generation_);
+                 Id(out, "pose_version", poses_ ? poses_->version : 0);
+                 Id(out, "map_sequence", acknowledged_map_);
+                 out << "incomplete"
+                     << static_cast<int>(stats_.incomplete_shutdown);
+               }
+             }),
+             {}},
             options_.shutdown_timeout);
+        if (options_.persist_submaps) {
+          const auto stopped =
+              ReadGaussianMessage(fd, options_.shutdown_timeout);
+          const auto confirmation = Parse(stopped, "stopped", session_id_);
+          if (static_cast<int>(confirmation["schema"]) != 2 ||
+              ReadId(confirmation["job_id"]) != next_job_ ||
+              ReadId(confirmation["generation"]) != generation_ ||
+              ReadId(confirmation["pose_version"]) !=
+                  (poses_ ? poses_->version : 0) ||
+              ReadId(confirmation["map_sequence"]) != acknowledged_map_ ||
+              static_cast<int>(confirmation["incomplete"]) !=
+                  static_cast<int>(stats_.incomplete_shutdown))
+            throw std::runtime_error("Gaussian stop confirmation mismatch");
+          stop_acknowledged_ = true;
+        }
       } catch (...) {
       }
     }

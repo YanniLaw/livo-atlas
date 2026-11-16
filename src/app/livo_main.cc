@@ -223,6 +223,26 @@ int main(int argc, char** argv) {
           static_cast<unsigned long long>(s.latency_buckets[5]),
           static_cast<unsigned long long>(s.latency_buckets[6]),
           static_cast<unsigned long long>(s.latency_buckets[7]));
+      if (parameters.livo.gaussian.persist_submaps) {
+        std::printf(
+            "livo_atlas gaussian submaps: checkpoints=%llu loads=%llu "
+            "rebinds=%llu "
+            "rebuilds=%llu prunes=%llu map_sequence=%llu indexed=%llu "
+            "missing=%llu "
+            "needs_rebuild=%llu dirty=%llu asset_bytes=%llu incomplete=%d\n",
+            static_cast<unsigned long long>(s.checkpoints),
+            static_cast<unsigned long long>(s.loads),
+            static_cast<unsigned long long>(s.rebinds),
+            static_cast<unsigned long long>(s.rebuilds),
+            static_cast<unsigned long long>(s.prunes),
+            static_cast<unsigned long long>(s.map_sequence),
+            static_cast<unsigned long long>(s.indexed),
+            static_cast<unsigned long long>(s.missing),
+            static_cast<unsigned long long>(s.needs_rebuild),
+            static_cast<unsigned long long>(s.dirty),
+            static_cast<unsigned long long>(s.asset_bytes),
+            static_cast<int>(s.incomplete_shutdown));
+      }
       if (!s.error.empty())
         std::fprintf(stderr, "livo_atlas gaussian: %s\n", s.error.c_str());
     }

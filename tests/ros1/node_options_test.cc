@@ -257,6 +257,29 @@ TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
 
+TEST_F(Ros1ParametersTest, GaussianPersistenceAndTimeoutUseStrictSharedSchema) {
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.persist_submaps);
+  node_->setParam("gaussian/persist_submaps", 1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/persist_submaps", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/enabled", true);
+  node_->setParam("gaussian/socket_path", "/tmp/gaussian-test.sock");
+  node_->setParam("gaussian/output_directory", "/tmp/gaussian-test-output");
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  node_->setParam("gaussian/shutdown_timeout_ms", 1.5);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/shutdown_timeout_ms", 0);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/shutdown_timeout_ms", 30000);
+  const auto config = ReadNodeOptions(*node_).livo.gaussian;
+  EXPECT_TRUE(config.persist_submaps);
+  EXPECT_EQ(config.shutdown_timeout.count(), 30000);
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
+
 TEST_F(Ros1ParametersTest, GaussianSchemaValidatesBeforeOpeningOutput) {
   EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.enabled);
   node_->setParam("gaussian/socket_path", 123);

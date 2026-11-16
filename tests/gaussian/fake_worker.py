@@ -11,6 +11,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/3dgs_probe")
 from online_protocol import read_message, write_message  # noqa: E402
 
 
+def serve_persistent(connection, hello):
+    """Control-only peer for a sensorless, paused-clock ROS entry smoke test."""
+    Path(hello["state_directory"]).mkdir(mode=0o700)
+    base = {"schema": 2, "session_id": hello["session_id"]}
+    metadata = dict(type="hello_ok", mode="persistent_submaps", state_schema=1,
+                    python="test", torch="test", gsplat="test", cuda="test", device="test",
+                    gpu_free_bytes="5000000000", gpu_total_bytes="8000000000")
+    write_message(connection, dict(base, **metadata), b"", 5)
+    while True:
+        header, _ = read_message(connection, 180)
+        kind = header["type"]
+        print(kind, header.get("map_sequence", ""), flush=True)
+        reply = dict(header, type="map_committed_ok" if kind == "map_committed" else "stopped")
+        if kind not in ("map_committed", "stop"):
+            raise ValueError("Sensorless persistent peer received work: " + kind)
+        write_message(connection, reply, b"", 5)
+        if kind == "stop":
+            return
+
+
 def serve(path):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
         listener.bind(str(path))
@@ -21,6 +41,9 @@ def serve(path):
             connection, _ = listener.accept()
             with connection:
                 hello, _ = read_message(connection, 20)
+                if hello["schema"] == 2:
+                    serve_persistent(connection, hello)
+                    return
                 session = hello["session_id"]
                 base = {"schema": 1, "session_id": session}
                 metadata = {"type": "hello_ok", "python": "test", "torch": "test",

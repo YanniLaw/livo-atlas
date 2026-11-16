@@ -17,6 +17,7 @@
 #include "livo_atlas/camera/camera_config.h"
 #include "livo_atlas/core/online_gaussian_options.h"
 #include "livo_atlas/core/online_submap_update.h"
+#include "livo_atlas/gaussian/gaussian_map_index.h"
 
 namespace livo_atlas {
 
@@ -37,6 +38,7 @@ struct GaussianPreview {
   bool nonzero_gradient = false, parameter_updated = false;
   std::uint64_t gpu_peak_allocated_bytes = 0, gpu_peak_reserved_bytes = 0;
   std::uint64_t worker_peak_rss_bytes = 0;
+  GaussianOperation operation = GaussianOperation::kView;
   std::vector<std::uint8_t> rgb;
 };
 
@@ -48,6 +50,11 @@ struct OnlineGaussianStats {
   std::uint64_t pending = 0, in_flight = 0, peak_pending = 0,
                 peak_in_flight = 0;
   std::uint64_t pose_version = 0, generation = 0, submap_id = 0;
+  std::uint64_t checkpoints = 0, loads = 0, rebinds = 0, rebuilds = 0,
+                prunes = 0;
+  std::uint64_t map_sequence = 0, indexed = 0, missing = 0, needs_rebuild = 0;
+  std::uint64_t dirty = 0, asset_bytes = 0;
+  bool incomplete_shutdown = false;
   bool has_submap = false, finished = false;
   double max_observe_seconds = 0, max_poll_seconds = 0,
          last_latency_seconds = 0;
@@ -72,6 +79,7 @@ class OnlineGaussianMapper {
   void Finish() noexcept;
   std::shared_ptr<const GaussianPreview> GetLatestPreview() const;
   OnlineGaussianStats GetStats() const;
+  std::shared_ptr<const GaussianMapSnapshot> GetMapSnapshot() const;
 
  private:
   using Clock = std::chrono::steady_clock;
@@ -84,7 +92,18 @@ class OnlineGaussianMapper {
     Clock::time_point observed_at;
   };
 
-  enum class CommandKind { kReset, kView, kDecision, kSave, kStatus };
+  enum class CommandKind {
+    kReset,
+    kView,
+    kDecision,
+    kSave,
+    kStatus,
+    kActivate,
+    kCheckpoint,
+    kWriteMap,
+    kMapCommitted,
+    kPrune
+  };
 
   struct Command {
     CommandKind kind = CommandKind::kReset;
@@ -94,6 +113,14 @@ class OnlineGaussianMapper {
     std::uint64_t generation = 0, pose_version = 0, state_sequence = 0;
     bool accept = false, ready = false;
     std::string preview_name;
+    GaussianTarget target;
+    GaussianOperation operation = GaussianOperation::kView;
+    std::uint64_t job_id = 0, asset_id = 0;
+    std::optional<GaussianContentId> content;
+    std::optional<GaussianAssetReference> asset;
+    std::shared_ptr<const GaussianMapSnapshot> map;
+    std::vector<std::uint64_t> frame_ids, asset_ids;
+    int gaussian_count = 0;
   };
 
   enum class ReplyKind {
@@ -104,6 +131,11 @@ class OnlineGaussianMapper {
     kSkipped,
     kSaved,
     kStatus,
+    kActivated,
+    kCheckpoint,
+    kMapWritten,
+    kMapCommitted,
+    kPruned,
     kError
   };
 
@@ -112,9 +144,20 @@ class OnlineGaussianMapper {
     Command command;
     std::shared_ptr<GaussianPreview> preview;
     std::string detail;
+    std::optional<GaussianAssetReference> asset;
   };
 
   void Run() noexcept;
+  void ObserveSubmaps(const OnlineSubmapUpdate& update);
+  void DispatchSubmaps();
+  void HandleSubmapReply(Reply reply);
+  Reply RunSubmapCommand(int fd, const Command& command);
+  bool CurrentTarget(const GaussianTarget& target) const;
+  bool QueueSubmapCommand(Command command);
+  void EndSubmapWork(bool retry);
+  void ConfirmPreview(const std::shared_ptr<GaussianPreview>& preview,
+                      Clock::time_point observed_at);
+  bool SubmapsDrained() const;
   void CloseSocket() noexcept;
   void HandleReply(Reply reply);
   void Dispatch();
@@ -140,6 +183,19 @@ class OnlineGaussianMapper {
   bool awaiting_decision_ = false, failed_ = false, finished_ = false;
   std::string saved_preview_name_;
   OnlineGaussianStats stats_;
+
+  // Persistent mode metadata stays on the owner thread; each command owns its
+  // exact target. There is still only one worker, mailbox and in-flight task.
+  GaussianMapIndex map_index_;
+  std::optional<Command> submap_work_, candidate_command_;
+  std::optional<GaussianTarget> remote_target_;
+  std::shared_ptr<const GaussianMapSnapshot> map_to_ack_;
+  std::optional<std::uint64_t> prune_asset_;
+  std::uint64_t next_asset_ = 1, acknowledged_map_ = 0;
+  int foreground_attempts_ = 0;
+  bool finishing_ = false, published_since_work_ = false;
+  bool checkpoint_needs_map_ = false;
+  std::atomic<bool> stop_acknowledged_{false};
 
   std::mutex mutex_;
   std::condition_variable condition_;

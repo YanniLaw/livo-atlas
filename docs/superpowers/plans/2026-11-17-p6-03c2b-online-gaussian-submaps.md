@@ -251,11 +251,12 @@ tests/ros2/node_options_test.cc、tests/installed_gaussian_consumer/main.cc。
 
 **Interfaces:** Options 新增 `bool persist_submaps = false`；公共配置读取同名 boolean 与
 gaussian.shutdown_timeout_ms；共用 mapper 新增 `GetMapSnapshot() const ->
-std::shared_ptr<const GaussianMapSnapshot>`。消费前四任务；C1分支不依赖v2目录流程。
+std::shared_ptr<const GaussianMapSnapshot>`。空激活成功后调用元数据接口
+`GaussianMapIndex::RecordResidentReleased()`，清除已释放的原确认驻留标记。消费前四任务；C1分支不依赖v2目录流程。
 后台命令分出 activate/checkpoint/write-map/map-committed/prune，仍是一个命令邮箱和线程，
 不把新 protocol/序列化全部塞进已有 mapper 大文件。
 
-- [ ] **Step 1: 写 RED。** 在真实 socket 受控 peer 中延迟 candidate/commit/checkpoint/
+- [x] **Step 1: 写 RED。** 在真实 socket 受控 peer 中延迟 candidate/commit/checkpoint/
   map-write 回执，新增 SwitchDuringMutatedCandidateSavesPreviousConfirmation、
   FirstCheckpointIsAcknowledgedBeforeLeaving、PoseUpdateDuringSaveCannotRepublishOldCurrent、
   OldCheckpointCannotReplaceNewerContent、RigidRebindDoesNotResetOrRewriteArrays、
@@ -264,18 +265,18 @@ std::shared_ptr<const GaussianMapSnapshot>`。消费前四任务；C1分支不�
   StopFlushesDirtyOrReportsIncomplete、UncertainIndexPreventsPruneAndFurtherWrites。
   计数 pending/in-flight 峰值各1；大量 Observe 不增加命令队列或 retention。
   新参数默认/类型/依赖约束在公共 reader 和两端参数入口验证，错误前无新输出目录。
-- [ ] **Step 2: 运行 RED。** 构建普通 Gaussian mapper/config/安装消费者目标并运行新增测试；
+- [x] **Step 2: 运行 RED。** 构建普通 Gaussian mapper/config/安装消费者目标并运行新增测试；
   分别构建 Noetic/Humble 参数与入口测试。Expected: 未有持久化流程/参数而失败；C1旧用例
   保持自己的期望，不改成“任何成功都算通过”。
-- [ ] **Step 3: 实现。** 接受通知时只更新完整绝对目标和目录；decision 两次核验当前性。
+- [x] **Step 3: 实现。** 接受通知时只更新完整绝对目标和目录；decision 两次核验当前性。
   每一确认内容独立记录 source 与 binding；checkpoint 后持久写目录、发送 map_committed，
   最后 prune；dirty 未持久引用前禁止离开。View/repair按2:1执行次数调度，目录写一次后
   必须尝试工作，目标合并不保留历史队列。Finish按timeout输出完整/未完成真实状态。
-- [ ] **Step 4: GREEN。** 普通核心完整 CTest、schema1/2 Python suite、双 ROS 受控真实入口
+- [x] **Step 4: GREEN。** 普通核心完整 CTest、schema1/2 Python suite、双 ROS 受控真实入口
   通过；安装普通 shared/static 和 ament 消费者，确认只依赖可选 Gaussian target。
   Expected: 开关关时不创建 states/map.json；开关开但旧 worker 明确失败、前端继续；
   两端相同布尔参数语义，仍只有一个 livo_main。记录回调耗时、队列、资源与停机行为。
-- [ ] **Step 5: 提交。** 提交所有者接纳、共用参数、统计和对应接入/安装测试。
+- [x] **Step 5: 提交。** 提交所有者接纳、共用参数、统计和对应接入/安装测试。
 
 ### Task 6: 最终源码真实回放、迁移说明与独立审阅
 
