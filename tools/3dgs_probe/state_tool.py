@@ -14,7 +14,7 @@ import weakref
 
 import numpy as np
 
-from gaussian_state import (CommitUncertainError, _unsigned, read_state,
+from gaussian_state import (CommitUncertainError, _LIMITS, _unsigned, read_state,
                             write_state)
 
 
@@ -52,15 +52,16 @@ def _load_probe(path, anchor_id, submap_id):
             raise ValueError("Bundle pixel budget exceeded")
         if "parent_from_body" not in entry:
             raise ValueError("Bundle needs body poses; prepare it again with the current exporter")
+    ids = sorted(_unsigned(entry.get("keyframe_id")) for entry in entries)
+    frontiers = {_unsigned(entry.get("frame_count")) for entry in entries}
+    if len(frontiers) != 1 or not ids[-1] < next(iter(frontiers)) <= 512:
+        raise ValueError("Probe must have one covered pose frontier of at most 512 frames")
+    # Compare only the supplied IDs; never allocate a range from their span.
+    if anchor_id != ids[0] or any(key != ids[0] + offset for offset, key in enumerate(ids)):
+        raise ValueError("Probe members must be contiguous and anchored at their first body")
     from bundle import load_bundle
 
     views = sorted(load_bundle(path), key=lambda view: view["keyframe_id"])
-    ids = [view["keyframe_id"] for view in views]
-    if ids != list(range(ids[0], ids[-1] + 1)) or anchor_id != ids[0]:
-        raise ValueError("Probe members must be contiguous and anchored at their first body")
-    frontiers = {view["frame_count"] for view in views}
-    if len(frontiers) != 1 or not ids[-1] < views[0]["frame_count"] <= 512:
-        raise ValueError("Probe must have one covered pose frontier of at most 512 frames")
     parent_anchor = views[0]["parent_from_body"]
     anchor_inverse = np.linalg.inv(parent_anchor)
     context = {
@@ -211,11 +212,25 @@ def main():
     try:
         if args.command == "inspect":
             state = read_state(args.state)
-            report.update(status="passed", capture_kind=state.metadata["capture_kind"],
-                          origin_session_id=state.metadata["origin_session_id"],
-                          submap_id=state.metadata["submap_id"], gaussian_count=int(state.origin_ids.size),
+            report.update({key: state.metadata[key] for key in (
+                "schema", "representation", "capture_kind", "origin_session_id", "submap_id",
+                "anchor_keyframe_id", "membership_revision", "generation", "pose_version",
+                "parent_frame", "submap_state", "frame_count", "optimized_frame_count",
+                "optimizer", "software", "source_manifest_sha256", "bundle_manifest_sha256")
+                if key in state.metadata})
+            pixels = [int(view["depth_m"].size) for view in state.views]
+            budgets = {key: {"used": used, "limit": limit} for key, used, limit in (
+                ("primary_frames", len(state.metadata["primary"]), 512),
+                ("retained_views", len(state.views), 10),
+                ("retained_pixels", sum(pixels), 10_000_000),
+                ("max_view_pixels", max(pixels), 1_000_000),
+                ("gaussians", int(state.origin_ids.size), 10_000))}
+            budgets["files"] = {name: {"used": (args.state / name).stat().st_size, "limit": limit}
+                                for name, limit in _LIMITS.items()}
+            report.update(status="passed", gaussian_count=int(state.origin_ids.size),
+                          primary_ids=[int(entry["keyframe_id"]) for entry in state.metadata["primary"]],
                           retained_ids=[view["keyframe_id"] for view in state.views],
-                          optimizer=state.metadata["optimizer"])
+                          budget_checks=budgets)
         else:
             _roundtrip(args, report)
     except Exception as error:

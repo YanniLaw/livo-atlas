@@ -425,10 +425,13 @@ def read_state(path: Path) -> GaussianState:
                     camera_from_body=_pose(description["camera_from_body"]),
                     camera_from_parent=_pose(description["camera_from_submap"]))
         for name in ("rgb", "image_mask", "depth_mask", "depth_m"):
-            value = observations[f"v{index}_{name}"]
-            view[name] = value.astype(bool) if name.endswith("mask") else value
+            view[name] = observations[f"v{index}_{name}"]
         views.append(view)
     origin_ids = parameters.pop("origin_ids")
     state = GaussianState(metadata, parameters, origin_ids, views)
     validate_state(state)
+    # Preserve raw uint8 mask values until their 0/1 domain has been checked.
+    for view in views:
+        for name in ("image_mask", "depth_mask"):
+            view[name] = view[name].astype(bool)
     return state

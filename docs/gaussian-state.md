@@ -50,6 +50,7 @@ LIVO_SOURCE_SHA=$(sha256sum "$LIVO_PHASE/source.sha256" | cut -d' ' -f1)
 新导出视图包括 `parent_from_body`。旧 bundle 仍可供原离线训练使用，但本工具不会猜测
 缺失的 body 锚点；遇到旧格式应重新导出。单个 probe 最多 10 个训练、2 个留出视图，
 所有输入 ID 合起来必须连续，锚点是第一个主成员；每个视图最多 1,000,000 像素。
+读取图像前先检查 ID 和共同位姿前沿（最多 512 帧），不会按异常 ID 的跨度分配数组。
 
 ## 保存、释放和恢复验证
 
@@ -96,6 +97,10 @@ env -u PYTHONPATH "$LIVO_PYTHON" tools/3dgs_probe/state_tool.py inspect \
   --state "$LIVO_PHASE/roundtrip/state"
 ```
 
+成功时输出 schema、表示方式、主成员与保留视图 ID、位姿版本/前沿、可用的来源摘要，
+以及 `budget_checks` 中的实际用量和上限。文件摘要与数组内容已由 reader 验证；输出的
+来源摘要用于追溯，不替代对原始数据集执行 `sha256sum --check`。
+
 Python 模型接口位于 `tools/3dgs_probe/online_model.py`：
 `capture_state(context)` 只捕获非空、已确认的模型；`from_state(state, device)` 返回新的
 模型，使用保存的 log/logit 原值，四元数保持不可训练，Adam 初始为 None，下一帧按原规则
@@ -116,6 +121,7 @@ uint64；观察保存原始 float32 RGB、掩码和米制相机 z 深度。首�
 当前限制为前沿/主成员最多 512 帧、保留 10 视图、10,000 个高斯、每来源最多 1,000 个。
 文件大小上限分别为清单 512 KiB、参数 1 MiB、观察 192 MiB。只接受固定字段、小端数值、
 无压缩/无 pickle NPZ，先核对摘要、ZIP 目录与 NPY 头，再分配数组；这些不等于进程 RSS 上限。
+磁盘掩码的 uint8 原值必须为 0/1，检查后才转换为内存中的 bool。
 
 写入只创建新目录，`manifest.json` 最后发布。此前失败不会留下最终清单；清单发布后若
 目录同步失败，返回非零并报告 `commit_uncertain`，已经可见的完整资产保留，不自动回滚或

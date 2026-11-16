@@ -92,6 +92,45 @@ runpy.run_path(sys.argv[0], run_name='__main__')
                                    atol=1e-12, rtol=0)
         self.assertEqual(restored.metadata["source_manifest_sha256"], "a" * 64)
 
+    def test_inspect_reports_coverage_provenance_and_resource_usage(self):
+        state = self.root / "state"
+        write_state(state, make_state())
+        result = self.run_tool("inspect", "--state", state)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertTrue({"schema", "representation", "primary_ids", "frame_count",
+                         "optimized_frame_count", "pose_version", "parent_frame",
+                         "source_manifest_sha256", "bundle_manifest_sha256", "budget_checks"}
+                        <= report.keys(), report)
+        self.assertEqual(report["schema"], 1)
+        self.assertEqual(report["representation"], "gsplat-sh0-window-v1")
+        self.assertEqual(report["primary_ids"], [0, 1])
+        self.assertEqual(report["retained_ids"], [0, 1])
+        self.assertEqual(report["frame_count"], "2")
+        self.assertEqual(report["optimized_frame_count"], "0")
+        self.assertEqual(report["pose_version"], "0")
+        self.assertEqual(report["parent_frame"], "odom")
+        self.assertEqual(report["source_manifest_sha256"], "b" * 64)
+        self.assertEqual(report["bundle_manifest_sha256"], "c" * 64)
+        budgets = report["budget_checks"]
+        for key, used, limit in (("primary_frames", 2, 512), ("retained_views", 2, 10),
+                                  ("retained_pixels", 96, 10_000_000),
+                                  ("max_view_pixels", 48, 1_000_000), ("gaussians", 2, 10_000)):
+            self.assertEqual(budgets[key], {"used": used, "limit": limit})
+        for filename, limit in (("manifest.json", 512 * 1024), ("gaussians.npz", 1024 * 1024),
+                                 ("observations.npz", 192 * 1024 * 1024)):
+            self.assertEqual(budgets["files"][filename],
+                             {"used": (state / filename).stat().st_size, "limit": limit})
+        no_provenance = make_state()
+        no_provenance.metadata.pop("source_manifest_sha256")
+        no_provenance.metadata.pop("bundle_manifest_sha256")
+        write_state(self.root / "without-provenance", no_provenance)
+        result = self.run_tool("inspect", "--state", self.root / "without-provenance")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertNotIn("source_manifest_sha256", report)
+        self.assertNotIn("bundle_manifest_sha256", report)
+
     def test_old_bundle_bad_anchor_and_overlapping_output_are_rejected(self):
         path = self.bundle / "bundle.json"
         original = path.read_text()
@@ -158,6 +197,39 @@ runpy.run_path(sys.argv[0], run_name='__main__')
                                  str(self.root / "oversized")], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("pixel", result.stdout.lower())
+
+    def test_id_and_frontier_bounds_precede_eager_bundle_loading(self):
+        path = self.bundle / "bundle.json"
+        original = json.loads(path.read_text())
+        script = """
+import runpy,sys,bundle
+def fail_load(path):
+    raise AssertionError('Eager loader was reached')
+bundle.load_bundle = fail_load
+sys.argv = [sys.argv[1], 'roundtrip', '--bundle', sys.argv[2], '--output', sys.argv[3],
+            '--anchor-id', '0', '--submap-id', '0']
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+        cases = (([0, 1, 1_000_000_000], [1_000_000_001] * 3),
+                 ([0, 1, 2], [513] * 3), ([0, 1, 2], [3, 3, 4]),
+                 ([0, 1, 3], [4] * 3), ([0, 1, 1], [3] * 3))
+        for index, (ids, frontiers) in enumerate(cases):
+            with self.subTest(ids=ids, frontiers=frontiers):
+                document = copy.deepcopy(original)
+                for entry, key, frontier in zip(document["views"], ids, frontiers):
+                    entry.update(keyframe_id=str(key), frame_count=str(frontier))
+                path.write_text(json.dumps(document))
+                output = self.root / f"bad-frontier-{index}"
+                # Stop at the eager loader even with the old implementation:
+                # the regression must never allocate the enormous ID span.
+                result = subprocess.run([sys.executable, "-c", script, str(TOOL),
+                                         str(self.bundle), str(output)], capture_output=True,
+                                        text=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                report = json.loads(result.stdout)
+                self.assertEqual(report["error_type"], "ValueError", report)
+                self.assertRegex(report["error"], "frontier|contiguous")
+                self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

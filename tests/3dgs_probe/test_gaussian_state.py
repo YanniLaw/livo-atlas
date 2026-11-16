@@ -39,8 +39,8 @@ class GaussianStateTest(unittest.TestCase):
         edit(data)
         path.write_text(json.dumps(data))
 
-    def replace_archive(self, edit, compression=zipfile.ZIP_STORED):
-        path = self.output / "gaussians.npz"
+    def replace_archive(self, edit, compression=zipfile.ZIP_STORED, filename="gaussians.npz"):
+        path = self.output / filename
         with zipfile.ZipFile(path) as archive:
             entries = [(name, archive.read(name)) for name in archive.namelist()]
         entries = edit(entries)
@@ -49,8 +49,23 @@ class GaussianStateTest(unittest.TestCase):
             with zipfile.ZipFile(path, "w", compression=compression) as archive:
                 for name, payload in entries:
                     archive.writestr(name, payload)
-        self.update_manifest(lambda data: data["files"].__setitem__("gaussians.npz", {
+        self.update_manifest(lambda data: data["files"].__setitem__(filename, {
             "bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}))
+
+    def test_stored_masks_are_validated_before_bool_conversion(self):
+        for name, invalid in (("image_mask", 255), ("depth_mask", 2)):
+            with self.subTest(mask=name):
+                self.output = self.root / name
+                self.saved()
+                mask = self.state.views[0][name].astype("u1")
+                mask[3, 4] = invalid
+                payload = io.BytesIO()
+                np.save(payload, mask, allow_pickle=False)
+                self.replace_archive(
+                    lambda entries: [(key, payload.getvalue() if key == f"v0_{name}.npy" else data)
+                                     for key, data in entries], filename="observations.npz")
+                with self.assertRaisesRegex(ValueError, "mask"):
+                    read_state(self.output)
 
     def test_state_roundtrip_preserves_parameters_views_and_primary_poses(self):
         restored = read_state(self.saved())
