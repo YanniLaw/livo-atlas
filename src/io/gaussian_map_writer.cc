@@ -205,6 +205,33 @@ void Target(cv::FileStorage& json, const char* name,
   json << "}";
 }
 
+// Keep the full bounded metadata useful within its byte budget. Strip only
+// indentation outside strings; diagnostics and escaped quotes are intact.
+// Retain line breaks for OpenCV's bounded-line JSON reader.
+std::string CompactJson(std::string value) {
+  bool quoted = false;
+  bool escaped = false;
+  std::size_t size = 0;
+  for (const char c : value) {
+    if (quoted) {
+      value[size++] = c;
+      if (escaped)
+        escaped = false;
+      else if (c == '\\')
+        escaped = true;
+      else if (c == '\"')
+        quoted = false;
+    } else if (c == '\"') {
+      quoted = true;
+      value[size++] = c;
+    } else if (c != ' ' && c != '\r' && c != '\t') {
+      value[size++] = c;
+    }
+  }
+  value.resize(size);
+  return value;
+}
+
 std::string Serialize(const GaussianMapSnapshot& snapshot) {
   Validate(snapshot);
   cv::FileStorage json("", cv::FileStorage::WRITE | cv::FileStorage::MEMORY |
@@ -266,7 +293,7 @@ std::string Serialize(const GaussianMapSnapshot& snapshot) {
     json << "}";
   }
   json << "]";
-  auto result = json.releaseAndGetString();
+  auto result = CompactJson(json.releaseAndGetString());
   Require(!result.empty() && result.size() <= 512 * 1024,
           "Gaussian map JSON exceeds its budget");
   return result;

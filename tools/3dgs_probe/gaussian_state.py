@@ -1,5 +1,7 @@
 """CPU-only, bounded storage for a confirmed Gaussian working set."""
 
+from __future__ import annotations
+
 from contextlib import ExitStack
 import copy
 from dataclasses import dataclass
@@ -369,8 +371,10 @@ def _inspect_npz(stream, specs):
                     raise ValueError("Truncated NPY header")
                 reader = (np.lib.format.read_array_header_1_0 if length_size == 2 else
                           np.lib.format.read_array_header_2_0)
-                actual_shape, fortran, actual_dtype = reader(
-                    io.BytesIO(length_bytes + header), max_header_size=4096)
+                # The bytes were already capped at 4096 before parsing. Avoid
+                # the newer NumPy-only keyword so Noetic's CPU tools can read
+                # the same format without upgrading the GPU environment.
+                actual_shape, fortran, actual_dtype = reader(io.BytesIO(length_bytes + header))
                 if fortran or actual_dtype != dtype or actual_shape != shape:
                     raise ValueError("NPY dtype or shape disagrees with manifest")
                 if entry.file_size != 8 + length_size + length + math.prod(shape) * dtype.itemsize:
@@ -413,7 +417,7 @@ def read_state(path: Path) -> GaussianState:
             streams[name] = stream
         loaded = []
         for name in ("gaussians.npz", "observations.npz"):
-            with np.load(streams[name], allow_pickle=False, max_header_size=4096) as arrays:
+            with np.load(streams[name], allow_pickle=False) as arrays:
                 loaded.append({key: arrays[key].copy(order="C") for key in arrays.files})
     parameters, observations = loaded
     views = []

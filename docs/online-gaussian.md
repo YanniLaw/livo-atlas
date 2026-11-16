@@ -1,14 +1,16 @@
-# P6-03c1 在线 Gaussian 预览
+# 在线 Gaussian 子地图
 
-本阶段让独立 GPU 进程读取当前在线子地图的关键帧观测，增量训练一个有界 Gaussian 模型，
-并输出带位姿版本的 RGB 预览。前端、回环后端、轨迹和几何输出仍通过同一个 `LivoSystem`
-回调工作。Gaussian 不向前端或后端反馈测量，也不保存跨子地图的 Gaussian 地图；它是在线
-实验接口，还不是完整的在线 3DGS SLAM。实测环境与结果见[验证记录](p6-03c1-validation.md)。
+独立 GPU 进程接收拥有数据的重建观测，训练有界 Gaussian 工作集，并输出版本化预览。
+默认 `gaussian.persist_submaps=false` 保留 [C1 单活动模型](p6-03c1-validation.md)；设为
+`true` 后启用 C2b 的历史资产、刚性重用、组内重建和持久目录，见
+[阶段验证记录](p6-03c2b-validation.md)。普通 C++ 核心保持与 ROS、torch、CUDA 分离。
 
-默认构建和运行均关闭此功能。启用时需要 Linux、已开启的关键帧和 `online` 子地图、一个
-单独启动的 worker，以及此前不存在的预览输出目录。ROS1 Noetic 和 ROS2 Humble 使用同一个
-`src/app/livo_main.cc` 入口，参数分别使用 `/` 和 `.` 分隔。当前 GPU 训练只在文档记录的
-Noetic 主机验证；Humble 已验证构建、配置、共用入口和本机 socket 假 worker，尚未验证真实 GPU。
+两个模式均使用同一个 `src/app/livo_main.cc` 和同一个 Python worker 入口。ROS1 Noetic
+与 ROS2 Humble 的区别仍在接入和参数表示；分别使用 `/` 和 `.` 分隔参数。实际 GPU
+覆盖在 Noetic 主机，Humble 验证构建、配置、安装消费及真实入口与受控 socket peer。
+
+这里保存的是每块最近至多 10 个视图的稀疏工作集。Gaussian 不向前端或后端反馈定位测量，
+当前阶段也不做 densification、跨块联合渲染或整套 SLAM session 恢复。
 
 ## 环境与构建
 
@@ -55,7 +57,7 @@ export LIVO_PYTHON=/path/to/3dgs-env/bin/python
 export LIVO_RUN=/path/to/new-run-directory
 mkdir -m 700 "$LIVO_RUN"
 export LIVO_GAUSSIAN_SOCKET="$LIVO_RUN/worker.sock"
-export LIVO_GAUSSIAN_OUTPUT="$LIVO_RUN/previews"
+export LIVO_GAUSSIAN_OUTPUT="$LIVO_RUN/gaussian"
 
 env -u PYTHONPATH PYTHONNOUSERSITE=1 CUDA_VISIBLE_DEVICES=0 \
   OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -82,6 +84,8 @@ rosparam set /keyframes/enabled true
 rosparam set /submaps/enabled true
 rosparam set /submaps/mode online
 rosparam set /gaussian/enabled true
+rosparam set /gaussian/persist_submaps true
+rosparam set /gaussian/shutdown_timeout_ms 30000
 rosparam set /gaussian/socket_path "$LIVO_GAUSSIAN_SOCKET"
 rosparam set /gaussian/output_directory "$LIVO_GAUSSIAN_OUTPUT"
 rosrun livo_atlas fastlivo_mapping
@@ -116,6 +120,8 @@ parameters.update({
     'submaps.enabled': True,
     'submaps.mode': 'online',
     'gaussian.enabled': True,
+    'gaussian.persist_submaps': True,
+    'gaussian.shutdown_timeout_ms': 30000,
     'gaussian.socket_path': os.environ['LIVO_GAUSSIAN_SOCKET'],
     'gaussian.output_directory': os.environ['LIVO_GAUSSIAN_OUTPUT'],
 })
@@ -153,7 +159,7 @@ python3 tools/run_baseline.py --workspace "$LIVO_WS_COPY" --bag "$LIVO_BAG" \
   --output "$LIVO_CHECK/on" --port 11342 --cpu-affinity 0 \
   --submap-mode online --loop-closure --semantic-output --image-queue-size 32 \
   --rate 1 --duration 10 --gaussian-socket "$LIVO_GAUSSIAN_SOCKET" \
-  --gaussian-output "$LIVO_GAUSSIAN_OUTPUT"
+  --gaussian-output "$LIVO_GAUSSIAN_OUTPUT" --gaussian-persist-submaps
 
 python3 tools/compare_gaussian_replays.py --off "$LIVO_CHECK/off" \
   --on "$LIVO_CHECK/on" --previews "$LIVO_GAUSSIAN_OUTPUT"
@@ -166,22 +172,70 @@ python3 tools/compare_gaussian_replays.py --off "$LIVO_CHECK/off" \
 后可使用新的输出路径按相同方式回放完整 bag。结果不包含真值评价，也不能替代长距离或
 长期连续运行测试。
 
-## 结果与约束
+## 模式、目录和停止
 
-- 每次只训练最近一个主子地图；其封存本身不会废弃模型，切换主子地图或收到新的位姿版本
-  会使当前内存预览立即失效，并独立重置 worker 的模型、窗口和 Adam。位姿未变时新增关键帧
-  不会使在途候选失效。只有候选确认后、再次核对身份成功的结果才可用。
-- 单视图最多 1,000,000 像素和 100,000 云点；位姿前沿最多 512 帧。保留最多 10 个主关键帧，
-  每帧最多初始化 1,000 个高斯、共最多 10,000 个；每个候选训练 20 步。输入超限、无图像或
-  无有效深度会分别计入统计。固定上限不等于对整机内存的完整约束。
-- 预览目录保留最近 8 对 `preview-<job>.png` 和同名 JSON；JSON 最后原子发布。元数据记录
-  会话、子地图、位姿版本、实际覆盖帧、损失、训练步数、确认延迟及采样内存峰值。RGB 图像
-  以 PNG 保存；内容是该时刻的渲染预览，不是可恢复训练状态的 Gaussian 地图。
-- `status.json` 是后台写入的异步采样，可能暂时落后，异常退出后也可能过期；应核对其中的
-  时间、会话与版本。节点内存中的就绪状态才与当前 generation 同步。
-- 节点退出时输出 `livo_atlas gaussian:` 计数和固定延迟分桶；`latency_seconds` 从观测
-  进入桥接到候选确认，包含队列、准备和进程通信，`worker_seconds` 包含视图准备与训练等待。
-  这些数值不是单独的 GPU kernel 时间，也不能据此判断地图质量。
+`gaussian.persist_submaps` 是严格 boolean，默认 `false`，必须与 `gaussian.enabled=true`
+一起使用。`gaussian.shutdown_timeout_ms` 是正整数，默认 3000；上述持久化示例和 runner
+显式设置 30000。省略 `--gaussian-persist-submaps` 就沿用 C1；节点切换参数后需启动新会话。
 
-一般 socket 等待有超时，停止时会关闭 socket 唤醒通信线程；底层文件系统或 GPU 调用若被
-内核长期阻塞，线程/进程无法保证严格的硬实时退出。运行中不要删除或替换输出目录中的文件。
+| 行为 | C1 默认模式 | C2b 持久模式 |
+| --- | --- | --- |
+| IPC | schema 1 | schema 2，worker 从 hello 选择模式 |
+| 切换主分组 | 清空原模型 | 先保存并提交引用，再释放、加载/初始化 |
+| 纯刚性修正 | 失效并重置 | 外部绑定更新，reuse 0 步，参数/资产不改写 |
+| 任一来源 primary 局部位姿改变 | 重置 | 立即 needs_rebuild，保留视图各训练 20 步，最多 200 步 |
+| 候选拒绝 | 清空模型 | 释放候选 GPU 张量，恢复原驻留确认；按最新绝对位姿判定可用性 |
+| 新增同版本前沿 | 允许旧覆盖继续使用 | 允许旧覆盖继续使用，实际覆盖单独记录 |
+
+持久模式输出示例：
+
+```text
+gaussian/
+├── map.json                   # 带会话、序号、目标版本和覆盖的异步目录
+├── status.json                # 当前预览的异步采样
+├── preview-<job>.png/.json     # 最近 8 对确认预览
+└── states/
+    └── <asset_id>/
+        ├── manifest.json
+        ├── gaussians.npz
+        └── observations.npz
+```
+
+内容身份 `session_id/submap_id/source_generation/content_job_id` 只在 view/rebuild 确认后改变；
+`binding_job_id` 也记录接受的 reuse。目录分别描述最近确认内容和旧持久资产，`volatile=1`
+表示更新仍仅在内存。逻辑 primary、来源完整 primary、最近保留的训练帧是三个不同范围。
+被 coalesce 跳过或容量不足的分组明确为 missing，文件不会声称补齐未训练帧。
+
+所有者用完整绝对位姿比较原 canonical primary；不会只检查最近窗口或累积回环增量。
+整块刚性变换只修改父坐标绑定。即使变化成员已从窗口淘汰，也触发重建；重建只用保留视图。
+CPU 确认快照在候选原地修改期间保持，跨块拒绝恢复原驻留块；恢复成功本身不保证它仍 current。
+
+保存顺序为：三文件资产同步成功、C++ 持久提交 map.json、worker 确认完整持久引用集合，
+再删除被替换的旧资产。第一次保存也必须确认引用集合。rename 后同步不确定会停止 Gaussian
+并保留旧、新资产，前端继续。目录和 status 都是带时间、会话、版本的异步快照；在线消费者
+使用所有者线程上的 `GetMapSnapshot()` 读取最新内存状态。
+
+正常 Finish 优先拒绝未决候选、保存 dirty 确认、提交目录并清理替换资产。超时或失败明确
+输出 `incomplete=1` 和未保存身份；中断可能丢失最近 volatile 更新。已有历史文件可独立
+按[资产说明](gaussian-state.md)检查/恢复，在线 worker 不自动接管旧会话，也不恢复前端和位姿图。
+
+## 资源和统计
+
+- 位姿前沿、逻辑目录最多 512 帧/项；拥有确认内容的分组最多 32 块。达到容量后新组保持
+  missing/resource_limit，已有块继续维护。
+- 一个 GPU 模型、一个稳定 CPU 确认；跨块决策期间最多额外一个有界 CPU 加载状态。
+  单块最多 10 视图、每视图 1M 像素和 100,000 输入云点、每来源 1,000 个高斯、总 10,000 个。
+- map.json ≤512 KiB；每资产清单/参数/观测分别 ≤512 KiB/1 MiB/192 MiB。
+  最多 32 个引用资产和 1 个替换中资产，逻辑文件总量 ≤33×193.5 MiB，写入前保留至少
+  1 GiB 加一个最大资产空间。实际 RSS、文件系统块数和第三方 GPU 分配另行测量。
+- pending/in-flight 各 1；最多两个前台 view 后尝试一个历史 repair，循环选择历史块。
+  有工作时两次任务之间最多一次目录/状态发布，目标更新合并到最新绝对状态。
+- PNG 是该确认时刻的 RGB 渲染。元数据区分 view 20 步、reuse 0 步、rebuild 20×视图数。
+  比较工具不把 0 步重绑计作训练；最近 PNG 全为重用时，还需校验持久资产和此前训练确认计数。
+- 退出输出 checkpoint/load/rebind/rebuild/prune、map_sequence、missing/needs_rebuild/dirty、
+  逻辑资产字节及 incomplete，原延迟分桶保持。view latency 从观测入桥计时，独立 reuse/rebuild
+  从调度选中计时，均到确认并包含任务前置保存、准备和通信；worker 时间仅覆盖该命令的准备
+  与 GPU 等待，不能等同 kernel 时间或画质。
+
+文件系统/GPU 长期阻塞时无法保证硬实时退出。CPU/GPU 测试、短 bag 和重复输入不能替代
+长距离数据、长期耐久或真值精度评价；当前资源上限也不代表完整覆盖或高质量稠密重建。

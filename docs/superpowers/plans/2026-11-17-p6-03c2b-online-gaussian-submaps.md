@@ -289,14 +289,14 @@ tests/test_compare_gaussian_replays.py、docs/online-gaussian.md、docs/README.m
 检查目录版本/会话/持久引用/实际覆盖、每个资产依次 CPU验证和总预算，不能一次载入全部资产。
 原 OFF/ON 严格前端比较无容差；新目录检查为附加证据，不替代前端一致性。
 
-- [ ] **Step 1: 写 RED。** 比较器新增 test_reuse_does_not_count_as_training、
+- [x] **Step 1: 写 RED。** 比较器新增 test_reuse_does_not_count_as_training、
   test_map_rejects_wrong_session_or_binding、test_map_requires_verified_assets、
   test_map_enforces_asset_budget、test_volatile_content_is_not_durable、
   test_nonrigid_content_cannot_be_current、test_incomplete_shutdown_fails_acceptance，
   覆盖“0步重用冒充训练”、错会话/旧绑定、缺资产/
   错digest、超32引用/33目录、未持久化当已保存、nonrigid仍标current、incomplete停机。
   runner 解析测试验证持久化参数依赖。Expected: 原比较器未识别持久目录语义而失败。
-- [ ] **Step 2: 实现并 GREEN。** 更新 runner/比较器/对应测试，保留 C1 使用方式；
+- [x] **Step 2: 实现并 GREEN。** 更新 runner/比较器/对应测试，保留 C1 使用方式；
   `python3 -m unittest discover -s tests -p test_compare_gaussian_replays.py -v` 和完整
   3dgs_probe suite 通过；必要的其他工具回归依实际改动运行。不得写只比源文本的测试。
 - [ ] **Step 3: 构建矩阵与受控实测。** 新源码普通 shared/static Gaussian OFF/ON，

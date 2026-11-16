@@ -99,6 +99,25 @@ assert state.origin_ids.tolist() == [0, 1]
         subprocess.run([sys.executable, "-c", script, str(self.output)],
                        check=True, capture_output=True, text=True)
 
+    def test_system_python_reads_saved_state_without_gpu_modules(self):
+        self.saved()
+        system_python = Path("/usr/bin/python3")
+        if not system_python.is_file():
+            self.skipTest("System Python is unavailable")
+        script = """
+import sys
+class BlockGpu:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in ('torch', 'rospy', 'rclpy', 'cv2'):
+            raise AssertionError('Unexpected runtime import: ' + fullname)
+sys.meta_path.insert(0, BlockGpu())
+from gaussian_state import read_state
+assert read_state(sys.argv[1]).origin_ids.tolist() == [0, 1]
+"""
+        result = subprocess.run([str(system_python), "-c", script, str(self.output)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_invalid_metadata_is_rejected_before_creating_output(self):
         for key, value in (("schema", 2), ("optimizer", "adam_pickle"),
                            ("generation", "01"), ("pose_version", True),

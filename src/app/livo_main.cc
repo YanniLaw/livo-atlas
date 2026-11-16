@@ -243,6 +243,32 @@ int main(int argc, char** argv) {
             static_cast<unsigned long long>(s.asset_bytes),
             static_cast<int>(s.incomplete_shutdown));
       }
+      if (s.incomplete_shutdown) {
+        // Keep the last confirmed identities available in the node log even
+        // when the latest asynchronous catalogue could not be committed.
+        const auto map = gaussian->GetMapSnapshot();
+        if (map) {
+          for (const auto& entry : map->entries) {
+            if (!entry.content) continue;
+            const auto& content = *entry.content;
+            std::fprintf(
+                stderr,
+                "livo_atlas gaussian confirmation: session=%s submap=%llu "
+                "source_generation=%llu content_job_id=%llu "
+                "binding_job_id=%llu "
+                "asset_id=%llu volatile=%d catalog_pending=%d\n",
+                content.session_id.c_str(),
+                static_cast<unsigned long long>(content.submap_id),
+                static_cast<unsigned long long>(content.source_generation),
+                static_cast<unsigned long long>(content.content_job_id),
+                static_cast<unsigned long long>(entry.binding_job_id),
+                static_cast<unsigned long long>(
+                    entry.asset ? entry.asset->asset_id : 0),
+                static_cast<int>(entry.dirty),
+                static_cast<int>(map->map_sequence > s.map_sequence));
+          }
+        }
+      }
       if (!s.error.empty())
         std::fprintf(stderr, "livo_atlas gaussian: %s\n", s.error.c_str());
     }

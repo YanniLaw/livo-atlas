@@ -94,7 +94,11 @@ def parse_arguments(arguments=None):
                         help='Socket of an already started online Gaussian worker')
     parser.add_argument('--gaussian-output', type=nonempty_path,
                         help='New directory for online Gaussian previews')
+    parser.add_argument('--gaussian-persist-submaps', action='store_true',
+                        help='Persist online Gaussian submaps; requires socket/output and uses a 30 s shutdown')
     args = parser.parse_args(arguments)
+    if args.gaussian_persist_submaps and not args.gaussian_socket:
+        parser.error('--gaussian-persist-submaps requires --gaussian-socket and --gaussian-output')
     if bool(args.gaussian_socket) != bool(args.gaussian_output):
         parser.error('--gaussian-socket and --gaussian-output must be provided together')
     if args.gaussian_socket:
@@ -275,6 +279,9 @@ def main():
             run(['rosparam', 'set', '/submaps/geometry/enabled', 'true'])
         if args.gaussian_socket:
             run(['rosparam', 'set', '/gaussian/enabled', 'true'])
+            if args.gaussian_persist_submaps:
+                run(['rosparam', 'set', '/gaussian/persist_submaps', 'true'])
+                run(['rosparam', 'set', '/gaussian/shutdown_timeout_ms', '30000'])
             run(['rosparam', 'set', '/gaussian/socket_path', str(args.gaussian_socket.resolve())])
             run(['rosparam', 'set', '/gaussian/output_directory', str(args.gaussian_output.resolve())])
         if args.image_queue_size is not None:

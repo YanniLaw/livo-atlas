@@ -14,6 +14,10 @@ from PIL import Image
 import yaml
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "3dgs_probe"))
+from gaussian_map import inspect_gaussian_map  # noqa: E402
+
+
 _ARRAYS = ("trajectory.tum", "mat_pre.txt", "mat_out.txt", "imu.txt")
 _PARAMETER_GROUPS = ("common", "extrin_calib", "time_offset", "preprocess", "vio",
                      "imu", "lio", "local_map", "uav", "publish", "evo", "pcd_save",
@@ -58,7 +62,7 @@ def _stats(directory, marker):
 def _previews(directory):
     images = {path.stem: path for path in directory.glob("preview-*.png")}
     metadata = {path.stem: path for path in directory.glob("preview-*.json")}
-    result = {"pairs": len(metadata), "readable": True, "trained": 0,
+    result = {"pairs": len(metadata), "readable": True, "trained": 0, "reused": 0, "rebuilt": 0,
               "gpu_peak_allocated_bytes": 0, "gpu_peak_reserved_bytes": 0,
               "worker_peak_rss_bytes": 0, "latencies_seconds": []}
     if not 1 <= len(metadata) <= 8 or images.keys() != metadata.keys():
@@ -89,7 +93,20 @@ def _previews(directory):
             values = (float(data["rgb_l1"]), float(data["depth_l1_m"]))
             if not all(math.isfinite(value) and value >= 0 for value in values):
                 raise ValueError("Invalid preview losses")
-            if (data.get("nonzero_gradient") == 1 and data.get("parameter_updated") == 1 and
+            operation = data.get("operation", "view")
+            if operation not in ("view", "reuse", "rebuild"):
+                raise ValueError("Unknown Gaussian preview operation")
+            expected_steps = (0 if operation == "reuse" else 20 if operation == "view"
+                              else 20 * len(data["frame_ids"]))
+            if data.get("steps", 20) != expected_steps:
+                raise ValueError("Preview steps differ from its operation")
+            if operation == "reuse":
+                result["reused"] += 1
+                if any(data.get(key, 0) for key in ("nonzero_gradient", "parameter_updated", "supervised_depth_pixels")):
+                    raise ValueError("Zero-step reuse claims training")
+            if operation == "rebuild":
+                result["rebuilt"] += 1
+            if (operation != "reuse" and data.get("nonzero_gradient") == 1 and data.get("parameter_updated") == 1 and
                     data.get("supervised_depth_pixels", 0) > 0):
                 result["trained"] += 1
             for key in ("gpu_peak_allocated_bytes", "gpu_peak_reserved_bytes",
@@ -176,9 +193,33 @@ def compare(off, on, previews):
             first > summaries[1].get("playback_wall_s", float("inf"))):
         differences["online_preview"] = "No complete preview was observed during playback"
     preview_report = _previews(previews)
-    if not preview_report["readable"] or not preview_report["trained"]:
+    persistence = configs[1].get("persist_submaps", False)
+    if type(persistence) is not bool:
+        differences["gaussian_configuration"] = "Persistence must be a boolean"
+    if not preview_report["readable"] or (not persistence and not preview_report["trained"]):
         differences["preview_files"] = preview_report
+    map_report = None
+    confirmed_training = stats.get("accepted", 0)
+    if persistence:
+        try:
+            map_report = inspect_gaussian_map(previews, on / "keyframes",
+                loops[1]["pose_version"], loops[1]["frames"])
+            persistent = _stats(on, "livo_atlas gaussian submaps:")
+            rebinds = persistent.get("rebinds", -1)
+            confirmed_training = (stats.get("accepted", 0) - rebinds
+                                  if type(rebinds) is int and rebinds >= 0 else 0)
+            if (confirmed_training <= 0 or not map_report["durable"] or not map_report["verified_assets"] or
+                    persistent.get("incomplete", 1) != 0 or
+                    any(persistent.get(key) != map_report[key] for key in
+                        ("map_sequence", "indexed", "missing", "needs_rebuild")) or
+                    persistent.get("dirty") != map_report["volatile"] or
+                    persistent.get("asset_bytes") != map_report["referenced_bytes"]):
+                differences["gaussian_map"] = "Map is incomplete or differs from shutdown statistics"
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            map_report = {"valid": False, "error": str(error)}
+            differences["gaussian_map"] = str(error)
     return {"passed": not differences, "differences": differences, "arrays": arrays,
+            "gaussian_map": map_report, "confirmed_training_operations": confirmed_training,
             "raw_files": len(raw_off), "loop_stats": loops, "gaussian_stats": stats,
             "first_preview_during_playback_s": first, "previews": preview_report,
             "node_peak_rss_mib": [summary.get("peak_sampled_rss_mib") for summary in summaries]}

@@ -98,6 +98,20 @@ class GlobalBaselineParserTest(unittest.TestCase):
                 self.assertIn('--geometry-map requires online submaps', result.stderr)
                 self.assertFalse((root / 'output').exists())
 
+    def test_gaussian_persistence_requires_worker_paths(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            result = self.invoke('run_baseline.py', root, '--gaussian-persist-submaps')
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('requires --gaussian-socket', result.stderr)
+            self.assertFalse((root / 'output').exists())
+            args = run_baseline.parse_arguments([
+                '--workspace', str(root / 'ws'), '--bag', str(root / 'bag'),
+                '--output', str(root / 'output'), '--gaussian-persist-submaps',
+                '--gaussian-socket', str(root / 'worker.sock'),
+                '--gaussian-output', str(root / 'previews')])
+            self.assertTrue(args.gaussian_persist_submaps)
+
     def test_gaussian_arguments_are_paired_and_require_online_submaps(self):
         for flags in (['--gaussian-socket', '/tmp/worker.sock'],
                       ['--gaussian-output', '/tmp/preview'],

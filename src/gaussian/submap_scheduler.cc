@@ -135,6 +135,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     if (repair && (!pending_ || foreground_attempts_ >= 2)) {
       command.kind = CommandKind::kActivate;
       command.target = map_index_.MakeTarget(*repair, 0);
+      command.source.observed_at = Clock::now();
       map_index_.MarkRepairAttempt(*repair);
       submap_work_ = command;
     } else if (pending_) {
@@ -156,6 +157,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
                 remote_target_->pose_version != poses_->version)) {
       command.kind = CommandKind::kActivate;
       command.target = map_index_.MakeTarget(resident->group.primary.id, 0);
+      command.source.observed_at = Clock::now();
       submap_work_ = command;
     }
   }
@@ -304,9 +306,7 @@ void OnlineGaussianMapper::HandleSubmapReply(Reply reply) {
         if (command.asset) ++stats_.loads;
         if (command.operation == GaussianOperation::kReuse) ++stats_.rebinds;
         if (command.operation == GaussianOperation::kRebuild) ++stats_.rebuilds;
-        ConfirmPreview(candidate_, submap_work_->kind == CommandKind::kView
-                                       ? submap_work_->source.observed_at
-                                       : Clock::now());
+        ConfirmPreview(candidate_, submap_work_->source.observed_at);
         if (CurrentTarget(command.target) && submap_ &&
             command.target.group.primary.id == submap_->primary.id) {
           ready_ = candidate_;

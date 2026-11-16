@@ -560,6 +560,21 @@ TEST_F(PersistentGaussianMapperTest, RigidRebindDoesNotResetOrRewriteArrays) {
   EXPECT_EQ(mapper_->GetLatestPreview()->steps, 0);
 }
 
+TEST_F(PersistentGaussianMapperTest, RepairLatencyIncludesWorkerWait) {
+  Append();
+  Confirm();
+  Append();
+  Confirm();
+  peer_->hold_candidate = true;
+  Correct(true, 1);
+  ASSERT_TRUE(Wait([&] { return peer_->rebuilds == 1; }));
+  std::this_thread::sleep_for(100ms);
+  peer_->hold_candidate = false;
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().accepted == 3; }));
+  ASSERT_TRUE(mapper_->GetLatestPreview());
+  EXPECT_GE(mapper_->GetLatestPreview()->latency_seconds, .1);
+}
+
 TEST_F(PersistentGaussianMapperTest,
        EvictedMemberChangeInvalidatesImmediately) {
   for (int i = 0; i < 12; ++i) {

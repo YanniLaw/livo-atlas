@@ -1,12 +1,19 @@
+import copy
+import hashlib
 import json
 from pathlib import Path
 import shutil
 import tempfile
+import sys
 import unittest
 
 from PIL import Image
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "3dgs_probe"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/3dgs_probe"))
+from state_fixtures import make_state
+from gaussian_state import write_state
 from tools.compare_gaussian_replays import compare
 
 
@@ -144,6 +151,200 @@ class CompareGaussianReplaysTest(unittest.TestCase):
                 result = compare(self.off, self.on, self.previews)
                 self.assertFalse(result["passed"])
                 self.assertIn("preview_files", result["differences"])
+
+
+class PersistentGaussianReplayTest(unittest.TestCase):
+    def setUp(self):
+        CompareGaussianReplaysTest.setUp(self)
+        state = make_state()
+        state.metadata["capture_kind"] = "online_confirmed"
+        state.metadata.pop("source_manifest_sha256")
+        state.metadata.pop("bundle_manifest_sha256")
+        self.states = self.previews / "states"
+        self.states.mkdir()
+        write_state(self.states / "1", state)
+        metadata = state.metadata
+        source = {key: copy.deepcopy(metadata[key]) for key in
+                  ("generation", "submap_id", "pose_version", "membership_revision",
+                   "frame_count", "optimized_frame_count", "anchor_keyframe_id",
+                   "submap_state", "parent_frame", "parent_from_submap", "primary")}
+        source["primary_count"] = 2
+        content = {"session_id": "a" * 32, "submap_id": "0",
+                   "source_generation": "1", "content_job_id": "1"}
+        asset = dict(content, asset_id="1", manifest_sha256=hashlib.sha256(
+            (self.states / "1/manifest.json").read_bytes()).hexdigest())
+        for key, name in (("manifest_bytes", "manifest.json"), ("gaussian_bytes", "gaussians.npz"),
+                          ("observation_bytes", "observations.npz")):
+            asset[key] = str((self.states / "1" / name).stat().st_size)
+        self.entry = {"submap_id": "0", "anchor_keyframe_id": "0", "primary_count": 2,
+                      "membership_revision": "2", "submap_state": "active",
+                      "availability": "current", "reason": "", "resident": 1,
+                      "binding": {key: value for key, value in source.items() if key != "primary"},
+                      "binding_job_id": "1", "content": content, "volatile": 0,
+                      "content_source": copy.deepcopy(source), "trained_frame_ids": ["0", "1"],
+                      "gaussian_count": 2, "asset": asset, "asset_source": copy.deepcopy(source),
+                      "asset_trained_frame_ids": ["0", "1"], "asset_gaussian_count": 2,
+                      "asset_current": 1}
+        self.map = {"schema": 1, "kind": "livo_atlas.gaussian_map", "session_id": "a" * 32,
+                    "map_sequence": "1", "pose_version": "0", "frame_count": "2",
+                    "optimized_frame_count": "0", "parent_frame": "odom",
+                    "written_at_unix_seconds": 1.0, "entries": [self.entry]}
+        self.save_map()
+        params = yaml.safe_load((self.on / "parameters.yaml").read_text())
+        params["gaussian"].update(persist_submaps=True, shutdown_timeout_ms=30000)
+        (self.on / "parameters.yaml").write_text(yaml.safe_dump(params))
+        self.poses = []
+        for local in metadata["primary"]:
+            import numpy as np
+            parent = np.asarray(metadata["parent_from_submap"]).reshape(4, 4)
+            pose = parent @ np.asarray(local["submap_from_body"]).reshape(4, 4)
+            self.poses.append(pose)
+        for run in (self.off, self.on):
+            for i, pose in enumerate(self.poses):
+                path = run / "keyframes/frames" / str(i) / "frame.yml"
+                path.parent.mkdir(exist_ok=True)
+                path.write_text(yaml.safe_dump({"id": str(i), "odom_from_body": self.transform(pose)}))
+            (run / "mapping.log").write_text(
+                "livo_atlas loops: frames=2 pose_version=0 accepted=0\n")
+        with (self.on / "mapping.log").open("a") as log:
+            log.write("livo_atlas gaussian: observed=2 submitted=2 completed=2 accepted=2 "
+                      "failed=0 peak_pending=1 peak_in_flight=1\n")
+        self.submap_stats()
+        path = self.previews / "preview-1.json"
+        data = json.loads(path.read_text())
+        data.update(generation="1", operation="view", steps=20, frame_ids=["0", "1"],
+                    gaussian_count=2, width=8, height=6)
+        path.write_text(json.dumps(data))
+        Image.new("RGB", (8, 6), (30, 20, 10)).save(self.previews / "preview-1.png")
+
+    @staticmethod
+    def transform(pose):
+        return {"rotation": pose[:3, :3].ravel().tolist(),
+                "translation": pose[:3, 3].tolist()}
+
+    def save_map(self):
+        (self.previews / "map.json").write_text(json.dumps(self.map))
+
+    def submap_stats(self, incomplete=0, needs_rebuild=0, rebinds=0):
+        with (self.on / "mapping.log").open("a") as log:
+            log.write("livo_atlas gaussian submaps: checkpoints=1 loads=0 rebinds=%d rebuilds=0 "
+                      "prunes=0 map_sequence=1 indexed=1 missing=0 needs_rebuild=%d dirty=0 "
+                      "asset_bytes=%d incomplete=%d\n" % (rebinds, needs_rebuild,
+                      sum(int(self.entry["asset"][key]) for key in
+                          ("manifest_bytes", "gaussian_bytes", "observation_bytes")), incomplete))
+
+    def test_verified_persistent_map_passes(self):
+        result = compare(self.off, self.on, self.previews)
+        self.assertTrue(result["passed"], result)
+        self.assertEqual(result["gaussian_map"]["verified_assets"], 1)
+
+    def test_reuse_does_not_count_as_training(self):
+        path = self.previews / "preview-1.json"
+        data = json.loads(path.read_text())
+        data.update(operation="reuse", steps=0)
+        path.write_text(json.dumps(data))
+        result = compare(self.off, self.on, self.previews)
+        self.assertEqual(result["previews"]["trained"], 0)
+        self.assertFalse(result["passed"])
+
+    def test_readonly_reuse_uses_verified_earlier_training(self):
+        path = self.previews / "preview-1.json"
+        data = json.loads(path.read_text())
+        data.update(job_id="3", generation="2", operation="reuse", steps=0,
+                    nonzero_gradient=0, parameter_updated=0, supervised_depth_pixels=0)
+        (self.previews / "preview-3.json").write_text(json.dumps(data))
+        path.unlink()
+        (self.previews / "preview-1.png").rename(self.previews / "preview-3.png")
+        self.entry["binding"].update(generation="2")
+        self.entry["binding_job_id"] = "3"
+        self.save_map()
+        with (self.on / "mapping.log").open("a") as log:
+            log.write("livo_atlas gaussian: observed=2 submitted=3 completed=3 accepted=3 "
+                      "failed=0 peak_pending=1 peak_in_flight=1\n")
+        self.submap_stats(rebinds=1)
+        result = compare(self.off, self.on, self.previews)
+        self.assertTrue(result["passed"], result)
+        self.assertEqual(result["previews"]["trained"], 0)
+        self.assertEqual(result["confirmed_training_operations"], 2)
+        self.submap_stats(rebinds=3)
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+
+    def test_map_rejects_wrong_session_or_binding(self):
+        for change in (lambda: self.map.update(session_id="b" * 32),
+                       lambda: self.entry["binding"].update(pose_version="1"),
+                       lambda: self.entry["binding"]["parent_from_submap"].__setitem__(3, 9)):
+            original = copy.deepcopy(self.map)
+            change()
+            self.save_map()
+            self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+            self.map = original
+            self.entry = self.map["entries"][0]
+
+    def test_map_requires_verified_assets(self):
+        self.entry["asset"]["manifest_sha256"] = "0" * 64
+        self.save_map()
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+        (self.states / "1/manifest.json").unlink()
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+
+    def test_map_enforces_asset_budget(self):
+        for i in range(2, 35):
+            (self.states / str(i)).mkdir()
+        result = compare(self.off, self.on, self.previews)
+        self.assertFalse(result["passed"])
+        self.assertIn("budget", result["gaussian_map"]["error"].lower())
+        for i in range(2, 35):
+            (self.states / str(i)).rmdir()
+        self.map["entries"] = [copy.deepcopy(self.entry) for _ in range(33)]
+        self.save_map()
+        result = compare(self.off, self.on, self.previews)
+        self.assertFalse(result["passed"])
+        self.assertIn("budget", result["gaussian_map"]["error"].lower())
+
+    def test_volatile_content_is_not_durable(self):
+        self.entry["content"]["content_job_id"] = "2"
+        self.entry["binding_job_id"] = "2"
+        self.entry["volatile"] = 1
+        self.save_map()
+        result = compare(self.off, self.on, self.previews)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["gaussian_map"]["volatile"], 1)
+
+    def deform(self):
+        poses = [value.copy() for value in self.poses]
+        poses[1][0, 3] += .1
+        for run in (self.off, self.on):
+            path = run / "keyframes/online_submaps/poses/1.yml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump({"schema_version": 2, "version": "1",
+                "base_version": "0", "parent_frame": "map", "frame_count": "2",
+                "optimized_frame_count": "2", "tail_policy": "last_optimized_anchor_projected",
+                "tail_anchor_keyframe_id": "1", "poses": [
+                    {"id": str(i), "map_from_body": self.transform(pose)} for i, pose in enumerate(poses)]}))
+            with (run / "mapping.log").open("a") as log:
+                log.write("livo_atlas loops: frames=2 pose_version=1 accepted=1\n")
+        self.map.update(pose_version="1", optimized_frame_count="2", parent_frame="map")
+        self.entry["binding"].update(pose_version="1", optimized_frame_count="2", parent_frame="map")
+        self.entry["asset_current"] = 0
+        self.save_map()
+
+    def test_nonrigid_content_cannot_be_current(self):
+        self.deform()
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+
+    def test_explicit_historical_asset_remains_a_rebuild_input(self):
+        self.deform()
+        self.entry["availability"] = "needs_rebuild"
+        self.entry["reason"] = "primary_pose_changed"
+        self.save_map()
+        self.submap_stats(needs_rebuild=1)
+        result = compare(self.off, self.on, self.previews)
+        self.assertTrue(result["passed"], result)
+        self.assertEqual(result["gaussian_map"]["needs_rebuild"], 1)
+
+    def test_incomplete_shutdown_fails_acceptance(self):
+        self.submap_stats(incomplete=1)
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@
 #include <string>
 #include <system_error>
 
+#include <Eigen/Geometry>
 #include <gtest/gtest.h>
 #include <opencv2/core.hpp>
 
@@ -160,6 +161,66 @@ class GaussianMapWriterTest : public testing::Test {
   fs::path output_;
   GaussianMapSnapshot snapshot_;
 };
+
+TEST_F(GaussianMapWriterTest, FullMetadataBudgetFitsIndexFile) {
+  auto map = snapshot_;
+  const auto prototype = snapshot_.entries[0];
+  map.entries.clear();
+  map.pose_version = map.optimized_frame_count = 0;
+  map.frame_count = 512;
+  map.parent_frame = PoseFrame::kOdom;
+  for (std::uint64_t i = 0; i < 32; ++i) {
+    auto entry = prototype;
+    auto& group = entry.group;
+    group.primary = {i, i * 16, {}};
+    for (std::uint64_t id = i * 16; id < (i + 1) * 16; ++id)
+      group.primary.keyframe_ids.push_back(id);
+    group.state =
+        i == 31 ? OnlineSubmapState::kActive : OnlineSubmapState::kSealed;
+    group.membership_revision = 16 + (i != 31);
+    auto& target = entry.binding;
+    target.group = group;
+    target.generation = i + 1;
+    target.pose_version = target.optimized_frame_count = 0;
+    target.frame_count = 512;
+    target.parent_frame = PoseFrame::kOdom;
+    target.parent_from_submap = {};
+    target.parent_from_submap.translation = {static_cast<double>(i), .123456789,
+                                             .0123456789};
+    target.submap_from_body.clear();
+    for (int j = 0; j < 16; ++j) {
+      RigidTransform pose;
+      const double angle = j * .0123456789;
+      pose.rotation =
+          Eigen::AngleAxisd(angle, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+      pose.translation = {j * .123456789, j * .0123456789, j * .00123456789};
+      target.submap_from_body.push_back(pose);
+    }
+    entry.content_target = entry.asset_source = target;
+    entry.content = GaussianContentId{map.session_id, i, i + 1, i + 1};
+    entry.binding_job_id = i + 1;
+    entry.asset->asset_id = i + 1;
+    entry.asset->content = *entry.content;
+    entry.frame_ids =
+        entry.asset_frame_ids = {group.primary.keyframe_ids.back()};
+    entry.gaussian_count = entry.asset_gaussian_count = 1;
+    entry.resident = i == 31;
+    entry.reason = "saved \"quoted\" paths \\ copies";
+    map.entries.push_back(std::move(entry));
+  }
+  try {
+    WriteGaussianMapIndex(output_, map);
+  } catch (const std::exception& error) {
+    FAIL() << error.what();
+  }
+  RecordProperty("full_metadata_bytes",
+                 std::to_string(fs::file_size(output_ / "map.json")));
+  EXPECT_LE(fs::file_size(output_ / "map.json"), 512u * 1024);
+  cv::FileStorage json(Bytes(output_ / "map.json"),
+                       cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  EXPECT_EQ(static_cast<std::string>(json["entries"][0]["reason"]),
+            map.entries[0].reason);
+}
 
 TEST_F(GaussianMapWriterTest, FirstIndexCanReferenceCheckpointWithoutPruning) {
   WriteGaussianMapIndex(output_, snapshot_);
