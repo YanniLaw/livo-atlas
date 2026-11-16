@@ -113,22 +113,22 @@ cd "$LIVO_REPO"
 是该原始视图的 `T_parent_B`。`load_bundle(path) -> list[dict]` 原签名不变；字段存在则
 验证 SE(3) 并返回 `<f8[4,4]`，不存在则不创建猜测值。新工具必须要求此字段。
 
-- [ ] **Step 1: 写 RED。** 新增 `test_optional_body_pose_preserves_old_bundle` 和
+- [x] **Step 1: 写 RED。** 新增 `test_optional_body_pose_preserves_old_bundle` 和
   `test_nonidentity_body_pose_matches_source_and_camera`。默认 fixture 的 body 为单位阵，
   删去新字段后的旧 bundle 仍可读；非有限/非 SE(3) 的新字段拒绝。
   fixture 新增仅测试用的 `--nonidentity-body` 可选参数：Rz(90°)、平移 `(4+id,-2,1)`，
   同时调整 camera_from_odom 保持 camera_from_body 和原始像素/深度不变。
-- [ ] **Step 2: 运行 RED。** 在未改实现时构建原准备工具并运行
+- [x] **Step 2: 运行 RED。** 在未改实现时构建原准备工具并运行
   `$LIVO_PYTHON -m unittest discover -s tests/3dgs_probe -p test_bundle.py -v`。
   Expected: 新字段/fixture 能力缺失导致新用例失败，已有用例保持通过。
   构建命令为 `cmake -S tools/3dgs_probe -B "$LIVO_PHASE/prepare-build"
   -DCMAKE_PREFIX_PATH="$LIVO_SDK" -DBUILD_TESTING=ON`，随后
   `nice -n 10 cmake --build "$LIVO_PHASE/prepare-build" -j1`。
-- [ ] **Step 3: 实现。** 导出时使用同一个已读 Keyframe 的 `odom_from_body`，不再次读取
+- [x] **Step 3: 实现。** 导出时使用同一个已读 Keyframe 的 `odom_from_body`，不再次读取
   新的位姿视图；增加可选字段读取，保留旧 CLI 参数与 bundle schema。
-- [ ] **Step 4: GREEN。** 单任务构建与运行 Step 2 全部用例；检查准备工具 `ldd`
+- [x] **Step 4: GREEN。** 单任务构建与运行 Step 2 全部用例；检查准备工具 `ldd`
   无 ROS/vikit/CUDA/torch 依赖。Expected: 实际 C++→Python 数值往返通过。
-- [ ] **Step 5: 提交。** `git diff --check`，提交来源元数据及测试。
+- [x] **Step 5: 提交。** `git diff --check`，提交来源元数据及测试。
 
 ### Task 2: 纯 CPU 资产契约与提交边界
 
@@ -138,7 +138,7 @@ cd "$LIVO_REPO"
 **Interfaces:** 产出共享 `GaussianState`、`validate_state`、`write_state`、`read_state`。
 精确字段、dtype、上限、路径和提交规则以 Spec 为准。纯数据格式与 C1 IPC 独立版本化。
 
-- [ ] **Step 1: 写 RED。** `test_state_roundtrip_preserves_parameters_views_and_primary_poses`
+- [x] **Step 1: 写 RED。** `test_state_roundtrip_preserves_parameters_views_and_primary_poses`
   使用 8×6、2 个来源、非单位 parent_from_submap 和 camera_from_body；逐位比较 5 个
   参数、origin IDs、RGB/掩码/深度，检查恢复清单没有绝对输入路径依赖。
   增加 `test_cpu_read_does_not_import_torch` 的独立子进程断言。
@@ -149,16 +149,16 @@ cd "$LIVO_REPO"
   rename 错误；`test_directory_sync_failure_reports_uncertain_readable_commit` 验证提交后
   任一目录 fsync 失败抛 CommitUncertainError、资产可读且未回滚；
   `test_existing_symlink_and_partial_outputs_are_not_overwritten` 保留已有标记文件。
-- [ ] **Step 2: 运行 RED。**
+- [x] **Step 2: 运行 RED。**
   `$LIVO_PYTHON -m unittest discover -s tests/3dgs_probe -p test_gaussian_state.py -v`。
   Expected: 模块/接口缺失，而非测试数据自身格式错误。
-- [ ] **Step 3: 实现。** 验证小型元数据，再验真实文件/ZIP/NPY 边界，最后读数组。
+- [x] **Step 3: 实现。** 验证小型元数据，再验真实文件/ZIP/NPY 边界，最后读数组。
   文件摘要分块；输出独占 mkdir，最终清单为提交标志。NPZ 用固定命名、无压缩数值数组，
   reader 使用 `allow_pickle=False`；NumPy 1.26 的 savez 不传此参数，先校验数值 dtype。
   公共 reader 返回自有数组，提交前错误不留下最终清单，提交后失败按不确定状态报告。
-- [ ] **Step 4: GREEN。** Step 2 全部用例通过；运行 bundle 回归，验证格式模块导入
+- [x] **Step 4: GREEN。** Step 2 全部用例通过；运行 bundle 回归，验证格式模块导入
   不加载 GPU/ROS。记录最大合法数组 payload 测试与实际 RSS，不把 payload 上限称为 RSS。
-- [ ] **Step 5: 提交。** 提交格式、CPU 校验与故障测试。
+- [x] **Step 5: 提交。** 提交格式、CPU 校验与故障测试。
 
 ### Task 3: GPU 捕获、恢复与确认模型渲染
 
@@ -168,7 +168,7 @@ cd "$LIVO_REPO"
 **Interfaces:** 消费 Task 2 的 dataclass/校验；实现共享 `capture_state(context)`、
 `from_state(state, device)` 和 `render_preview(keyframe_id)`。CPU 格式模块不得反向导入模型。
 
-- [ ] **Step 1: 写 RED。** `test_capture_rejects_empty_and_pending_candidates`：训练候选
+- [x] **Step 1: 写 RED。** `test_capture_rejects_empty_and_pending_candidates`：训练候选
   后捕获失败，`decide(True)` 后成功；`decide(False)` 后空模型仍拒绝。
   `test_capture_owns_arrays_after_model_training_and_reset`：捕获后继续训练/reset，捕获
   数组和 context 不变。`test_restore_preserves_raw_parameters_and_renders`：保存/释放/
@@ -181,16 +181,16 @@ cd "$LIVO_REPO"
   body 姿态，必须拒绝；`test_capture_accepts_older_frontiers_but_rejects_identity_conflicts`
   覆盖正常旧前沿/成员修订和错误 session/generation/版本/锚点。测试不宣称能从窗口证明
   调用方给定的历史 primary 完整。
-- [ ] **Step 2: 运行 RED。**
+- [x] **Step 2: 运行 RED。**
   `LIVO_REQUIRE_GPU=1 CUDA_VISIBLE_DEVICES=0 $LIVO_PYTHON -m unittest discover -s tests/3dgs_probe -p test_model_state.py -v`。
   Expected: 新接口缺失；GPU 可用性已独立确认，不能把 skip 计通过。
-- [ ] **Step 3: 实现。** 用 detach/cpu/copy 捕获已确认参数与视图；结合完整 primary
+- [x] **Step 3: 实现。** 用 detach/cpu/copy 捕获已确认参数与视图；结合完整 primary
   body 位姿和独立 source_cameras 检查实际训练的局部相机位姿。from_state 完整 CPU 校验后新建 GPU 张量，
   不二次参数化、不恢复 Adam；保留 quats 的不可训练语义。预览只读已确认模型。
-- [ ] **Step 4: GREEN。** Step 2、现有 `test_online_model.py`、`test_online_worker.py`
+- [x] **Step 4: GREEN。** Step 2、现有 `test_online_model.py`、`test_online_worker.py`
   和 `test_rasterizer.py` 全部通过。记录 allocated/reserved、RSS 与参数/渲染差值；
   对保留原模型与释放后恢复分别验证，不允许同时保留两个 GPU 模型来假装冷恢复。
-- [ ] **Step 5: 提交。** 提交 GPU API 与真实 CUDA 测试。
+- [x] **Step 5: 提交。** 提交 GPU API 与真实 CUDA 测试。
 
 ### Task 4: 独立工具、真实来源往返与跨电脑说明
 
@@ -202,21 +202,21 @@ cd "$LIVO_REPO"
 返回码 0 仅用于全部检查成功；新输出根保存 report.json/渲染，`state/` 为三文件资产。
 输入缺 body 位姿、非连续 probe 主成员或锚点不是首成员，创建输出前拒绝。
 
-- [ ] **Step 1: 写 RED。** `test_inspect_works_when_torch_import_is_blocked`、
+- [x] **Step 1: 写 RED。** `test_inspect_works_when_torch_import_is_blocked`、
   `test_roundtrip_reports_success_and_cold_restore`、
   `test_old_bundle_bad_anchor_and_overlapping_output_are_rejected`、
   `test_missing_gpu_and_corrupt_state_return_nonzero`、
   `test_commit_uncertain_keeps_asset_and_reports_nonzero`。检查明确的 offline_probe、
   origin_session_id、来源摘要、参数逐位一致、渲染误差与继续训练结果。
-- [ ] **Step 2: 运行 RED。**
+- [x] **Step 2: 运行 RED。**
   `$LIVO_PYTHON -m unittest discover -s tests/3dgs_probe -p test_state_tool.py -v`。
   Expected: 工具尚不存在或对应 CLI 未实现。
-- [ ] **Step 3: 实现。** 用 Task 1 的真实 body 位姿构建 anchor 局部 context，并在
+- [x] **Step 3: 实现。** 用 Task 1 的真实 body 位姿构建 anchor 局部 context，并在
   修改相机表达前由原始相机/body 位姿生成独立 source_cameras。
   以训练 ID 升序训练前 N−1 帧并逐次确认，捕获后释放实例与 GPU 张量，再恢复/渲染，
   用剩余末帧继续 20 步；留出帧只用于主成员元数据与评估。输出软件、身份、误差、
   梯度、资源、耗时及成功/失败/commit_uncertain 状态；不把存档叫作完整 SLAM 或在线多块地图。
-- [ ] **Step 4: GREEN 与真实验收。** 全部相关 Python 测试通过；从现有官方 bag 的
+- [x] **Step 4: GREEN 与真实验收。** 全部相关 Python 测试通过；从现有官方 bag 的
   已提交关键帧数据集重新导出 ID 0–11、训练 `0,1,2,4,5,6,8,9,10,11`、留出 `3,7`。
   来源文件清单在准备和训练前后核验，结果在包外新目录。执行下方命令，实际 cold
   restore 与继续训练通过；记录数组/渲染差值及缺 GPU/损坏文件的非零退出。
