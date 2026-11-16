@@ -184,7 +184,7 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
   });
   WriteGaussianMessage(fd, request, options_.transfer_timeout);
   const auto response = ReadGaussianMessage(fd, options_.job_timeout);
-  const auto json = Parse(response, response_type, session_id_);
+  const auto json = Parse(response, response_type, session_id_, 2);
   if (static_cast<int>(json["schema"]) != 2 ||
       ReadId(json["job_id"]) != command.job_id ||
       ReadId(json["generation"]) != generation ||

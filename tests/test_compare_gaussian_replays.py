@@ -225,24 +225,73 @@ class PersistentGaussianReplayTest(unittest.TestCase):
     def save_map(self):
         (self.previews / "map.json").write_text(json.dumps(self.map))
 
-    def submap_stats(self, incomplete=0, needs_rebuild=0, rebinds=0):
+    def submap_stats(self, incomplete=0, needs_rebuild=0, rebinds=0, effective_training=2):
         with (self.on / "mapping.log").open("a") as log:
             log.write("livo_atlas gaussian submaps: checkpoints=1 loads=0 rebinds=%d rebuilds=0 "
                       "prunes=0 map_sequence=1 indexed=1 missing=0 needs_rebuild=%d dirty=0 "
-                      "asset_bytes=%d incomplete=%d\n" % (rebinds, needs_rebuild,
+                      "asset_bytes=%d incomplete=%d effective_training=%d\n" % (rebinds, needs_rebuild,
                       sum(int(self.entry["asset"][key]) for key in
-                          ("manifest_bytes", "gaussian_bytes", "observation_bytes")), incomplete))
+                          ("manifest_bytes", "gaussian_bytes", "observation_bytes")), incomplete, effective_training))
 
     def test_verified_persistent_map_passes(self):
         result = compare(self.off, self.on, self.previews)
         self.assertTrue(result["passed"], result)
         self.assertEqual(result["gaussian_map"]["verified_assets"], 1)
 
+    def advance_frontier(self):
+        for run in (self.off, self.on):
+            path = run / "keyframes/frames/2/frame.yml"
+            path.parent.mkdir()
+            path.write_text(yaml.safe_dump({"id": "2", "odom_from_body": self.transform(self.poses[-1])}))
+            with (run / "mapping.log").open("a") as log:
+                log.write("livo_atlas loops: frames=3 pose_version=0 accepted=0\n")
+        self.map["frame_count"] = "3"
+        self.entry["binding"]["frame_count"] = "3"
+
+    def test_map_rejects_omitted_final_group(self):
+        self.advance_frontier()
+        for target in (self.entry, self.entry["binding"]):
+            target.update(submap_state="sealed", membership_revision="3")
+        self.save_map()
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+
+    def test_map_rejects_truncated_final_group(self):
+        self.advance_frontier()
+        self.save_map()
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+
+    def test_older_asset_coverage_can_have_complete_logical_tail(self):
+        self.advance_frontier()
+        for target in (self.entry, self.entry["binding"]):
+            target.update(primary_count=3, membership_revision="3")
+        self.save_map()
+        result = compare(self.off, self.on, self.previews)
+        self.assertTrue(result["passed"], result)
+
+    def test_map_grouping_must_match_authoritative_records(self):
+        folder = self.on / "keyframes/online_submaps/records/0"
+        folder.mkdir(parents=True)
+        record = {"schema_version": 1, "id": "0", "membership_revision": "3",
+                  "state": "sealed", "anchor_keyframe_id": "0", "keyframe_ids": ["0", "1"],
+                  "support_keyframe_ids": []}
+        (folder / "3.yml").write_text(yaml.safe_dump(record))
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
+
     def test_reuse_does_not_count_as_training(self):
         path = self.previews / "preview-1.json"
         data = json.loads(path.read_text())
         data.update(operation="reuse", steps=0)
         path.write_text(json.dumps(data))
+        result = compare(self.off, self.on, self.previews)
+        self.assertEqual(result["previews"]["trained"], 0)
+        self.assertFalse(result["passed"])
+
+    def test_accepted_ineffective_training_cannot_pass(self):
+        path = self.previews / "preview-1.json"
+        data = json.loads(path.read_text())
+        data.update(nonzero_gradient=0, parameter_updated=0, supervised_depth_pixels=0)
+        path.write_text(json.dumps(data))
+        self.submap_stats(effective_training=0)
         result = compare(self.off, self.on, self.previews)
         self.assertEqual(result["previews"]["trained"], 0)
         self.assertFalse(result["passed"])
@@ -266,6 +315,8 @@ class PersistentGaussianReplayTest(unittest.TestCase):
         self.assertTrue(result["passed"], result)
         self.assertEqual(result["previews"]["trained"], 0)
         self.assertEqual(result["confirmed_training_operations"], 2)
+        self.submap_stats(rebinds=1, effective_training=0)
+        self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
         self.submap_stats(rebinds=3)
         self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
 

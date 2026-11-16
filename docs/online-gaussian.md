@@ -228,10 +228,13 @@ CPU 确认快照在候选原地修改期间保持，跨块拒绝恢复原驻留�
 - map.json ≤512 KiB；每资产清单/参数/观测分别 ≤512 KiB/1 MiB/192 MiB。
   最多 32 个引用资产和 1 个替换中资产，逻辑文件总量 ≤33×193.5 MiB，写入前保留至少
   1 GiB 加一个最大资产空间。实际 RSS、文件系统块数和第三方 GPU 分配另行测量。
-- pending/in-flight 各 1；最多两个前台 view 后尝试一个历史 repair，循环选择历史块。
+- pending/in-flight 各 1；最多两次前台尝试后尝试一个历史 repair，循环选择历史块。
+  激活前置操作即使过期也消耗尝试预算；成功激活及其后续 view 只计一次。
   有工作时两次任务之间最多一次目录/状态发布，目标更新合并到最新绝对状态。
 - PNG 是该确认时刻的 RGB 渲染。元数据区分 view 20 步、reuse 0 步、rebuild 20×视图数。
-  比较工具不把 0 步重绑计作训练；最近 PNG 全为重用时，还需校验持久资产和此前训练确认计数。
+  比较工具不把 0 步重绑计作训练；最近 PNG 全为重用时，还需校验持久资产和此前的
+  `effective_training` 累计计数。该计数只包含已确认、有深度监督、非零梯度及参数变化的训练，
+  不以 accepted 减 rebinds 推断有效训练。
 - 退出输出 checkpoint/load/rebind/rebuild/prune、map_sequence、missing/needs_rebuild/dirty、
   逻辑资产字节及 incomplete，原延迟分桶保持。view latency 从观测入桥计时，独立 reuse/rebuild
   从调度选中计时，均到确认并包含任务前置保存、准备和通信；worker 时间仅覆盖该命令的准备

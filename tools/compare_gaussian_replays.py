@@ -196,7 +196,9 @@ def compare(off, on, previews):
     persistence = configs[1].get("persist_submaps", False)
     if type(persistence) is not bool:
         differences["gaussian_configuration"] = "Persistence must be a boolean"
-    if not preview_report["readable"] or (not persistence and not preview_report["trained"]):
+    only_reuse = preview_report["pairs"] == preview_report["reused"]
+    if not preview_report["readable"] or (not preview_report["trained"] and
+            not (persistence and only_reuse)):
         differences["preview_files"] = preview_report
     map_report = None
     confirmed_training = stats.get("accepted", 0)
@@ -208,7 +210,11 @@ def compare(off, on, previews):
             rebinds = persistent.get("rebinds", -1)
             confirmed_training = (stats.get("accepted", 0) - rebinds
                                   if type(rebinds) is int and rebinds >= 0 else 0)
-            if (confirmed_training <= 0 or not map_report["durable"] or not map_report["verified_assets"] or
+            effective_training = persistent.get("effective_training", 0)
+            if (type(effective_training) is not int or
+                    not 0 < effective_training <= confirmed_training or
+                    effective_training < preview_report["trained"] or
+                    not map_report["durable"] or not map_report["verified_assets"] or
                     persistent.get("incomplete", 1) != 0 or
                     any(persistent.get(key) != map_report[key] for key in
                         ("map_sequence", "indexed", "missing", "needs_rebuild")) or

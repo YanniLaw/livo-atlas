@@ -44,12 +44,14 @@ void Transform(cv::FileStorage& json, const char* key,
 }
 
 cv::FileStorage Parse(const GaussianMessage& message, const std::string& type,
-                      const std::string& session) {
+                      const std::string& session, int schema) {
   cv::FileStorage json(message.header_json, cv::FileStorage::READ |
                                                 cv::FileStorage::MEMORY |
                                                 cv::FileStorage::FORMAT_JSON);
   if (static_cast<std::string>(json["session_id"]) != session)
     throw std::runtime_error("Gaussian worker session mismatch");
+  if (static_cast<int>(json["schema"]) != schema)
+    throw std::runtime_error("Gaussian worker protocol mode mismatch");
   const auto actual = static_cast<std::string>(json["type"]);
   if (actual == "error")
     throw std::runtime_error("Gaussian worker error: " +

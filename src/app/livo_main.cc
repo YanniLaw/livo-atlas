@@ -229,7 +229,8 @@ int main(int argc, char** argv) {
             "rebinds=%llu "
             "rebuilds=%llu prunes=%llu map_sequence=%llu indexed=%llu "
             "missing=%llu "
-            "needs_rebuild=%llu dirty=%llu asset_bytes=%llu incomplete=%d\n",
+            "needs_rebuild=%llu dirty=%llu asset_bytes=%llu incomplete=%d "
+            "effective_training=%llu\n",
             static_cast<unsigned long long>(s.checkpoints),
             static_cast<unsigned long long>(s.loads),
             static_cast<unsigned long long>(s.rebinds),
@@ -241,7 +242,8 @@ int main(int argc, char** argv) {
             static_cast<unsigned long long>(s.needs_rebuild),
             static_cast<unsigned long long>(s.dirty),
             static_cast<unsigned long long>(s.asset_bytes),
-            static_cast<int>(s.incomplete_shutdown));
+            static_cast<int>(s.incomplete_shutdown),
+            static_cast<unsigned long long>(s.effective_training));
       }
       if (s.incomplete_shutdown) {
         // Keep the last confirmed identities available in the node log even

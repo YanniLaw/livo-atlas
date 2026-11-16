@@ -157,8 +157,9 @@ void Validate(const GaussianMapSnapshot& snapshot) {
       Require(!entry.asset_current, "A missing asset cannot be current");
     }
   }
-  Require(contents <= 32 && residents <= 1,
-          "Gaussian map exceeds its content or resident budget");
+  Require(
+      next_primary == snapshot.frame_count && contents <= 32 && residents <= 1,
+      "Gaussian map omits logical coverage or exceeds its budget");
 }
 
 void Id(cv::FileStorage& json, const char* name, std::uint64_t value) {

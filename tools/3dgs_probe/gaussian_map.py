@@ -154,6 +154,32 @@ def _digest(path):
     return digest.hexdigest()
 
 
+def _check_groups(keyframes, rows):
+    """Compare logical membership with the latest immutable grouping records."""
+    records = keyframes / "online_submaps/records"
+    if not records.exists():
+        return
+    groups = list(records.iterdir())
+    _require(len(groups) == len(rows) and
+             sorted(_unsigned(path.name) for path in groups) == list(range(len(rows))),
+             "Map omits authoritative logical groups")
+    for submap, row in enumerate(rows):
+        revisions = list((records / str(submap)).iterdir())
+        _require(0 < len(revisions) <= 513 and
+                 all(path.suffix == ".yml" for path in revisions), "Invalid group revisions")
+        revision = max(_unsigned(path.stem) for path in revisions)
+        saved = _yaml(records / str(submap) / (str(revision) + ".yml"))
+        first = _unsigned(row["anchor_keyframe_id"])
+        _require(saved["schema_version"] == 1 and _unsigned(saved["id"]) == submap and
+                 _unsigned(saved["membership_revision"]) == revision ==
+                 _unsigned(row["membership_revision"]) and
+                 saved["state"] == row["submap_state"] and
+                 _unsigned(saved["anchor_keyframe_id"]) == first and
+                 [_unsigned(value) for value in saved["keyframe_ids"]] ==
+                 list(range(first, first + row["primary_count"])),
+                 "Logical membership differs from authoritative grouping")
+
+
 def inspect_gaussian_map(directory, keyframes, expected_version, expected_frames):
     """Verify one state at a time; never retain a map-wide parameter cache."""
     directory, keyframes = Path(directory), Path(keyframes)
@@ -277,8 +303,9 @@ def inspect_gaussian_map(directory, keyframes, expected_version, expected_frames
         report["verified_assets"] += 1
         report["referenced_bytes"] += sum(sizes.values())
         del state
-    _require(next_primary <= frames and residents <= 1 and len(referenced) <= 32,
-             "Logical or resident budget exceeded")
+    _require(next_primary == frames and residents <= 1 and len(referenced) <= 32,
+             "Logical frontier is incomplete or resident budget exceeded")
+    _check_groups(keyframes, rows)
     report["unreferenced_assets"] = len(assets) - len(referenced)
     report["durable"] = report["volatile"] == 0 and report["unreferenced_assets"] == 0
     return report

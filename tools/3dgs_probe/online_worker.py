@@ -122,8 +122,8 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
         last_revision = 0
         while True:
             header, body = _read_when_ready(sock, transfer_timeout)
-            if header["session_id"] != session:
-                raise ValueError("Session mismatch")
+            if header["schema"] != schema or header["session_id"] != session:
+                raise ValueError("Session or negotiated schema mismatch")
             kind = header["type"]
             if kind == "stop":
                 return True

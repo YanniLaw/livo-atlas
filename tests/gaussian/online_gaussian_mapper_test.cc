@@ -87,6 +87,8 @@ class FakeWorker {
 
   void WrongSession() { wrong_session_ = true; }
 
+  void WrongConfirmationSchema() { wrong_confirmation_schema_ = true; }
+
   void CloseOnView() { close_on_view_ = true; }
 
   int views() const { return views_; }
@@ -222,6 +224,23 @@ class FakeWorker {
                                                   cv::FileStorage::MEMORY |
                                                   cv::FileStorage::FORMAT_JSON);
         Start(confirmation, accept ? "commit_ok" : "discard_ok", session);
+        if (wrong_confirmation_schema_) {
+          // This is a valid schema-2 confirmation, in a schema-1 session.
+          confirmation.release();
+          confirmation.open(".json", cv::FileStorage::WRITE |
+                                         cv::FileStorage::MEMORY |
+                                         cv::FileStorage::FORMAT_JSON);
+          confirmation << "schema" << 2 << "type"
+                       << (accept ? "commit_ok" : "discard_ok") << "session_id"
+                       << session << "operation"
+                       << "view";
+          if (accept)
+            confirmation << "source_generation" << String(chosen["generation"])
+                         << "content_job_id" << String(chosen["job_id"])
+                         << "frame_ids"
+                         << "[" << frames.back() << "]"
+                         << "gaussian_count" << 1;
+        }
         for (const char* key :
              {"job_id", "generation", "submap_id", "pose_version"})
           confirmation << key << String(chosen[key]);
@@ -239,7 +258,7 @@ class FakeWorker {
   std::atomic<bool> stopping_{false}, hold_candidate_{false},
       hold_confirmation_{false};
   std::atomic<bool> corrupt_coverage_{false}, wrong_session_{false},
-      close_on_view_{false};
+      close_on_view_{false}, wrong_confirmation_schema_{false};
   std::atomic<int> views_{0}, decisions_{0}, resets_{0}, discards_{0};
   std::atomic<std::uint64_t> last_reset_generation_{0};
   mutable std::mutex mutex_;
@@ -533,6 +552,18 @@ TEST_F(OnlineGaussianMapperTest,
   invalid.primary.keyframe_ids = {1};
   mapper_->Observe({Frame(1), {invalid}, Poses(1), {}});
   EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_FALSE(mapper_->GetLatestPreview());
+}
+
+TEST_F(OnlineGaussianMapperTest, MixedSchemaCannotConfirmLegacyCandidate) {
+  peer_->WrongConfirmationSchema();
+  Start();
+  Observe(0);
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetStats().failed == 1 || mapper_->GetStats().accepted == 1;
+  }));
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(mapper_->GetStats().accepted, 0u);
   EXPECT_FALSE(mapper_->GetLatestPreview());
 }
 

@@ -70,14 +70,21 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
     command.job_id = next_job_++;
   }
   if (command.kind == CommandKind::kView ||
-      (command.kind == CommandKind::kActivate && command.content)) {
-    ++stats_.submitted;
-    stats_.in_flight = stats_.peak_in_flight = 1;
-    published_since_work_ = false;
-    if (command.kind == CommandKind::kView)
-      ++foreground_attempts_;
-    else if (submap_work_->kind == CommandKind::kActivate)
+      command.kind == CommandKind::kActivate) {
+    if (command.kind == CommandKind::kView || command.content) {
+      ++stats_.submitted;
+      stats_.in_flight = stats_.peak_in_flight = 1;
+      published_since_work_ = false;
+    }
+    if (submap_work_->kind == CommandKind::kView) {
+      // An activation is part of a foreground attempt even if it becomes
+      // stale. Its following view belongs to that same attempt.
+      if (command.kind == CommandKind::kActivate || !foreground_started_)
+        foreground_attempts_ = std::min(2, foreground_attempts_ + 1);
+      foreground_started_ = true;
+    } else {
       foreground_attempts_ = 0;
+    }
   }
   command_ = std::move(command);
   busy_ = true;
@@ -93,6 +100,7 @@ void OnlineGaussianMapper::EndSubmapWork(bool retry) {
     stats_.pending = stats_.peak_pending = 1;
   }
   submap_work_.reset();
+  foreground_started_ = false;
   stats_.in_flight = 0;
 }
 
@@ -168,6 +176,13 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     activate = submap_work_->kind == CommandKind::kActivate ||
                !remote_target_ || remote_target_->group.primary.id != id ||
                remote_target_->pose_version != poses_->version;
+  }
+  // A stale empty activation has no candidate/decision to end the work. Yield
+  // at this safe boundary too, before another prerequisite can consume time.
+  if (!finishing_ && submap_work_ && submap_work_->kind == CommandKind::kView &&
+      activate && foreground_attempts_ >= 2 && map_index_.NextRepair()) {
+    EndSubmapWork(true);
+    return;
   }
   const bool leaving =
       submap_work_ && activate && resident != map.entries.end() &&
@@ -269,6 +284,10 @@ void OnlineGaussianMapper::ConfirmPreview(
           std::chrono::system_clock::now().time_since_epoch())
           .count();
   ++stats_.accepted;
+  if (preview->operation != GaussianOperation::kReuse && preview->steps > 0 &&
+      preview->nonzero_gradient && preview->parameter_updated &&
+      preview->supervised_depth_pixels > 0)
+    ++stats_.effective_training;
   stats_.last_latency_seconds = preview->latency_seconds;
   stats_.total_latency_seconds += preview->latency_seconds;
   stats_.max_latency_seconds =

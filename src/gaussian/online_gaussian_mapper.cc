@@ -610,7 +610,8 @@ void OnlineGaussianMapper::Run() noexcept {
          {}},
         options_.transfer_timeout);
     const auto hello = ReadGaussianMessage(fd, options_.connect_timeout);
-    const auto greeting = Parse(hello, "hello_ok", session_id_);
+    const auto greeting =
+        Parse(hello, "hello_ok", session_id_, options_.persist_submaps ? 2 : 1);
     if (static_cast<int>(greeting["schema"]) !=
         (options_.persist_submaps ? 2 : 1))
       throw std::runtime_error("Gaussian worker protocol mode mismatch");
@@ -884,7 +885,7 @@ void OnlineGaussianMapper::Run() noexcept {
         if (options_.persist_submaps) {
           const auto stopped =
               ReadGaussianMessage(fd, options_.shutdown_timeout);
-          const auto confirmation = Parse(stopped, "stopped", session_id_);
+          const auto confirmation = Parse(stopped, "stopped", session_id_, 2);
           if (static_cast<int>(confirmation["schema"]) != 2 ||
               ReadId(confirmation["job_id"]) != next_job_ ||
               ReadId(confirmation["generation"]) != generation_ ||

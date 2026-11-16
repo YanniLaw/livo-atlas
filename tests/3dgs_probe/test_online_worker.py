@@ -13,6 +13,7 @@ import numpy as np
 from online_protocol import read_message, write_message
 from online_worker import serve, serve_connection
 from test_online_protocol import view_fixture
+from submap_fixtures import control_fixture, view_v2_fixture
 
 
 SESSION = "a" * 32
@@ -154,6 +155,31 @@ class OnlineWorkerTest(unittest.TestCase):
                   "generation": "2", "pose_version": "1", "submap_id": "0"}
         write_message(self.client, header, b"", 1)
         self.assertEqual(self.receive()["code"], "protocol_error")
+
+    def test_schema_two_view_cannot_mutate_legacy_model(self):
+        self.reset()
+        header, body = view_v2_fixture(count=1)
+        write_message(self.client, header, body, 1)
+        self.assertEqual(self.receive().get("code"), "protocol_error")
+        self.assertEqual(self.model.frames, [])
+
+    def test_schema_two_decision_cannot_confirm_legacy_candidate(self):
+        self.reset()
+        self.view()
+        self.receive()
+        header = control_fixture("decision", submap=0, operation="view", action="accept")
+        write_message(self.client, header, b"", 1)
+        self.assertEqual(self.receive().get("code"), "protocol_error")
+        self.assertTrue(self.model.pending)
+
+    def test_schema_two_stop_is_rejected_in_legacy_session(self):
+        header = control_fixture("stop", map_sequence="0", incomplete=0)
+        write_message(self.client, header, b"", 1)
+        try:
+            response = self.receive()
+        except OSError:
+            response = {}
+        self.assertEqual(response.get("code"), "protocol_error")
 
     def test_view_must_match_latest_reset(self):
         self.reset()

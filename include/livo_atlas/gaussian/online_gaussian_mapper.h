@@ -54,6 +54,8 @@ struct OnlineGaussianStats {
                 prunes = 0;
   std::uint64_t map_sequence = 0, indexed = 0, missing = 0, needs_rebuild = 0;
   std::uint64_t dirty = 0, asset_bytes = 0;
+  // Confirmed training with depth supervision, gradients and parameter changes.
+  std::uint64_t effective_training = 0;
   bool incomplete_shutdown = false;
   bool has_submap = false, finished = false;
   double max_observe_seconds = 0, max_poll_seconds = 0,
@@ -193,6 +195,7 @@ class OnlineGaussianMapper {
   std::optional<std::uint64_t> prune_asset_;
   std::uint64_t next_asset_ = 1, acknowledged_map_ = 0;
   int foreground_attempts_ = 0;
+  bool foreground_started_ = false;
   bool finishing_ = false, published_since_work_ = false;
   bool checkpoint_needs_map_ = false;
   std::atomic<bool> stop_acknowledged_{false};

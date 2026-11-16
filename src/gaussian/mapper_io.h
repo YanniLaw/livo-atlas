@@ -18,7 +18,7 @@ std::uint64_t ReadId(const cv::FileNode& node);
 void Transform(cv::FileStorage& json, const char* key,
                const RigidTransform& value);
 cv::FileStorage Parse(const GaussianMessage& message, const std::string& type,
-                      const std::string& session);
+                      const std::string& session, int schema = 1);
 void WriteFile(const std::filesystem::path& path, const std::string& data);
 void CheckIdentity(const cv::FileStorage& json, const GaussianPreview& preview);
 void PreviewIdentity(cv::FileStorage& json, const GaussianPreview& preview);

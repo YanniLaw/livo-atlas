@@ -88,8 +88,8 @@ class SubmapPeer {
   }
 
   std::atomic<bool> hold_candidate{false}, hold_commit{false},
-      hold_checkpoint{false}, hold_map_ack{false}, corrupt_checkpoint{false},
-      wrong_stop{false};
+      hold_checkpoint{false}, hold_map_ack{false}, hold_empty{false},
+      corrupt_checkpoint{false}, wrong_stop{false}, ineffective_training{false};
   std::atomic<int> views{0}, checkpoints{0}, acknowledgements{0}, prunes{0},
       discards{0}, reuses{0}, rebuilds{0}, commits{0}, decisions{0};
   std::atomic<bool> stopping{false};
@@ -152,6 +152,7 @@ class SubmapPeer {
         } else if (kind == "activate" || kind == "view") {
           const auto action = kind == "view" ? "view" : Text(input["action"]);
           if (action == "empty") {
+            Hold(hold_empty);
             confirmed.clear();
             out << "type"
                 << "activated";
@@ -204,10 +205,13 @@ class SubmapPeer {
                               ? 20
                               : 20 * static_cast<int>(proposed.size()))
                 << "gaussian_count" << static_cast<int>(proposed.size())
-                << "supervised_depth_pixels" << (action == "reuse" ? 0 : 20)
+                << "supervised_depth_pixels"
+                << (action == "reuse" || ineffective_training ? 0 : 20)
                 << "rgb_l1" << .2 << "depth_l1_m" << .1 << "nonzero_gradient"
-                << (action == "reuse" ? 0 : 1) << "parameter_updated"
-                << (action == "reuse" ? 0 : 1) << "capture_time" << 100.;
+                << (action == "reuse" || ineffective_training ? 0 : 1)
+                << "parameter_updated"
+                << (action == "reuse" || ineffective_training ? 0 : 1)
+                << "capture_time" << 100.;
             WriteGaussianMessage(
                 client_,
                 {out.releaseAndGetString(),
@@ -347,7 +351,7 @@ class PersistentGaussianMapperTest : public testing::Test {
   void TearDown() override {
     if (peer_)
       peer_->hold_candidate = peer_->hold_commit = peer_->hold_checkpoint =
-          peer_->hold_map_ack = false;
+          peer_->hold_map_ack = peer_->hold_empty = false;
     fail_map_sync = false;
     mapper_.reset();
     peer_.reset();
@@ -560,6 +564,24 @@ TEST_F(PersistentGaussianMapperTest, RigidRebindDoesNotResetOrRewriteArrays) {
   EXPECT_EQ(mapper_->GetLatestPreview()->steps, 0);
 }
 
+TEST_F(PersistentGaussianMapperTest, CountsOnlyConfirmedEffectiveTraining) {
+  peer_->hold_commit = true;
+  Append();
+  ASSERT_TRUE(Wait([&] { return peer_->decisions == 1; }));
+  EXPECT_EQ(mapper_->GetStats().effective_training, 0u);
+  peer_->hold_commit = false;
+  Confirm();
+  EXPECT_EQ(mapper_->GetStats().effective_training, 1u);
+  Correct();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().rebinds == 1; }));
+  EXPECT_EQ(mapper_->GetStats().effective_training, 1u);
+  accepted_ = mapper_->GetStats().accepted;
+  peer_->ineffective_training = true;
+  Append();
+  Confirm();
+  EXPECT_EQ(mapper_->GetStats().effective_training, 1u);
+}
+
 TEST_F(PersistentGaussianMapperTest, RepairLatencyIncludesWorkerWait) {
   Append();
   Confirm();
@@ -615,6 +637,60 @@ TEST_F(PersistentGaussianMapperTest, TwoViewsThenHistoricalRepair) {
   EXPECT_LE(std::count(events.begin(), repair, "view:1"), 3);
   EXPECT_EQ(mapper_->GetStats().peak_pending, 1u);
   EXPECT_EQ(mapper_->GetStats().peak_in_flight, 1u);
+}
+
+TEST_F(PersistentGaussianMapperTest,
+       StaleForegroundActivationsYieldToHistoricalRepair) {
+  Append();
+  Confirm();
+  Append();
+  Confirm();
+  Append(true);
+  Confirm();
+  Correct(true, 1);
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().rebuilds == 1; }));
+  peer_->hold_candidate = true;
+  Append();
+  ASSERT_TRUE(Wait([&] { return peer_->reuses == 1; }));
+  Correct(true, 1);
+  peer_->hold_candidate = false;
+  for (int i = 0; i < 1000 && peer_->rebuilds == 1; ++i) {
+    Correct();
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_GT(peer_->discards, 0);
+  EXPECT_GT(peer_->rebuilds, 1);
+  EXPECT_LE(peer_->reuses, 2);
+  EXPECT_EQ(mapper_->GetStats().peak_pending, 1u);
+  EXPECT_EQ(mapper_->GetStats().peak_in_flight, 1u);
+}
+
+TEST_F(PersistentGaussianMapperTest,
+       StaleEmptyActivationsYieldToHistoricalRepair) {
+  Append();
+  Confirm();
+  Append();
+  Confirm();
+  Correct(true, 1);
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().rebuilds == 1; }));
+  peer_->hold_empty = true;
+  Append(true);
+  ASSERT_TRUE(Wait([&] {
+    const auto events = peer_->Events();
+    return std::find(events.begin(), events.end(), "activate:1") !=
+           events.end();
+  }));
+  Correct(true, 1);
+  peer_->hold_empty = false;
+  for (int i = 0; i < 1000 && peer_->rebuilds == 1; ++i) {
+    Correct();
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_GT(peer_->rebuilds, 1);
+  const auto events = peer_->Events();
+  EXPECT_LE(std::count(events.begin(), events.end(), "activate:1"), 2);
 }
 
 TEST_F(PersistentGaussianMapperTest, RepeatedStatusUpdatesDoNotStarveWork) {

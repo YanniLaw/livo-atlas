@@ -316,6 +316,21 @@ TEST_F(GaussianMapWriterTest, SourceFilesAndUnrelatedPathsRemainUntouched) {
   EXPECT_EQ(Bytes(output_ / "states/1/marker"), "immutable asset");
 }
 
+TEST_F(GaussianMapWriterTest, OmittedFinalGroupCannotBePublished) {
+  snapshot_.entries.pop_back();
+  EXPECT_THROW(WriteGaussianMapIndex(output_, snapshot_),
+               std::invalid_argument);
+  EXPECT_FALSE(fs::exists(output_ / "map.json"));
+}
+
+TEST_F(GaussianMapWriterTest, TruncatedFinalGroupCannotBePublished) {
+  snapshot_.frame_count = 3;
+  for (auto& entry : snapshot_.entries) entry.binding.frame_count = 3;
+  EXPECT_THROW(WriteGaussianMapIndex(output_, snapshot_),
+               std::invalid_argument);
+  EXPECT_FALSE(fs::exists(output_ / "map.json"));
+}
+
 TEST_F(GaussianMapWriterTest, ExistingTemporaryFifoIsNotOpenedOrRemoved) {
   const auto pending = output_ / "map.tmp.json";
   ASSERT_EQ(mkfifo(pending.c_str(), 0600), 0);
