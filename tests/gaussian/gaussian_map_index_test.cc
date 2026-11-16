@@ -1,11 +1,11 @@
 #include "livo_atlas/gaussian/gaussian_map_index.h"
 
-#include <gtest/gtest.h>
-
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace livo_atlas {
 namespace {

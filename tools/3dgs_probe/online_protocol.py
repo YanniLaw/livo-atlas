@@ -101,6 +101,11 @@ def _validate_view(header, body):
 def _validate_message(header, body):
     if not isinstance(header, dict) or type(header.get("schema")) is not int:
         raise ValueError("Invalid message header")
+    if header["schema"] == 2:
+        from submap_protocol import validate_message
+
+        validate_message(header, body)
+        return
     kind = header.get("type")
     if header["schema"] != 1 or not isinstance(kind, str) or kind not in _TYPES:
         raise ValueError("Unsupported message type or schema")
@@ -315,4 +320,13 @@ def decode_view(header, body):
                        [0, header["fy"], header["cy"]], [0, 0, 1]], dtype=np.float64),
         "camera_from_parent": _pose(header["camera_from_submap"], "camera pose"),
     })
+    if header["schema"] == 2:
+        result["camera_from_body"] = _pose(header["camera_from_body"], "body camera pose")
     return result
+
+
+def decode_target(header, body, offset=0):
+    """Decode schema 2 metadata without importing its implementation for v1."""
+    from submap_protocol import decode_target as decode
+
+    return decode(header, body, offset)

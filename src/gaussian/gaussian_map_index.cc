@@ -153,7 +153,10 @@ void ValidateGaussianTarget(const GaussianTarget& target) {
     throw std::invalid_argument("Gaussian target omits primary body poses");
   pose_math::Validate(target.parent_from_submap);
   for (const auto& pose : target.submap_from_body) pose_math::Validate(pose);
-  if (!pose_math::Equal(target.submap_from_body.front(), {}))
+  if (!pose_math::Equal(target.submap_from_body.front(), {}) ||
+      (target.submap_from_body.front().rotation - Eigen::Matrix3d::Identity())
+              .cwiseAbs()
+              .maxCoeff() > 1e-9)
     throw std::invalid_argument("Gaussian anchor body must define the origin");
 }
 

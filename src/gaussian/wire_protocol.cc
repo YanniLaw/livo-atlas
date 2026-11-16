@@ -16,6 +16,7 @@
 
 #include <opencv2/core.hpp>
 
+#include "gaussian/submap_protocol.h"
 #include "gaussian/unix_socket.h"
 
 namespace livo_atlas {
@@ -279,7 +280,11 @@ void Validate(const GaussianMessage& message) {
     const auto root = json.root();
     Require(root.isMap(), "Invalid message header");
     CheckUniqueKeys(root);
-    (void)Integer(root["schema"], "Invalid schema", 1, 1);
+    const auto schema = Integer(root["schema"], "Invalid schema", 1, 2);
+    if (schema == 2) {
+      ValidateGaussianSubmapMessage(root, message.body);
+      return;
+    }
     const auto kind = String(root["type"], "Invalid message type");
     const std::set<std::string> types = {
         "hello",    "hello_ok",  "reset",      "reset_ok", "view", "candidate",

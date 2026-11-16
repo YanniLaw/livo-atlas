@@ -36,7 +36,7 @@
 | include/livo_atlas/gaussian/gaussian_map.h | 普通内容身份、目标绑定、资产描述、目录快照 |
 | include/livo_atlas/gaussian/gaussian_map_index.h、src/gaussian/gaussian_map_index.cc | 纯元数据目录、完整 canonical primary 与绝对目标比较 |
 | src/gaussian/submap_protocol.h/.cc | schema 2 目标正文编解码；从 mapper 拆出跨语言消息细节 |
-| src/gaussian/wire_protocol.cc、tools/3dgs_probe/online_protocol.py | 受限 schema 2 消息验证，保留 schema 1 |
+| src/gaussian/wire_protocol.cc、tools/3dgs_probe/online_protocol.py、submap_protocol.py | 共享帧边界、独立 schema 2 验证，保留 schema 1 |
 | tools/3dgs_probe/submap_worker.py、online_worker.py | CPU 确认回退、加载/重建、checkpoint 和受限清理 |
 | include/livo_atlas/io/gaussian_map_writer.h、src/io/gaussian_map_writer.cc | 专用 map.json 持久提交，无 GPU/NPZ 解析 |
 | include/livo_atlas/gaussian/online_gaussian_mapper.h、src/gaussian/online_gaussian_mapper.cc | 所有者接纳和公平调度；I/O 仍在现有后台线程 |
@@ -154,6 +154,8 @@ tests/gaussian/gaussian_map_index_test.cc；修改可选库和测试 CMake。
 tools/3dgs_probe/online_protocol.py、
 tests/gaussian/wire_protocol_test.cc、wire_peer.cc、tests/3dgs_probe/test_online_protocol.py；
 新增 tests/3dgs_probe/test_submap_protocol.py 与 C++ 对应测试目标。
+Python schema 2 细节放 tools/3dgs_probe/submap_protocol.py，online_protocol.py 延迟分派，
+避免 schema 1 默认路径额外加载新实现；测试共用 submap_fixtures.py。
 
 **Interfaces:** 消费 Task 1 的 GaussianTarget / ContentId / AssetReference。
 提供 `EncodeGaussianPrimaryPoses(const GaussianTarget&) -> std::vector<std::uint8_t>`；
@@ -165,21 +167,21 @@ prune/prune_ok、stop/stopped、error。控制正文仅 primary 位姿；view �
 128×primary_count。asset_ids 最多 32，规范 uint64、有序不重复；空集合合法。
 错误类别含 storage_error / commit_uncertain / resource_limit；不改变 schema 1 允许列表。
 
-- [ ] **Step 1: 写 RED。** 跨 C++→Python→C++ 保留非单位锚点、完整 512 primary 的
+- [x] **Step 1: 写 RED。** 跨 C++→Python→C++ 保留非单位锚点、完整 512 primary 的
   float64 正文和超过 2^53 的 job/asset ID；检查头仍≤64KiB、正文精确长度。
   错 schema、混用 schema、重复 JSON key、NaN、primary_count=513、溢出长度、错锚点/
   revision/前沿、畸形 SE(3)、第33个 map 引用、非法路径、0步假训练均应拒绝。
   检查 huge ID/count 失败在 numpy/GPU 分配前；重用 steps=0 可通过但不算训练。
-- [ ] **Step 2: 运行 RED。** `nice -n 10 cmake --build "$LIVO_PHASE/core" --target
+- [x] **Step 2: 运行 RED。** `nice -n 10 cmake --build "$LIVO_PHASE/core" --target
   gaussian_wire_protocol_test gaussian_submap_protocol_test gaussian_wire_peer -j1`；
   `LIVO_WIRE_PEER="$LIVO_PHASE/core/gaussian_wire_peer" "$LIVO_PYTHON" -m unittest
   test_online_protocol test_submap_protocol -v`。
   Expected: schema 2 / 新编解码接口未实现而失败，schema 1 原用例仍有效。
-- [ ] **Step 3: 实现。** 两端先验证小头/计数和正文精确长度，再读 float64；不把 primary
+- [x] **Step 3: 实现。** 两端先验证小头/计数和正文精确长度，再读 float64；不把 primary
   塞进 JSON。不接受每任务任意路径；hello 只绑定一个本运行专用目录。没有能力确认不发训练。
-- [ ] **Step 4: GREEN。** Step 2 和 C++ 两个协议测试全部通过；包含 socket 分片、总 deadline、
+- [x] **Step 4: GREEN。** Step 2 和 C++ 两个协议测试全部通过；包含 socket 分片、总 deadline、
   截断/关闭、双端解码和已有 schema 1 大 ID 回归。Expected: 纯协议测试不加载 torch/CUDA。
-- [ ] **Step 5: 提交。** 提交 schema 2 编解码、跨语言测试；不改模型或 ROS 入口。
+- [x] **Step 5: 提交。** 提交 schema 2 编解码、跨语言测试；不改模型或 ROS 入口。
 
 ### Task 3: Python 确认回退、持久切换与重建
 
