@@ -32,8 +32,8 @@ def create_model():
     }
 
 
-def _base(kind, session):
-    return {"schema": 1, "type": kind, "session_id": session}
+def _base(kind, session, schema=1):
+    return {"schema": schema, "type": kind, "session_id": session}
 
 
 def _identity(header):
@@ -49,23 +49,69 @@ def _read_when_ready(sock, transfer_timeout):
     return read_message(sock, transfer_timeout)
 
 
+def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout):
+    from gaussian_state import CommitUncertainError
+    from submap_worker import GaussianCapacityError, GaussianSubmapWorker
+
+    actor = None
+    request = {}
+    try:
+        actor = GaussianSubmapWorker(session, Path(directory), model, metadata)
+        write_message(sock, dict(_base("hello_ok", session, 2), **actor.software,
+                                 mode="persistent_submaps", state_schema=1), b"", transfer_timeout)
+        while True:
+            request, body = _read_when_ready(sock, transfer_timeout)
+            reply, output = actor.handle(request, body)
+            write_message(sock, reply, output, transfer_timeout)
+            if reply["type"] == "stopped":
+                return True
+    except GaussianCapacityError as error:
+        code, detail = "resource_limit", str(error)
+    except CommitUncertainError as error:
+        code, detail = "commit_uncertain", str(error)
+    except (ValueError, KeyError) as error:
+        code, detail = "protocol_error", str(error)
+    except (OSError, TimeoutError) as error:
+        if actor is not None and not actor.failed:
+            print("Gaussian submap worker connection closed:", error, file=sys.stderr)
+            return False
+        code, detail = "storage_error", str(error)
+    except Exception as error:
+        code, detail = "worker_error", str(error)
+    print("Gaussian submap worker failed:", detail, file=sys.stderr)
+    # Bound UTF-8 bytes, matching the C++ parser, even for a translated OS error.
+    detail = detail.encode("utf-8", errors="replace")[:2048].decode("utf-8", errors="ignore")
+    response = dict(_base("error", session, 2), code=code, message=detail)
+    response.update({name: request[name] for name in
+                     ("job_id", "generation", "pose_version", "submap_id") if name in request})
+    try:
+        write_message(sock, response, b"", transfer_timeout)
+    except (OSError, TimeoutError, ValueError):
+        pass
+    return False
+
+
 def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
     """Handle one session; any protocol or model failure closes the session."""
     session = None
+    schema = 1
     try:
         hello, _ = read_message(sock, transfer_timeout)
         if hello["type"] != "hello":
             raise ValueError("Expected hello")
         session = hello["session_id"]
+        schema = hello["schema"]
         try:
             model, metadata = model_factory()
         except Exception as error:
             code = ("extension_unavailable" if "gsplat.csrc" in str(error)
                     else "gpu_unavailable")
-            write_message(sock, dict(_base("error", session), code=code), b"",
+            write_message(sock, dict(_base("error", session, schema), code=code), b"",
                           transfer_timeout)
             print("Gaussian worker initialization failed:", error, file=sys.stderr)
             return False
+        if schema == 2:
+            return _serve_submaps(sock, session, hello["state_directory"], model, metadata, transfer_timeout)
         write_message(sock, dict(_base("hello_ok", session), **metadata), b"",
                       transfer_timeout)
         current = None
@@ -166,7 +212,7 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
     print("Gaussian worker failed:", detail, file=sys.stderr)
     if session is not None:
         try:
-            write_message(sock, dict(_base("error", session), code=code), b"",
+            write_message(sock, dict(_base("error", session, schema), code=code), b"",
                           transfer_timeout)
         except (OSError, TimeoutError, ValueError):
             pass

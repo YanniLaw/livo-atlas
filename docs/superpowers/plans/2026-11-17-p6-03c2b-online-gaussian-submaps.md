@@ -195,7 +195,7 @@ server 仅 schema 2 分支委托它，schema 1 原路径保持。消费 Task 2 �
 C2a read_state/write_state/capture_state/from_state，生成 Spec 回执。
 内容身份单独保存于 worker/目录回执，不扩展 GaussianState 根字段。
 
-- [ ] **Step 1: 写 RED。** 新增实际 CUDA 测试：
+- [x] **Step 1: 写 RED。** 新增实际 CUDA 测试：
   test_rejected_view_restores_prior_confirmed_parameters、test_rejected_activation_of_b_restores_a、
   test_rollback_rebinds_accepted_target、test_first_checkpoint_requires_map_acknowledgement、
   test_rigid_reuse_preserves_arrays_without_rewrite、test_evicted_member_change_requires_rebuild、
@@ -204,18 +204,18 @@ C2a read_state/write_state/capture_state/from_state，生成 Spec 回执。
   比较 CPU 快照独立性、原始参数逐位相同；同环境 RGB/alpha atol1e-6、z atol1e-5/rtol1e-6、
   RGB8最大差1。重建按 N×20 步，训练数据/K/曝光/C_B 保持，检查有限非零梯度/参数更新。
   回退跨块 A 后按 A 最新目标判断可用性，不能固定把 A 判 stale 或固定恢复 current。
-- [ ] **Step 2: 运行 RED。** `LIVO_REQUIRE_GPU=1 CUDA_VISIBLE_DEVICES=0 "$LIVO_PYTHON"
+- [x] **Step 2: 运行 RED。** `LIVO_REQUIRE_GPU=1 CUDA_VISIBLE_DEVICES=0 "$LIVO_PYTHON"
   -m unittest test_submap_worker -v`。
   Expected: 缺少 schema 2 worker 能力而失败；先核验本机 CUDA/预编译扩展，skip 不计通过。
-- [ ] **Step 3: 实现。** 按 Spec 确认边界持有原 resident A；捕获 view/rebuild 成功才换
+- [x] **Step 3: 实现。** 按 Spec 确认边界持有原 resident A；捕获 view/rebuild 成功才换
   confirmed_state，reuse 只换 binding/目标状态。discard 先释放修改后的 GPU 再恢复 A。
   跨块加载 CPU 状态在决策后释放/替换，至多两个受限状态临时并存。保存时冻结快照；
   map_committed 引用集合是释放/prune 的前提。连续目标变化仍对原 canonical 比较。
-- [ ] **Step 4: GREEN。** Step 2、既有 model/worker/rasterizer/state 测试及完整 Python
+- [x] **Step 4: GREEN。** Step 2、既有 model/worker/rasterizer/state 测试及完整 Python
   suite 全部通过：`timeout 300s "$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -v`。
   Expected: 缺 GPU 明确非零；无两个活 GPU 模型，记录 allocated/reserved、RSS、数组/渲染
   差值；C1拒绝清空语义与C2aCPU格式回归仍通过。存储故障采用真实新目录和受控 fsync 注入。
-- [ ] **Step 5: 提交。** 提交实际模型生命周期、故障/真实 CUDA 测试，不增加仅测试使用的产品接口。
+- [x] **Step 5: 提交。** 提交实际模型生命周期、故障/真实 CUDA 测试，不增加仅测试使用的产品接口。
 
 ### Task 4: 专用地图目录的持久提交
 
