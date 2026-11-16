@@ -109,7 +109,7 @@ def _view(root, data, source_sha):
     if (not np.isfinite(depth).all() or np.any(depth_mask & ~image_mask) or
             np.any(depth[depth_mask] <= 0) or np.any(depth[~depth_mask] != 0)):
         raise ValueError("Depth and validity masks are inconsistent")
-    return {
+    result = {
         "keyframe_id": keyframe_id,
         "calibration_id": calibration_id,
         "pose_version": pose_version,
@@ -126,6 +126,9 @@ def _view(root, data, source_sha):
         "camera_from_parent": pose,
         **times,
     }
+    if "parent_from_body" in data:
+        result["parent_from_body"] = _pose(data["parent_from_body"])
+    return result
 
 
 def load_bundle(path):

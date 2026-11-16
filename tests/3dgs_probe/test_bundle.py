@@ -86,6 +86,40 @@ class BundleTest(unittest.TestCase):
         self.assertNotEqual(self.prepare(alias / "nested").returncode, 0)
         self.assertFalse((self.dataset / "nested").exists())
 
+    def test_optional_body_pose_preserves_old_bundle(self):
+        views = self.make_bundle()
+        self.assertIn("parent_from_body", views[0])
+        np.testing.assert_array_equal(views[0]["parent_from_body"], np.eye(4))
+        self.mutate_manifest(lambda data: [entry.pop("parent_from_body")
+                                          for entry in data["views"]])
+        old = load_bundle(self.output)
+        self.assertNotIn("parent_from_body", old[0])
+        np.testing.assert_array_equal(old[0]["rgb"], views[0]["rgb"])
+
+    def test_nonidentity_body_pose_matches_source_and_camera(self):
+        self.dataset = self.root / "rotated-dataset"
+        subprocess.run([os.environ["LIVO_FIXTURE_BIN"], str(self.dataset),
+                        "--nonidentity-body"], check=True, capture_output=True)
+        views = self.make_bundle()
+        np.testing.assert_allclose(views[0]["parent_from_body"],
+                                   [[0, -1, 0, 4], [1, 0, 0, -2],
+                                    [0, 0, 1, 1], [0, 0, 0, 1]], rtol=0, atol=1e-12)
+        np.testing.assert_allclose(views[0]["camera_from_parent"],
+                                   [[1, 0, 0, -3], [0, 1, 0, 4],
+                                    [0, 0, 1, 2], [0, 0, 0, 1]], rtol=0, atol=1e-12)
+        self.assertEqual(views[0]["depth_m"][3, 4], 4.0)
+        np.testing.assert_allclose(views[0]["rgb"][3, 4], [30/255, 20/255, 10/255])
+        np.testing.assert_array_equal(views[0]["K"], [[4, 0, 3.5], [0, 4, 2.5], [0, 0, 1]])
+
+    def test_rejects_invalid_optional_body_pose(self):
+        self.make_bundle()
+        for pose in ([1] * 16, [float("nan")] + [0] * 15):
+            with self.subTest(pose=pose):
+                self.mutate_manifest(lambda data: data["views"][0].__setitem__(
+                    "parent_from_body", pose))
+                with self.assertRaises(ValueError):
+                    load_bundle(self.output)
+
     def test_rejects_overlapping_ids_and_limits(self):
         result = self.prepare(**{"validation-ids": "0"})
         self.assertNotEqual(result.returncode, 0)

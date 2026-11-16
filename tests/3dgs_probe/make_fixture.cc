@@ -2,14 +2,18 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <string>
 
 #include <opencv2/core.hpp>
 
 #include "livo_atlas/io/keyframe_store.h"
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Expected a new dataset directory\n";
+  const bool nonidentity =
+      argc == 3 && std::string(argv[2]) == "--nonidentity-body";
+  if (argc != 2 && !nonidentity) {
+    std::cerr
+        << "Expected a new dataset directory and optional --nonidentity-body\n";
     return 2;
   }
   try {
@@ -35,6 +39,18 @@ int main(int argc, char** argv) {
       frame.timestamp = 100 + id;
       frame.cloud_timestamp = frame.timestamp - 0.01;
       frame.image_timestamp = frame.timestamp + 0.01;
+      if (nonidentity) {
+        frame.odom_from_body.rotation << 0, -1, 0, 1, 0, 0, 0, 0, 1;
+        frame.odom_from_body.translation << 4 + id, -2, 1;
+        // Keep the camera/body relation fixed while moving the body anchor.
+        livo_atlas::RigidTransform moved_camera;
+        moved_camera.rotation = camera_from_odom.rotation *
+                                frame.odom_from_body.rotation.transpose();
+        moved_camera.translation =
+            camera_from_odom.translation -
+            moved_camera.rotation * frame.odom_from_body.translation;
+        frame.camera_from_odom = moved_camera;
+      }
       store.Append(frame);
     }
   } catch (const std::exception& error) {

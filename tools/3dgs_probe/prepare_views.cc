@@ -160,8 +160,27 @@ void WriteDepth(const fs::path& path, const cv::Mat& depth) {
   output.close();
 }
 
+void WriteTransform(std::ostream& json,
+                    const livo_atlas::RigidTransform& pose) {
+  json << '[';
+  for (int row = 0; row < 4; ++row) {
+    for (int col = 0; col < 4; ++col) {
+      if (row || col) json << ',';
+      if (row == 3) {
+        json << (col == 3 ? 1 : 0);
+      } else if (col == 3) {
+        json << pose.translation[row];
+      } else {
+        json << pose.rotation(row, col);
+      }
+    }
+  }
+  json << ']';
+}
+
 void WriteView(std::ostream& json, const fs::path& root,
                const livo_atlas::ReconstructionView& view,
+               const livo_atlas::RigidTransform& parent_from_body,
                const std::string& split) {
   const std::string relative = "views/" + std::to_string(view.keyframe_id);
   const fs::path directory = root / relative;
@@ -186,20 +205,11 @@ void WriteView(std::ostream& json, const fs::path& root,
        << ",\"width\":" << view.camera.width
        << ",\"height\":" << view.camera.height << ",\"fx\":" << view.camera.fx
        << ",\"fy\":" << view.camera.fy << ",\"cx\":" << view.camera.cx
-       << ",\"cy\":" << view.camera.cy << ",\"camera_from_parent\":[";
-  for (int row = 0; row < 4; ++row) {
-    for (int col = 0; col < 4; ++col) {
-      if (row || col) json << ',';
-      if (row == 3) {
-        json << (col == 3 ? 1 : 0);
-      } else if (col == 3) {
-        json << view.camera_from_parent.translation[row];
-      } else {
-        json << view.camera_from_parent.rotation(row, col);
-      }
-    }
-  }
-  json << "],\"image\":\"" << relative << "/image.png\",\"image_mask\":\""
+       << ",\"cy\":" << view.camera.cy << ",\"camera_from_parent\":";
+  WriteTransform(json, view.camera_from_parent);
+  json << ",\"parent_from_body\":";
+  WriteTransform(json, parent_from_body);
+  json << ",\"image\":\"" << relative << "/image.png\",\"image_mask\":\""
        << relative << "/image_mask.png\",\"depth_mask\":\"" << relative
        << "/depth_mask.png\",\"depth_m\":\"" << relative << "/depth.f32le\"}";
 }
@@ -245,7 +255,7 @@ void Prepare(const Options& options) {
     const auto view = livo_atlas::MakeReconstructionView(
         store.calibration().camera, frame, poses, options.limits);
     if (i) json << ',';
-    WriteView(json, destination, view, split);
+    WriteView(json, destination, view, frame.odom_from_body, split);
   }
   json << "]}\n";
   json.close();
