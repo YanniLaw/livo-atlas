@@ -1,11 +1,15 @@
 """Bounded incremental Gaussian model for one submap generation."""
 
+import copy
 import importlib
+import importlib.metadata
 import math
+import sys
 
 import numpy as np
 import torch
 
+from gaussian_state import GaussianState, _metadata, _pose, _unsigned, validate_state
 from train import (_render_view, create_parameters, initialize_gaussians,
                    masked_losses)
 
@@ -67,6 +71,99 @@ class OnlineGaussianModel:
         self.origin_ids = None
         self.optimizer = None
         self.candidate_pending = False
+
+    def capture_state(self, context):
+        """Copy a confirmed working set using independently supplied source poses."""
+        if self.parameters is None or self.candidate_pending or not self.views:
+            raise ValueError("Only a nonempty confirmed model can be captured")
+        generated = {"schema", "kind", "representation", "optimizer", "software"}
+        if not isinstance(context, dict) or generated & context.keys():
+            raise ValueError("Capture context cannot override generated metadata")
+        metadata = copy.deepcopy({key: value for key, value in context.items()
+                                  if key != "source_cameras"})
+        metadata.update(schema=1, kind="livo_atlas.gaussian_state",
+                        representation="gsplat-sh0-window-v1", optimizer="reset_on_restore",
+                        software={"python": sys.version.split()[0], "numpy": np.__version__,
+                                  "torch": str(torch.__version__), "cuda": torch.version.cuda or "unknown",
+                                  "gsplat": importlib.metadata.version("gsplat")})
+        _metadata(metadata)
+        if metadata["generation"] != str(self.generation):
+            raise ValueError("Capture generation differs from the model")
+        sources = context.get("source_cameras")
+        if (not isinstance(sources, list) or len(sources) != len(self.views) or
+                any(not isinstance(item, dict) or set(item) != {"keyframe_id", "camera_from_body"}
+                    for item in sources) or
+                [item["keyframe_id"] for item in sources] != [str(key) for key in self.frame_ids]):
+            raise ValueError("Independent source cameras must cover the retained views")
+        views = []
+        for view, source in zip(self.views, sources):
+            for field, key in (("session_id", "origin_session_id"), ("submap_id", "submap_id"),
+                               ("generation", "generation"), ("pose_version", "pose_version"),
+                               ("parent_frame", "parent_frame"),
+                               ("optimized_frame_count", "optimized_frame_count")):
+                if view.get(field) != metadata[key]:
+                    raise ValueError("Retained view identity differs from capture context: " + field)
+            frontier = _unsigned(view.get("frame_count"))
+            revision = _unsigned(view.get("membership_revision"))
+            if (not view["keyframe_id"] < frontier <= int(metadata["frame_count"]) or
+                    frontier < int(metadata["optimized_frame_count"]) or
+                    not 1 <= revision <= int(metadata["membership_revision"])):
+                raise ValueError("Retained view has an invalid capture frontier")
+            if not np.allclose(_pose(view.get("parent_from_submap")),
+                               _pose(metadata["parent_from_submap"]), atol=1e-8, rtol=0):
+                raise ValueError("Retained view uses a different body anchor")
+            camera = _pose(view["camera_from_parent"])
+            if "camera_from_submap" in view and not np.allclose(
+                    camera, _pose(view["camera_from_submap"]), atol=1e-8, rtol=0):
+                raise ValueError("Retained camera headers disagree")
+            saved = {name: view[name] for name in ("keyframe_id", "calibration_id", "state_timestamp",
+                     "cloud_timestamp", "image_timestamp", "inverse_exposure_time")}
+            saved.update(K=view["K"].copy(), camera_from_parent=camera,
+                         camera_from_body=_pose(source["camera_from_body"]))
+            for name in ("rgb", "image_mask", "depth_mask", "depth_m"):
+                saved[name] = view[name].detach().cpu().numpy().copy()
+            views.append(saved)
+        state = GaussianState(metadata,
+                              {key: value.detach().cpu().numpy().copy()
+                               for key, value in self.parameters.items()},
+                              self.origin_ids.detach().cpu().numpy().astype("<u8"), views)
+        validate_state(state)
+        return state
+
+    @classmethod
+    def from_state(cls, state, device):
+        """Restore raw parameters into a new model, leaving Adam uninitialized."""
+        validate_state(state)
+        model = cls(device)
+        metadata = state.metadata
+        model.generation = int(metadata["generation"])
+        model.parameters = {}
+        for name, value in state.parameters.items():
+            tensor = torch.as_tensor(value.copy(), dtype=torch.float32, device=model.device)
+            model.parameters[name] = tensor if name == "quats" else torch.nn.Parameter(tensor)
+        model.origin_ids = torch.as_tensor(state.origin_ids.astype(np.int64), device=model.device)
+        for saved in state.views:
+            view = dict(saved)
+            view["camera_from_body"] = saved["camera_from_body"].copy()
+            for key in ("submap_id", "generation", "pose_version", "parent_frame", "frame_count",
+                        "optimized_frame_count", "membership_revision"):
+                view[key] = metadata[key]
+            view.update(session_id=metadata["origin_session_id"], split="train",
+                        parent_from_submap=copy.deepcopy(metadata["parent_from_submap"]),
+                        camera_from_submap=saved["camera_from_parent"].ravel().tolist())
+            model.views.append(_gpu_view(view, model.device))
+        return model
+
+    def render_preview(self, keyframe_id):
+        """Render an owned RGB8 preview of a retained, confirmed observation."""
+        if self.candidate_pending or self.parameters is None:
+            raise ValueError("A confirmed model is required")
+        view = next((item for item in self.views if item["keyframe_id"] == keyframe_id), None)
+        if view is None:
+            raise ValueError("Preview frame is not retained")
+        with torch.no_grad():
+            rgb, _, _ = _render_view(self.parameters, view)
+            return np.clip(np.rint(rgb.cpu().numpy() * 255), 0, 255).astype(np.uint8)
 
     def _append(self, view, initial):
         next_parameters = create_parameters(initial, self.device)
