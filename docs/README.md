@@ -51,6 +51,8 @@
 
 41. [P6-03c 在线 Gaussian 设计](superpowers/specs/2026-11-16-p6-03c-online-gaussian-design.md)、[P6-03c1 实施计划](superpowers/plans/2026-11-16-p6-03c1-online-gaussian.md)、[使用说明](online-gaussian.md)与[验证记录](p6-03c1-validation.md)：单活动子地图的有界 GPU 训练和版本化预览已接入共用 ROS 入口；功能边界、平台范围和官方 bag 成对比较见验证记录，不代表完整在线 3DGS SLAM。
 
+42. [P6-03c2 多子地图与模型恢复设计](superpowers/specs/2026-11-17-p6-03c2-gaussian-submaps-design.md)和[C2a 实施计划](superpowers/plans/2026-11-17-p6-03c2a-gaussian-state.md)：下一步先定义可检查、可恢复的 Gaussian 工作集资产，再接在线多块和闭环一致性；目前仅完成设计与计划，尚未编码。
+
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
 P1-02 已完成普通标定类型、ROS1 参数入口、相机接线、直接测试、完整回放及独立审阅问题闭环。
