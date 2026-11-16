@@ -227,18 +227,18 @@ const GaussianMapSnapshot& snapshot) -> void`，目录是已验证的新运行�
 `GaussianMapCommitUncertainError : public std::runtime_error` 表示 rename 已完成但同步不确定。
 写入仅 map.tmp.json/map.json，不读 NPZ、不删除资产、不引入系统全局写权限调整。
 
-- [ ] **Step 1: 写 RED。** 新增 FirstIndexCanReferenceCheckpointWithoutPruning、
+- [x] **Step 1: 写 RED。** 新增 FirstIndexCanReferenceCheckpointWithoutPruning、
   WritesExactSourceAndBindingCoverage、RejectsOversizedOrMalformedIndexBeforePublishing、
   FailureBeforeRenameKeepsPreviousIndex、DirectorySyncFailureReportsVisibleUncertainCommit、
   SourceFilesAndUnrelatedPathsRemainUntouched。使用至少两块、不同 source/target pose version
   和 volatile content，检查文件引用只对应持久成功内容。
-- [ ] **Step 2: 运行 RED。** 构建并执行 `gaussian_map_writer_test`。
+- [x] **Step 2: 运行 RED。** 构建并执行 `gaussian_map_writer_test`。
   Expected: 新 writer / 提交边界缺失而失败；fault 注入在文件操作的窄边界，不mock整个writer。
-- [ ] **Step 3: 实现。** 校验有界拥有数据的 snapshot，≤512KiB 序列化；文件 flush/close/
+- [x] **Step 3: 实现。** 校验有界拥有数据的 snapshot，≤512KiB 序列化；文件 flush/close/
   fsync、rename、目录 fsync；失败是否已越过提交点明确区分。不沿用预览 writer 的弱同步语义。
-- [ ] **Step 4: GREEN。** 新目标及普通核心 CTest 全通过；检查 CMake target 图和安装消费者
+- [x] **Step 4: GREEN。** 新目标及普通核心 CTest 全通过；检查 CMake target 图和安装消费者
   没有让默认 io/core 导出反向依赖可选 Gaussian。Expected: writer 无 GPU/ROS/NPZ 库依赖。
-- [ ] **Step 5: 提交。** 提交持久 writer、故障覆盖和可选构建接线。
+- [x] **Step 5: 提交。** 提交持久 writer、故障覆盖和可选构建接线。
 
 ### Task 5: 所有者接纳、公平调度与共用参数接入
 
