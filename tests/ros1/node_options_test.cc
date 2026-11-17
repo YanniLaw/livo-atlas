@@ -1,5 +1,9 @@
 #include "livo_atlas/ros1/node_options.h"
 
+#include <XmlRpcValue.h>
+#include <gtest/gtest.h>
+#include <ros/ros.h>
+
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -7,10 +11,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <XmlRpcValue.h>
-#include <gtest/gtest.h>
-#include <ros/ros.h>
 
 #include "livo_atlas/core/livo_system.h"
 
@@ -254,6 +254,39 @@ TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   EXPECT_FALSE(config.system.geometry.enabled);
   node_->setParam("submaps/max_keyframes", 65);
   EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
+
+TEST_F(Ros1ParametersTest, GaussianFinalizationUsesStrictSharedSchema) {
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.finalize_on_shutdown);
+  node_->setParam("gaussian/finalize_on_shutdown", 1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/finalize_on_shutdown", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/enabled", true);
+  node_->setParam("gaussian/socket_path", "/tmp/gaussian-test.sock");
+  node_->setParam("gaussian/output_directory", "/tmp/gaussian-test-output");
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/persist_submaps", true);
+  EXPECT_EQ(ReadNodeOptions(*node_).livo.gaussian.finalize_timeout.count(),
+            60000);
+  for (const auto invalid : {0, -1, 600001}) {
+    node_->setParam("gaussian/finalize_timeout_ms", invalid);
+    EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  }
+  node_->setParam("gaussian/finalize_timeout_ms", 1.5);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/finalize_timeout_ms", "60000");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  for (const auto valid : {1, 60000, 600000}) {
+    node_->setParam("gaussian/finalize_timeout_ms", valid);
+    const auto options = ReadNodeOptions(*node_).livo.gaussian;
+    EXPECT_TRUE(options.finalize_on_shutdown);
+    EXPECT_EQ(options.finalize_timeout.count(), valid);
+  }
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
 

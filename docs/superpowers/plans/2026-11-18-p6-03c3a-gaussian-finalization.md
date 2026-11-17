@@ -135,12 +135,12 @@ EXPECT_TRUE(system.IsFinished());
 
 **Interfaces:** 消费 Finalize 结果；新增 runner 参数 --gaussian-finalize-on-shutdown、--gaussian-finalize-timeout-ms；inspect_gaussian_map 保留旧返回含义，新增独立报告验证函数 `inspect_gaussian_finalization(directory, map_report)`。
 
-- [ ] **Step 1: 写 RED。** parser 真实调用拒绝无 persistence/worker、非法预算；进程辅助函数对短寿命/等待退出/强制结束的真实子进程验证等待与采样。比较器伪成功、错 E/前沿/序号/资产集、dirty、缺报告、发布失败、bad stop、强制退出均拒绝；missing 可明确保留。
-- [ ] **Step 2: 运行 RED。** `python3 -m unittest discover -s tests -p test_baseline_runner.py -v` 与 test_compare_gaussian_replays.py，Expected: 新参数缺失或旧检查错误接受；双 ROS 参数新字段同样 RED→GREEN。
-- [ ] **Step 3: 实现。** 后端成功后按开关二选一调用，失败置非零但仍结束其他消费者；输出 `livo_atlas gaussian finalization:` 含结果、目标、E/count、durable、worker_stopped、report_persisted、阶段耗时/计数。返回 total_seconds 含报告发布，文件 elapsed 不自证将来。
+- [x] **Step 1: 写 RED。** parser 真实调用拒绝无 persistence/worker、非法预算；进程辅助函数对短寿命/等待退出/强制结束的真实子进程验证等待与采样。比较器伪成功、错 E/前沿/序号/资产集、dirty、缺报告、发布失败、bad stop、强制退出均拒绝；missing 可明确保留。
+- [x] **Step 2: 运行 RED。** `python3 -m unittest discover -s tests -p test_baseline_runner.py -v` 与 test_compare_gaussian_replays.py，Expected: 新参数缺失或旧检查错误接受；双 ROS 参数新字段同样 RED→GREEN。
+- [x] **Step 3: 实现。** 后端成功后按开关二选一调用，失败置非零但仍结束其他消费者；输出 `livo_atlas gaussian finalization:` 含结果、目标、E/count、durable、worker_stopped、report_persisted、阶段耗时/计数。返回 total_seconds 含报告发布，文件 elapsed 不自证将来。
   runner 最终退出等待=T+90秒，旧模式10秒，单独 shutdown-resources.csv 与 summary时间/forced_termination；显式参数才接线。检查器逐资产/完整 canonical 验证后再核对报告与日志、正常退出，原 C1/C2b 判据继续通过。
-- [ ] **Step 4: GREEN。** 两组 Python工具测试与完整 Python/CUDA、全核心通过；Noetic/Humble 实际 typed 参数/暂停时钟/零输入 finalization、C1/持久默认、编译OFF早拒绝均通过。Humble 无CUDA只报受控peer。
-- [ ] **Step 5: 提交并 task-done。** `feat: integrate Gaussian finalization into shared ROS shutdown`；gate 全核心+两组工具测试。
+- [x] **Step 4: GREEN。** 两组 Python工具测试与完整 Python/CUDA、全核心通过；Noetic/Humble 实际 typed 参数/暂停时钟/零输入 finalization、C1/持久默认、编译OFF早拒绝均通过。Humble 无CUDA只报受控peer。
+- [x] **Step 5: 提交并 task-done。** `feat: integrate Gaussian finalization into shared ROS shutdown`；gate 全核心+两组工具测试。
 
 ### Task 5: 最终源码验证、一次审阅与迁移记录
 

@@ -200,3 +200,69 @@ class GlobalBaselineOptionsTest(unittest.TestCase):
                 self.assertTrue(options.save_keyframes)
                 self.assertFalse(options.loop_closure)
                 self.assertFalse(options.geometry_submaps)
+
+class GaussianFinalizationRunnerTest(unittest.TestCase):
+    def arguments(self, root, *flags):
+        return ['--workspace', str(root / 'ws'), '--bag', str(root / 'bag'),
+                '--output', str(root / 'output'), *flags]
+
+    def test_finalization_requires_persistence_and_worker_before_io(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            for flags in (['--gaussian-finalize-on-shutdown'],
+                          ['--gaussian-finalize-on-shutdown', '--gaussian-socket',
+                           str(root / 's'), '--gaussian-output', str(root / 'g')]):
+                with self.subTest(flags=flags), self.assertRaises(SystemExit) as error:
+                    run_baseline.parse_arguments(self.arguments(root, *flags))
+                self.assertEqual(error.exception.code, 2)
+            self.assertFalse((root / 'output').exists())
+
+    def test_budget_is_strict_bounded_and_sets_shutdown_wait(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            flags = ['--gaussian-socket', str(root / 's'), '--gaussian-output', str(root / 'g'),
+                     '--gaussian-persist-submaps', '--gaussian-finalize-on-shutdown']
+            for value in ('0', '-1', '600001', '1.5', 'true'):
+                with self.subTest(value=value), self.assertRaises(SystemExit):
+                    run_baseline.parse_arguments(self.arguments(
+                        root, *flags, '--gaussian-finalize-timeout-ms', value))
+            default = run_baseline.parse_arguments(self.arguments(root))
+            self.assertEqual(run_baseline.shutdown_wait_seconds(default), 10)
+            for budget, wait in ((1, 90.001), (60000, 150), (600000, 690)):
+                args = run_baseline.parse_arguments(self.arguments(
+                    root, *flags, '--gaussian-finalize-timeout-ms', str(budget)))
+                self.assertAlmostEqual(run_baseline.shutdown_wait_seconds(args), wait)
+
+    def child(self, handler):
+        import os
+        import signal
+        code = ('import signal,time\n' + handler + '\nprint("ready", flush=True)\n'
+                'while True: time.sleep(.01)\n')
+        child = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE,
+                                 text=True, start_new_session=True)
+        self.assertEqual(child.stdout.readline().strip(), 'ready')
+        def cleanup():
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait(timeout=5)
+            child.stdout.close()
+        self.addCleanup(cleanup)
+        return child
+
+    def test_shutdown_waits_for_real_delayed_exit_and_samples(self):
+        child = self.child('def finish(*_):\n time.sleep(.2)\n raise SystemExit(0)\n'
+                           'signal.signal(signal.SIGINT, finish)')
+        samples = []
+        result = run_baseline.stop_process(child, timeout=1, sample=samples.append)
+        self.assertEqual(child.returncode, 0)
+        self.assertFalse(result['forced_termination'])
+        self.assertGreaterEqual(result['elapsed_seconds'], .18)
+        self.assertGreater(len(samples), 1)
+
+    def test_shutdown_records_forced_termination_and_already_exited(self):
+        child = self.child('signal.signal(signal.SIGINT, signal.SIG_IGN)')
+        result = run_baseline.stop_process(child, timeout=.1)
+        self.assertTrue(result['forced_termination'])
+        self.assertNotEqual(child.returncode, 0)
+        repeated = run_baseline.stop_process(child, timeout=.1)
+        self.assertFalse(repeated['forced_termination'])

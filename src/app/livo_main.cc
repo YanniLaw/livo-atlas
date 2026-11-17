@@ -1,7 +1,9 @@
 #include <cstdio>
 #include <exception>
 #include <functional>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -27,6 +29,66 @@ namespace ros_integration = livo_atlas::ros2;
 #else
 #error "The mapping node requires ROS1 or ROS2"
 #endif
+
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+namespace {
+
+void ReportFinalization(const livo_atlas::GaussianFinalizationResult& r) {
+  const char* status = "failed";
+  if (r.status == livo_atlas::GaussianFinalizationStatus::kSucceeded)
+    status = "succeeded";
+  else if (r.status == livo_atlas::GaussianFinalizationStatus::kTimedOut)
+    status = "timed_out";
+  std::ostringstream line;
+  line << std::setprecision(17)
+       << "livo_atlas gaussian finalization: status=" << status
+       << " session_id=" << r.session_id << " pose_version=" << r.pose_version
+       << " frame_count=" << r.frame_count
+       << " optimized_frame_count=" << r.optimized_frame_count
+       << " parent_frame="
+       << (r.parent_frame == livo_atlas::PoseFrame::kMap ? "map" : "odom")
+       << " map_sequence=" << r.map_sequence
+       << " target_valid=" << r.target_valid
+       << " eligible_set_frozen=" << r.eligible_set_frozen;
+  const auto ids = [&](const char* key, const auto& values) {
+    line << ' ' << key << '=';
+    if (values.empty()) line << '-';
+    for (std::size_t i = 0; i < values.size(); ++i) {
+      if (i) line << ',';
+      line << values[i];
+    }
+  };
+  ids("eligible_submap_ids", r.eligible_submap_ids);
+  ids("asset_ids", r.asset_ids);
+  line << " eligible=" << r.eligible_submap_ids.size()
+       << " current=" << r.current << " needs_rebuild=" << r.needs_rebuild
+       << " missing=" << r.missing << " dirty=" << r.dirty
+       << " durable=" << r.durable << " worker_stopped=" << r.worker_stopped
+       << " report_persisted=" << r.report_persisted
+       << " repair_attempts=" << r.repair_attempts;
+  const auto counts = [&](const char* stage, const auto& value) {
+    line << ' ' << stage << "_accepted=" << value.accepted << ' ' << stage
+         << "_effective_training=" << value.effective_training << ' ' << stage
+         << "_rebuilds=" << value.rebuilds << ' ' << stage
+         << "_checkpoints=" << value.checkpoints;
+  };
+  counts("before", r.before);
+  counts("after", r.after);
+  line << " elapsed_seconds=" << r.elapsed_seconds
+       << " repair_seconds=" << r.repair_seconds
+       << " shutdown_seconds=" << r.shutdown_seconds
+       << " total_seconds=" << r.total_seconds;
+  std::printf("%s\n", line.str().c_str());
+  // Diagnostics are separate from the machine-readable identity/counter row.
+  if (!r.reason.empty() || !r.report_error.empty())
+    std::fprintf(stderr,
+                 "Gaussian finalization reason: %.1024s; report: %.1024s\n",
+                 r.reason.c_str(), r.report_error.c_str());
+}
+
+}  // namespace
+#endif
+
 int main(int argc, char** argv) {
 #if LIVO_ATLAS_ROS_VERSION == 1
   ros::init(argc, argv, "laserMapping");
@@ -183,7 +245,17 @@ int main(int argc, char** argv) {
     }
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
     if (gaussian) {
-      gaussian->Finish();
+      if (parameters.livo.gaussian.finalize_on_shutdown) {
+        const auto finalization =
+            gaussian->Finalize(parameters.livo.gaussian.finalize_timeout);
+        ReportFinalization(finalization);
+        if (finalization.status !=
+                livo_atlas::GaussianFinalizationStatus::kSucceeded ||
+            !finalization.report_persisted)
+          result = 1;
+      } else {
+        gaussian->Finish();
+      }
       const auto s = gaussian->GetStats();
       std::printf(
           "livo_atlas gaussian: observed=%llu submitted=%llu coalesced=%llu "

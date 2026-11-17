@@ -32,12 +32,12 @@ def wait_until(predicate, processes, seconds=30):
     raise TimeoutError("Timed out waiting for the expected event")
 
 
-def stop(process):
+def stop(process, timeout=15):
     if process.poll() is not None:
         return
     os.killpg(process.pid, signal.SIGINT)
     try:
-        process.wait(timeout=15)
+        process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=5)
@@ -49,9 +49,16 @@ def main():
     parser.add_argument("--node", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--persistent", action="store_true")
+    parser.add_argument("--finalize", action="store_true")
+    parser.add_argument("--fail-report", action="store_true",
+                        help="Block the report's temporary file to test failed publication")
     parser.add_argument("--expect-unavailable", action="store_true",
                         help="Check that a build without the optional bridge fails before output")
     args = parser.parse_args()
+    if args.finalize and not args.persistent:
+        parser.error('--finalize requires --persistent')
+    if args.fail_report and not args.finalize:
+        parser.error('--fail-report requires --finalize')
     output = args.output.absolute()
     output.mkdir()
     socket_dir = output / "socket"
@@ -62,6 +69,7 @@ def main():
     environment = os.environ.copy()
     environment.update(OMP_NUM_THREADS="1", OMP_THREAD_LIMIT="1", OPENBLAS_NUM_THREADS="1")
     processes = []
+    node = None
     logs = []
 
     def launch(command, name):
@@ -86,6 +94,9 @@ def main():
         if args.persistent:
             common.update({"gaussian.persist_submaps": True,
                            "gaussian.shutdown_timeout_ms": 30000})
+        if args.finalize:
+            common.update({"gaussian.finalize_on_shutdown": True,
+                           "gaussian.finalize_timeout_ms": 60000})
         if args.system == "1":
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", 0))
@@ -135,9 +146,11 @@ def main():
         snapshot = json.loads(status.read_text())
         if snapshot["generation"] != "0" or snapshot["ready"] != 0:
             raise RuntimeError("Unexpected initial Gaussian status")
-        stop(node)
+        if args.fail_report:
+            (previews / 'finalization.tmp.json').mkdir()
+        stop(node, 150 if args.finalize else 15)
         fake.wait(timeout=10)
-        if node.returncode != 0 or fake.returncode != 0:
+        if node.returncode != (1 if args.fail_report else 0) or fake.returncode != 0:
             raise RuntimeError("ROS node or fake worker did not exit cleanly")
         text = (output / "node.log").read_text(errors="replace")
         for marker in ("livo_atlas loops:", "livo_atlas trajectory:",
@@ -150,6 +163,19 @@ def main():
                 raise RuntimeError("Persistent startup map is inconsistent")
             if "incomplete=0" not in text or "map_committed" not in (output / "worker.log").read_text():
                 raise RuntimeError("Persistent shutdown did not acknowledge durable map")
+            if args.fail_report:
+                if ((previews / 'finalization.json').exists() or
+                        'status=succeeded' not in text or 'report_persisted=0' not in text):
+                    raise RuntimeError('Report failure was not separated from actual convergence')
+            elif args.finalize:
+                report = json.loads((previews / 'finalization.json').read_text())
+                if (report['status'] != 'succeeded' or report['frame_count'] != '0' or
+                        report['eligible'] != 0 or report['eligible_set_frozen'] != 1 or
+                        report['worker_stopped'] != 1 or report['durable'] != 1 or
+                        report['session_id'] != state['session_id'] or
+                        report['map_sequence'] != state['map_sequence'] or
+                        'livo_atlas gaussian finalization:' not in text or 'report_persisted=1' not in text):
+                    raise RuntimeError('Empty finalization did not complete durably')
         elif "reset 0" not in (output / "worker.log").read_text():
             raise RuntimeError("Initial reset was not processed while the clock was paused")
         elif (previews / "states").exists() or (previews / "map.json").exists():
@@ -158,7 +184,7 @@ def main():
               (args.system, "persistent map" if args.persistent else "reset"))
     finally:
         for process in reversed(processes):
-            stop(process)
+            stop(process, 150 if args.finalize and process is node else 15)
         for stream in logs:
             stream.close()
 

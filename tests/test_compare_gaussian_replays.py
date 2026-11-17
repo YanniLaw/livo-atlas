@@ -398,5 +398,130 @@ class PersistentGaussianReplayTest(unittest.TestCase):
         self.assertFalse(compare(self.off, self.on, self.previews)["passed"])
 
 
+class FinalizedGaussianReplayTest(unittest.TestCase):
+    transform = staticmethod(PersistentGaussianReplayTest.transform)
+    save_map = PersistentGaussianReplayTest.save_map
+    submap_stats = PersistentGaussianReplayTest.submap_stats
+
+    def setUp(self):
+        PersistentGaussianReplayTest.setUp(self)
+        params = yaml.safe_load((self.on / 'parameters.yaml').read_text())
+        params['gaussian']['finalize_on_shutdown'] = True
+        (self.on / 'parameters.yaml').write_text(yaml.safe_dump(params))
+        for target in (self.entry, self.entry['binding']):
+            target.update(submap_state='sealed', membership_revision='3')
+        self.save_map()
+        self.report = {'schema': 1, 'kind': 'livo_atlas.gaussian_finalization',
+                       'status': 'succeeded', 'reason': '', 'session_id': 'a'*32,
+                       'pose_version': '0', 'frame_count': '2', 'optimized_frame_count': '0',
+                       'parent_frame': 'odom', 'map_sequence': '1',
+                       'target_valid': 1, 'eligible_set_frozen': 1, 'durable': 1, 'worker_stopped': 1,
+                       'eligible_submap_ids': ['0'], 'asset_ids': ['1'],
+                       'eligible': 1, 'current': 1, 'needs_rebuild': 0, 'missing': 0, 'dirty': 0,
+                       'repair_attempts': '0', 'elapsed_seconds': .2, 'repair_seconds': .1,
+                       'shutdown_seconds': .1,
+                       'before': {'accepted': '2', 'effective_training': '2',
+                                  'rebuilds': '0', 'checkpoints': '0'},
+                       'after': {'accepted': '2', 'effective_training': '2',
+                                 'rebuilds': '0', 'checkpoints': '1'}}
+        self.save_report()
+        summary = json.loads((self.on / 'summary.json').read_text())
+        summary.update(forced_termination=False, node_returncode_after_sigint=0)
+        (self.on / 'summary.json').write_text(json.dumps(summary))
+        self.final_log = ('livo_atlas gaussian finalization: status=succeeded session_id=' + 'a'*32 +
+            ' pose_version=0 frame_count=2 optimized_frame_count=0 parent_frame=odom map_sequence=1'
+            ' target_valid=1 eligible_set_frozen=1 eligible_submap_ids=0 asset_ids=1 eligible=1'
+            ' current=1 needs_rebuild=0 missing=0 dirty=0 durable=1 worker_stopped=1 report_persisted=1'
+            ' repair_attempts=0 before_accepted=2 before_effective_training=2 before_rebuilds=0'
+            ' before_checkpoints=0 after_accepted=2 after_effective_training=2 after_rebuilds=0'
+            ' after_checkpoints=1 elapsed_seconds=0.2 repair_seconds=0.1 shutdown_seconds=0.1'
+            ' total_seconds=0.21\n')
+        with (self.on / 'mapping.log').open('a') as log:
+            log.write(self.final_log)
+
+    def save_report(self):
+        (self.previews / 'finalization.json').write_text(json.dumps(self.report))
+
+    def test_verified_finalization_passes(self):
+        result = compare(self.off, self.on, self.previews)
+        self.assertTrue(result['passed'], result)
+        self.assertEqual(result['gaussian_finalization']['current'], 1)
+
+    def test_missing_report_is_rejected(self):
+        (self.previews / 'finalization.json').unlink()
+        self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+
+    def test_forged_report_cannot_replace_map_and_stop_evidence(self):
+        changes = [('status', 'timed_out'), ('session_id', 'b'*32), ('frame_count', '3'),
+                   ('pose_version', '1'), ('optimized_frame_count', '1'), ('parent_frame', 'map'),
+                   ('map_sequence', '2'), ('eligible_submap_ids', []), ('eligible_submap_ids', ['0','0']),
+                   ('asset_ids', ['2']), ('eligible', 2), ('current', 0), ('needs_rebuild', 1),
+                   ('dirty', 1), ('missing', 1), ('worker_stopped', 0), ('durable', 0),
+                   ('eligible_set_frozen', 0), ('target_valid', 0), ('elapsed_seconds', float('nan')),
+                   ('before', dict(self.report['before'], accepted='3'))]
+        original = copy.deepcopy(self.report)
+        for key, value in changes:
+            with self.subTest(key=key, value=value):
+                self.report = dict(original, **{key: value})
+                self.save_report()
+                self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+        self.report = original
+
+    def test_publication_and_exit_failures_override_visible_succeeded(self):
+        path = self.on / 'mapping.log'
+        original = path.read_text()
+        for before, after in [('report_persisted=1', 'report_persisted=0'),
+                              ('worker_stopped=1', 'worker_stopped=0'),
+                              ('session_id='+'a'*32, 'session_id='+'b'*32),
+                              ('asset_ids=1', 'asset_ids=2'),
+                              ('before_accepted=2', 'before_accepted=1')]:
+            with self.subTest(after=after):
+                path.write_text(original.replace(before, after))
+                self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+        path.write_text(original)
+        summary_path = self.on / 'summary.json'
+        original_summary = json.loads(summary_path.read_text())
+        for key, value in [('forced_termination', True), ('node_returncode_after_sigint', -15)]:
+            summary_path.write_text(json.dumps(dict(original_summary, **{key: value})))
+            self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+
+    def test_missing_group_is_explicit_without_inventing_content(self):
+        from gaussian_map import inspect_gaussian_finalization, inspect_gaussian_map
+        PersistentGaussianReplayTest.advance_frontier(self)
+        binding = dict(self.entry['binding'], submap_id='1', anchor_keyframe_id='2',
+                       primary_count=1, membership_revision='2', submap_state='sealed',
+                       parent_from_submap=self.poses[-1].ravel().tolist())
+        self.map['entries'].append(dict(binding=binding, submap_id='1', anchor_keyframe_id='2',
+            primary_count=1, membership_revision='2', submap_state='sealed', availability='missing',
+            reason='no_image', resident=0))
+        self.save_map()
+        self.report.update(frame_count='3', missing=1)
+        self.save_report()
+        actual = inspect_gaussian_map(self.previews, self.on / 'keyframes', 0, 3)
+        final = inspect_gaussian_finalization(self.previews, actual)
+        self.assertEqual(final['missing'], 1)
+        self.assertEqual(final['eligible_submap_ids'], ['0'])
+
+    def test_report_is_bounded_and_cannot_self_certify_publication(self):
+        path = self.previews / 'finalization.json'
+        path.write_bytes(b' ' * (16 * 1024 + 1))
+        self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+        self.report['report_persisted'] = True
+        self.save_report()
+        log = self.on / 'mapping.log'
+        log.write_text(log.read_text().replace('report_persisted=1', 'report_persisted=0'))
+        self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+
+    def test_historical_content_cannot_be_finalized_by_sidecar(self):
+        PersistentGaussianReplayTest.deform(self)
+        self.entry['availability'] = 'needs_rebuild'
+        self.entry['reason'] = 'primary_pose_changed'
+        self.save_map()
+        self.submap_stats(needs_rebuild=1)
+        self.report.update(pose_version='1', optimized_frame_count='2', parent_frame='map')
+        self.save_report()
+        self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+
+
 if __name__ == "__main__":
     unittest.main()

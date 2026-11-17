@@ -1,15 +1,15 @@
 #include "livo_atlas/ros2/node_options.h"
 
+#include <gtest/gtest.h>
+
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
-#include <vector>
-
-#include <gtest/gtest.h>
 #include <rclcpp/node_interfaces/node_topics_interface.hpp>
+#include <vector>
 
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/ros2/livo_node.h"
@@ -390,6 +390,69 @@ TEST(Ros2ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
               "keep global output");
   }
   std::filesystem::remove_all(directory);
+}
+
+TEST(Ros2ParametersTest, GaussianFinalizationUsesStrictSharedSchema) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("gaussian-final-schema-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  params.emplace_back("gaussian.finalize_on_shutdown", 1);
+  {
+    rclcpp::Node node("final_boolean",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() = rclcpp::Parameter("gaussian.finalize_on_shutdown", true);
+  {
+    rclcpp::Node node("final_disabled",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.enabled", true);
+  params.emplace_back("gaussian.socket_path", "/tmp/gaussian-test.sock");
+  params.emplace_back("gaussian.output_directory", "/tmp/gaussian-test-output");
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  {
+    rclcpp::Node node("final_persistence",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.persist_submaps", true);
+  {
+    rclcpp::Node node("final_default",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_EQ(ReadNodeOptions(node).livo.gaussian.finalize_timeout.count(),
+              60000);
+  }
+  params.emplace_back("gaussian.finalize_timeout_ms", 0);
+  for (const auto invalid : {0, -1, 600001}) {
+    params.back() = rclcpp::Parameter("gaussian.finalize_timeout_ms", invalid);
+    rclcpp::Node node("final_budget",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  for (const auto& invalid :
+       {rclcpp::Parameter("gaussian.finalize_timeout_ms", 1.5),
+        rclcpp::Parameter("gaussian.finalize_timeout_ms", "60000")}) {
+    params.back() = invalid;
+    rclcpp::Node node("final_type",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  for (const auto valid : {1, 60000, 600000}) {
+    params.back() = rclcpp::Parameter("gaussian.finalize_timeout_ms", valid);
+    rclcpp::Node node("final_valid",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    const auto options = ReadNodeOptions(node).livo.gaussian;
+    EXPECT_TRUE(options.finalize_on_shutdown);
+    EXPECT_EQ(options.finalize_timeout.count(), valid);
+  }
+  EXPECT_FALSE(std::filesystem::exists(directory));
 }
 
 TEST(Ros2ParametersTest, GaussianPersistenceAndTimeoutUseStrictSharedSchema) {

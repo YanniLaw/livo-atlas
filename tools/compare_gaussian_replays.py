@@ -15,7 +15,7 @@ import yaml
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "3dgs_probe"))
-from gaussian_map import inspect_gaussian_map  # noqa: E402
+from gaussian_map import inspect_gaussian_finalization, inspect_gaussian_map  # noqa: E402
 
 
 _ARRAYS = ("trajectory.tum", "mat_pre.txt", "mat_out.txt", "imu.txt")
@@ -57,6 +57,43 @@ def _stats(directory, marker):
         return {}
     return {key: float(value) if any(c in value for c in ".eE") else int(value)
             for key, value in re.findall(r"\b([a-z_][a-z0-9_]*)=([-+0-9.eE]+)", matches[-1])}
+
+
+def _finalization(directory, previews, map_report, summary, stats, persistent):
+    report = inspect_gaussian_finalization(previews, map_report)
+    lines = (directory / 'mapping.log').read_text(errors='replace').splitlines()
+    lines = [line for line in lines if 'livo_atlas gaussian finalization:' in line]
+    if len(lines) != 1:
+        raise ValueError('Missing or duplicate finalization shutdown log')
+    fields = dict(re.findall(r'\b([a-z_][a-z0-9_]*)=([^\s]+)', lines[0]))
+    for key in ('status', 'session_id', 'pose_version', 'frame_count', 'optimized_frame_count',
+                'parent_frame', 'map_sequence', 'target_valid', 'eligible_set_frozen',
+                'eligible', 'current', 'needs_rebuild', 'missing', 'dirty', 'durable',
+                'worker_stopped', 'repair_attempts'):
+        if fields.get(key) != str(report[key]):
+            raise ValueError('Finalization log differs from report: ' + key)
+    for key in ('eligible_submap_ids', 'asset_ids'):
+        if fields.get(key) != (','.join(report[key]) or '-'):
+            raise ValueError('Finalization log identities differ: ' + key)
+    for stage in ('before', 'after'):
+        for key, value in report[stage].items():
+            if fields.get(stage + '_' + key) != value:
+                raise ValueError('Finalization log counters differ')
+    for key in ('elapsed_seconds', 'repair_seconds', 'shutdown_seconds'):
+        value = float(fields[key])
+        if not math.isfinite(value) or not math.isclose(value, report[key], rel_tol=1e-8, abs_tol=1e-8):
+            raise ValueError('Finalization log durations differ')
+    total = float(fields['total_seconds'])
+    if (not math.isfinite(total) or total < report['elapsed_seconds'] or
+            fields.get('report_persisted') != '1' or
+            summary.get('forced_termination') is not False or
+            summary.get('node_returncode_after_sigint') != 0):
+        raise ValueError('Finalization publication or process exit was not successful')
+    if (int(report['after']['accepted']) != stats['accepted'] or
+            any(int(report['after'][key]) != persistent.get(key) for key in
+                ('effective_training', 'rebuilds', 'checkpoints'))):
+        raise ValueError('Finalization counters differ from shutdown statistics')
+    return report
 
 
 def _previews(directory):
@@ -201,6 +238,7 @@ def compare(off, on, previews):
             not (persistence and only_reuse)):
         differences["preview_files"] = preview_report
     map_report = None
+    finalization_report = None
     confirmed_training = stats.get("accepted", 0)
     if persistence:
         try:
@@ -224,7 +262,17 @@ def compare(off, on, previews):
         except (OSError, ValueError, TypeError, KeyError) as error:
             map_report = {"valid": False, "error": str(error)}
             differences["gaussian_map"] = str(error)
+    finalize = configs[1].get('finalize_on_shutdown', False)
+    if type(finalize) is not bool or (finalize and not persistence):
+        differences['gaussian_configuration'] = 'Finalization requires boolean persistence'
+    if finalize:
+        try:
+            finalization_report = _finalization(on, previews, map_report, summaries[1],
+                                                stats, _stats(on, 'livo_atlas gaussian submaps:'))
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            differences['gaussian_finalization'] = str(error)
     return {"passed": not differences, "differences": differences, "arrays": arrays,
+            "gaussian_finalization": finalization_report,
             "gaussian_map": map_report, "confirmed_training_operations": confirmed_training,
             "raw_files": len(raw_off), "loop_stats": loops, "gaussian_stats": stats,
             "first_preview_during_playback_s": first, "previews": preview_report,

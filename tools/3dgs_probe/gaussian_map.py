@@ -309,3 +309,66 @@ def inspect_gaussian_map(directory, keyframes, expected_version, expected_frames
     report["unreferenced_assets"] = len(assets) - len(referenced)
     report["durable"] = report["volatile"] == 0 and report["unreferenced_assets"] == 0
     return report
+
+
+def inspect_gaussian_finalization(directory, map_report):
+    """Reconcile a final report with a previously verified map and asset set.
+
+    This checks current files, not whether the publishing process fsynced them.
+    Replay acceptance must also check that process's log and exit evidence.
+    """
+    directory = Path(directory)
+    with _open_file(directory / 'finalization.json', 16 * 1024) as stream:
+        result = json.loads(stream.read().decode('utf-8'), object_pairs_hook=_unique_object,
+                            parse_constant=_reject_constant)
+    data = _json(directory / 'map.json')
+    _require(type(result['schema']) is int and result['schema'] == 1 and
+             result['kind'] == 'livo_atlas.gaussian_finalization', 'Unknown finalization schema')
+    _require(result['status'] == 'succeeded' and isinstance(result['reason'], str) and
+             len(result['reason'].encode('utf-8')) <= 1024 and '\0' not in result['reason'],
+             'Finalization did not succeed')
+    _require(map_report['valid'] and map_report['durable'] and
+             not map_report['needs_rebuild'] and not map_report['volatile'] and
+             not map_report['unreferenced_assets'], 'Finalization map is not current and durable')
+    for key in ('target_valid', 'eligible_set_frozen', 'durable', 'worker_stopped'):
+        _require(_flag(result[key]) == 1, 'Finalization is incomplete: ' + key)
+    _require(result['session_id'] == data['session_id'] and
+             result['parent_frame'] == data['parent_frame'], 'Finalization session or parent differs')
+    for key in ('pose_version', 'frame_count', 'optimized_frame_count', 'map_sequence'):
+        _require(_unsigned(result[key]) == _unsigned(data[key]), 'Finalization frontier differs: ' + key)
+    for key in ('current', 'needs_rebuild', 'missing'):
+        _require(_integer(result[key], 0, 512) == map_report[key], 'Finalization count differs: ' + key)
+    _require(_integer(result['dirty'], 0, 32) == map_report['volatile'], 'Finalization dirty count differs')
+    rows = data['entries']
+    _require(all(row['submap_state'] == 'sealed' for row in rows), 'Finalization groups are not sealed')
+    eligible = [_unsigned(row['submap_id']) for row in rows if 'content' in row]
+    assets = sorted(_unsigned(row['asset']['asset_id']) for row in rows if 'content' in row)
+    for key, expected in (('eligible_submap_ids', eligible), ('asset_ids', assets)):
+        values = result[key]
+        _require(isinstance(values, list) and len(values) <= 32, 'Finalization ID budget exceeded')
+        ids = [_unsigned(value) for value in values]
+        _require(ids == expected and ids == sorted(set(ids)), 'Finalization identity set differs: ' + key)
+    _require(_integer(result['eligible'], 0, 32) == len(eligible) == result['current'] ==
+             map_report['verified_assets'], 'Finalization eligible set differs from confirmed content')
+    for row in rows:
+        if 'content' in row:
+            _require(row['availability'] == 'current' and _flag(row['asset_current']) == 1 and
+                     all(row['asset'][key] == row['content'][key] for key in
+                         ('session_id', *_CONTENT_IDS)), 'Finalization has historical or dirty assets')
+    counters = ('accepted', 'effective_training', 'rebuilds', 'checkpoints')
+    before, after = result['before'], result['after']
+    for key in counters:
+        _require(_unsigned(before[key]) <= _unsigned(after[key]), 'Finalization counters went backwards')
+    for counts in (before, after):
+        _require(_unsigned(counts['effective_training']) <= _unsigned(counts['accepted']) and
+                 _unsigned(counts['rebuilds']) <= _unsigned(counts['accepted']), 'Invalid training counters')
+    _require(_unsigned(after['accepted']) >= len(eligible), 'Finalization has unconfirmed content')
+    _unsigned(result['repair_attempts'])
+    for key in ('elapsed_seconds', 'repair_seconds', 'shutdown_seconds'):
+        value = result[key]
+        _require(type(value) in (int, float) and math.isfinite(value) and value >= 0,
+                 'Invalid finalization duration')
+    _require(math.isclose(result['elapsed_seconds'], result['repair_seconds'] +
+                         result['shutdown_seconds'], rel_tol=1e-8, abs_tol=1e-8),
+             'Finalization stage durations differ')
+    return result

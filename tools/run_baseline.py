@@ -53,6 +53,36 @@ def nonempty_path(value):
     return Path(value)
 
 
+def shutdown_wait_seconds(options):
+    return (options.gaussian_finalize_timeout_ms / 1000 + 90
+            if options.gaussian_finalize_on_shutdown else 10)
+
+
+def stop_process(proc, timeout=10, sample=None):
+    """Wait for owner cleanup and record escalation separately from exit status."""
+    started = time.monotonic()
+    forced = False
+    if proc.poll() is None:
+        os.killpg(proc.pid, signal.SIGINT)
+        deadline = started + timeout
+        while proc.poll() is None and time.monotonic() < deadline:
+            if sample is not None:
+                sample(time.monotonic() - started)
+            try:
+                proc.wait(timeout=min(.05, max(0, deadline - time.monotonic())))
+            except subprocess.TimeoutExpired:
+                pass
+        if proc.poll() is None:
+            forced = True
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait(timeout=5)
+    return {'elapsed_seconds': time.monotonic() - started, 'forced_termination': forced}
+
+
 def parse_arguments(arguments=None):
     """Validate feature requirements before creating output or importing ROS."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -96,7 +126,15 @@ def parse_arguments(arguments=None):
                         help='New directory for online Gaussian previews')
     parser.add_argument('--gaussian-persist-submaps', action='store_true',
                         help='Persist online Gaussian submaps; requires socket/output and uses a 30 s shutdown')
+    parser.add_argument('--gaussian-finalize-on-shutdown', action='store_true',
+                        help='Repair confirmed submaps after the backend finishes; requires persistence')
+    parser.add_argument('--gaussian-finalize-timeout-ms', type=int, default=60000,
+                        help='Final repair budget in milliseconds (1..600000)')
     args = parser.parse_args(arguments)
+    if args.gaussian_finalize_on_shutdown and not args.gaussian_persist_submaps:
+        parser.error('--gaussian-finalize-on-shutdown requires --gaussian-persist-submaps')
+    if not 1 <= args.gaussian_finalize_timeout_ms <= 600000:
+        parser.error('--gaussian-finalize-timeout-ms must be in 1..600000')
     if args.gaussian_persist_submaps and not args.gaussian_socket:
         parser.error('--gaussian-persist-submaps requires --gaussian-socket and --gaussian-output')
     if bool(args.gaussian_socket) != bool(args.gaussian_output):
@@ -194,11 +232,13 @@ def main():
     odometry = []
     cloud_sizes = []
     resources = []
+    shutdown_resources = []
     lock = threading.Lock()
     seq_name = 'baseline_' + uuid.uuid4().hex
     started = time.monotonic()
     commands = []
     rospy = None
+    node = None
 
     def launch(command, name):
         handle = (output / (name + '.log')).open('w')
@@ -215,19 +255,6 @@ def main():
                                 stderr=subprocess.STDOUT, text=True, timeout=20)
         if result.returncode:
             raise RuntimeError('%s\n%s' % (command, result.stdout))
-
-    def stop(proc):
-        if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGINT)
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGTERM)
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                    proc.wait(timeout=5)
 
     try:
         node_output = package / 'Log' if args.legacy_output else output / 'node_output'
@@ -282,6 +309,10 @@ def main():
             if args.gaussian_persist_submaps:
                 run(['rosparam', 'set', '/gaussian/persist_submaps', 'true'])
                 run(['rosparam', 'set', '/gaussian/shutdown_timeout_ms', '30000'])
+            if args.gaussian_finalize_on_shutdown:
+                run(['rosparam', 'set', '/gaussian/finalize_on_shutdown', 'true'])
+                run(['rosparam', 'set', '/gaussian/finalize_timeout_ms',
+                     str(args.gaussian_finalize_timeout_ms)])
             run(['rosparam', 'set', '/gaussian/socket_path', str(args.gaussian_socket.resolve())])
             run(['rosparam', 'set', '/gaussian/output_directory', str(args.gaussian_output.resolve())])
         if args.image_queue_size is not None:
@@ -493,7 +524,16 @@ def main():
             time.sleep(0.01)
         with lock:
             saved_counts = dict(counts)
-        stop(node)
+        def sample_shutdown(elapsed):
+            try:
+                cpu = process_info.cpu_times()
+                shutdown_resources.append([elapsed, process_info.memory_info().rss,
+                                           cpu.user + cpu.system])
+            except psutil.NoSuchProcess:
+                pass
+
+        shutdown = stop_process(node, shutdown_wait_seconds(args),
+                                sample_shutdown if args.gaussian_finalize_on_shutdown else None)
         with lock:
             if geometry_observation['enabled'] and not geometry_observation['samples']:
                 geometry_observation['errors'].append('No geometry map messages received')
@@ -552,6 +592,10 @@ def main():
             'mapping_cpu_affinity': mapping_affinity,
             'image_queue_size': image_queue_size,
             'playback_wall_s': playback_wall_s, 'ros_master_port': args.port,
+            'shutdown_wall_s': shutdown['elapsed_seconds'],
+            'forced_termination': shutdown['forced_termination'],
+            'shutdown_wait_budget_s': shutdown_wait_seconds(args),
+            'peak_shutdown_rss_mib': max((row[1] for row in shutdown_resources), default=0) / 2**20,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,
             'input_count_mismatches': mismatches,
@@ -576,7 +620,8 @@ def main():
             'loop_closure_enabled': args.loop_closure,
             'geometry_timing_seconds': geometry_timings,
             'gdb_enabled': args.gdb,
-            'clean_shutdown': exited_cleanly(node.returncode, log, args.gdb),
+            'clean_shutdown': (not shutdown['forced_termination'] and
+                               exited_cleanly(node.returncode, log, args.gdb)),
             'player_returncode': player.returncode,
             'first_gaussian_preview_during_playback_s': first_gaussian_preview_seconds,
             'commands': commands,
@@ -589,6 +634,9 @@ def main():
         np.savetxt(output / 'odometry_published.tum', np.asarray(odometry), fmt='%.9f')
         np.savetxt(output / 'resources.csv', np.asarray(resources), delimiter=',',
                    header='playback_elapsed_s,rss_bytes,cpu_seconds', comments='')
+        if args.gaussian_finalize_on_shutdown:
+            np.savetxt(output / 'shutdown-resources.csv', np.asarray(shutdown_resources), delimiter=',',
+                       header='shutdown_elapsed_s,rss_bytes,cpu_seconds', comments='')
         (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps({key: summary[key] for key in ['trajectory_rows', 'lio_cycles', 'vio_cycles',
                          'input_count_mismatches', 'peak_sampled_rss_mib', 'errors', 'timing_seconds']}, indent=2), flush=True)
@@ -601,7 +649,7 @@ def main():
         if rospy is not None:
             rospy.signal_shutdown('baseline complete')
         for _, proc in reversed(processes):
-            stop(proc)
+            stop_process(proc, shutdown_wait_seconds(args) if proc is node else 10)
         for handle in log_handles:
             handle.close()
 
