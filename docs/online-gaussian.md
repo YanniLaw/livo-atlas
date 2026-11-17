@@ -242,3 +242,53 @@ CPU 确认快照在候选原地修改期间保持，跨块拒绝恢复原驻留�
 
 文件系统/GPU 长期阻塞时无法保证硬实时退出。CPU/GPU 测试、短 bag 和重复输入不能替代
 长距离数据、长期耐久或真值精度评价；当前资源上限也不代表完整覆盖或高质量稠密重建。
+
+## 可选的最终位姿收敛
+
+`gaussian.finalize_on_shutdown` 默认 `false`，保留原先的在线调度和普通 `Finish()`。
+需要最终交付时将它设为 `true`，并同时开启 Gaussian 与 `persist_submaps`。
+共用 main 先完成回环后端和 `LivoSystem`，再修复已有确认内容、保存最后一个驻留模型、
+提交目录及停止 worker。整个步骤使用 steady clock，不依赖 ROS 时钟继续前进。
+
+ROS1 在节点启动前增加：
+
+```bash
+rosparam set /gaussian/finalize_on_shutdown true
+rosparam set /gaussian/finalize_timeout_ms 60000
+```
+
+ROS2 参数文件使用 `gaussian.finalize_on_shutdown: true` 和
+`gaussian.finalize_timeout_ms: 60000`。两种接入都要求真正的 bool 和整数，修复预算范围
+为 1..600000 ms。正式持久运行仍建议显式设置原有 `gaussian.shutdown_timeout_ms: 30000`。
+
+SDK 使用 `GaussianFinalizationResult OnlineGaussianMapper::Finalize(milliseconds) noexcept`。
+调用者先成功完成自己的 backend/system，`LivoSystem::IsFinished()` 才能放行；
+单独 `SealInput()` 不够。前置条件失败不改变 mapper，可修正顺序后重试；一次被接纳的
+调用就是终端操作，随后重复调用返回缓存结果，普通 `Finish()` 和析构仍然幂等。
+
+最终位姿包含后端优化前缀和投影尾部。排空之前已发出的 accept 回执后，固定至多 32 块
+已有确认内容为 E，只修复 E 的历史几何状态。未确认候选被拒绝，missing 组不会补训练。
+纯刚性修正重用数组；组内变化仍只使用该块保存的至多 10 个视图，每视图 20 步重建。
+因此 succeeded 表示已有内容与最终位姿一致，不表示所有关键帧已训练或稠密地图完整。
+
+`finalize_timeout_ms` 覆盖排空、修复及中途切块保存。到期停止派发/接纳修复，再执行原有
+shutdown 预算内的持久收尾。正常修复完成后的最后一次保存、目录确认和 stop 单独计时，
+可跨过修复截止时间；晚到修复结果不能将 timed_out 改为 succeeded。
+在途 GPU、文件同步和 join 无法硬抢占，实际退出耗时可能更长。
+
+显式请求才新增至多 16 KiB 的 `finalization.json`，不改变 map.json 或资产 schema。
+报告记录目标、冻结的 E、引用资产、current/needs_rebuild/missing/dirty、durable、
+worker_stopped、阶段耗时及 before/after 计数。文件的 elapsed_seconds 到报告发布前为止；
+节点日志/返回 DTO 的 total_seconds 还包含报告发布。before/after 区分 Finalize 入口前与终端阶段计数；入口前也可能含 EOF 排空，
+不能单独当作纯回放吞吐。原有 Gaussian 总计数和延迟桶累计到停止为止。
+
+报告文件描述地图事实，不能自证它本身的 fsync。节点日志另有 report_persisted，只有
+status=succeeded 且 report_persisted=1 才返回成功；报告发布失败仍完成轨迹/几何消费者的
+收尾。rename 后目录同步失败保留可见报告并返回 commit_uncertain，不再次写盘或回滚。
+
+回放工具增加 `--gaussian-finalize-on-shutdown` 与
+`--gaussian-finalize-timeout-ms 60000`，要求 `--gaussian-persist-submaps` 和 worker 路径。
+启用后 SIGINT 等待为修复预算加 90 秒，另写 shutdown-resources.csv，summary 记录实际
+退出时间和 forced_termination；原 resources.csv 仍只描述在线回放。
+严格比较工具会逐资产核验 SHA、数组及完整 canonical primary，再核对最终报告、节点日志
+和正常退出。单独查看一个可见 JSON 不能证明原进程完成了持久发布。
