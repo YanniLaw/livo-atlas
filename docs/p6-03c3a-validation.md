@@ -2,7 +2,7 @@
 
 2026-11-18。实现按[设计](superpowers/specs/2026-11-18-p6-03c3a-gaussian-finalization-design.md)和
 [实施计划](superpowers/plans/2026-11-18-p6-03c3a-gaussian-finalization.md)推进。
-候选和审阅修正后的最终两组共 14 次 bag 回放均通过；最终全量 gate 和执行记录归档进行中。
+已完成阶段验收：候选和审阅修正后的最终两组共 14 次 bag 回放通过，最终全量 gate 及执行记录归档完成。
 
 ## 实现与兼容性
 
@@ -125,6 +125,18 @@ python3 tests/gaussian/finalization_deadline_test.py \
 核心 67/67、Python/CUDA 110/110、工具 76/76 在修正后重新通过；受影响的 shared/static ON、
 Noetic/Humble ON、安装消费与双端空输入/报告失败入口全部重新通过。普通 OFF 源文件和公开
 接口未受此修正影响；审阅后最终 7 次回放及 GPU 冷恢复也已完成。
+
+## 最终 gate 与归档
+
+最终在同一冻结产品上再次完成 67/67 核心、110/110 Python/CUDA、76/76 工具和 3/3 独立 GDB
+回归；五组严格比较重新读取实际资产均通过，7 次最终运行、13 块新 GPU 冷恢复及全部
+源文件/bag/节点/共享库身份核对通过。未使用候选报告替代最终重跑。
+
+执行台账、原始最终审阅及故障复现日志保存在阶段目录的 `execution-review-record/`；
+18 个归档文件及台账逐字节/SHA 核对后，仅清理本计划 scratch。归档有 9 条明确裁决，
+无延期 Minor；没有合并、推送或创建 tag。保留 `framework_completion` 开发分支。
+阶段宿主产物约 4.0 GiB，Humble 阶段约 218 MiB，总新增在约 6 GiB 目标内。
+验证产物仍在包外，跨电脑搬迁时应单独复制需要的最终数据和记录。
 
 ## 限制
 
