@@ -57,6 +57,8 @@
 
 44. [P6-03c3a Gaussian 最终收敛设计](superpowers/specs/2026-11-18-p6-03c3a-gaussian-finalization-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3a-gaussian-finalization.md)和[验证记录](p6-03c3a-validation.md)：可选终端 Finalize 已接入共用 ROS 入口，14 次成组官方回放、13 块 GPU 冷恢复及独立审阅修正后的最终复验通过；默认模式保持，已有确认内容全部 current，仍不代表完整在线 3DGS SLAM。
 
+45. [P6-03c3b 最终快照联合渲染设计](superpowers/specs/2026-11-18-p6-03c3b-snapshot-joint-rendering-design.md)：用户已选择快照先行、随后在线；首版提议显式联合一至两块，以最终相机和绑定验证坐标/遮挡，保持只读与有限资源。已完成独立可实施性检查，尚未实施。
+
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
 P1-02 已完成普通标定类型、ROS1 参数入口、相机接线、直接测试、完整回放及独立审阅问题闭环。
