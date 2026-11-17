@@ -2,7 +2,7 @@
 
 2026-11-18。实现按[设计](superpowers/specs/2026-11-18-p6-03c3a-gaussian-finalization-design.md)和
 [实施计划](superpowers/plans/2026-11-18-p6-03c3a-gaussian-finalization.md)推进。
-当前候选实现及 7 次成组 bag 验收已通过；最终整范围审阅和审阅后复验进行中。
+候选和审阅修正后的最终两组共 14 次 bag 回放均通过；最终全量 gate 和执行记录归档进行中。
 
 ## 实现与兼容性
 
@@ -39,7 +39,7 @@ Noetic/Humble 仍使用同一个 `src/app/livo_main.cc`；Humble 在此仅验证
 | ROS 无关完整核心、普通公开头 | 67/67 CTest 通过 |
 | Python/真实 CUDA 套件 | 110/110 通过，要求实际 GPU，无回退 |
 | 完整工具测试 | Python 3.10：76/76；宿主 3.8：71 通过，1 项迁移版本限制跳过 |
-| Noetic 参数及完整 catkin 汇总 | 12/12 参数；catkin_test_results 输出 1318 tests、0 failures |
+| Noetic 参数及完整 catkin 汇总 | 12/12 参数；最终 catkin_test_results 输出 1324 tests、0 failures |
 | Humble 完整构建与测试 | 70/70 CTest，参数 14/14 |
 | 双 ROS 共用入口 | C1、默认持久、最终收敛空集合、报告发布失败均通过；模拟时钟暂停 |
 | 双 ROS 编译关闭 | 运行时请求在创建输出前拒绝，关闭的节点未链接可选 Gaussian 库 |
@@ -90,7 +90,24 @@ effective_training 165→174、checkpoint 29→38。修复 13.543290s，最后�
 受控真实观测还通过拒绝恢复、刚性零步重用、窗口外成员变化与跳版本重建、32/33 容量边界、
 提交不确定时资产保留。其位姿修正和容量 ID 是合成序列，RGB/深度来自真实资产，
 不能当作第二段独立道路数据。GPU 峰值 allocated 101,128,704、reserved 117,440,512 字节。
-最终复验数据将在实际完成后补入，本文件当前不宣告最终阶段验收通过。
+审阅修正后的 `final` 7 次独立回放也全部严格通过，前端数组、517 个原始文件、发布语义、
+1352 LIO / 1351 VIO、172 帧 V2 和后端 2 次接纳仍一致。默认持久模式保持 5 current / 8 needs；
+Finalize 为 13 current / 0 needs，missing、dirty、未引用均为 0，报告和进程正常结束。
+修复 12.970883s，持久收尾 0.389400s，节点总退出 14.478s。
+入口前 accepted/effective/rebuild/checkpoint 为 173/166/10/29，结束为 181/174/18/38；
+本次终端重建 8 块，不能把这 8 次重建计入在线吞吐。最终引用 13 个资产、
+697,882,817 字节，map_sequence=408。
+
+新 GPU 再次逐块冷恢复最终 13 块，参数/origin ID 一致、渲染有限，
+2 张匹配保存预览最大 RGB8 差异 0；受控真实观测全套再次通过。
+GPU 峰值 allocated/reserved 仍为 101,128,704/117,440,512 字节。
+
+产品实现截止提交 `83299d1`。节点二进制仍为上述 SHA（修正在独立可选库）；最终 Gaussian 库：
+`32327b138cad2f18749354708c818af67bf18bcc77af8ecf26d05c0271290d0c`。Humble 源副本逐文件核对同样 279 个产品文件；最终库和节点身份单独记录。
+
+新阶段仅清理了已完成候选验证的 122 个重复 NPZ，保留各自 manifest、报告、文件哈希及
+`candidate-large-files-cleanup.json`，候选目录因此不能再次当作完整资产输入。
+最终 `g-final-full-default` 和 `g-final-full-finalize` 保留完整资产，原 C2b 数据和依赖不动。
 
 ## 独立审阅与修正
 
@@ -105,8 +122,9 @@ python3 tests/gaussian/finalization_deadline_test.py \
   --binary /path/to/phase/core/gaussian_finalization_test
 ```
 
-核心 67/67、Python/CUDA 110/110、工具 76/76 在修正后重新通过，受影响的可选 ON 构建和
-安装消费正在复验；最终成组回放尚待完成。普通 OFF 源文件及公开接口未受此修正影响。
+核心 67/67、Python/CUDA 110/110、工具 76/76 在修正后重新通过；受影响的 shared/static ON、
+Noetic/Humble ON、安装消费与双端空输入/报告失败入口全部重新通过。普通 OFF 源文件和公开
+接口未受此修正影响；审阅后最终 7 次回放及 GPU 冷恢复也已完成。
 
 ## 限制
 
