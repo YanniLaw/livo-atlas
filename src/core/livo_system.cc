@@ -253,10 +253,15 @@ void LivoSystem::Finish() {
     writer_.Finish();
     SealInput();
     if (online_) online_->Finish();
+    finished_ = true;
   } catch (...) {
     submap_error_ = std::current_exception();
     throw;
   }
+}
+
+bool LivoSystem::IsFinished() const noexcept {
+  return finished_ && !submap_error_;
 }
 
 void LivoSystem::AppendSubmap(const Submap& submap) {

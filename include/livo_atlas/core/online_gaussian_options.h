@@ -9,6 +9,8 @@ namespace livo_atlas {
 struct OnlineGaussianOptions {
   bool enabled = false;
   bool persist_submaps = false;
+  bool finalize_on_shutdown = false;
+  std::chrono::milliseconds finalize_timeout{60000};
   std::filesystem::path socket_path;
   std::filesystem::path output_directory;
   std::chrono::milliseconds connect_timeout{10000};

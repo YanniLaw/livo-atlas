@@ -22,6 +22,9 @@ void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options) {
   if (options.persist_submaps && !options.enabled)
     throw std::invalid_argument(
         "Gaussian persistence requires gaussian.enabled");
+  if (options.finalize_on_shutdown &&
+      (!options.enabled || !options.persist_submaps))
+    throw std::invalid_argument("Gaussian finalization requires persistence");
   if (!options.enabled) return;
   if (options.socket_path.empty() || options.output_directory.empty() ||
       options.connect_timeout.count() <= 0 ||
@@ -32,6 +35,10 @@ void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options) {
         "Online Gaussian requires socket, output directory and positive "
         "timeouts");
   }
+  if (options.finalize_timeout.count() < 1 ||
+      options.finalize_timeout.count() > 600000)
+    throw std::invalid_argument(
+        "Gaussian finalization timeout is outside 1..600000 ms");
 }
 
 void ValidateOnlineGaussianPaths(const OnlineGaussianOptions& options,

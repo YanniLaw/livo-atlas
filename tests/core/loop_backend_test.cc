@@ -185,6 +185,14 @@ TEST_F(LoopBackendTest, TrueProposalCommitsBeforeFinalFinish) {
       << testing::PrintToString(report.issues);
 }
 
+TEST_F(LoopBackendTest, LateBackendFailureInvalidatesCompletion) {
+  system_->Finish();
+  ASSERT_TRUE(system_->IsFinished());
+  LoopBackendTestPeer::FailCompletedSystem(*system_);
+  EXPECT_FALSE(system_->IsFinished());
+  EXPECT_THROW(system_->Finish(), std::runtime_error);
+}
+
 TEST_F(LoopBackendTest, PostPublicationFailureIsCommittedAndTerminal) {
   for (int variant = 0; variant < 2; ++variant) {
     auto local_options = options_;

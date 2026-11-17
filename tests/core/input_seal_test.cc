@@ -1,5 +1,3 @@
-#include "livo_atlas/core/livo_system.h"
-
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -10,6 +8,7 @@
 #include <string>
 
 #include "core/fixtures.h"
+#include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/io/online_submap_store.h"
 
 namespace livo_atlas {
@@ -68,6 +67,7 @@ class InputSealTest : public testing::Test {
 
 TEST_F(InputSealTest, SealAllowsCommitBeforeFinish) {
   LivoSystem system(options_);
+  EXPECT_FALSE(system.IsFinished());
   int seals = 0, pose_events = 0;
   system.SetOnlineSubmapCallback([&](const auto& update) {
     for (const auto& group : update.revisions)
@@ -78,6 +78,7 @@ TEST_F(InputSealTest, SealAllowsCommitBeforeFinish) {
   const auto before = system.GetPoseSnapshot();
   system.SealInput();
   system.SealInput();
+  EXPECT_FALSE(system.IsFinished());
   EXPECT_EQ(seals, 1);
   ExpectClosedInput(system);
   system.ApplyPoseUpdate(Update(*before));
@@ -86,6 +87,7 @@ TEST_F(InputSealTest, SealAllowsCommitBeforeFinish) {
   EXPECT_EQ(pose_events, 1);
   system.Finish();
   system.Finish();
+  EXPECT_TRUE(system.IsFinished());
   EXPECT_EQ(seals, 1);
   ExpectClosedInput(system);
   EXPECT_THROW(system.ApplyPoseUpdate(Update(*system.GetPoseSnapshot())),
@@ -143,6 +145,7 @@ TEST_F(InputSealTest, SealFailureIsTerminal) {
     }
   }
   EXPECT_EQ(system.GetPoseSnapshot()->version, 0u);
+  EXPECT_FALSE(system.IsFinished());
   EXPECT_EQ(Files(dataset), saved);
 }
 
@@ -161,6 +164,7 @@ TEST_F(InputSealTest, PublishedPoseSurvivesNotificationFailure) {
   const auto saved = Files(dataset);
   EXPECT_THROW(system.SealInput(), std::runtime_error);
   EXPECT_THROW(system.Finish(), std::runtime_error);
+  EXPECT_FALSE(system.IsFinished());
   EXPECT_THROW(system.ProcessNext({}), std::runtime_error);
   EXPECT_THROW(system.AddLidar(test::Scan(102)), std::runtime_error);
   EXPECT_EQ(Files(dataset), saved);

@@ -88,6 +88,9 @@ class LivoSystem {
   // A submap persistence failure is terminal: subsequent processing and Finish
   // rethrow the original error. Already committed data remains readable.
   void Finish();
+  // Input sealing still permits pose updates; only successful Finish freezes
+  // the source. A later terminal backend failure revokes completion.
+  bool IsFinished() const noexcept;
 
  private:
   friend class LoopBackend;
@@ -119,6 +122,7 @@ class LivoSystem {
   LivoExporter writer_;
   std::uint64_t next_keyframe_id_ = 0;
   bool input_sealed_ = false;
+  bool finished_ = false;
   bool loop_pose_updates_claimed_ = false;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
   std::uint64_t image_count_ = 0;

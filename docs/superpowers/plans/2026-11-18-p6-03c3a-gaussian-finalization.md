@@ -79,7 +79,7 @@ Python gate：`"$LIVO_PHASE/run-python.sh" -m unittest discover -s tests/3dgs_pr
 
 **Interfaces:** 提供 `bool LivoSystem::IsFinished() const noexcept`；OnlineGaussianOptions 新增 bool finalize_on_shutdown=false、milliseconds finalize_timeout{60000}；提供上述 DTO。
 
-- [ ] **Step 1: 写 RED。** 在真实 InputSealTest 中新增/扩充以下断言：
+- [x] **Step 1: 写 RED。** 在真实 InputSealTest 中新增/扩充以下断言：
 
 ```cpp
 EXPECT_FALSE(system.IsFinished());
@@ -91,10 +91,10 @@ EXPECT_TRUE(system.IsFinished());
 
   封口/写入异常时查询为假；后端失败后查询为假。配置测试用真实共享 loader 拒绝
   finalize=true 而 enabled/persist 为假，预算0/-1/600001，接受1/60000/600000，输出尚未创建。
-- [ ] **Step 2: 运行 RED。** 新构建的 input_seal_test/global_output_options_test 缺少 API/字段而编译失败；先观察缺接口错误，不先改产品。
-- [ ] **Step 3: 实现。** 成功 Finish 后置完成位，查询同时排除终端 submap_error；不改变 SealInput/算法。补普通配置/DTO，接口不引入 ROS/GPU。
-- [ ] **Step 4: GREEN。** 两目标及相关 loop_backend_test 通过，完整核心 CTest 通过，公开头检查通过。Expected: 新状态边界和旧核心行为均通过。
-- [ ] **Step 5: 提交并 task-done。** `feat: expose completed source and Gaussian finalization options`；任务 gate 为全核心 CTest。
+- [x] **Step 2: 运行 RED。** 新构建的 input_seal_test/global_output_options_test 缺少 API/字段而编译失败；先观察缺接口错误，不先改产品。
+- [x] **Step 3: 实现。** 成功 Finish 后置完成位，查询同时排除终端 submap_error；不改变 SealInput/算法。补普通配置/DTO，接口不引入 ROS/GPU。
+- [x] **Step 4: GREEN。** 两目标及相关 loop_backend_test 通过，完整核心 CTest 通过，公开头检查通过。Expected: 新状态边界和旧核心行为均通过。
+- [x] **Step 5: 提交并 task-done。** `feat: expose completed source and Gaussian finalization options`；任务 gate 为全核心 CTest。
 
 ### Task 2: 最终报告的有界持久发布
 

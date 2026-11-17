@@ -1,5 +1,7 @@
 #include "livo_atlas/core/global_output_options.h"
 
+#include <gtest/gtest.h>
+
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -8,8 +10,6 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "core/fixtures.h"
 #include "livo_atlas/core/livo_config.h"
@@ -99,6 +99,33 @@ TEST_F(GlobalOutputOptionsTest, DisabledPreservesLegacyConfiguration) {
   EXPECT_FALSE(config.system.keyframes.enabled);
   EXPECT_FALSE(config.system.submaps.enabled);
   EXPECT_FALSE(config.loop_closure_enabled);
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
+TEST_F(GlobalOutputOptionsTest,
+       GaussianFinalizationRequiresPersistenceAndBudget) {
+  GlobalParameters parameters(directory_);
+  EXPECT_FALSE(LoadLivoConfig(parameters).gaussian.finalize_on_shutdown);
+  EXPECT_EQ(LoadLivoConfig(parameters).gaussian.finalize_timeout.count(),
+            60000);
+  parameters.booleans_["gaussian.finalize_on_shutdown"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["gaussian.enabled"] = true;
+  parameters.strings_["gaussian.socket_path"] = "/tmp/finalize-test.sock";
+  parameters.strings_["gaussian.output_directory"] = "/tmp/finalize-output";
+  parameters.EnableOnlineStorage();
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["gaussian.persist_submaps"] = true;
+  for (const int timeout : {0, -1, 600001}) {
+    parameters.integers_["gaussian.finalize_timeout_ms"] = timeout;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  for (const int timeout : {1, 60000, 600000}) {
+    parameters.integers_["gaussian.finalize_timeout_ms"] = timeout;
+    const auto options = LoadLivoConfig(parameters).gaussian;
+    EXPECT_TRUE(options.finalize_on_shutdown);
+    EXPECT_EQ(options.finalize_timeout.count(), timeout);
+  }
   EXPECT_FALSE(fs::exists(directory_));
 }
 

@@ -1,7 +1,9 @@
 #ifndef LIVO_ATLAS_TESTS_CORE_LOOP_BACKEND_FIXTURES_H_
 #define LIVO_ATLAS_TESTS_CORE_LOOP_BACKEND_FIXTURES_H_
 
+#include <exception>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 
 #include "backend/loop_dataset_fixtures.h"
@@ -16,6 +18,11 @@ namespace livo_atlas {
 // around the real runner. Production callers cannot replace admission.
 class LoopBackendTestPeer {
  public:
+  static void FailCompletedSystem(LivoSystem& system) {
+    system.FailLoopBackend(std::make_exception_ptr(
+        std::runtime_error("Terminal backend storage failure")));
+  }
+
   static std::unique_ptr<LoopBackend> Create(LivoSystem& system,
                                              LoopAdmissionOptions options,
                                              LoopTaskRunner runner) {
