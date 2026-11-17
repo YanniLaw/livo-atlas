@@ -1,10 +1,9 @@
-#include "livo_atlas/gaussian/online_gaussian_mapper.h"
-
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
+#include "livo_atlas/gaussian/online_gaussian_mapper.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -86,6 +85,10 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
       foreground_attempts_ = 0;
     }
   }
+  if (finalization_phase_ == FinalizationPhase::kRepairing &&
+      command.kind == CommandKind::kActivate &&
+      command.operation == GaussianOperation::kRebuild)
+    ++finalization_result_->repair_attempts;
   command_ = std::move(command);
   busy_ = true;
   lock.unlock();
@@ -94,8 +97,8 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
 }
 
 void OnlineGaussianMapper::EndSubmapWork(bool retry) {
-  if (retry && !finishing_ && !pending_ && submap_work_ &&
-      submap_work_->kind == CommandKind::kView) {
+  if (retry && !finishing_ && finalization_phase_ == FinalizationPhase::kNone &&
+      !pending_ && submap_work_ && submap_work_->kind == CommandKind::kView) {
     pending_ = submap_work_->source;
     stats_.pending = stats_.peak_pending = 1;
   }
@@ -110,7 +113,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     command = *candidate_command_;
     command.kind = CommandKind::kDecision;
     command.preview = candidate_;
-    command.accept = !finishing_ && CurrentTarget(command.target);
+    command.accept = CanAcceptSubmapCandidate(command);
     if (!command.accept) ++stats_.stale;
     QueueSubmapCommand(std::move(command));
     return;
@@ -137,16 +140,23 @@ void OnlineGaussianMapper::DispatchSubmaps() {
   const auto resident =
       std::find_if(map.entries.begin(), map.entries.end(),
                    [](const auto& entry) { return entry.resident; });
-  if (finishing_ && !busy_) EndSubmapWork(false);
-  if (!finishing_ && !submap_work_) {
+  const bool quiescing = finalization_phase_ == FinalizationPhase::kQuiescing;
+  const bool repairing = finalization_phase_ == FinalizationPhase::kRepairing;
+  if ((finishing_ || quiescing) && !busy_) EndSubmapWork(false);
+  if (!finishing_ && !quiescing && !submap_work_) {
     auto repair = map_index_.NextRepair();
-    if (repair && (!pending_ || foreground_attempts_ >= 2)) {
+    if (repair && (repairing || !pending_ || foreground_attempts_ >= 2)) {
+      if (repairing &&
+          std::find(finalization_result_->eligible_submap_ids.begin(),
+                    finalization_result_->eligible_submap_ids.end(),
+                    *repair) == finalization_result_->eligible_submap_ids.end())
+        throw std::runtime_error("Finalization content set changed");
       command.kind = CommandKind::kActivate;
       command.target = map_index_.MakeTarget(*repair, 0);
       command.source.observed_at = Clock::now();
       map_index_.MarkRepairAttempt(*repair);
       submap_work_ = command;
-    } else if (pending_) {
+    } else if (!repairing && pending_) {
       if (!map_index_.CanTrain(pending_->submap.primary.id)) {
         ++stats_.resource_limited;
         pending_.reset();
@@ -160,7 +170,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
         pending_.reset();
         stats_.pending = 0;
       }
-    } else if (resident != map.entries.end() &&
+    } else if (!repairing && resident != map.entries.end() &&
                (!remote_target_ ||
                 remote_target_->pose_version != poses_->version)) {
       command.kind = CommandKind::kActivate;
@@ -230,7 +240,8 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     QueueSubmapCommand(std::move(command));
     return;
   }
-  if (!submap_work_ || finishing_) return;
+  if (!submap_work_ || finishing_ || quiescing) return;
+  if (repairing && Clock::now() >= finalization_deadline_) return;
 
   command = *submap_work_;
   const auto id = command.target.group.primary.id;

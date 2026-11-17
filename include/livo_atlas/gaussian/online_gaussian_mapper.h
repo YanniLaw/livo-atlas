@@ -79,6 +79,10 @@ class OnlineGaussianMapper {
   void Observe(const OnlineSubmapUpdate& update) noexcept;
   void Poll() noexcept;
   void Finish() noexcept;
+  // Terminal owner-thread operation after the source and its backend finish.
+  // The source must remain alive for this call. Ordinary Finish stays fast.
+  GaussianFinalizationResult Finalize(
+      std::chrono::milliseconds timeout) noexcept;
   std::shared_ptr<const GaussianPreview> GetLatestPreview() const;
   OnlineGaussianStats GetStats() const;
   std::shared_ptr<const GaussianMapSnapshot> GetMapSnapshot() const;
@@ -160,6 +164,9 @@ class OnlineGaussianMapper {
   void ConfirmPreview(const std::shared_ptr<GaussianPreview>& preview,
                       Clock::time_point observed_at);
   bool SubmapsDrained() const;
+  bool CanAcceptSubmapCandidate(const Command& command) const;
+  bool FinalizationQuiescent() const;
+  bool FinalizationRepairsComplete() const;
   void CloseSocket() noexcept;
   void HandleReply(Reply reply);
   void Dispatch();
@@ -168,6 +175,7 @@ class OnlineGaussianMapper {
   bool IsCurrent(std::uint64_t generation, std::uint64_t submap_id,
                  std::uint64_t pose_version) const;
 
+  LivoSystem& system_;
   const CameraConfig camera_;
   const OnlineGaussianOptions options_;
   const std::string session_id_;
@@ -198,6 +206,11 @@ class OnlineGaussianMapper {
   bool foreground_started_ = false;
   bool finishing_ = false, published_since_work_ = false;
   bool checkpoint_needs_map_ = false;
+  enum class FinalizationPhase { kNone, kQuiescing, kRepairing };
+  FinalizationPhase finalization_phase_ = FinalizationPhase::kNone;
+  std::shared_ptr<const PoseSnapshot> final_poses_;
+  Clock::time_point finalization_deadline_;
+  std::optional<GaussianFinalizationResult> finalization_result_;
   std::atomic<bool> stop_acknowledged_{false};
 
   std::mutex mutex_;

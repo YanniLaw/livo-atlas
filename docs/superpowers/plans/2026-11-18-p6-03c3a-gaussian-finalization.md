@@ -115,7 +115,7 @@ EXPECT_TRUE(system.IsFinished());
 
 **Interfaces:** 消费 Task1/2；提供 `GaussianFinalizationResult OnlineGaussianMapper::Finalize(std::chrono::milliseconds) noexcept`。仅前置失败可重试，接纳后终端/幂等；原 Finish 不自动修复。
 
-- [ ] **Step 1: 写 RED。** 抽测试 peer 不改行为，新 fixture 从真实 LivoSystem LO 生产关键帧并转发拥有数据的受控 RGB/深度到 mapper；使用 system 的正式快照、更新和封口，不伪造 IsFinished。初始新 API 缺失编译失败。
+- [x] **Step 1: 写 RED。** 抽测试 peer 不改行为，新 fixture 从真实 LivoSystem LO 生产关键帧并转发拥有数据的受控 RGB/深度到 mapper；使用 system 的正式快照、更新和封口，不伪造 IsFinished。初始新 API 缺失编译失败。
   必须实现下列行为测试，各断言 status、E、目录/资产、stop、文件及原始数据，而非私有成员：
   RequiresCompletedSourceAndValidBudget；FinalPoseIncludesBackendTail；RepairsAllConfirmedBlocksAndFlushesLastDirty；
   EmptyAndMissingStayExplicit；CapacityKeepsMissing；RepeatedFinalizeDoesNotRetrain；FastFinishStaysFast；
@@ -123,11 +123,11 @@ EXPECT_TRUE(system.IsFinished());
   FrozenTargetMismatchCannotSucceed；RigidContentDoesNotRewriteArrays；
   QuiescingTimeoutDoesNotFreezeEmptySet；CandidateAfterDeadlineIsRejected；LateAcceptedCommitStaysTimedOut；
   CleanupMayOutliveRepairBudget；WrongStopAndUncertainMapCannotSucceed；ReportFailureKeepsActualConvergence。
-- [ ] **Step 2: 运行 RED。** 构建 gaussian_finalization_test，Expected: Finalize 未定义/声明；旧 peer 提取后的23个 persistent 用例先独立 GREEN，不能以提取引入失败替代 RED。
-- [ ] **Step 3: 实现前置/排空。** 只读核对成功 system、完整最终 poses/封口组，保存冻结身份；排空旧命令、拒绝尚未 accept 的候选，已 accept 回执按原协议记账后固定 E。预算从接纳起计。
-- [ ] **Step 4: 实现修复/收尾。** 明确 running/quiescing/repairing/stopping，修复阶段只选择 E，正常截止前无修复接纳在途才转收尾。记录尝试/计数；沿原 Finish 链保存/确认/prune/stop；事后计算结果并写报告，发布错误只改返回发布字段，最后缓存终端结果。
-- [ ] **Step 5: GREEN。** 受控 test peer 的 hold/真实回执条件控制竞争与时限，不用产品测试钩子。新用例、旧 C1/C2b/协议/写盘及全核心 CTest 通过；真实 worker 验证一次多块 Finalize，GPU 跳过不计成功。
-- [ ] **Step 6: 提交并 task-done。** `feat: finalize Gaussian submaps against completed poses`；gate 全核心 CTest+完整 Python/CUDA。
+- [x] **Step 2: 运行 RED。** 构建 gaussian_finalization_test，Expected: Finalize 未定义/声明；旧 peer 提取后的23个 persistent 用例先独立 GREEN，不能以提取引入失败替代 RED。
+- [x] **Step 3: 实现前置/排空。** 只读核对成功 system、完整最终 poses/封口组，保存冻结身份；排空旧命令、拒绝尚未 accept 的候选，已 accept 回执按原协议记账后固定 E。预算从接纳起计。
+- [x] **Step 4: 实现修复/收尾。** 明确 running/quiescing/repairing/stopping，修复阶段只选择 E，正常截止前无修复接纳在途才转收尾。记录尝试/计数；沿原 Finish 链保存/确认/prune/stop；事后计算结果并写报告，发布错误只改返回发布字段，最后缓存终端结果。
+- [x] **Step 5: GREEN。** 受控 test peer 的 hold/真实回执条件控制竞争与时限，不用产品测试钩子。新用例、旧 C1/C2b/协议/写盘及全核心 CTest 通过；真实 worker 验证一次多块 Finalize，GPU 跳过不计成功。
+- [x] **Step 6: 提交并 task-done。** `feat: finalize Gaussian submaps against completed poses`；gate 全核心 CTest+完整 Python/CUDA。
 
 ### Task 4: 共用 ROS 入口、回放等待与严格验收
 

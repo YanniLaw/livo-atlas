@@ -13,17 +13,16 @@
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <opencv2/core/persistence.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <random>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
 
-#include <opencv2/core/persistence.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
-
-#include "gaussian/wire_protocol.h"
 #include "gaussian/mapper_io.h"
+#include "gaussian/wire_protocol.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/io/reconstruction_view.h"
 #include "mapping/pose_math.h"
@@ -128,7 +127,8 @@ void ApplyRevision(std::optional<OnlineSubmap>* current,
 OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
                                            CameraConfig camera,
                                            OnlineGaussianOptions options)
-    : camera_(std::move(camera)),
+    : system_(system),
+      camera_(std::move(camera)),
       options_(std::move(options)),
       session_id_(NewSessionId()),
       map_index_(session_id_) {
@@ -196,6 +196,10 @@ bool OnlineGaussianMapper::IsCurrent(std::uint64_t generation,
 
 void OnlineGaussianMapper::Observe(const OnlineSubmapUpdate& update) noexcept {
   if (!options_.enabled || finished_ || failed_) return;
+  if (finalization_result_) {
+    Fail("Observation after Gaussian finalization admission");
+    return;
+  }
   const auto start = Clock::now();
   try {
     if (options_.persist_submaps) {
