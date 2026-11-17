@@ -47,8 +47,8 @@ Noetic/Humble 仍使用同一个 `src/app/livo_main.cc`；Humble 在此仅验证
 | Humble ament 安装消费 | 新的 IsFinished/Finalize 符号由安装库解析 |
 | 真实 worker 新 API | 两块已有内容最终修复、最后保存、报告发布及正常停止通过 |
 
-受控终端测试有 22 个 CPU 场景，另一个实际 worker 用例独立运行，默认的 GPU gate skip
-不计为 CUDA 成功。覆盖晚到 accept、未决候选拒绝、前台重试阻塞历史修复、尾部位姿、
+受控终端测试有 22 个常规 CPU 场景、3 个独立 GDB 调度暂停场景，另一个实际 worker 用例独立运行。
+普通 CTest 跳过外部控制的 GDB/GPU 用例，其独立实际运行才计为成功。覆盖晚到 accept、未决候选拒绝、前台重试阻塞历史修复、尾部位姿、
 空/缺失/容量、幂等、刚性重用、修复超时和独立收尾、错误 stop、map 提交不确定、
 报告 rename 后目录同步失败。原持久 peer 和协议/写盘测试继续通过。
 报告发布失败的双 ROS 用例会返回 1，同时仍结束其余轨迹及几何消费者。
@@ -91,6 +91,22 @@ effective_training 165→174、checkpoint 29→38。修复 13.543290s，最后�
 提交不确定时资产保留。其位姿修正和容量 ID 是合成序列，RGB/深度来自真实资产，
 不能当作第二段独立道路数据。GPU 峰值 allocated 101,128,704、reserved 117,440,512 字节。
 最终复验数据将在实际完成后补入，本文件当前不宣告最终阶段验收通过。
+
+## 独立审阅与修正
+
+一次完整独立审阅发现 1 项 Important、无 Critical/Minor。在线程被调度暂停或目标准备跨过
+截止时间后，旧实现可能仍派发修复、接纳候选或进入成功收尾。三种边界均已用真实 owner +
+GDB 300ms 暂停、200ms 预算确定性复现；修正后均通过。产品没有新增测试时钟或调度钩子。
+目标校验后、mailbox 提交前及成功收尾入口重新核对 steady deadline，原有允许慢 cleanup
+超出修复预算的正例仍通过。按计划只做这一轮统一修复，不追加复审。
+
+```bash
+python3 tests/gaussian/finalization_deadline_test.py \
+  --binary /path/to/phase/core/gaussian_finalization_test
+```
+
+核心 67/67、Python/CUDA 110/110、工具 76/76 在修正后重新通过，受影响的可选 ON 构建和
+安装消费正在复验；最终成组回放尚待完成。普通 OFF 源文件及公开接口未受此修正影响。
 
 ## 限制
 

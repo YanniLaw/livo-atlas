@@ -60,6 +60,18 @@ bool OnlineGaussianMapper::CurrentTarget(const GaussianTarget& target) const {
 bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
   std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
   if (!lock || command_ || reply_) return false;
+  // Target preparation and validation may outlive the earlier dispatch check.
+  // Recheck at mailbox admission, before accounting or queuing new work.
+  if (finalization_phase_ == FinalizationPhase::kRepairing &&
+      Clock::now() >= finalization_deadline_) {
+    if (command.kind == CommandKind::kActivate ||
+        command.kind == CommandKind::kView)
+      return false;
+    if (command.kind == CommandKind::kDecision && command.accept) {
+      command.accept = false;
+      ++stats_.stale;
+    }
+  }
   if (command.kind != CommandKind::kDecision &&
       command.kind != CommandKind::kSave &&
       command.kind != CommandKind::kWriteMap &&

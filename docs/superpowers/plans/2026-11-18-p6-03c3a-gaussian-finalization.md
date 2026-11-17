@@ -150,7 +150,7 @@ EXPECT_TRUE(system.IsFinished());
 
 - [x] **Step 1: 构建矩阵。** 普通 shared/static OFF/ON、公开头/安装消费者；Noetic/Humble OFF/ON与真实入口/typed参数、Humble ament消费者。记录是否真实GPU，不把受控peer算GPU。
 - [x] **Step 2: 候选实测。** 同源码/二进制/共享配置/CPU，10秒 OFF/原持久/Finalize 三组，完整 bag 三组；C1另短段。核验bag/源/库hash；四数组逐值、发布语义、原始文件、后端最终状态一致。Finalize应13已有内容全部current、missing/dirty/unreferenced=0，另新GPU逐块冷恢复；阴性超时/故障明确失败不放宽检查。
-- [ ] **Step 3: 文档/候选提交及一次独立整范围审阅。** 写准确环境/命令/来源身份、在线与postlude分开、时间/覆盖局限、报告不确定。按 Review Focus 审阅；Important 各先RED再统一修复，不追加复审；Minor记录延期，所有裁决进台账。
+- [x] **Step 3: 文档/候选提交及一次独立整范围审阅。** 写准确环境/命令/来源身份、在线与postlude分开、时间/覆盖局限、报告不确定。按 Review Focus 审阅；Important 各先RED再统一修复，不追加复审；Minor记录延期，所有裁决进台账。
 - [ ] **Step 4: 最终复验。** 修复后重建受影响矩阵，并冻结最后产品源码重跑成组三种模式和C1、真实GPU冷恢复，不能沿用修复前二进制证据。任务级gate重跑全核心+完整Python/CUDA+两工具suite并检查正式报告/hash。
 - [ ] **Step 5: 提交/task-done/归档。** 文档状态只在实际完成后勾选；保留本分支，归档本计划执行台账和审阅原文后仅清本计划scratch。不得合并/推送/tag，保护刚清理后保留的依赖和旧正式证据。
 

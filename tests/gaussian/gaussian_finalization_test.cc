@@ -431,6 +431,53 @@ TEST_F(GaussianFinalizationTest, CleanupMayOutliveRepairBudget) {
   EXPECT_GE(result.shutdown_seconds, .35);
 }
 
+TEST_F(GaussianFinalizationTest, CompletionCheckAfterDeadlineCannotSucceed) {
+  if (!std::getenv("LIVO_TEST_FINALIZATION_DEADLINE"))
+    GTEST_SKIP()
+        << "Run finalization_deadline_test.py for controlled descheduling";
+  Populate(1);
+  const auto result = Finalize(200ms);
+  // The external debugger pauses at the completion check, after the loop's
+  // initial time check. The pause must occur before cleanup is admitted.
+  EXPECT_GE(result.repair_seconds, .3);
+  EXPECT_EQ(result.status, GaussianFinalizationStatus::kTimedOut);
+  EXPECT_TRUE(result.eligible_set_frozen);
+  EXPECT_TRUE(result.durable);
+  EXPECT_TRUE(result.worker_stopped);
+  EXPECT_TRUE(result.report_persisted) << result.report_error;
+  EXPECT_EQ(result.current, 1u);
+}
+
+TEST_F(GaussianFinalizationTest, RebuildDispatchAfterDeadlineIsSkipped) {
+  if (!std::getenv("LIVO_TEST_FINALIZATION_DEADLINE"))
+    GTEST_SKIP()
+        << "Run finalization_deadline_test.py for controlled descheduling";
+  Populate(2);
+  Correct();
+  const auto result = Finalize(200ms);
+  EXPECT_EQ(result.status, GaussianFinalizationStatus::kTimedOut);
+  EXPECT_TRUE(result.durable);
+  EXPECT_TRUE(result.worker_stopped);
+  EXPECT_EQ(result.repair_attempts, 0u);
+  EXPECT_EQ(peer_->rebuilds, 0);
+  EXPECT_EQ(result.needs_rebuild, 1u);
+}
+
+TEST_F(GaussianFinalizationTest, CandidateValidationAfterDeadlineIsRejected) {
+  if (!std::getenv("LIVO_TEST_FINALIZATION_DEADLINE"))
+    GTEST_SKIP()
+        << "Run finalization_deadline_test.py for controlled descheduling";
+  Populate(2);
+  Correct();
+  const auto result = Finalize(200ms);
+  EXPECT_EQ(result.status, GaussianFinalizationStatus::kTimedOut);
+  EXPECT_TRUE(result.durable);
+  EXPECT_TRUE(result.worker_stopped);
+  EXPECT_EQ(result.after.accepted, result.before.accepted);
+  EXPECT_EQ(result.needs_rebuild, 1u);
+  EXPECT_EQ(peer_->discards, 1);
+}
+
 TEST_F(GaussianFinalizationTest, WrongStopCannotSucceed) {
   Populate(1);
   peer_->wrong_stop = true;

@@ -37,13 +37,15 @@ bool OnlineGaussianMapper::CanAcceptSubmapCandidate(
     return false;
   if (finalization_phase_ == FinalizationPhase::kRepairing) {
     const auto& ids = finalization_result_->eligible_submap_ids;
-    if (!system_.IsFinished() || Clock::now() >= finalization_deadline_ ||
+    if (!system_.IsFinished() ||
         command.operation != GaussianOperation::kRebuild ||
         std::find(ids.begin(), ids.end(), command.target.group.primary.id) ==
             ids.end())
       return false;
   }
-  return CurrentTarget(command.target);
+  return CurrentTarget(command.target) &&
+         (finalization_phase_ != FinalizationPhase::kRepairing ||
+          Clock::now() < finalization_deadline_);
 }
 
 bool OnlineGaussianMapper::FinalizationQuiescent() const {
@@ -160,7 +162,10 @@ GaussianFinalizationResult OnlineGaussianMapper::Finalize(
       }
       if (finalization_phase_ == FinalizationPhase::kRepairing &&
           FinalizationRepairsComplete()) {
-        repaired = true;
+        // Snapshot/completion checking can cross the deadline. Only the tail
+        // admitted before it expires gets the independent cleanup budget.
+        timed_out = Clock::now() >= finalization_deadline_;
+        repaired = !timed_out;
         break;
       }
       Poll();
