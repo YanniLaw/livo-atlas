@@ -1,22 +1,21 @@
 #include "livo_atlas/io/gaussian_map_writer.h"
 
 #include <fcntl.h>
+#include <gtest/gtest.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include <Eigen/Geometry>
 #include <cerrno>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <string>
 #include <system_error>
-
-#include <Eigen/Geometry>
-#include <gtest/gtest.h>
-#include <opencv2/core.hpp>
 
 #include "livo_atlas/gaussian/gaussian_map_index.h"
 
@@ -32,6 +31,7 @@ enum class Fault {
 };
 Fault fault = Fault::kNone;
 std::string output_path;
+std::string temporary_name = "map.tmp.json";
 
 std::string DescriptorPath(int fd) {
   char value[4096];
@@ -47,7 +47,8 @@ std::string DescriptorPath(int fd) {
 extern "C" int fsync(int fd) {
   const auto path = DescriptorPath(fd);
   const bool fail =
-      (fault == Fault::kFileSync && path == output_path + "/map.tmp.json") ||
+      (fault == Fault::kFileSync &&
+       path == output_path + "/" + temporary_name) ||
       (fault == Fault::kDirectorySync && path == output_path) ||
       (fault == Fault::kParentSync &&
        path == std::filesystem::path(output_path).parent_path().string());
@@ -60,7 +61,7 @@ extern "C" int fsync(int fd) {
 
 extern "C" int close(int fd) {
   const bool fail = fault == Fault::kFileClose &&
-                    DescriptorPath(fd) == output_path + "/map.tmp.json";
+                    DescriptorPath(fd) == output_path + "/" + temporary_name;
   const auto result = static_cast<int>(syscall(SYS_close, fd));
   if (fail) {
     errno = EIO;
@@ -71,7 +72,7 @@ extern "C" int close(int fd) {
 
 extern "C" int rename(const char* old_path, const char* new_path) noexcept {
   if (fault == Fault::kRename &&
-      std::string(old_path) == output_path + "/map.tmp.json") {
+      std::string(old_path) == output_path + "/" + temporary_name) {
     errno = EIO;
     return -1;
   }
@@ -154,6 +155,7 @@ class GaussianMapWriterTest : public testing::Test {
   void TearDown() override {
     fault = Fault::kNone;
     output_path.clear();
+    temporary_name = "map.tmp.json";
     fs::remove_all(root_);
   }
 
@@ -337,6 +339,142 @@ TEST_F(GaussianMapWriterTest, ExistingTemporaryFifoIsNotOpenedOrRemoved) {
   EXPECT_THROW(WriteGaussianMapIndex(output_, snapshot_), std::system_error);
   EXPECT_TRUE(fs::is_fifo(pending));
   EXPECT_FALSE(fs::exists(output_ / "map.json"));
+}
+
+GaussianFinalizationResult Finalization() {
+  GaussianFinalizationResult result;
+  result.status = GaussianFinalizationStatus::kSucceeded;
+  result.target_valid = result.eligible_set_frozen = true;
+  result.session_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  result.frame_count = 2;
+  result.eligible_submap_ids = {0, 1};
+  result.current = 2;
+  result.durable = result.worker_stopped = true;
+  result.map_sequence = 42;
+  result.asset_ids = {1, 2};
+  result.before = {2, 2, 0, 0};
+  result.after = {4, 4, 2, 2};
+  result.repair_attempts = 2;
+  result.repair_seconds = .1;
+  result.shutdown_seconds = .2;
+  result.elapsed_seconds = .3;
+  result.total_seconds = .4;
+  return result;
+}
+
+TEST_F(GaussianMapWriterTest, FinalizationReportBindsOutcomeWithoutSelfProof) {
+  auto result = Finalization();
+  result.report_persisted = true;
+  WriteGaussianFinalizationResult(output_, result);
+  cv::FileStorage report((output_ / "finalization.json").string(),
+                         cv::FileStorage::READ);
+  ASSERT_TRUE(report.isOpened());
+  EXPECT_EQ(static_cast<int>(report["schema"]), 1);
+  EXPECT_EQ(static_cast<std::string>(report["kind"]),
+            "livo_atlas.gaussian_finalization");
+  EXPECT_EQ(static_cast<std::string>(report["status"]), "succeeded");
+  EXPECT_EQ(static_cast<std::string>(report["map_sequence"]), "42");
+  EXPECT_EQ(static_cast<std::string>(report["session_id"]), result.session_id);
+  EXPECT_EQ(report["eligible_submap_ids"].size(), 2u);
+  EXPECT_EQ(static_cast<std::string>(report["eligible_submap_ids"][0]), "0");
+  EXPECT_EQ(static_cast<int>(report["current"]), 2);
+  EXPECT_EQ(static_cast<std::string>(report["after"]["rebuilds"]), "2");
+  EXPECT_TRUE(report["report_persisted"].empty());
+  EXPECT_TRUE(report["report_error"].empty());
+  EXPECT_TRUE(report["total_seconds"].empty());
+  EXPECT_LE(fs::file_size(output_ / "finalization.json"), 16u * 1024);
+  EXPECT_EQ(Bytes(output_ / "states/1/marker"), "immutable asset");
+}
+
+TEST_F(GaussianMapWriterTest, FinalizationFitsMaximumContentBudget) {
+  auto result = Finalization();
+  result.frame_count = 512;
+  result.current = 32;
+  result.eligible_submap_ids.clear();
+  result.asset_ids.clear();
+  for (std::uint64_t i = 0; i < 32; ++i) {
+    result.eligible_submap_ids.push_back(i);
+    result.asset_ids.push_back(i + 1);
+  }
+  result.after.accepted = result.after.effective_training = 32;
+  result.reason.assign(1024, '\"');
+  WriteGaussianFinalizationResult(output_, result);
+  EXPECT_LE(fs::file_size(output_ / "finalization.json"), 16u * 1024);
+}
+
+TEST_F(GaussianMapWriterTest,
+       FinalizationRejectsInvalidMetadataBeforePublication) {
+  const auto original = Finalization();
+  for (int variant = 0; variant < 7; ++variant) {
+    auto value = original;
+    if (variant == 0) value.eligible_submap_ids.assign(33, 0);
+    if (variant == 1) value.asset_ids = {1, 1};
+    if (variant == 2) value.asset_ids = {0, 2};
+    if (variant == 3) value.elapsed_seconds = -1;
+    if (variant == 4)
+      value.status = static_cast<GaussianFinalizationStatus>(99);
+    if (variant == 5) value.eligible_set_frozen = false;
+    if (variant == 6) value.reason.assign(1025, 'x');
+    EXPECT_THROW(WriteGaussianFinalizationResult(output_, value),
+                 std::invalid_argument)
+        << variant;
+    EXPECT_FALSE(fs::exists(output_ / "finalization.json"));
+    EXPECT_FALSE(fs::exists(output_ / "finalization.tmp.json"));
+  }
+}
+
+TEST_F(GaussianMapWriterTest, FinalizationKeepsTimeoutAndDurabilitySeparate) {
+  auto value = Finalization();
+  value.status = GaussianFinalizationStatus::kTimedOut;
+  value.reason = "deadline";
+  WriteGaussianFinalizationResult(output_, value);
+  cv::FileStorage report((output_ / "finalization.json").string(),
+                         cv::FileStorage::READ);
+  EXPECT_EQ(static_cast<std::string>(report["status"]), "timed_out");
+  EXPECT_EQ(static_cast<int>(report["durable"]), 1);
+}
+
+TEST_F(GaussianMapWriterTest, FinalizationPreservesOldReportBeforeRename) {
+  temporary_name = "finalization.tmp.json";
+  auto value = Finalization();
+  WriteGaussianFinalizationResult(output_, value);
+  const auto before = Bytes(output_ / "finalization.json");
+  ++value.map_sequence;
+  for (const auto failure :
+       {Fault::kFileSync, Fault::kFileClose, Fault::kRename}) {
+    fault = failure;
+    EXPECT_THROW(WriteGaussianFinalizationResult(output_, value),
+                 std::system_error);
+    fault = Fault::kNone;
+    EXPECT_EQ(Bytes(output_ / "finalization.json"), before);
+    EXPECT_FALSE(fs::exists(output_ / temporary_name));
+  }
+}
+
+TEST_F(GaussianMapWriterTest, FinalizationPreservesVisibleReportAfterRename) {
+  temporary_name = "finalization.tmp.json";
+  auto value = Finalization();
+  for (const auto failure : {Fault::kDirectorySync, Fault::kParentSync}) {
+    fault = failure;
+    EXPECT_THROW(WriteGaussianFinalizationResult(output_, value),
+                 GaussianMapCommitUncertainError);
+    fault = Fault::kNone;
+    EXPECT_TRUE(fs::is_regular_file(output_ / "finalization.json"));
+    EXPECT_EQ(Bytes(output_ / "states/1/marker"), "immutable asset");
+  }
+}
+
+TEST_F(GaussianMapWriterTest, FinalizationDoesNotTouchExistingTemporaryLinks) {
+  const auto temporary = output_ / "finalization.tmp.json";
+  ASSERT_EQ(mkfifo(temporary.c_str(), 0600), 0);
+  EXPECT_THROW(WriteGaussianFinalizationResult(output_, Finalization()),
+               std::system_error);
+  EXPECT_TRUE(fs::is_fifo(temporary));
+  fs::remove(temporary);
+  fs::create_symlink(output_ / "notes.txt", temporary);
+  EXPECT_THROW(WriteGaussianFinalizationResult(output_, Finalization()),
+               std::system_error);
+  EXPECT_EQ(Bytes(output_ / "notes.txt"), "unrelated file");
 }
 
 }  // namespace

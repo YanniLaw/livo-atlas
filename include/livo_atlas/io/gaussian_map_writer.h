@@ -20,6 +20,10 @@ class GaussianMapCommitUncertainError : public std::runtime_error {
 void WriteGaussianMapIndex(const std::filesystem::path& output,
                            const GaussianMapSnapshot& snapshot);
 
+// Publication receipt fields are intentionally excluded from the report file.
+void WriteGaussianFinalizationResult(const std::filesystem::path& output,
+                                     const GaussianFinalizationResult& result);
+
 }  // namespace livo_atlas
 
 #endif  // LIVO_ATLAS_IO_GAUSSIAN_MAP_WRITER_H_

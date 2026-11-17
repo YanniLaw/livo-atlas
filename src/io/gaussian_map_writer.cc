@@ -6,12 +6,13 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <opencv2/core.hpp>
 #include <set>
 #include <string>
 #include <system_error>
-
-#include <opencv2/core.hpp>
+#include <vector>
 
 #include "gaussian/submap_protocol.h"
 #include "mapping/pose_math.h"
@@ -318,15 +319,115 @@ void SyncDirectory(const fs::path& path) {
   if (closed < 0) SystemError("Close Gaussian map directory");
 }
 
-}  // namespace
+const char* FinalizationStatus(GaussianFinalizationStatus status) {
+  switch (status) {
+    case GaussianFinalizationStatus::kSucceeded:
+      return "succeeded";
+    case GaussianFinalizationStatus::kTimedOut:
+      return "timed_out";
+    case GaussianFinalizationStatus::kFailed:
+      return "failed";
+  }
+  throw std::invalid_argument("Invalid Gaussian finalization status");
+}
 
-void WriteGaussianMapIndex(const fs::path& output,
-                           const GaussianMapSnapshot& snapshot) {
-  const auto data = Serialize(snapshot);
+void Counters(cv::FileStorage& json, const char* name,
+              const GaussianFinalizationCounters& value) {
+  json << name << "{";
+  Id(json, "accepted", value.accepted);
+  Id(json, "effective_training", value.effective_training);
+  Id(json, "rebuilds", value.rebuilds);
+  Id(json, "checkpoints", value.checkpoints);
+  json << "}";
+}
+
+std::string SerializeFinalization(const GaussianFinalizationResult& r) {
+  const char* status = FinalizationStatus(r.status);
+  const auto ordered = [](const auto& ids) {
+    return ids.size() <= 32 && std::is_sorted(ids.begin(), ids.end()) &&
+           std::adjacent_find(ids.begin(), ids.end()) == ids.end();
+  };
+  Require(
+      r.session_id.size() == 32 &&
+          std::all_of(r.session_id.begin(), r.session_id.end(),
+                      [](char c) {
+                        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                      }) &&
+          r.reason.size() <= 1024 && r.reason.find('\0') == std::string::npos &&
+          r.frame_count <= 512 && r.optimized_frame_count <= r.frame_count &&
+          ((r.pose_version == 0 && r.parent_frame == PoseFrame::kOdom &&
+            r.optimized_frame_count == 0) ||
+           (r.pose_version > 0 && r.parent_frame == PoseFrame::kMap &&
+            r.optimized_frame_count > 0)) &&
+          ordered(r.eligible_submap_ids) && ordered(r.asset_ids) &&
+          (r.eligible_submap_ids.empty() ||
+           r.eligible_submap_ids.back() < r.frame_count) &&
+          (r.asset_ids.empty() || r.asset_ids.front() > 0) && r.current <= 32 &&
+          r.needs_rebuild <= 32 && r.dirty <= 32 && r.missing <= 512,
+      "Invalid Gaussian finalization metadata");
+  for (const double seconds :
+       {r.elapsed_seconds, r.repair_seconds, r.shutdown_seconds})
+    Require(std::isfinite(seconds) && seconds >= 0,
+            "Invalid finalization duration");
+  Require(r.after.accepted >= r.before.accepted &&
+              r.after.effective_training >= r.before.effective_training &&
+              r.after.rebuilds >= r.before.rebuilds &&
+              r.after.checkpoints >= r.before.checkpoints,
+          "Finalization counters went backwards");
+  for (const auto& counts : {r.before, r.after})
+    Require(counts.effective_training <= counts.accepted &&
+                counts.rebuilds <= counts.accepted,
+            "Invalid finalization training counters");
+  if (r.eligible_set_frozen)
+    Require(r.current + r.needs_rebuild <= r.eligible_submap_ids.size(),
+            "Finalization classification exceeds frozen content");
+  if (r.status == GaussianFinalizationStatus::kSucceeded)
+    Require(
+        r.target_valid && r.eligible_set_frozen && r.durable &&
+            r.worker_stopped && r.map_sequence > 0 && r.dirty == 0 &&
+            r.needs_rebuild == 0 && r.current == r.eligible_submap_ids.size() &&
+            r.asset_ids.size() == r.current && r.after.accepted >= r.current,
+        "Unfinished Gaussian finalization claims success");
+  cv::FileStorage json(".json", cv::FileStorage::WRITE |
+                                    cv::FileStorage::MEMORY |
+                                    cv::FileStorage::FORMAT_JSON);
+  json << "schema" << 1 << "kind"
+       << "livo_atlas.gaussian_finalization"
+       << "session_id" << r.session_id << "status" << status << "reason"
+       << r.reason;
+  Id(json, "pose_version", r.pose_version);
+  Id(json, "frame_count", r.frame_count);
+  Id(json, "optimized_frame_count", r.optimized_frame_count);
+  json << "parent_frame"
+       << (r.parent_frame == PoseFrame::kMap ? "map" : "odom");
+  Id(json, "map_sequence", r.map_sequence);
+  Ids(json, "eligible_submap_ids", r.eligible_submap_ids);
+  Ids(json, "asset_ids", r.asset_ids);
+  json << "eligible" << static_cast<int>(r.eligible_submap_ids.size());
+  json << "target_valid" << static_cast<int>(r.target_valid)
+       << "eligible_set_frozen" << static_cast<int>(r.eligible_set_frozen)
+       << "durable" << static_cast<int>(r.durable) << "worker_stopped"
+       << static_cast<int>(r.worker_stopped);
+  json << "current" << static_cast<int>(r.current) << "needs_rebuild"
+       << static_cast<int>(r.needs_rebuild) << "missing"
+       << static_cast<int>(r.missing) << "dirty" << static_cast<int>(r.dirty)
+       << "elapsed_seconds" << r.elapsed_seconds << "repair_seconds"
+       << r.repair_seconds << "shutdown_seconds" << r.shutdown_seconds;
+  Id(json, "repair_attempts", r.repair_attempts);
+  Counters(json, "before", r.before);
+  Counters(json, "after", r.after);
+  const auto data = CompactJson(json.releaseAndGetString());
+  Require(data.size() <= 16 * 1024,
+          "Gaussian finalization report exceeds 16 KiB");
+  return data;
+}
+
+void Publish(const fs::path& output, const std::string& stem,
+             const std::string& data) {
   Require(fs::is_directory(fs::symlink_status(output)),
           "Gaussian output must be an existing real directory");
-  const auto temporary = output / "map.tmp.json";
-  const auto destination = output / "map.json";
+  const auto temporary = output / (stem + ".tmp.json");
+  const auto destination = output / (stem + ".json");
   int fd = open(temporary.c_str(),
                 O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (fd < 0) SystemError("Create Gaussian map temporary file");
@@ -358,11 +459,23 @@ void WriteGaussianMapIndex(const fs::path& output,
     if (fd >= 0) close(fd);
     if (published)
       throw GaussianMapCommitUncertainError(
-          std::string("Gaussian map is visible; durability uncertain: ") +
-          error.what());
+          "Gaussian " + stem +
+          " is visible; durability uncertain: " + error.what());
     unlink(temporary.c_str());
     throw;
   }
+}
+
+}  // namespace
+
+void WriteGaussianMapIndex(const fs::path& output,
+                           const GaussianMapSnapshot& snapshot) {
+  Publish(output, "map", Serialize(snapshot));
+}
+
+void WriteGaussianFinalizationResult(const fs::path& output,
+                                     const GaussianFinalizationResult& result) {
+  Publish(output, "finalization", SerializeFinalization(result));
 }
 
 }  // namespace livo_atlas

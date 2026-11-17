@@ -102,12 +102,12 @@ EXPECT_TRUE(system.IsFinished());
 
 **Interfaces:** 消费 Task1 DTO；提供 `void WriteGaussianFinalizationResult(const std::filesystem::path&, const GaussianFinalizationResult&)`，异常沿用 GaussianMapCommitUncertainError。
 
-- [ ] **Step 1: 写 RED。** 真实文件测试读取报告断言 schema=1、kind/session/map_sequence/目标/E/状态/计数匹配，未序列化 report_persisted、report_error、total_seconds；缺函数编译失败。
+- [x] **Step 1: 写 RED。** 真实文件测试读取报告断言 schema=1、kind/session/map_sequence/目标/E/状态/计数匹配，未序列化 report_persisted、report_error、total_seconds；缺函数编译失败。
   覆盖≤32 IDs、16KiB、重复/非法 ID/时间/状态拒绝，FIFO/符号链接临时路径不触碰；资产文件不变。
-- [ ] **Step 2: 运行 RED。** 构建 gaussian_map_writer_test，Expected: 缺少新写入函数。
-- [ ] **Step 3: 实现。** 复用私有原子发布函数（map路径保持），finalization.tmp.json→finalization.json，独占创建0600、fsync/close/rename、目录/父目录 fsync；不引入通用存储框架。
-- [ ] **Step 4: GREEN。** 定向故障注入覆盖文件 fsync/close/rename 前失败不发布、rename 后两级目录同步失败保留可见内容并抛 uncertain；原10个 map writer 用例继续通过，完整核心 CTest 通过。
-- [ ] **Step 5: 提交并 task-done。** `feat: persist bounded Gaussian finalization reports`；gate 全核心 CTest。
+- [x] **Step 2: 运行 RED。** 构建 gaussian_map_writer_test，Expected: 缺少新写入函数。
+- [x] **Step 3: 实现。** 复用私有原子发布函数（map路径保持），finalization.tmp.json→finalization.json，独占创建0600、fsync/close/rename、目录/父目录 fsync；不引入通用存储框架。
+- [x] **Step 4: GREEN。** 定向故障注入覆盖文件 fsync/close/rename 前失败不发布、rename 后两级目录同步失败保留可见内容并抛 uncertain；原10个 map writer 用例继续通过，完整核心 CTest 通过。
+- [x] **Step 5: 提交并 task-done。** `feat: persist bounded Gaussian finalization reports`；gate 全核心 CTest。
 
 ### Task 3: 固定版本终端生命周期
 
