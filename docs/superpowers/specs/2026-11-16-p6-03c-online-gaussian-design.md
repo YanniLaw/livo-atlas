@@ -6,10 +6,11 @@
 与 ROS 分离，ROS1 Noetic 和 ROS2 Humble 共用入口，只修改 livo-atlas，遵循 Google C++17
 风格与函数间空行，避免 Pimpl 和提前构建通用插件框架。正式编码前先通知用户，以便切换模型。
 
-2026-11-17 状态：C1 已完成，实现及官方 bag 证据见
-[验证记录](../../p6-03c1-validation.md)；下一步的
-[C2 设计](2026-11-17-p6-03c2-gaussian-submaps-design.md)和
-[C2a 计划](../plans/2026-11-17-p6-03c2a-gaussian-state.md)已单独记录，尚未实施。
+2026-11-18 状态：C1、C2a、C2b 已完成，分别见
+[C1 验证](../../p6-03c1-validation.md)、[C2a 验证](../../p6-03c2a-validation.md)和
+[C2b 验证](../../p6-03c2b-validation.md)。下一步的
+[C3a 最终收敛设计](2026-11-18-p6-03c3a-gaussian-finalization-design.md)已写出并完成
+独立可实施性检查，尚未实施。下面的现状描述保留原设计时的语境。
 
 ## 当前事实与相关工作
 
