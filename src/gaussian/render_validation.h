@@ -9,6 +9,7 @@ namespace livo_atlas {
 // calibration keeps its existing tolerance.
 void ValidateRenderPose(const RigidTransform& pose);
 void ValidateRenderCamera(const GaussianCamera& camera);
+void ValidateRenderSelection(const GaussianRenderRequest& request);
 void ValidateRenderMetrics(const GaussianRenderMetrics& metrics, int pixels);
 void ValidateRenderImage(const GaussianRender& render);
 

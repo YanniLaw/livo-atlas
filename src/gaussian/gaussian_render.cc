@@ -272,30 +272,7 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
               pose_math::Compose(owner->target.parent_from_submap,
                                  owner->target.submap_from_body.at(offset))),
           "Query body pose differs from the captured target");
-  Require(request.neighbor_reason ==
-              (request.blocks.size() == 2 ? "" : spatial
-                  ? "no_spatial_candidate" : request.query_submap_id
-                      ? "neighbor_unavailable" : "no_previous_group"),
-          "Missing or contradictory render coverage reason");
-  if (spatial) {
-    const auto& camera = owner->render_metadata->camera;
-    const auto pixels =
-        static_cast<std::uint64_t>(camera.width) * camera.height;
-    const bool dual = request.blocks.size() == 2;
-    Require(request.candidate_count <= 31 &&
-                (request.candidate_count > 0) == dual &&
-                (request.candidate_pixels > 0) == dual &&
-                request.candidate_pixels <= pixels &&
-                (!request.projection_uncertain ||
-                 request.candidate_pixels == pixels) &&
-                std::isfinite(request.selection_seconds) &&
-                request.selection_seconds >= 0,
-            "Invalid spatial selection summary");
-  } else {
-    Require(!request.candidate_count && !request.candidate_pixels &&
-                !request.projection_uncertain && request.selection_seconds == 0,
-            "Temporal request has a spatial selection summary");
-  }
+  ValidateRenderSelection(request);
 }
 
 std::optional<GaussianRenderRequest> SelectGaussianRender(

@@ -35,6 +35,26 @@ def render_request_fixture():
     return header, b''.join(pieces)
 
 
+def spatial_request_fixture():
+    header, body = render_request_fixture()
+    header.update(policy='spatial', selection=dict(candidate_count=1, candidate_pixels=48,
+                  projection_uncertain=0, selection_seconds=.001))
+    earlier = header['blocks'][0]
+    earlier['target'].update(submap_id='0', anchor_keyframe_id='0', generation='1',
+                             parent_from_submap=pose().ravel().tolist())
+    earlier['content'].update(submap_id='0', source_generation='1', content_job_id='10')
+    earlier['asset'].update(earlier['content'], asset_id='1')
+    earlier['frame_ids'] = ['0', '1']
+    for block in header['blocks']:
+        block['render_metadata'] = dict(content=dict(session_id=SESSION, **block['content']),
+            extents=[dict(origin_keyframe_id=key, min=[1., 0., 4.], max=[1., 0., 4.], max_scale=.03)
+                     for key in block['frame_ids']],
+            camera=dict(keyframe_id=block['frame_ids'][-1], calibration_id='0', width=8, height=6,
+                        K=[4., 0., 3.5, 0., 4., 2.5, 0., 0., 1.],
+                        camera_from_body=pose(1, 2, 3, True).ravel().tolist(), capture_time=100.01))
+    return header, body
+
+
 def wire_metrics_fixture():
     return dict(image_pixels=48, covered_pixels=24, depth_pixels_available=4,
                 depth_pixels_used=2, image_valid=1, depth_valid=1, psnr_valid=1,

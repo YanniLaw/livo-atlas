@@ -11,15 +11,20 @@ int main(int argc, char** argv) {
   if (argc != 2 && argc != 3) return 2;
   try {
     const int fd = std::stoi(argv[1]);
-    if (argc == 3 && std::string(argv[2]) == "--render") {
-      const auto request = livo_atlas::test::RenderRequest();
+    if (argc == 3 && (std::string(argv[2]) == "--render" ||
+                      std::string(argv[2]) == "--spatial-render")) {
+      const auto request = std::string(argv[2]) == "--spatial-render"
+          ? livo_atlas::test::SpatialRenderRequest()
+          : livo_atlas::test::RenderRequest();
       livo_atlas::WriteGaussianMessage(fd,
           livo_atlas::EncodeGaussianRenderRequest(request),
           std::chrono::seconds(2));
       const auto response =
           livo_atlas::ReadGaussianMessage(fd, std::chrono::seconds(2));
-      const auto result = livo_atlas::DecodeGaussianRenderReply(response, request);
-      return result.width == 8 && result.request.job_id == request.job_id ? 0 : 1;
+      const auto result =
+          livo_atlas::DecodeGaussianRenderReply(response, request);
+      return result.width == 8 && result.request.job_id == request.job_id
+          ? 0 : 1;
     }
     if (argc == 3) {
       if (std::string(argv[2]) != "--target") return 2;

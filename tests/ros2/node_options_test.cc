@@ -457,6 +457,48 @@ TEST(Ros2ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
   EXPECT_FALSE(std::filesystem::exists(directory));
 }
 
+TEST(Ros2ParametersTest, GaussianSpatialPolicyUsesStrictSharedSchema) {
+  const auto directory = std::filesystem::temp_directory_path() /
+      ("spatial-schema-" + std::to_string(
+          std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  params.emplace_back("gaussian.joint_render_policy", 1);
+  {
+    rclcpp::Node node("spatial_type",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() = rclcpp::Parameter("gaussian.joint_render_policy", "spatial");
+  {
+    rclcpp::Node node("spatial_dependencies",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.enabled", true);
+  params.emplace_back("gaussian.socket_path", "/tmp/spatial-test.sock");
+  params.emplace_back("gaussian.output_directory", "/tmp/spatial-output");
+  params.emplace_back("gaussian.persist_submaps", true);
+  params.emplace_back("gaussian.joint_render_enabled", true);
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  {
+    rclcpp::Node node("spatial_valid",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_EQ(ReadNodeOptions(node).livo.gaussian.joint_render_policy,
+              GaussianRenderPolicy::kSpatial);
+  }
+  for (auto& parameter : params)
+    if (parameter.get_name() == "gaussian.joint_render_policy")
+      parameter = rclcpp::Parameter("gaussian.joint_render_policy", "unknown");
+  {
+    rclcpp::Node node("spatial_unknown",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
 TEST(Ros2ParametersTest, GaussianFinalizationUsesStrictSharedSchema) {
   const auto directory =
       std::filesystem::temp_directory_path() /

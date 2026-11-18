@@ -129,5 +129,36 @@ TEST(RenderProtocol, AcceptedIdentityOwnsTheWholeSafeRequestHeader) {
   EXPECT_NE(GaussianRenderSourceIdentity(request), identity);
 }
 
+TEST(RenderProtocol, SpatialWirePreservesNonadjacentSourcesAndSummary) {
+  const auto request = test::SpatialRenderRequest();
+  const auto message = EncodeGaussianRenderRequest(request);
+  const auto decoded = DecodeGaussianRenderRequest(message);
+  EXPECT_EQ(decoded.policy, GaussianRenderPolicy::kSpatial);
+  EXPECT_EQ(decoded.blocks.front().content.submap_id, 0u);
+  EXPECT_EQ(decoded.blocks.back().content.submap_id, 2u);
+  EXPECT_EQ(decoded.blocks.front().render_metadata,
+            request.blocks.front().render_metadata);
+  EXPECT_EQ(decoded.candidate_count, 1u);
+  EXPECT_EQ(decoded.candidate_pixels, 48u);
+  EXPECT_EQ(message.body.size(), 640u);
+  EXPECT_LT(message.header_json.size(), 65536u);
+}
+
+TEST(RenderProtocol, SpatialReplyCannotReplaceTheRetainedQueryCamera) {
+  const auto request = test::SpatialRenderRequest();
+  auto reply = test::RenderReply(EncodeGaussianRenderRequest(request));
+  EXPECT_NO_THROW(DecodeGaussianRenderReply(reply, request));
+  cv::FileStorage input(reply.header_json,
+                        cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  reply.header_json = gaussian_mapper_io::Json([&](auto& out) {
+    for (const auto& child : input.root()) {
+      out << child.name();
+      if (child.name() == "fx") out << 5.;
+      else test::CopyJson(out, child);
+    }
+  });
+  EXPECT_THROW(DecodeGaussianRenderReply(reply, request), std::exception);
+}
+
 }  // namespace
 }  // namespace livo_atlas

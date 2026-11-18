@@ -137,6 +137,28 @@ TEST_F(GlobalOutputOptionsTest, GaussianJointRenderDependenciesAndRanges) {
   EXPECT_FALSE(fs::exists(directory_));
 }
 
+TEST_F(GlobalOutputOptionsTest, GaussianSpatialPolicyIsCheckedBeforeOutputIo) {
+  GlobalParameters parameters(directory_);
+  EXPECT_EQ(LoadLivoConfig(parameters).gaussian.joint_render_policy,
+            GaussianRenderPolicy::kTemporal);
+  for (const auto* value : {"", "unknown", "Spatial"}) {
+    parameters.strings_["gaussian.joint_render_policy"] = value;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  parameters.strings_["gaussian.joint_render_policy"] = "spatial";
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.EnableOnlineStorage();
+  parameters.booleans_["gaussian.enabled"] = true;
+  parameters.strings_["gaussian.socket_path"] = "/tmp/spatial-test.sock";
+  parameters.strings_["gaussian.output_directory"] = "/tmp/spatial-output";
+  parameters.booleans_["gaussian.persist_submaps"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["gaussian.joint_render_enabled"] = true;
+  EXPECT_EQ(LoadLivoConfig(parameters).gaussian.joint_render_policy,
+            GaussianRenderPolicy::kSpatial);
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
 TEST_F(GlobalOutputOptionsTest,
        GaussianFinalizationRequiresPersistenceAndBudget) {
   GlobalParameters parameters(directory_);

@@ -216,8 +216,16 @@ tests/3dgs_probe and online_gaussian_render_test.cc.
   enabled+persist_submaps+joint_render_enabled before any output creation.
 - Spatial render header appends policy=spatial and selection summary only under
   negotiated joint_render_spatial_v1; temporal request/reply keysets unchanged.
+  The root adds `policy: "spatial"` and `selection` with candidate_count,
+  candidate_pixels, projection_uncertain (0/1), selection_seconds. Each selected
+  block adds render_metadata. A new internal ValidateRenderSelection(request)
+  checks the same summary/reason rules in DTO and header-only reply parsing.
   Worker validates nonadjacent earlier blocks, exact query metadata/camera and
   body targets; reply echoes the original spatial request identity.
+- The GPU envelope test uses a small test-only gaussian_projection_probe
+  executable: bounded line-delimited JSON metadata/coordinate input, actual
+  ProjectGaussianExtents/ProjectGaussianEnvelope output. No new runtime worker
+  or SDK-only diagnostic method is introduced.
 - Preserve original scheduler quotas and source/timeout fatal vs OOM/write
   preview-only classification. Return-time re-selection includes metadata.
 

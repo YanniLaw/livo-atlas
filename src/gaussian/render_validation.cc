@@ -43,6 +43,39 @@ void ValidateRenderCamera(const GaussianCamera& camera) {
   ValidateRenderPose(camera.camera_from_body);
 }
 
+void ValidateRenderSelection(const GaussianRenderRequest& request) {
+  const bool spatial = request.policy == GaussianRenderPolicy::kSpatial;
+  Require((spatial || request.policy == GaussianRenderPolicy::kTemporal) &&
+              !request.blocks.empty() && request.blocks.size() <= 2,
+          "Invalid render policy or selection size");
+  const bool dual = request.blocks.size() == 2;
+  Require(request.neighbor_reason ==
+              (dual ? "" : spatial ? "no_spatial_candidate"
+                  : request.query_submap_id ? "neighbor_unavailable"
+                                             : "no_previous_group"),
+          "Missing or contradictory render coverage reason");
+  if (!spatial) {
+    Require(!request.candidate_count && !request.candidate_pixels &&
+                !request.projection_uncertain && request.selection_seconds == 0,
+            "Temporal request has a spatial selection summary");
+    return;
+  }
+  const auto& owner = request.blocks.back();
+  Require(owner.render_metadata.has_value(), "Missing spatial owner metadata");
+  const auto& camera = owner.render_metadata->camera;
+  const auto pixels =
+      static_cast<std::uint64_t>(camera.width) * camera.height;
+  Require(request.candidate_count <= 31 &&
+              (request.candidate_count > 0) == dual &&
+              (request.candidate_pixels > 0) == dual &&
+              request.candidate_pixels <= pixels &&
+              (!request.projection_uncertain ||
+               request.candidate_pixels == pixels) &&
+              std::isfinite(request.selection_seconds) &&
+              request.selection_seconds >= 0,
+          "Invalid spatial selection summary");
+}
+
 void ValidateRenderMetrics(const GaussianRenderMetrics& m, int pixels) {
   Require(pixels > 0 && m.image_pixels >= 0 && m.image_pixels <= pixels &&
               m.covered_pixels >= 0 && m.covered_pixels <= m.image_pixels &&
@@ -87,6 +120,15 @@ void ValidateRenderImage(const GaussianRender& r) {
           "Invalid render camera");
   ValidateRenderPose(r.camera_from_body);
   ValidateRenderPose(r.camera_from_parent);
+  if (r.request.policy == GaussianRenderPolicy::kSpatial) {
+    const auto& camera = r.request.blocks.back().render_metadata->camera;
+    Require(r.width == camera.width && r.height == camera.height &&
+                r.calibration_id == camera.calibration_id &&
+                (r.K.array() == camera.K.array()).all() &&
+                pose_math::Equal(r.camera_from_body, camera.camera_from_body) &&
+                r.capture_time == camera.capture_time,
+            "Render replaced the retained spatial query camera");
+  }
   Require(pose_math::Equal(r.camera_from_parent,
               pose_math::Compose(r.camera_from_body,
                   pose_math::Inverse(r.request.parent_from_body))),

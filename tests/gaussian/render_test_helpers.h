@@ -5,6 +5,7 @@
 
 #include "gaussian/mapper_io.h"
 #include "gaussian/render_protocol.h"
+#include "gaussian/render_metadata_test_helpers.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -42,6 +43,25 @@ inline GaussianRenderRequest RenderRequest() {
   return request;
 }
 
+inline GaussianRenderRequest SpatialRenderRequest() {
+  auto request = RenderRequest();
+  request.policy = GaussianRenderPolicy::kSpatial;
+  request.candidate_count = 1;
+  request.candidate_pixels = 48;
+  request.selection_seconds = .001;
+  auto& earlier = request.blocks.front();
+  earlier.target.group.primary = {0, 0, {0, 1}};
+  earlier.target.generation = 1;
+  earlier.target.parent_from_submap.translation.x() = 0;
+  earlier.content = {request.session_id, 0, 1, 10};
+  earlier.asset->asset_id = 1;
+  earlier.asset->content = earlier.content;
+  earlier.frame_ids = {0, 1};
+  for (auto& block : request.blocks)
+    block.render_metadata = RenderMetadata(block.content, block.frame_ids);
+  return request;
+}
+
 inline void CopyJson(cv::FileStorage& out, const cv::FileNode& node) {
   if (node.isMap()) {
     out << "{";
@@ -67,6 +87,12 @@ inline GaussianMessage RenderReply(const GaussianMessage& message,
                                    bool oom = false) {
   using namespace gaussian_mapper_io;
   const auto request = DecodeGaussianRenderRequest(message);
+  const auto camera_from_body =
+      request.policy == GaussianRenderPolicy::kSpatial
+          ? request.blocks.back().render_metadata->camera.camera_from_body
+          : RigidTransform{};
+  const double capture_time = request.policy == GaussianRenderPolicy::kSpatial
+      ? request.blocks.back().render_metadata->camera.capture_time : 100.01;
   cv::FileStorage input(message.header_json,
                         cv::FileStorage::READ | cv::FileStorage::MEMORY);
   GaussianMessage reply;
@@ -85,10 +111,11 @@ inline GaussianMessage RenderReply(const GaussianMessage& message,
     Id(out, "calibration_id", 0);
     out << "fx" << 4. << "fy" << 4. << "cx" << 3.5 << "cy" << 2.5;
     Transform(out, "parent_from_body", request.parent_from_body);
-    Transform(out, "camera_from_body", {});
+    Transform(out, "camera_from_body", camera_from_body);
     Transform(out, "camera_from_parent",
-              pose_math::Inverse(request.parent_from_body));
-    out << "image_timestamp" << 100.01 << "state_timestamp" << 100.
+              pose_math::Compose(camera_from_body,
+                  pose_math::Inverse(request.parent_from_body)));
+    out << "image_timestamp" << capture_time << "state_timestamp" << 100.
         << "cloud_timestamp" << 99.99 << "inverse_exposure_time" << 1.;
     for (const auto* key : {"single", "joint"})
       out << key << "{" << "image_pixels" << 48 << "covered_pixels" << 24

@@ -317,6 +317,24 @@ TEST_F(OnlineGaussianRenderTest, StaleInflightResultCannotBeRelabeled) {
   EXPECT_EQ(mapper_->GetLatestRender()->request.frame_count, 2u);
 }
 
+TEST_F(OnlineGaussianRenderTest, StaleSpatialResultCannotBeRelabeled) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper();
+  peer_->hold_render = true;
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return peer_->renders == 1; }));
+  Append();
+  Correct();
+  peer_->hold_render = false;
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().stale == 1; }));
+  EXPECT_FALSE(mapper_->GetLatestRender());
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().accepted >= 1; }));
+  ASSERT_TRUE(mapper_->GetLatestRender());
+  EXPECT_EQ(mapper_->GetLatestRender()->request.pose_version, 1u);
+  EXPECT_EQ(mapper_->GetLatestRender()->request.frame_count, 2u);
+}
+
 TEST_F(OnlineGaussianRenderTest, MandatoryPersistenceAndDecisionPrecedeRender) {
   Append();
   Confirm();
@@ -615,6 +633,61 @@ TEST_F(OnlineGaussianRenderTest, RealWorkerRendersAssetsDuringHistoryRepair) {
   EXPECT_TRUE(Entry(0).asset_current);
   EXPECT_TRUE(Entry(1).asset_current);
   EXPECT_TRUE(Entry(2).asset_current);
+}
+
+TEST_F(OnlineGaussianRenderTest, RealSpatialWorkerSelectsNonadjacentAssets) {
+  const char* socket = std::getenv("LIVO_REAL_GAUSSIAN_SOCKET");
+  const char* output = std::getenv("LIVO_REAL_GAUSSIAN_OUTPUT");
+  if (!socket || !output) GTEST_SKIP() << "Real GPU worker was not requested";
+  mapper_->Finish();
+  mapper_.reset();
+  peer_.reset();
+  options_.socket_path = socket;
+  options_.output_directory = output;
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  options_.connect_timeout = 20s;
+  options_.shutdown_timeout = 30s;
+  options_.joint_render_timeout = 5s;
+  mapper_ = std::make_unique<OnlineGaussianMapper>(
+      *system_, CameraConfig{"Pinhole", 8, 6, 1, 4, 4, 3.5, 2.5, {}}, options_);
+  for (int i = 0; i < 8; ++i) {
+    Append(i == 2 || i == 4 || i == 6);
+    Confirm();
+  }
+  Correct(true, 5);
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetStats().rebuilds >= 1 && Entry(2).resident;
+  }));
+  // A rigid loop correction places historical0 beside owner3. The previous
+  // group2 remains the resident trainer but lies behind the retained camera.
+  auto moved = std::make_shared<PoseSnapshot>(*poses_);
+  moved->base_version = moved->version;
+  ++moved->version;
+  for (std::size_t id : {1, 2})
+    for (const auto frame : groups_[id].primary.keyframe_ids)
+      moved->poses[frame].map_from_body.translation.z() -= 100;
+  poses_ = moved;
+  mapper_->Observe({{}, {}, poses_, {}});
+  ASSERT_TRUE(Wait([&] {
+    const auto result = mapper_->GetLatestRender();
+    return result && result->request.pose_version == 2 &&
+           result->request.query_submap_id == 3;
+  }));
+  const auto result = mapper_->GetLatestRender();
+  ASSERT_EQ(result->request.blocks.size(), 2u);
+  EXPECT_EQ(result->request.policy, GaussianRenderPolicy::kSpatial);
+  EXPECT_EQ(result->request.blocks[0].content.submap_id, 0u);
+  EXPECT_EQ(result->request.blocks[1].content.submap_id, 3u);
+  EXPECT_FALSE(result->request.blocks[0].resident);
+  EXPECT_FALSE(result->request.blocks[1].resident);
+  EXPECT_TRUE(Entry(2).resident);
+  EXPECT_GT(result->changed_pixels, 0);
+  EXPECT_EQ(result->capture_time, 107);
+  EXPECT_EQ(result->request.candidate_count, 1u);
+  mapper_->Finish();
+  EXPECT_EQ(mapper_->GetStats().failed, 0u) << mapper_->GetStats().error;
+  EXPECT_FALSE(mapper_->GetStats().incomplete_shutdown);
+  EXPECT_EQ(mapper_->GetRenderStats().peak_in_flight, 1u);
 }
 
 TEST_F(OnlineGaussianRenderTest, SavesAtMostFourOwnedHistoricalPairs) {

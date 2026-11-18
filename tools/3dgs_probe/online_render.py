@@ -33,6 +33,11 @@ def render_confirmed(actor, request):
                     any(known.get(key) != value for key, value in asset.items())):
                 raise ValueError('Render asset differs from its durable reference')
             content.update(asset)
+        if header.get('policy') == 'spatial':
+            known_metadata = (actor.confirmed_metadata if source['resident'] else
+                              known.get('render_metadata'))
+            if known_metadata is None or source['render_metadata'] != known_metadata:
+                raise ValueError('Spatial render metadata differs from its confirmed source')
         state, _, _ = actor._source(content)
         target = block['target']
         ids = [str(view['keyframe_id']) for view in state.views]

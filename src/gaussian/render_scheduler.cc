@@ -47,7 +47,8 @@ bool OnlineGaussianMapper::DispatchRender(const GaussianMapSnapshot& map) {
       (resident && (!remote_target_ ||
                     remote_target_->pose_version != poses_->version));
   std::string reason;
-  auto request = SelectGaussianRender(map, *poses_, generation_, &reason);
+  auto request = SelectGaussianRender(map, *poses_, generation_,
+                                      options_.joint_render_policy, &reason);
   if (!request) {
     render_unavailable_reason_ = reason;
     SetRenderWait(reason, map.map_sequence);

@@ -338,7 +338,8 @@ gaussian.joint_render_timeout_ms: 5000
 独立核心的 `SelectGaussianRender` 空间重载使用 retained 查询相机及同一版绑定，
 允许选择非相邻历史块。最多取一个邻块，按保守投影面积、盒距离、ID排序；没有候选时
 使用 `no_spatial_candidate` 单块结果。投影面积是候选上界，包含 scale 和数值余量，
-不表示实际可见像素或遮挡结论。默认重载仍按前一逻辑组选择，空间 wire 接线在后续任务完成。
+不表示实际可见像素或遮挡结论。默认重载仍按前一逻辑组选择。空间请求携带选中块的确切元数据与选择摘要，
+worker 在推理前核对已确认内容；返回时 owner 再按当前地图校验。
 
 SDK 的 `WriteGaussianRender(directory, render)` 要求每个输出目录只有一个发布者，
 该目录的写入和保留清理操作全部串行执行。直接从多个线程或进程使用 SDK 时也须遵守；

@@ -42,6 +42,7 @@ def training_state(actor):
         optimizer=model.optimizer.state_dict() if model.optimizer is not None else None,
         model_views=model.views, generation=model.generation, candidate_pending=model.candidate_pending,
         confirmed=actor.confirmed_state, binding=actor.confirmed_binding, current=actor.current_target,
+        render_metadata=actor.confirmed_metadata, spatial_enabled=actor.spatial_render_enabled,
         content=actor.content, pending=actor.pending, assets=actor.assets, references=actor.references,
         checkpoint=actor.checkpoint_id, pending_checkpoint=actor.pending_checkpoint,
         map_sequence=actor.map_sequence, known=actor._known_submaps,
@@ -49,8 +50,10 @@ def training_state(actor):
 
 
 class RenderActor:
-    def __init__(self, root, device, enabled=True):
+    def __init__(self, root, device, enabled=True, spatial=False):
         kwargs = dict(joint_render_enabled=True) if enabled else {}
+        if spatial:
+            kwargs['spatial_render_enabled'] = True
         self.actor = GaussianSubmapWorker(SESSION, root / 'states', OnlineGaussianModel(device),
                                          METADATA, **kwargs)
         self.job_id = 0
@@ -151,6 +154,37 @@ class RenderActor:
                 content={key: asset[key] for key in ('submap_id', 'source_generation', 'content_job_id')},
                 resident=0, asset={key: asset[key] for key in ASSET_FIELDS},
                 frame_ids=asset['frame_ids'][:], gaussian_count=asset['gaussian_count']))
+            pieces.append(self.target_bodies[submap])
+        return header, b''.join(pieces)
+
+    def provision_spatial(self):
+        for submap in range(4):
+            self.activate(submap, 3 * submap, 3)
+            self.view(3 * submap)
+            self.view(3 * submap + 1)
+            self.checkpoint()
+        self.activate(2, 6, 3, asset=self.assets[2])
+        self.view(8)  # Keep a third resident model with live Adam and gradients.
+        self.acknowledge(version=1)
+
+    def spatial_request(self):
+        header = dict(schema=2, type='joint_render', session_id=SESSION,
+            job_id=str(self.job()), generation=str(self.generation), pose_version='1',
+            map_sequence=str(self.sequence), frame_count='12', optimized_frame_count='12',
+            parent_frame='map', query_keyframe_id='10', query_submap_id='3',
+            neighbor_reason='', policy='spatial', selection=dict(candidate_count=1,
+                candidate_pixels=48, projection_uncertain=0, selection_seconds=.001), blocks=[])
+        pieces = [pose(10).astype('<f8').tobytes()]
+        for submap, parent in ((0, 10), (3, 9)):
+            target = {key: copy.deepcopy(self.targets[submap][key]) for key in TARGET_FIELDS}
+            target.update(frame_count='12', optimized_frame_count='12', pose_version='1',
+                          parent_frame='map', parent_from_submap=pose(parent).ravel().tolist())
+            asset = self.assets[submap]
+            header['blocks'].append(dict(target=target,
+                content={key: asset[key] for key in ('submap_id', 'source_generation', 'content_job_id')},
+                resident=0, asset={key: asset[key] for key in ASSET_FIELDS},
+                frame_ids=asset['frame_ids'][:], gaussian_count=asset['gaussian_count'],
+                render_metadata=copy.deepcopy(self.actor.assets[int(asset['asset_id'])]['render_metadata'])))
             pieces.append(self.target_bodies[submap])
         return header, b''.join(pieces)
 

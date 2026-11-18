@@ -43,9 +43,32 @@ def _positive(value, name):
     return number
 
 
+def _root_fields(header):
+    return _ROOT | ({'policy', 'selection'} if 'policy' in header or 'selection' in header else set())
+
+
+def _selection(header, camera):
+    spatial = 'policy' in header
+    if not spatial:
+        return
+    _require(header['policy'] == 'spatial', 'Unknown spatial wire policy')
+    value = header['selection']
+    _keys(value, {'candidate_count', 'candidate_pixels', 'projection_uncertain', 'selection_seconds'})
+    count = _integer(value['candidate_count'], 'candidate count', 0, 31)
+    pixels = _integer(value['candidate_pixels'], 'candidate pixels', 0, camera['width'] * camera['height'])
+    uncertain = _integer(value['projection_uncertain'], 'uncertain', 0, 1)
+    dual = len(header['blocks']) == 2
+    _require((count > 0) == dual and (pixels > 0) == dual and
+             (not uncertain or pixels == camera['width'] * camera['height']) and
+             _number(value['selection_seconds'], 'selection time') >= 0, 'Invalid spatial selection summary')
+
+
 def _header(header):
     """Bound every count before decoding even the first primary body array."""
     from submap_protocol import _frame_ids
+
+    spatial = 'policy' in header
+    _require(not spatial or header['policy'] == 'spatial', 'Unknown render policy')
 
     _require(type(header.get('schema')) is int and header['schema'] == 2 and
              isinstance(header.get('session_id'), str) and
@@ -64,7 +87,10 @@ def _header(header):
     _require(isinstance(blocks, list) and 1 <= len(blocks) <= 2, 'Select one or two render blocks')
     ids, residents, primary_count = [], 0, 0
     for block in blocks:
-        _keys(block, {'target', 'content', 'resident', 'frame_ids', 'gaussian_count'}, {'asset'})
+        fields = {'target', 'content', 'resident', 'frame_ids', 'gaussian_count'}
+        if spatial:
+            fields.add('render_metadata')
+        _keys(block, fields, {'asset'})
         target, content = block['target'], block['content']
         _keys(target, _TARGET)
         _keys(content, _CONTENT)
@@ -88,6 +114,9 @@ def _header(header):
         _positive(content['content_job_id'], 'content job')
         frame_ids = _frame_ids(block)
         _require(all(anchor <= key < anchor + count for key in frame_ids), 'Uncovered retained frame')
+        if spatial:
+            from spatial_metadata import validate_metadata
+            validate_metadata(block['render_metadata'], dict(session_id=header['session_id'], **content), frame_ids)
         resident = _integer(block['resident'], 'resident', 0, 1)
         residents += resident
         _require(('asset' in block) == (not resident), 'Invalid resident source fields')
@@ -106,16 +135,20 @@ def _header(header):
              'Invalid selected render blocks')
     reason = header.get('neighbor_reason')
     if len(ids) == 2:
-        _require(owner > 0 and ids[0] == owner - 1 and reason == '', 'Expected previous logical group')
+        _require(owner > 0 and ids[0] < owner and (spatial or ids[0] == owner - 1) and reason == '',
+                 'Invalid selected neighbor')
     else:
-        _require(reason == ('no_previous_group' if owner == 0 else 'neighbor_unavailable'),
+        expected = 'no_spatial_candidate' if spatial else ('no_previous_group' if owner == 0 else 'neighbor_unavailable')
+        _require(reason == expected,
                  'Missing single-block reason')
     _require(str(query) == blocks[-1]['frame_ids'][-1], 'Query is not the last retained owner camera')
+    if spatial:
+        _selection(header, blocks[-1]['render_metadata']['camera'])
     return primary_count
 
 
 def decode_render_request(header, body):
-    _keys(header, _ROOT)
+    _keys(header, _root_fields(header))
     _require(header['type'] == 'joint_render', 'Expected render request')
     count = _header(header)
     _require(isinstance(body, bytes) and len(body) == 128 * (1 + count) and len(body) <= 131200,
@@ -174,7 +207,7 @@ def validate_render_message(header, body):
     extra = ({'code', 'error'} if kind == 'joint_render_error' else
              _CAMERA | _MEMORY | {'single', 'joint', 'changed_pixels', 'single_gaussian_count',
                                   'gaussian_count', 'worker_seconds'})
-    _keys(header, _ROOT | extra)
+    _keys(header, _root_fields(header) | extra)
     _header(header)
     _require(isinstance(body, bytes), 'Invalid render body')
     if kind == 'joint_render_error':
@@ -197,6 +230,15 @@ def validate_render_message(header, body):
     camera = _pose(header['camera_from_body'], 'camera body pose')
     _require(_same_pose(_pose(header['camera_from_parent'], 'global camera'), camera @ np.linalg.inv(parent)),
              'Incorrect query camera composition')
+    if 'policy' in header:
+        saved = header['blocks'][-1]['render_metadata']['camera']
+        K = saved['K']
+        _require(header['width'] == saved['width'] and header['height'] == saved['height'] and
+                 header['calibration_id'] == saved['calibration_id'] and
+                 [header[key] for key in ('fx', 'fy', 'cx', 'cy')] == [K[0], K[4], K[2], K[5]] and
+                 header['image_timestamp'] == saved['capture_time'] and
+                 _same_pose(camera, _pose(saved['camera_from_body'], 'spatial query camera')),
+                 'Render replaced the retained spatial query camera')
     for key in ('single', 'joint'):
         _metrics(header[key], pixels)
     _integer(header['changed_pixels'], 'changed pixels', 0, pixels)

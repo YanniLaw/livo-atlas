@@ -290,6 +290,29 @@ TEST_F(Ros1ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
 
+TEST_F(Ros1ParametersTest, GaussianSpatialPolicyUsesStrictSharedSchema) {
+  EXPECT_EQ(ReadNodeOptions(*node_).livo.gaussian.joint_render_policy,
+            GaussianRenderPolicy::kTemporal);
+  node_->setParam("gaussian/joint_render_policy", 1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/joint_render_policy", "unknown");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/joint_render_policy", "spatial");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/enabled", true);
+  node_->setParam("gaussian/socket_path", "/tmp/spatial-test.sock");
+  node_->setParam("gaussian/output_directory", "/tmp/spatial-output");
+  node_->setParam("gaussian/persist_submaps", true);
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/joint_render_enabled", true);
+  EXPECT_EQ(ReadNodeOptions(*node_).livo.gaussian.joint_render_policy,
+            GaussianRenderPolicy::kSpatial);
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
+
 TEST_F(Ros1ParametersTest, GaussianFinalizationUsesStrictSharedSchema) {
   EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.finalize_on_shutdown);
   node_->setParam("gaussian/finalize_on_shutdown", 1);

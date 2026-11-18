@@ -12,12 +12,29 @@ import numpy as np
 
 from joint_render_protocol import decode_render_request, validate_render_message
 from online_protocol import encode_message, read_message, write_message
-from render_fixtures import render_request_fixture, render_reply_fixture
+from render_fixtures import render_request_fixture, render_reply_fixture, spatial_request_fixture
 from state_fixtures import pose
 from submap_fixtures import SESSION
 
 
 class JointRenderProtocolTest(unittest.TestCase):
+    def test_spatial_nonadjacent_request_has_exact_bounded_metadata(self):
+        header, body = spatial_request_fixture()
+        result = decode_render_request(header, body)
+        self.assertEqual([block['header']['content']['submap_id'] for block in result['blocks']], ['0', '2'])
+        self.assertEqual(result['header']['selection']['candidate_pixels'], 48)
+        self.assertEqual(len(body), 640)
+        edits = [lambda h: h.update(policy='temporal'),
+                 lambda h: h['selection'].update(candidate_count=32),
+                 lambda h: h['selection'].update(candidate_pixels=49),
+                 lambda h: h['blocks'][0].pop('render_metadata'),
+                 lambda h: h['blocks'][0]['render_metadata']['content'].update(content_job_id='11')]
+        for edit in edits:
+            changed = copy.deepcopy(header)
+            edit(changed)
+            with self.subTest(edit=edit), self.assertRaises(ValueError):
+                decode_render_request(changed, body)
+
     def test_query_must_be_the_last_retained_owner_camera(self):
         header, body = render_request_fixture()
         header['query_keyframe_id'] = '4'

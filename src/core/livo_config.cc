@@ -44,6 +44,18 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.Boolean("gaussian.finalize_on_shutdown", false);
   gaussian.joint_render_enabled =
       reader.Boolean("gaussian.joint_render_enabled", false);
+  const auto render_policy =
+      reader.String("gaussian.joint_render_policy", "temporal");
+  if (render_policy == "spatial") {
+    gaussian.joint_render_policy = GaussianRenderPolicy::kSpatial;
+    if (!gaussian.enabled || !gaussian.persist_submaps ||
+        !gaussian.joint_render_enabled)
+      throw std::invalid_argument(
+          "Spatial rendering requires Gaussian persistence and joint "
+          "rendering");
+  } else if (render_policy != "temporal") {
+    throw std::invalid_argument("Unknown Gaussian joint render policy");
+  }
   if (gaussian.joint_render_enabled &&
       (!gaussian.enabled || !gaussian.persist_submaps))
     throw std::invalid_argument(

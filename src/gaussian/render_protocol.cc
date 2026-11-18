@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "gaussian/mapper_io.h"
+#include "gaussian/render_metadata_protocol.h"
 #include "gaussian/render_validation.h"
 #include "gaussian/submap_protocol.h"
 #include "mapping/pose_math.h"
@@ -26,6 +27,14 @@ const Fields kRoot = {
     "schema", "type", "session_id", "job_id", "generation", "pose_version",
     "map_sequence", "frame_count", "optimized_frame_count", "parent_frame",
     "query_keyframe_id", "query_submap_id", "neighbor_reason", "blocks"};
+
+Fields RootFields(const cv::FileNode& root) {
+  auto fields = kRoot;
+  if (root["policy"].type() != cv::FileNode::NONE ||
+      root["selection"].type() != cv::FileNode::NONE)
+    fields.insert({"policy", "selection"});
+  return fields;
+}
 
 void Require(bool condition, const char* message) {
   if (!condition) throw std::invalid_argument(message);
@@ -125,6 +134,19 @@ void Content(cv::FileStorage& out, const GaussianContentId& content) {
 
 GaussianRenderRequest Header(const cv::FileNode& root) {
   GaussianRenderRequest result;
+  const bool spatial = root["policy"].type() != cv::FileNode::NONE;
+  if (spatial) {
+    Require(Text(root["policy"]) == "spatial", "Unknown render wire policy");
+    result.policy = GaussianRenderPolicy::kSpatial;
+    const auto selection = root["selection"];
+    Keys(selection, {"candidate_count", "candidate_pixels",
+                      "projection_uncertain", "selection_seconds"});
+    result.candidate_count = Count(selection["candidate_count"], 0, 31);
+    result.candidate_pixels = Count(selection["candidate_pixels"], 0, 1000000);
+    result.projection_uncertain =
+        Count(selection["projection_uncertain"], 0, 1) != 0;
+    result.selection_seconds = Number(selection["selection_seconds"]);
+  }
   result.session_id = Text(root["session_id"]);
   Require(result.session_id.size() == 32 &&
               result.session_id.find_first_not_of("0123456789abcdef") ==
@@ -159,6 +181,7 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
     Fields fields = {"target", "content", "resident", "frame_ids",
                      "gaussian_count"};
     if (!resident) fields.insert("asset");
+    if (spatial) fields.insert("render_metadata");
     Keys(row, fields);
     const auto target = row["target"];
     Keys(target, {"generation", "submap_id", "pose_version",
@@ -236,6 +259,9 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
     block.gaussian_count = Count(
         row["gaussian_count"], static_cast<int>(frames.size()),
         1000 * static_cast<int>(frames.size()));
+    if (spatial)
+      block.render_metadata = DecodeGaussianRenderMetadata(
+          row["render_metadata"], block.content, block.frame_ids);
     Require(result.blocks.empty() ||
                 t.group.primary.id >
                     result.blocks.back().target.group.primary.id,
@@ -249,20 +275,18 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
           "Query is not the last retained owner camera");
   if (result.blocks.size() == 2) {
     Require(result.query_submap_id > 0 && result.neighbor_reason.empty() &&
-                result.blocks[0].target.group.primary.id ==
-                    result.query_submap_id - 1, "Invalid render neighbor");
-  } else {
-    Require(result.neighbor_reason ==
-                (result.query_submap_id ? "neighbor_unavailable"
-                                        : "no_previous_group"),
-            "Missing single-block render reason");
+                result.blocks[0].target.group.primary.id <
+                    result.query_submap_id &&
+                (spatial || result.blocks[0].target.group.primary.id ==
+                    result.query_submap_id - 1), "Invalid render neighbor");
   }
+  ValidateRenderSelection(result);
   return result;
 }
 
 GaussianRenderRequest Request(const cv::FileNode& root,
                               const std::vector<std::uint8_t>& body) {
-  Keys(root, kRoot);
+  Keys(root, RootFields(root));
   Require(Text(root["type"]) == "joint_render", "Expected render request");
   auto request = Header(root);
   std::size_t bytes = 128;
@@ -343,7 +367,7 @@ void Echo(const cv::FileNode& root, const GaussianRenderRequest& request) {
   const auto encoded = EncodeGaussianRenderRequest(request);
   cv::FileStorage expected(encoded.header_json,
                            cv::FileStorage::READ | cv::FileStorage::MEMORY);
-  for (const auto& key : kRoot)
+  for (const auto& key : RootFields(expected.root()))
     if (key != "type")
       Require(EqualJson(root[key], expected[key]),
               "Render reply echo mismatch");
@@ -366,6 +390,13 @@ GaussianMessage EncodeGaussianRenderRequest(
     Id(out, "optimized_frame_count", request.optimized_frame_count);
     Id(out, "query_keyframe_id", request.query_keyframe_id);
     Id(out, "query_submap_id", request.query_submap_id);
+    if (request.policy == GaussianRenderPolicy::kSpatial)
+      out << "policy" << "spatial" << "selection" << "{"
+          << "candidate_count" << static_cast<int>(request.candidate_count)
+          << "candidate_pixels" << static_cast<int>(request.candidate_pixels)
+          << "projection_uncertain"
+          << static_cast<int>(request.projection_uncertain)
+          << "selection_seconds" << request.selection_seconds << "}";
     out << "parent_frame"
         << (request.parent_frame == PoseFrame::kMap ? "map" : "odom")
         << "neighbor_reason" << request.neighbor_reason << "blocks" << "[";
@@ -388,6 +419,10 @@ GaussianMessage EncodeGaussianRenderRequest(
         Id(out, "gaussian_bytes", asset.gaussian_bytes);
         Id(out, "observation_bytes", asset.observation_bytes);
         out << "}";
+      }
+      if (block.render_metadata) {
+        out << "render_metadata";
+        WriteGaussianRenderMetadata(out, *block.render_metadata);
       }
       out << "}";
     }
@@ -430,7 +465,7 @@ void ValidateGaussianRenderMessage(const cv::FileNode& root,
     (void)Request(root, body);
     return;
   }
-  auto fields = kRoot;
+  auto fields = RootFields(root);
   if (kind == "joint_render_error") {
     fields.insert({"code", "error"});
     Keys(root, fields);

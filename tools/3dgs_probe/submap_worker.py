@@ -396,6 +396,8 @@ class GaussianSubmapWorker:
             if kind == 'joint_render':
                 if not self.joint_render_enabled:
                     raise ValueError('Joint render capability was not negotiated')
+                if header.get('policy') == 'spatial' and not self.spatial_render_enabled:
+                    raise ValueError('Spatial render capability was not negotiated')
                 from online_render import render_operation
                 return render_operation(self, header, body)
             if kind == "activate":

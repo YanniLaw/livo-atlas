@@ -1,4 +1,5 @@
 import gc
+import copy
 from pathlib import Path
 import tempfile
 import socket
@@ -18,6 +19,7 @@ from online_protocol import encode_message, read_message, write_message
 from online_worker import serve_connection
 from render_actor_fixtures import METADATA, RenderActor, training_state
 from render_fixtures import ASSET_FIELDS, TARGET_FIELDS
+from render_fixtures import spatial_request_fixture
 from state_fixtures import pose
 from online_model import OnlineGaussianModel
 from submap_fixtures import SESSION, control_fixture
@@ -46,6 +48,13 @@ class OnlineRenderTest(unittest.TestCase):
         result = subprocess.run([sys.executable, '-I', '-c', code],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_spatial_render_requires_its_negotiated_capability(self):
+        header, body = spatial_request_fixture()
+        before = training_state(self.actor)
+        with self.assertRaisesRegex(ValueError, 'capability'):
+            self.actor.handle(header, body)
+        self.assertEqual(training_state(self.actor), before)
 
     def test_asset_query_excludes_third_resident_and_preserves_training_state(self):
         before = training_state(self.actor)
@@ -241,6 +250,51 @@ class OnlineRenderTest(unittest.TestCase):
                     worker.join(10)
                     server.close()
                 self.assertEqual(result, [True])
+
+
+class SpatialOnlineRenderTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.device = checked_cuda_device()
+        torch.set_num_threads(1)
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='livo-spatial-render-')
+        self.addCleanup(self.temp.cleanup)
+        self.fixture = RenderActor(Path(self.temp.name), self.device, spatial=True)
+        self.addCleanup(self.fixture.release)
+        self.fixture.provision_spatial()
+        self.actor = self.fixture.actor
+
+    def test_nonadjacent_assets_preserve_third_resident_training_state(self):
+        header, body = self.fixture.spatial_request()
+        before = training_state(self.actor)
+        model, optimizer = self.actor.model, self.actor.model.optimizer
+        reply, rgb = self.actor.handle(header, body)
+        self.assertEqual(reply['type'], 'joint_render_ok')
+        self.assertEqual([block['content']['submap_id'] for block in reply['blocks']], ['0', '3'])
+        self.assertEqual(reply['policy'], 'spatial')
+        self.assertGreater(reply['changed_pixels'], 0)
+        self.assertEqual(len(rgb), 3 * 48)
+        self.assertEqual(training_state(self.actor), before)
+        self.assertIs(self.actor.model, model)
+        self.assertIs(self.actor.model.optimizer, optimizer)
+
+    def test_forged_bounds_fail_before_gpu_inference(self):
+        header, body = self.fixture.spatial_request()
+        header['blocks'][0]['render_metadata']['extents'][0]['max'][0] += 1
+        before = training_state(self.actor)
+        with mock.patch('online_render.infer_blocks', side_effect=AssertionError('unverified GPU input')):
+            with self.assertRaises(ValueError):
+                self.actor.handle(header, body)
+        self.assertEqual(training_state(self.actor), before)
+
+    def test_forged_query_camera_fails_before_gpu_inference(self):
+        header, body = self.fixture.spatial_request()
+        header['blocks'][-1]['render_metadata']['camera']['K'][0] += 1
+        with mock.patch('online_render.infer_blocks', side_effect=AssertionError('unverified GPU input')):
+            with self.assertRaises(ValueError):
+                self.actor.handle(header, body)
 
 
 if __name__ == '__main__':
