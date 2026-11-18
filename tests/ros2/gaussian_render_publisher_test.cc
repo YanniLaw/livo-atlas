@@ -101,7 +101,7 @@ TEST(GaussianRenderPublisherTest, BadReadyPayloadReplacesBothCachesWithError) {
   executor.add_node(node);
   GaussianRenderPublisher publisher(*node, "atlas/gaussian_optical", "map");
   const auto qos = rclcpp::QoS(1).reliable().transient_local();
-  for (int scenario = 0; scenario < 9; ++scenario) {
+  for (int scenario = 0; scenario < 12; ++scenario) {
     auto source = test::MalformedPublication(scenario);
     source.revision = scenario + 1;
     EXPECT_THROW(publisher.Publish(source), std::invalid_argument);

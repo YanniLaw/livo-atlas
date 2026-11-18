@@ -89,8 +89,12 @@ void GaussianRenderOutput::Observe(
     if (latest_ && SameHeader(*latest_, source) &&
         latest_render_.lock() == source.render)
       return;
-    const bool urgent = !latest_ || latest_->status != source.status ||
-                        source.status != GaussianRenderStatus::kReady;
+    const bool exceptional = source.status == GaussianRenderStatus::kError ||
+                             source.status == GaussianRenderStatus::kDisabled ||
+                             source.status == GaussianRenderStatus::kStopping ||
+                             source.status == GaussianRenderStatus::kStopped;
+    const bool urgent =
+        !latest_ || latest_->status != source.status || exceptional;
     // Release the old pending payload before taking a new RGB reference. The
     // in-flight callback may still own a different image.
     if (pending_) {
@@ -102,6 +106,7 @@ void GaussianRenderOutput::Observe(
     latest_->render.reset();
     latest_render_ = source.render;
     Queue(source, urgent);
+    if (source.status == GaussianRenderStatus::kStopped) closing_ = true;
   } catch (...) {
     // A malformed image may still have a usable source header. Never invent a
     // source for an invalid identity, and never retain the malformed pixels.
@@ -145,6 +150,19 @@ void GaussianRenderOutput::Run() noexcept {
     } catch (...) {
       failure = "invalid_snapshot";
     }
+    // Validation is deliberately outside the mutex. Admit the callback only
+    // if the owner has not replaced this revision while validation ran.
+    lock.lock();
+    if (source.revision != stats_.last_revision) {
+      source.render.reset();
+      stats_.in_flight = 0;
+      ++stats_.coalesced;
+      stats_.max_worker_seconds =
+          std::max(stats_.max_worker_seconds,
+                   std::chrono::duration<double>(Clock::now() - start).count());
+      continue;
+    }
+    lock.unlock();
     if (!failure) {
       try {
         published = consumer_(source);
@@ -174,8 +192,9 @@ void GaussianRenderOutput::Finish() noexcept {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stats_.finished) return;
+    const bool already_terminal = closing_;
     closing_ = true;
-    if (!stats_.failed) {
+    if (!stats_.failed && !already_terminal) {
       pending_.reset();
       stats_.pending = 0;
       if (latest_ && options_.enabled) {

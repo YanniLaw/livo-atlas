@@ -143,6 +143,21 @@ def gaussian_render_record(message, stamp_ns):
     return result
 
 
+def gaussian_reception_errors(observed):
+    errors = list(observed['errors'])
+    if observed['enabled']:
+        if not observed['samples']:
+            errors.append('No Gaussian composite messages received')
+        if not observed['image_samples']:
+            errors.append('No Gaussian image mirror messages received')
+    return errors
+
+
+def _image_signature(image):
+    return tuple(image[key] for key in ('frame_id', 'stamp_ns', 'width', 'height',
+                                       'step', 'encoding', 'is_bigendian', 'sha256'))
+
+
 def _sources(header):
     result = []
     for block in header['blocks']:
@@ -197,7 +212,10 @@ def inspect_gaussian_publication(run, previews):
     from PIL import Image
     run, previews = Path(run), Path(previews)
     observed = json.loads((run / 'gaussian-publication.json').read_text())
-    log = (run / 'mapping.log').read_text(errors='replace')
+    log_path = run / 'mapping.log'
+    if not log_path.is_file():
+        log_path = run / 'node.log'
+    log = log_path.read_text(errors='replace')
     facts = _records(log, 'livo_atlas gaussian publication:')
     samples, mirrors = observed['samples'], observed['image_samples']
     _require(not observed['errors'], 'Gaussian receiver reported errors')
@@ -216,6 +234,7 @@ def inspect_gaussian_publication(run, previews):
     cutoff, start = summary['playback_input_cutoff_steady_seconds'], summary['playback_started_steady_seconds']
     events = _records(log, 'livo_atlas gaussian joint accepted:')
     accepted = {(event['session'], event['job']): (event, _source_identity(event)) for event in events}
+    acceptance_order = {(event['session'], event['job']): i for i, event in enumerate(events)}
     retained = {}
     for path in previews.glob('joint-render-*.json'):
         metadata = _pair(path)
@@ -224,6 +243,9 @@ def inspect_gaussian_publication(run, previews):
         retained[(metadata['as_of']['session_id'], int(metadata['as_of']['job_id']))] = (metadata, digest)
     last, producer, session, terminal = 0, None, None, False
     context = None
+    displayed = None
+    displayed_order = -1
+    withdrawn = set()
     ready, png_matches = 0, 0
     ready_images = set()
     for value in samples:
@@ -243,9 +265,15 @@ def inspect_gaussian_publication(run, previews):
         last = value['revision']
         terminal = value['status'] == 6
         if value['status'] != 0:
+            if displayed is not None:
+                withdrawn.add(displayed)
             continue
         key = (session, value['job_id'])
         _require(key in accepted, 'Received READY was never accepted by owner')
+        _require(key not in withdrawn and acceptance_order[key] >= displayed_order,
+                 'Received READY resurrects a withdrawn or older displayed job')
+        displayed = key
+        displayed_order = acceptance_order[key]
         event, header = accepted[key]
         _same_source(value, header, observed['map_frame'])
         _require(value['changed_pixels'] == event['changed_pixels'], 'Contribution differs from owner')
@@ -255,7 +283,7 @@ def inspect_gaussian_publication(run, previews):
         live = start <= event['accepted_at_steady_seconds'] <= received <= cutoff
         ready += int(live)
         image = value['image']
-        ready_images.add((image['frame_id'], image['stamp_ns'], image['sha256']))
+        ready_images.add(_image_signature(image))
         if key in retained:
             metadata, digest = retained[key]
             _camera(value, metadata)
@@ -264,7 +292,7 @@ def inspect_gaussian_publication(run, previews):
     mirror_matches = 0
     for image in mirrors:
         _image(image)
-        mirror_matches += int((image['frame_id'], image['stamp_ns'], image['sha256']) in ready_images)
+        mirror_matches += int(_image_signature(image) in ready_images)
     _require(ready >= 1 and png_matches >= 1 and mirror_matches > 0,
              'Missing actual READY/PNG/mirror reception before input cutoff')
     return dict(enabled=True, received=len(samples), producer_id=producer, session_id=session,

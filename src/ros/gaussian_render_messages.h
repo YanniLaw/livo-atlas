@@ -11,7 +11,6 @@
 #include "livo_atlas/core/gaussian_render_output_options.h"
 #include "livo_atlas/gaussian/gaussian_render_snapshot.h"
 #include "mapping/pose_math.h"
-#include "ros/time_conversion.h"
 
 namespace livo_atlas::ros_detail {
 
@@ -67,7 +66,7 @@ Message MakeGaussianRenderMessage(const GaussianRenderSnapshot& source,
     if (source.status != GaussianRenderStatus::kReady) return message;
     const auto& render = *source.render;
     const auto& request = render.request;
-    const auto ns = RosNanoseconds(render.capture_time, "Gaussian", "Gaussian");
+    const auto ns = GaussianRenderNanoseconds(render.capture_time);
     message.header.stamp = stamp(ns);
     message.image.header = message.header;
     message.job_id = request.job_id;
@@ -98,6 +97,8 @@ Message MakeGaussianRenderMessage(const GaussianRenderSnapshot& source,
         message.k[3 * row + col] = render.K(row, col);
     const auto pose = pose_math::Inverse(render.camera_from_parent);
     const auto rotation = Eigen::Quaterniond(pose.rotation).normalized();
+    if (!pose.translation.allFinite() || !rotation.coeffs().allFinite())
+      throw std::invalid_argument("Nonfinite displayed Gaussian pose");
     auto& output = message.parent_from_camera;
     output.position.x = pose.translation.x();
     output.position.y = pose.translation.y();

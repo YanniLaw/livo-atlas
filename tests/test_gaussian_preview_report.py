@@ -170,7 +170,51 @@ class GaussianPublicationEvidenceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             inspect_gaussian_publication(self.root, self.previews)
 
-    def test_same_capture_time_with_a_different_job_remains_a_new_version(self):
+    def test_humble_node_log_is_supported(self):
+        (self.root / 'mapping.log').rename(self.root / 'node.log')
+        self.assertEqual(inspect_gaussian_publication(self.root, self.previews)['received'], 2)
+
+    def test_shape_is_part_of_the_mirror_content_match(self):
+        self.observed['image_samples'][0].update(width=6, height=8, step=18)
+        self.write()
+        with self.assertRaises(ValueError):
+            inspect_gaussian_publication(self.root, self.previews)
+
+    def test_enabled_reception_requires_both_topics_but_not_ready(self):
+        from tools.gaussian_preview_report import gaussian_reception_errors
+        observation = dict(enabled=True, samples=[], image_samples=[], errors=[])
+        self.assertEqual(len(gaussian_reception_errors(observation)), 2)
+        observation['samples'] = [gaussian_render_record(invalidated(), lambda t: t)]
+        self.assertEqual(len(gaussian_reception_errors(observation)), 1)
+        observation['image_samples'] = [gaussian_image_record(invalidated().image, lambda t: t)]
+        self.assertEqual(gaussian_reception_errors(observation), [])
+        observation.update(enabled=False, samples=[], image_samples=[])
+        self.assertEqual(gaussian_reception_errors(observation), [])
+
+    def test_withdrawn_job_cannot_become_ready_again(self):
+        old = copy.deepcopy(self.observed['samples'][0])
+        old.update(revision=3, received_at_steady_seconds=952.)
+        self.observed['samples'].append(old)
+        path = self.root / 'mapping.log'
+        path.write_text(path.read_text().replace('published=2', 'published=3')
+                        .replace('last_revision=3', 'last_revision=4'))
+        self.write()
+        with self.assertRaises(ValueError):
+            inspect_gaussian_publication(self.root, self.previews)
+
+    def test_new_revision_cannot_restore_a_job_older_than_the_displayed_job(self):
+        self.AddSecondOwnerJob()
+        old = copy.deepcopy(self.observed['samples'][0])
+        old.update(revision=4, received_at_steady_seconds=953.)
+        self.observed['samples'].append(old)
+        path = self.root / 'mapping.log'
+        path.write_text(path.read_text().replace('published=3', 'published=4')
+                        .replace('last_revision=4', 'last_revision=5'))
+        self.write()
+        with self.assertRaises(ValueError):
+            inspect_gaussian_publication(self.root, self.previews)
+
+    def AddSecondOwnerJob(self):
         import test_joint_render_report
         request = copy.deepcopy(self.fixture.data['as_of'])
         original = copy.deepcopy(request)
@@ -189,6 +233,9 @@ class GaussianPublicationEvidenceTest(unittest.TestCase):
         fresh.update(revision=3, job_id=9007199254740994, received_at_steady_seconds=952.)
         self.observed['samples'].append(fresh)
         self.write()
+
+    def test_same_capture_time_with_a_different_job_remains_a_new_version(self):
+        self.AddSecondOwnerJob()
         self.assertEqual(inspect_gaussian_publication(self.root, self.previews)['ready_before_input_cutoff'], 2)
 
 

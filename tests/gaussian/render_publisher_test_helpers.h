@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -133,6 +134,26 @@ inline GaussianRenderSnapshot MalformedPublication(int scenario) {
       break;
     case 8:
       ++render->request.generation;
+      break;
+    case 9: {
+      const double c = std::sqrt(.5);
+      render->camera_from_body.rotation << c, -c, 0, c, c, 0, 0, 0, 1;
+      render->camera_from_body.translation = Eigen::Vector3d::Constant(1.7e308);
+      render->camera_from_parent = pose_math::Compose(
+          render->camera_from_body,
+          pose_math::Inverse(render->request.parent_from_body));
+      break;
+    }
+    case 10:
+      render->request.blocks[0].content.source_generation = 5;
+      render->request.blocks[0].asset->content =
+          render->request.blocks[0].content;
+      break;
+    case 11:
+      render->request.blocks[0].content.content_job_id =
+          render->request.job_id + 1;
+      render->request.blocks[0].asset->content =
+          render->request.blocks[0].content;
       break;
     default:
       throw std::invalid_argument("Unknown malformed fixture");

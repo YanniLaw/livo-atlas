@@ -316,12 +316,14 @@ def main():
         from sensor_msgs.msg import Image, PointCloud2
         try:
             from .output_digest import cloud_digest, image_digest
-            from .gaussian_preview_report import gaussian_render_record, gaussian_image_record
+            from .gaussian_preview_report import (gaussian_render_record, gaussian_image_record,
+                gaussian_reception_errors)
             from .geometry_map_records import geometry_map_record
             from .trajectory_records import trajectory_record, trajectory_path_record
         except ImportError:
             from output_digest import cloud_digest, image_digest
-            from gaussian_preview_report import gaussian_render_record, gaussian_image_record
+            from gaussian_preview_report import (gaussian_render_record, gaussian_image_record,
+                gaussian_reception_errors)
             from geometry_map_records import geometry_map_record
             from trajectory_records import trajectory_record, trajectory_path_record
         rospy = ros_module
@@ -563,6 +565,7 @@ def main():
         with lock:
             if geometry_observation['enabled'] and not geometry_observation['samples']:
                 geometry_observation['errors'].append('No geometry map messages received')
+            gaussian_observation['errors'] = gaussian_reception_errors(gaussian_observation)
             (output / 'gaussian-publication.json').write_text(
                 json.dumps(gaussian_observation, indent=2, allow_nan=False) + '\n')
             (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')

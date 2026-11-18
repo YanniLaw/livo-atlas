@@ -159,6 +159,15 @@ def _previews(directory):
     return result
 
 
+def validate_finalized_coverage(before, after):
+    """Compare verified session-independent coverage, not per-session asset IDs."""
+    if (before['eligible_submap_ids'] != after['eligible_submap_ids'] or
+            before['current'] != after['current'] or
+            before['current'] != len(before['eligible_submap_ids']) or
+            not before['durable'] or not after['durable']):
+        raise ValueError('Publication OFF/ON finalized submap coverage differs')
+
+
 def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_groups=0,
             publication=False):
     """Return every observed difference; no numeric tolerance is applied."""
@@ -288,6 +297,7 @@ def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_g
         except (OSError, ValueError, TypeError, KeyError) as error:
             differences['gaussian_finalization'] = str(error)
     joint_report = None
+    off_finalization_report = None
     if joint_render or publication:
         try:
             try:
@@ -309,11 +319,16 @@ def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_g
             if not off_map['durable']:
                 raise ValueError('Disabled replay did not persist its training')
             if configs[0].get('finalize_on_shutdown'):
-                _finalization(off, off_previews, off_map, summaries[0],
+                off_finalization_report = _finalization(off, off_previews, off_map, summaries[0],
                               _stats(off, 'livo_atlas gaussian:'), _stats(off, 'livo_atlas gaussian submaps:'))
         except (OSError, ValueError, TypeError, KeyError) as error:
             differences['off_gaussian_map'] = str(error)
     publication_report = None
+    if publication:
+        try:
+            validate_finalized_coverage(off_finalization_report, finalization_report)
+        except (ValueError, KeyError, TypeError) as error:
+            differences['gaussian_coverage'] = str(error)
     if publication:
         try:
             try:

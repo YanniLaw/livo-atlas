@@ -12,6 +12,7 @@
 不发布它的 TF。光学帧限128字节、父地图帧限256字节，均校验 ASCII slash 分段与名称冲突。
 发布普通更新的间隔继承 `gaussian.joint_render_interval_ms`；状态切换立即处理，
 包括恢复 READY，避免连续失效/等待消息推迟第一张有效图像。
+同状态的WAITING/INVALIDATED版本头更新仍按间隔节流；待发状态转换的紧急属性会保留。
 
 两套回放工具使用相同参数，在已有持久联合渲染命令后增加：
 
@@ -49,7 +50,8 @@ Humble 晚加入订阅者应请求 transient_local；volatile 订阅者等待下
 - WAITING、INVALIDATED、DISABLED、ERROR、STOPPING、STOPPED 都没有图像、来源、
   查询 job/K/采集时间/像素指标，pose 为 identity。收到非 READY 即撤回自己的显示状态。
 - 慢 native publish 由单个 CPU worker 执行，最多一个执行槽和一个最新待发槽。
-  已开始的调用不能强行撤销；串行回调防止旧 revision 在新 revision 之后调用。
+  已开始的调用不能强行撤销；完整校验后还会核对最新revision再接纳回调；
+  串行回调防止旧 revision 在新 revision 之后调用。
   `Finish()` join，SDK consumer 必须最终返回，publisher 的生命周期覆盖 join。
 
 `published` 只表示 native 调用完成，远端送达由独立接收记录证明。

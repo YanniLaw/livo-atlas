@@ -37,6 +37,9 @@ struct GaussianRenderSnapshot {
   std::shared_ptr<const GaussianRender> render;
 };
 
+// Shared publication timestamp contract, independent of ROS message types.
+std::int64_t GaussianRenderNanoseconds(double capture_time);
+
 // Bounded scalar/dimension checks are safe on the owner. Complete camera/source
 // validation belongs to the worker, or to a native transport boundary.
 void ValidateGaussianRenderSnapshotHeader(const GaussianRenderSnapshot& source,

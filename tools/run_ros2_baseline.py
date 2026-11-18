@@ -242,11 +242,13 @@ def main():
         enabled=parameters.get('global_output.geometry.enabled', False),
         samples=[], errors=[])
     try:
-        from .gaussian_preview_report import gaussian_render_record, gaussian_image_record
+        from .gaussian_preview_report import (gaussian_render_record, gaussian_image_record,
+                gaussian_reception_errors)
         from .geometry_map_records import geometry_map_record
         from .trajectory_records import trajectory_record, trajectory_path_record
     except ImportError:
-        from gaussian_preview_report import gaussian_render_record, gaussian_image_record
+        from gaussian_preview_report import (gaussian_render_record, gaussian_image_record,
+                gaussian_reception_errors)
         from geometry_map_records import geometry_map_record
         from trajectory_records import trajectory_record, trajectory_path_record
 
@@ -468,6 +470,7 @@ def main():
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
     if geometry_observation['enabled'] and not geometry_observation['samples']:
         geometry_observation['errors'].append('No geometry map messages received')
+    gaussian_observation['errors'] = gaussian_reception_errors(gaussian_observation)
     (output / 'gaussian-publication.json').write_text(
         json.dumps(gaussian_observation, indent=2, allow_nan=False) + '\n')
     (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')

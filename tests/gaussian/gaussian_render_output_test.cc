@@ -136,6 +136,109 @@ TEST(GaussianRenderOutputTest, FirstReadyAfterWaitingBypassesStatusTraffic) {
   output.Finish();
 }
 
+TEST(GaussianRenderOutputTest, SameNonreadyStatusDoesNotBypassTheInterval) {
+  auto options = Enabled();
+  options.minimum_interval = 60s;
+  GaussianRenderOutput output(options, [](const auto&) { return true; });
+  auto source = test::ReadyRenderSnapshot();
+  source.render.reset();
+  source.status = GaussianRenderStatus::kWaiting;
+  source.reason = "awaiting_render";
+  output.Observe(source);
+  ASSERT_TRUE(Wait([&] { return output.GetStats().published == 1; }));
+  ++source.map_sequence;
+  output.Observe(source);
+  std::this_thread::sleep_for(100ms);
+  EXPECT_EQ(output.GetStats().published, 1u);
+  EXPECT_EQ(output.GetStats().pending, 1u);
+  output.Finish();
+}
+
+TEST(GaussianRenderOutputTest, ObservedStoppedIsPublishedOnlyOnce) {
+  for (bool wait_for_callback : {false, true}) {
+    int calls = 0;
+    GaussianRenderOutput output(Enabled(), [&](const auto&) {
+      ++calls;
+      return true;
+    });
+    auto source = test::ReadyRenderSnapshot();
+    source.render.reset();
+    source.status = GaussianRenderStatus::kStopped;
+    source.reason = "stopped";
+    output.Observe(source);
+    if (wait_for_callback)
+      EXPECT_TRUE(Wait([&] { return output.GetStats().published == 1; }));
+    output.Finish();
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(output.GetStats().last_revision, 1u);
+  }
+}
+
+TEST(GaussianRenderOutputTest, InvalidCaptureTimeNeverReachesTheConsumer) {
+  for (double time : {-1., 2147483648.}) {
+    std::vector<GaussianRenderStatus> received;
+    GaussianRenderOutput output(Enabled(), [&](const auto& source) {
+      received.push_back(source.status);
+      EXPECT_EQ(source.reason, "invalid_snapshot");
+      return true;
+    });
+    auto source = test::ReadyRenderSnapshot();
+    auto render = std::make_shared<GaussianRender>(*source.render);
+    render->capture_time = time;
+    source.render = render;
+    output.Observe(source);
+    EXPECT_TRUE(Wait([&] { return output.GetStats().published >= 1; }));
+    output.Finish();
+    ASSERT_EQ(received.size(), 1u);
+    EXPECT_EQ(received.front(), GaussianRenderStatus::kError);
+    EXPECT_EQ(output.GetStats().failed, 1u);
+  }
+}
+
+TEST(GaussianRenderOutputTest, ReusedOlderContentKeepsItsValidFence) {
+  std::vector<GaussianRenderStatus> received;
+  GaussianRenderOutput output(Enabled(), [&](const auto& source) {
+    received.push_back(source.status);
+    return true;
+  });
+  auto source = test::ReadyRenderSnapshot();
+  auto render = std::make_shared<GaussianRender>(*source.render);
+  auto& block = render->request.blocks.front();
+  block.content.source_generation = 1;
+  block.asset->content = block.content;
+  source.render = render;
+  output.Observe(source);
+  EXPECT_TRUE(Wait([&] { return output.GetStats().published >= 1; }));
+  output.Finish();
+  ASSERT_FALSE(received.empty());
+  EXPECT_EQ(received.front(), GaussianRenderStatus::kReady);
+  EXPECT_EQ(output.GetStats().failed, 0u);
+}
+
+TEST(GaussianRenderOutputTest, FutureContentCannotBecomeReady) {
+  for (int mode = 0; mode < 3; ++mode) {
+    std::vector<GaussianRenderStatus> received;
+    GaussianRenderOutput output(Enabled(), [&](const auto& source) {
+      received.push_back(source.status);
+      return true;
+    });
+    auto source = test::ReadyRenderSnapshot();
+    auto render = std::make_shared<GaussianRender>(*source.render);
+    auto& block = render->request.blocks.front();
+    if (mode == 0) block.content.source_generation = source.generation + 1;
+    if (mode == 1) block.content.content_job_id = render->request.job_id + 1;
+    if (mode == 2)
+      block.content.source_generation = block.target.generation + 1;
+    block.asset->content = block.content;
+    source.render = render;
+    output.Observe(source);
+    EXPECT_TRUE(Wait([&] { return output.GetStats().published >= 1; }));
+    output.Finish();
+    ASSERT_EQ(received.size(), 1u);
+    EXPECT_EQ(received.front(), GaussianRenderStatus::kError);
+  }
+}
+
 TEST(GaussianRenderOutputTest, FailureClearsPixelsAndTriesErrorOnlyOnce) {
   for (bool malformed : {false, true}) {
     std::vector<GaussianRenderSnapshot> received;

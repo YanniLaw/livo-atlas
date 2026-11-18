@@ -96,6 +96,17 @@ class CompareGaussianReplaysTest(unittest.TestCase):
         self.assertIn('gaussian_configuration',
                       compare(self.off, self.on, self.previews, publication=True)['differences'])
 
+    def test_verified_finalized_coverage_must_match_across_publication_modes(self):
+        from tools.compare_gaussian_replays import validate_finalized_coverage
+        before = dict(eligible_submap_ids=['0', '1'], current=2, durable=1,
+                      session_id='a' * 32, asset_ids=['10', '11'])
+        after = dict(before, session_id='b' * 32, asset_ids=['31', '32'])
+        validate_finalized_coverage(before, after)
+        with self.assertRaises(ValueError):
+            validate_finalized_coverage(before, dict(after, eligible_submap_ids=['0'], current=1))
+        with self.assertRaises(ValueError):
+            validate_finalized_coverage(before, dict(after, durable=0))
+
     def test_joint_comparison_requires_explicit_finalize_on_both_sides(self):
         for off_finalize, on_finalize in ((False, False), (False, True), (True, False), (None, True)):
             for run, enabled, finalize in ((self.off, False, off_finalize), (self.on, True, on_finalize)):

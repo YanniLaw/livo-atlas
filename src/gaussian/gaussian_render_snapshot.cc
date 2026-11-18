@@ -1,10 +1,13 @@
 #include "livo_atlas/gaussian/gaussian_render_snapshot.h"
 
+#include <Eigen/Geometry>
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 #include "gaussian/render_validation.h"
 #include "livo_atlas/gaussian/online_gaussian_mapper.h"
+#include "mapping/pose_math.h"
 
 namespace livo_atlas {
 namespace {
@@ -41,6 +44,18 @@ bool Reason(const GaussianRenderSnapshot& source) {
 
 }  // namespace
 
+std::int64_t GaussianRenderNanoseconds(double capture_time) {
+  if (!std::isfinite(capture_time) || capture_time < 0 ||
+      capture_time >= 2147483648.)
+    throw std::invalid_argument("Gaussian capture time must be in [0,2^31)");
+  const auto seconds = static_cast<std::int64_t>(std::floor(capture_time));
+  const auto result = seconds * 1000000000LL +
+                      std::llround((capture_time - seconds) * 1000000000.);
+  if (result >= 2147483648LL * 1000000000LL)
+    throw std::invalid_argument("Rounded Gaussian capture time overflows");
+  return result;
+}
+
 void ValidateGaussianRenderSnapshotHeader(const GaussianRenderSnapshot& s,
                                           bool require_output_identity) {
   if (!Identity(s.session_id) || s.producer_id.size() > 32 ||
@@ -76,7 +91,19 @@ void ValidateGaussianRenderSnapshotHeader(const GaussianRenderSnapshot& s,
 
 void ValidateGaussianRenderSnapshot(const GaussianRenderSnapshot& source) {
   ValidateGaussianRenderSnapshotHeader(source, true);
-  if (source.render) ValidateRenderImage(*source.render);
+  if (!source.render) return;
+  const auto& render = *source.render;
+  ValidateRenderImage(render);
+  GaussianRenderNanoseconds(render.capture_time);
+  const auto inverse = pose_math::Inverse(render.camera_from_parent);
+  const auto rotation = Eigen::Quaterniond(inverse.rotation).normalized();
+  if (!inverse.translation.allFinite() || !rotation.coeffs().allFinite())
+    throw std::invalid_argument("Nonfinite derived Gaussian camera pose");
+  for (const auto& block : render.request.blocks) {
+    if (block.content.source_generation > block.target.generation ||
+        block.content.content_job_id >= render.request.job_id)
+      throw std::invalid_argument("Gaussian content exceeds dispatch fence");
+  }
 }
 
 GaussianRenderSnapshot OnlineGaussianMapper::GetRenderSnapshot() const {
