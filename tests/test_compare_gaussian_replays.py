@@ -79,6 +79,23 @@ class CompareGaussianReplaysTest(unittest.TestCase):
         self.assertIn('joint_render', result['differences'])
         self.assertNotIn('gaussian_configuration', result['differences'])
 
+    def test_publication_comparison_keeps_both_renderers_on_and_requires_receiver_data(self):
+        for run, publish in ((self.off, False), (self.on, True)):
+            config = dict(enabled=True, persist_submaps=True, finalize_on_shutdown=True,
+                joint_render_enabled=True, joint_render_policy='spatial', publish_preview=publish,
+                output_directory=str(self.previews if publish else self.off / 'previews'))
+            (run / 'parameters.yaml').write_text(yaml.safe_dump({'gaussian': config}))
+        result = compare(self.off, self.on, self.previews, publication=True)
+        self.assertFalse(result['passed'])
+        self.assertNotIn('gaussian_configuration', result['differences'])
+        self.assertIn('gaussian_publication', result['differences'])
+        path = self.off / 'parameters.yaml'
+        config = yaml.safe_load(path.read_text())
+        config['gaussian']['joint_render_enabled'] = False
+        path.write_text(yaml.safe_dump(config))
+        self.assertIn('gaussian_configuration',
+                      compare(self.off, self.on, self.previews, publication=True)['differences'])
+
     def test_joint_comparison_requires_explicit_finalize_on_both_sides(self):
         for off_finalize, on_finalize in ((False, False), (False, True), (True, False), (None, True)):
             for run, enabled, finalize in ((self.off, False, off_finalize), (self.on, True, on_finalize)):

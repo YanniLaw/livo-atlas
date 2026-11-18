@@ -1,6 +1,7 @@
 """Shared Gaussian replay options for the Noetic and Humble runners."""
 import argparse
 import os
+import re
 from pathlib import Path
 
 
@@ -23,6 +24,9 @@ def add_gaussian_arguments(parser):
                         help='Final repair budget in milliseconds (1..600000)')
     parser.add_argument('--gaussian-joint-render', action='store_true',
                         help='Render confirmed Gaussian blocks during playback')
+    parser.add_argument('--gaussian-publish-preview', action='store_true',
+                        help='Publish versioned Gaussian frames and the standard Image mirror')
+    parser.add_argument('--gaussian-preview-frame-id', default='gaussian_camera_optical')
     parser.add_argument('--joint-render-policy', choices=('temporal', 'spatial'), default='temporal',
                         help='Neighbor selection policy; spatial requires joint rendering')
     parser.add_argument('--gaussian-joint-render-interval-ms', type=int, default=1000)
@@ -30,6 +34,13 @@ def add_gaussian_arguments(parser):
 
 
 def validate_gaussian_arguments(args, parser, working_dataset):
+    if args.gaussian_publish_preview and not args.gaussian_joint_render:
+        parser.error('--gaussian-publish-preview requires --gaussian-joint-render')
+    frame = args.gaussian_preview_frame_id
+    if args.gaussian_publish_preview and (
+            not 1 <= len(frame) <= 128 or not re.fullmatch(r'[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*', frame)
+            or frame in ('camera_init', 'aft_mapped', 'world')):
+        parser.error('--gaussian-preview-frame-id must be a distinct ASCII frame name')
     if args.joint_render_policy == 'spatial' and not args.gaussian_joint_render:
         parser.error('--joint-render-policy spatial requires --gaussian-joint-render')
     if args.gaussian_joint_render and not args.gaussian_persist_submaps:
@@ -73,6 +84,9 @@ def gaussian_parameters(args):
         'gaussian.joint_render_policy': args.joint_render_policy,
         'gaussian.joint_render_interval_ms': args.gaussian_joint_render_interval_ms,
         'gaussian.joint_render_timeout_ms': args.gaussian_joint_render_timeout_ms}
+    if args.gaussian_publish_preview:
+        parameters['gaussian.publish_preview'] = True
+        parameters['gaussian.preview_frame_id'] = args.gaussian_preview_frame_id
     if args.gaussian_persist_submaps:
         parameters['gaussian.persist_submaps'] = True
         parameters['gaussian.shutdown_timeout_ms'] = 30000

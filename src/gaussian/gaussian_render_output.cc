@@ -89,8 +89,8 @@ void GaussianRenderOutput::Observe(
     if (latest_ && SameHeader(*latest_, source) &&
         latest_render_.lock() == source.render)
       return;
-    const bool urgent =
-        !latest_ || source.status != GaussianRenderStatus::kReady;
+    const bool urgent = !latest_ || latest_->status != source.status ||
+                        source.status != GaussianRenderStatus::kReady;
     // Release the old pending payload before taking a new RGB reference. The
     // in-flight callback may still own a different image.
     if (pending_) {

@@ -43,7 +43,7 @@ Consumer 是 bool(const GaussianRenderSnapshot&)；true只表示两个 native pu
 - 一个 CPU worker、一个执行槽、一个最新 pending；最多持有两个不同 RGB 对象。
 - owner 的 Observe 仅检查有界标量/尺寸、比较身份和复制 shared_ptr；不复制 RGB、不调用 ROS。
 - 输出实例生成独立 producer_id；每次不同观察分配递增 revision，允许合并造成序号缺口。
-- 常规更新按 joint_render_interval 节流，采用 steady_clock；初始状态、READY→非READY、
+- 常规更新按 joint_render_interval 节流，采用 steady_clock；初始状态、状态切换（含恢复READY）、
   ERROR/DISABLED/STOPPING/STOPPED 立即唤醒，待发的失效紧急标记不能被同类更新抹掉。
 - worker 转换前检查是否已被新观察覆盖；已执行的 native publish 不能强行撤销。
   所有回调串行，所以旧 revision 不会在较新 revision 之后由本输出调用。
@@ -52,6 +52,7 @@ Consumer 是 bool(const GaussianRenderSnapshot&)；true只表示两个 native pu
   不改变 GaussianMapper、前端、GPU、轨迹或几何输出。
 - Finish 撤回普通 pending，安排一个无图 STOPPED，唤醒并 join；失败后的 ERROR 不被伪装成功。
   无任何来源时不构造虚假的 session。析构调用同一收尾，无 detached thread。
+  输出的STOPPED表示预览流收尾，不表示Gaussian最终修复或SLAM整体完成。
 
 统计包括 observed/submitted/coalesced/published/unavailable/failed、当前及峰值 pending/in_flight、
 last_revision、worker时间、finished/error；join 后当前计数为0且不持有 RGB。

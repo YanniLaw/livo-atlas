@@ -134,6 +134,38 @@ class GlobalBaselineParserTest(unittest.TestCase):
                 self.assertIn('--geometry-map requires online submaps', result.stderr)
                 self.assertFalse((root / 'output').exists())
 
+    def test_publication_requires_joint_render_before_output(self):
+        for script in ('run_baseline.py', 'run_ros2_baseline.py'):
+            with self.subTest(script=script), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                result = self.invoke(script, root, '--gaussian-publish-preview')
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('requires --gaussian-joint-render', result.stderr)
+                self.assertFalse((root / 'output').exists())
+
+    def test_publication_defaults_forwarding_and_frame_validation_are_shared(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                entry = (['--workspace', str(root / 'ws')] if module is run_baseline
+                         else ['--executable', str(root / 'node')])
+                flags = entry + ['--bag', str(root / 'bag'), '--output', str(root / 'output'),
+                    '--gaussian-socket', str(root / 's'), '--gaussian-output', str(root / 'g'),
+                    '--gaussian-persist-submaps', '--gaussian-joint-render']
+                default = module.parse_arguments(flags)
+                self.assertFalse(default.gaussian_publish_preview)
+                self.assertNotIn('gaussian.publish_preview', module.gaussian_parameters(default))
+                args = module.parse_arguments(flags + ['--gaussian-publish-preview',
+                    '--gaussian-preview-frame-id', 'atlas/camera_optical'])
+                actual = module.gaussian_parameters(args)
+                self.assertIs(actual['gaussian.publish_preview'], True)
+                self.assertEqual(actual['gaussian.preview_frame_id'], 'atlas/camera_optical')
+                for frame in ('', '/cam', 'cam/', 'cam//sub', 'bad frame', 'world', 'a' * 129):
+                    with self.subTest(frame=frame), self.assertRaises(SystemExit):
+                        module.parse_arguments(flags + ['--gaussian-publish-preview',
+                            '--gaussian-preview-frame-id', frame])
+                self.assertFalse((root / 'output').exists())
+
     def test_joint_render_requires_persistence_before_output(self):
         for script in ('run_baseline.py', 'run_ros2_baseline.py'):
             with self.subTest(script=script), tempfile.TemporaryDirectory() as name:

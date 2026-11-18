@@ -392,6 +392,52 @@ TEST(Ros2ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
   std::filesystem::remove_all(directory);
 }
 
+TEST(Ros2ParametersTest, GaussianPublicationUsesStrictSharedSchema) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("publication-schema-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  params.emplace_back("gaussian.publish_preview", 1);
+  {
+    rclcpp::Node node("publication_boolean",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() = rclcpp::Parameter("gaussian.publish_preview", true);
+  {
+    rclcpp::Node node("publication_dependency",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.enabled", true);
+  params.emplace_back("gaussian.socket_path", "/tmp/gaussian-publication.sock");
+  params.emplace_back("gaussian.output_directory", "/tmp/gaussian-publication");
+  params.emplace_back("gaussian.persist_submaps", true);
+  params.emplace_back("gaussian.joint_render_enabled", true);
+  params.emplace_back("gaussian.joint_render_interval_ms", 321);
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  params.emplace_back("gaussian.preview_frame_id", 1);
+  {
+    rclcpp::Node node("publication_frame_type",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() =
+      rclcpp::Parameter("gaussian.preview_frame_id", "atlas/gaussian_optical");
+  rclcpp::Node node("publication_valid",
+                    rclcpp::NodeOptions().parameter_overrides(params));
+  const auto config = ReadNodeOptions(node);
+  EXPECT_TRUE(config.livo.gaussian_output.enabled);
+  EXPECT_EQ(config.livo.gaussian_output.optical_frame,
+            "atlas/gaussian_optical");
+  EXPECT_EQ(config.livo.gaussian_output.minimum_interval.count(), 321);
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
 TEST(Ros2ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
   const auto directory =
       std::filesystem::temp_directory_path() /
@@ -458,9 +504,11 @@ TEST(Ros2ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
 }
 
 TEST(Ros2ParametersTest, GaussianSpatialPolicyUsesStrictSharedSchema) {
-  const auto directory = std::filesystem::temp_directory_path() /
-      ("spatial-schema-" + std::to_string(
-          std::chrono::steady_clock::now().time_since_epoch().count()));
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("spatial-schema-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
   auto params = test::Parameters(directory.string());
   params.emplace_back("gaussian.joint_render_policy", 1);
   {

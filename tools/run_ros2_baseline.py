@@ -242,11 +242,25 @@ def main():
         enabled=parameters.get('global_output.geometry.enabled', False),
         samples=[], errors=[])
     try:
+        from .gaussian_preview_report import gaussian_render_record, gaussian_image_record
         from .geometry_map_records import geometry_map_record
         from .trajectory_records import trajectory_record, trajectory_path_record
     except ImportError:
+        from gaussian_preview_report import gaussian_render_record, gaussian_image_record
         from geometry_map_records import geometry_map_record
         from trajectory_records import trajectory_record, trajectory_path_record
+
+    gaussian_observation = dict(enabled=parameters.get('gaussian.publish_preview', False),
+        optical_frame=parameters.get('gaussian.preview_frame_id', 'gaussian_camera_optical'),
+        map_frame=global_observation['map_frame'], samples=[], image_samples=[], errors=[])
+
+    def receive_gaussian(message, mirror=False):
+        try:
+            value = (gaussian_image_record(message, stamp_ns) if mirror
+                     else gaussian_render_record(message, stamp_ns))
+            gaussian_observation['image_samples' if mirror else 'samples'].append(value)
+        except Exception as error:
+            gaussian_observation['errors'].append(str(error))
 
     def stamp_ns(stamp):
         return stamp.sec * 1000000000 + stamp.nanosec
@@ -337,6 +351,15 @@ def main():
                          durability=DurabilityPolicy.TRANSIENT_LOCAL)
         subscriptions.append(observer.create_subscription(
             GeometryMap, '/geometry_map', receive_geometry, qos))
+    if gaussian_observation['enabled']:
+        from livo_atlas.msg import GaussianRenderFrame
+        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        subscriptions += [
+            observer.create_subscription(GaussianRenderFrame, '/gaussian_render', receive_gaussian, qos),
+            observer.create_subscription(Image, '/gaussian_render/image',
+                                         lambda msg: receive_gaussian(msg, True), qos),
+        ]
     log_path = output / 'node.log'
     stderr_path = output / 'node-stderr.log'
     process = None
@@ -445,6 +468,8 @@ def main():
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
     if geometry_observation['enabled'] and not geometry_observation['samples']:
         geometry_observation['errors'].append('No geometry map messages received')
+    (output / 'gaussian-publication.json').write_text(
+        json.dumps(gaussian_observation, indent=2, allow_nan=False) + '\n')
     (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
     (output / 'keyframe-trajectory.json').write_text(
         json.dumps(trajectory_observation, indent=2) + '\n')
@@ -452,8 +477,9 @@ def main():
         json.dumps(geometry_observation, indent=2) + '\n')
     (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2))
     np.savetxt(output / 'odometry.txt', np.asarray(odometry))
-    summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues and not geometry_observation['errors'],
+    summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues and not geometry_observation['errors'] and not gaussian_observation['errors'],
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
+                   gaussian_publish_preview=gaussian_observation['enabled'],
                    keyframes_enabled=args.save_keyframes,
                    submaps_enabled=args.save_submaps,
                    submap_mode=args.submap_mode,

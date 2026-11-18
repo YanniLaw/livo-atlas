@@ -316,10 +316,12 @@ def main():
         from sensor_msgs.msg import Image, PointCloud2
         try:
             from .output_digest import cloud_digest, image_digest
+            from .gaussian_preview_report import gaussian_render_record, gaussian_image_record
             from .geometry_map_records import geometry_map_record
             from .trajectory_records import trajectory_record, trajectory_path_record
         except ImportError:
             from output_digest import cloud_digest, image_digest
+            from gaussian_preview_report import gaussian_render_record, gaussian_image_record
             from geometry_map_records import geometry_map_record
             from trajectory_records import trajectory_record, trajectory_path_record
         rospy = ros_module
@@ -336,6 +338,21 @@ def main():
         geometry_observation = dict(
             enabled=rospy.get_param('/global_output/geometry/enabled', False),
             samples=[], errors=[])
+
+        gaussian_observation = dict(
+            enabled=rospy.get_param('/gaussian/publish_preview', False),
+            optical_frame=rospy.get_param('/gaussian/preview_frame_id', 'gaussian_camera_optical'),
+            map_frame=global_observation['map_frame'], samples=[], image_samples=[], errors=[])
+
+        def receive_gaussian(message, mirror=False):
+            try:
+                value = (gaussian_image_record(message, lambda stamp: stamp.to_nsec()) if mirror
+                         else gaussian_render_record(message, lambda stamp: stamp.to_nsec()))
+                with lock:
+                    gaussian_observation['image_samples' if mirror else 'samples'].append(value)
+            except Exception as error:
+                with lock:
+                    gaussian_observation['errors'].append(str(error))
 
         def receive_geometry(message):
             try:
@@ -422,7 +439,8 @@ def main():
             rospy.Subscriber('/global_pose', PoseStamped, receive_global, queue_size=2000),
             rospy.Subscriber('/tf', TFMessage, receive_tf, queue_size=2000),
         ])
-        if trajectory_observation['enabled'] or geometry_observation['enabled']:
+        if (trajectory_observation['enabled'] or geometry_observation['enabled'] or
+                gaussian_observation['enabled']):
             # Match the generated schema to the explicitly selected workspace.
             sys.path.insert(0, str(workspace / 'devel/lib/python3/dist-packages'))
         if trajectory_observation['enabled']:
@@ -438,6 +456,15 @@ def main():
             subscribers.append(rospy.Subscriber(
                 '/geometry_map', GeometryMap, receive_geometry,
                 queue_size=1, buff_size=72 * 1024 * 1024))
+        if gaussian_observation['enabled']:
+            from livo_atlas.msg import GaussianRenderFrame
+            subscribers.extend([
+                rospy.Subscriber('/gaussian_render', GaussianRenderFrame, receive_gaussian,
+                                 queue_size=1, buff_size=8 * 1024 * 1024),
+                rospy.Subscriber('/gaussian_render/image', Image,
+                                 lambda msg: receive_gaussian(msg, True),
+                                 queue_size=1, buff_size=8 * 1024 * 1024),
+            ])
         node_command = [str(binary), '__name:=laserMapping']
         if args.gdb:
             node_command = ['gdb', '-batch', '-ex', 'set pagination off',
@@ -536,6 +563,8 @@ def main():
         with lock:
             if geometry_observation['enabled'] and not geometry_observation['samples']:
                 geometry_observation['errors'].append('No geometry map messages received')
+            (output / 'gaussian-publication.json').write_text(
+                json.dumps(gaussian_observation, indent=2, allow_nan=False) + '\n')
             (output / 'global-output.json').write_text(json.dumps(global_observation, indent=2) + '\n')
             (output / 'keyframe-trajectory.json').write_text(
                 json.dumps(trajectory_observation, indent=2) + '\n')
@@ -582,6 +611,7 @@ def main():
                 timings[stage].append(float(match.group(1)))
         errors = [line for line in log.splitlines() if '[ERROR]' in line or 'Assertion' in line]
         errors.extend('Geometry map record: ' + error for error in geometry_observation['errors'])
+        errors.extend('Gaussian record: ' + error for error in gaussian_observation['errors'])
         summary = {
             'source': source, 'bag_path': str(bag),
             'sequence_name': seq_name,
@@ -603,6 +633,7 @@ def main():
             'playback_wall_clock_stable': wall_clock_stable,
             'playback_first_input_timestamp_ns': str(first_input_ns),
             'playback_last_input_timestamp_ns': str(last_input_ns),
+            'gaussian_publish_preview': gaussian_observation['enabled'],
             'joint_render_enabled': args.gaussian_joint_render,
             'joint_render_policy': args.joint_render_policy,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,

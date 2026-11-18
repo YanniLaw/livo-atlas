@@ -257,6 +257,32 @@ TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
 
+TEST_F(Ros1ParametersTest, GaussianPublicationUsesStrictSharedSchema) {
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian_output.enabled);
+  node_->setParam("gaussian/publish_preview", 1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/publish_preview", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/enabled", true);
+  node_->setParam("gaussian/socket_path", "/tmp/gaussian-publication.sock");
+  node_->setParam("gaussian/output_directory", "/tmp/gaussian-publication");
+  node_->setParam("gaussian/persist_submaps", true);
+  node_->setParam("gaussian/joint_render_enabled", true);
+  node_->setParam("gaussian/joint_render_interval_ms", 321);
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  node_->setParam("gaussian/preview_frame_id", 1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/preview_frame_id", "atlas/gaussian_optical");
+  const auto config = ReadNodeOptions(*node_);
+  EXPECT_TRUE(config.livo.gaussian_output.enabled);
+  EXPECT_EQ(config.livo.gaussian_output.optical_frame,
+            "atlas/gaussian_optical");
+  EXPECT_EQ(config.livo.gaussian_output.minimum_interval.count(), 321);
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
+
 TEST_F(Ros1ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
   EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.joint_render_enabled);
   node_->setParam("gaussian/joint_render_enabled", 1);

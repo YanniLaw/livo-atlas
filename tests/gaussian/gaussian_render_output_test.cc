@@ -120,6 +120,22 @@ TEST(GaussianRenderOutputTest, InvalidationBypassesRateAndDeduplicates) {
   output.Finish();
 }
 
+TEST(GaussianRenderOutputTest, FirstReadyAfterWaitingBypassesStatusTraffic) {
+  auto options = Enabled();
+  options.minimum_interval = 60s;
+  GaussianRenderOutput output(options, [](const auto&) { return true; });
+  auto ready = test::ReadyRenderSnapshot();
+  auto waiting = ready;
+  waiting.render.reset();
+  waiting.status = GaussianRenderStatus::kWaiting;
+  waiting.reason = "awaiting_render";
+  output.Observe(waiting);
+  ASSERT_TRUE(Wait([&] { return output.GetStats().published == 1; }));
+  output.Observe(ready);
+  EXPECT_TRUE(Wait([&] { return output.GetStats().published == 2; }));
+  output.Finish();
+}
+
 TEST(GaussianRenderOutputTest, FailureClearsPixelsAndTriesErrorOnlyOnce) {
   for (bool malformed : {false, true}) {
     std::vector<GaussianRenderSnapshot> received;

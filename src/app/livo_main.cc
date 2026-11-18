@@ -1,5 +1,5 @@
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <iomanip>
@@ -12,17 +12,24 @@
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/core/trajectory_output.h"
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
+#include "livo_atlas/gaussian/gaussian_render_output.h"
 #include "livo_atlas/gaussian/online_gaussian_mapper.h"
 #endif
 #if LIVO_ATLAS_ONLINE_BACKEND
 #include "livo_atlas/core/loop_backend.h"
 #endif
 #if LIVO_ATLAS_ROS_VERSION == 1
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+#include "livo_atlas/ros1/gaussian_render_publisher.h"
+#endif
 #include "livo_atlas/ros1/geometry_map_publisher.h"
 #include "livo_atlas/ros1/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros1/livo_node.h"
 namespace ros_integration = livo_atlas::ros1;
 #elif LIVO_ATLAS_ROS_VERSION == 2
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+#include "livo_atlas/ros2/gaussian_render_publisher.h"
+#endif
 #include "livo_atlas/ros2/geometry_map_publisher.h"
 #include "livo_atlas/ros2/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros2/livo_node.h"
@@ -56,8 +63,8 @@ void ReportJointRender(const livo_atlas::GaussianRender& r) {
       static_cast<unsigned long long>(q.query_submap_id), q.blocks.size(),
       r.changed_pixels, r.accepted_at_steady_seconds, r.latency_seconds,
       r.worker_seconds,
-      q.policy == livo_atlas::GaussianRenderPolicy::kSpatial
-          ? "spatial" : "temporal",
+      q.policy == livo_atlas::GaussianRenderPolicy::kSpatial ? "spatial"
+                                                             : "temporal",
       static_cast<unsigned long long>(q.blocks.front().target.group.primary.id),
       static_cast<unsigned long long>(q.blocks.back().target.group.primary.id),
       static_cast<unsigned long long>(q.candidate_count),
@@ -68,13 +75,15 @@ void ReportJointRender(const livo_atlas::GaussianRender& r) {
 }
 
 void PollGaussian(livo_atlas::OnlineGaussianMapper& mapper,
-                  std::uint64_t* reported_job, std::uint64_t* reported_wait) {
+                  std::uint64_t* reported_job, std::uint64_t* reported_wait,
+                  livo_atlas::GaussianRenderOutput* publication) {
   mapper.Poll();
   const auto stats = mapper.GetRenderStats();
   if (stats.wait_changes != *reported_wait) {
     std::printf(
         "livo_atlas gaussian joint waiting: reason=%s map_sequence=%llu "
-        "changes=%llu\n", stats.wait_reason.c_str(),
+        "changes=%llu\n",
+        stats.wait_reason.c_str(),
         static_cast<unsigned long long>(stats.wait_map_sequence),
         static_cast<unsigned long long>(stats.wait_changes));
     *reported_wait = stats.wait_changes;
@@ -85,6 +94,7 @@ void PollGaussian(livo_atlas::OnlineGaussianMapper& mapper,
     ReportJointRender(*render);
     *reported_job = render->request.job_id;
   }
+  if (publication) publication->Observe(mapper.GetRenderSnapshot());
 }
 
 void ReportFinalization(const livo_atlas::GaussianFinalizationResult& r) {
@@ -197,6 +207,21 @@ int main(int argc, char** argv) {
           system, parameters.livo.system.frontend.calibration.camera,
           parameters.livo.gaussian);
     }
+    // The publisher outlives the CPU output worker, including stack unwinding.
+    std::unique_ptr<ros_integration::GaussianRenderPublisher>
+        gaussian_publisher;
+    std::unique_ptr<livo_atlas::GaussianRenderOutput> gaussian_publication;
+    if (parameters.livo.gaussian_output.enabled) {
+      gaussian_publisher =
+          std::make_unique<ros_integration::GaussianRenderPublisher>(
+              *node, parameters.livo.gaussian_output.optical_frame,
+              parameters.livo.global_output.map_frame);
+      gaussian_publication = std::make_unique<livo_atlas::GaussianRenderOutput>(
+          parameters.livo.gaussian_output,
+          [publisher = gaussian_publisher.get()](const auto& snapshot) {
+            return publisher->Publish(snapshot);
+          });
+    }
 #endif
     // The worker joins before its captured publisher handles are destroyed.
     std::unique_ptr<ros_integration::KeyframeTrajectoryPublisher>
@@ -245,7 +270,8 @@ int main(int argc, char** argv) {
         if (geometry) geometry->Poll();
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
         if (gaussian)
-          PollGaussian(*gaussian, &reported_render_job, &reported_render_wait);
+          PollGaussian(*gaussian, &reported_render_job, &reported_render_wait,
+                       gaussian_publication.get());
 #endif
       };
     }
@@ -253,7 +279,8 @@ int main(int argc, char** argv) {
     if (geometry) geometry->Poll();
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
     if (gaussian)
-      PollGaussian(*gaussian, &reported_render_job, &reported_render_wait);
+      PollGaussian(*gaussian, &reported_render_job, &reported_render_wait,
+                   gaussian_publication.get());
 #endif
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(after_process));
@@ -276,6 +303,34 @@ int main(int argc, char** argv) {
     rclcpp::executors::SingleThreadedExecutor executor;
     executor.add_node(node);
     executor.spin();
+#endif
+#if LIVO_ATLAS_ONLINE_GAUSSIAN
+    // Withdraw derived output before terminal backend/Gaussian work can block.
+    // A closed ROS context is counted as unavailable, never remote delivery.
+    if (gaussian_publication) {
+      gaussian_publication->Finish();
+      const auto s = gaussian_publication->GetStats();
+      std::printf(
+          "livo_atlas gaussian publication: observed=%llu submitted=%llu "
+          "coalesced=%llu published=%llu unavailable=%llu failed=%llu "
+          "pending=%llu in_flight=%llu peak_pending=%llu peak_in_flight=%llu "
+          "last_revision=%llu max_worker_seconds=%.9f finished=%d\n",
+          static_cast<unsigned long long>(s.observed),
+          static_cast<unsigned long long>(s.submitted),
+          static_cast<unsigned long long>(s.coalesced),
+          static_cast<unsigned long long>(s.published),
+          static_cast<unsigned long long>(s.unavailable),
+          static_cast<unsigned long long>(s.failed),
+          static_cast<unsigned long long>(s.pending),
+          static_cast<unsigned long long>(s.in_flight),
+          static_cast<unsigned long long>(s.peak_pending),
+          static_cast<unsigned long long>(s.peak_in_flight),
+          static_cast<unsigned long long>(s.last_revision),
+          s.max_worker_seconds, static_cast<int>(s.finished));
+      std::fflush(stdout);
+      if (!s.error.empty())
+        std::fprintf(stderr, "Gaussian publication: %.64s\n", s.error.c_str());
+    }
 #endif
 #if LIVO_ATLAS_ONLINE_BACKEND
     if (backend) {
@@ -336,8 +391,8 @@ int main(int argc, char** argv) {
             static_cast<unsigned long long>(r.pending),
             static_cast<unsigned long long>(r.in_flight),
             static_cast<unsigned long long>(r.pending_storage),
-            static_cast<int>(r.disabled),
-            r.max_latency_seconds, r.total_latency_seconds);
+            static_cast<int>(r.disabled), r.max_latency_seconds,
+            r.total_latency_seconds);
         std::fflush(stdout);
         if (!r.error.empty())
           std::fprintf(stderr, "Joint render: %.4096s\n", r.error.c_str());

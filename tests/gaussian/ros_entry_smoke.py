@@ -51,11 +51,14 @@ def main():
     parser.add_argument("--persistent", action="store_true")
     parser.add_argument("--finalize", action="store_true")
     parser.add_argument("--joint-render", action="store_true")
+    parser.add_argument("--publish-preview", action="store_true")
     parser.add_argument("--fail-report", action="store_true",
                         help="Block the report's temporary file to test failed publication")
     parser.add_argument("--expect-unavailable", action="store_true",
                         help="Check that a build without the optional bridge fails before output")
     args = parser.parse_args()
+    if args.publish_preview and not args.joint_render:
+        parser.error('--publish-preview requires --joint-render')
     if args.joint_render and not args.persistent:
         parser.error('--joint-render requires --persistent')
     if args.finalize and not args.persistent:
@@ -101,6 +104,8 @@ def main():
             common.update({'gaussian.joint_render_enabled': True,
                            'gaussian.joint_render_interval_ms': 1000,
                            'gaussian.joint_render_timeout_ms': 5000})
+        if args.publish_preview:
+            common['gaussian.publish_preview'] = True
         if args.finalize:
             common.update({"gaussian.finalize_on_shutdown": True,
                            "gaussian.finalize_timeout_ms": 60000})
@@ -168,6 +173,20 @@ def main():
             if ('capability joint_render_v1' not in (output / 'worker.log').read_text() or
                     'livo_atlas gaussian joint:' not in text):
                 raise RuntimeError('Joint render capability was not negotiated/reported')
+        if args.publish_preview:
+            import re
+            rows = [line for line in text.splitlines()
+                    if 'livo_atlas gaussian publication:' in line]
+            if len(rows) != 1:
+                raise RuntimeError('Missing Gaussian publication shutdown facts')
+            facts = dict(re.findall(r'([a-z_]+)=([^ ]+)', rows[0]))
+            if (facts.get('finished') != '1' or facts.get('failed') != '0' or
+                    int(facts['published']) < 1 or facts['pending'] != '0' or
+                    facts['in_flight'] != '0' or int(facts['peak_pending']) > 1 or
+                    int(facts['peak_in_flight']) > 1):
+                raise RuntimeError('Gaussian output did not run while the clock was paused')
+        elif 'livo_atlas gaussian publication:' in text:
+            raise RuntimeError('Disabled publication created an output worker')
         if args.persistent:
             state = json.loads((previews / "map.json").read_text())
             if state["entries"] or state["frame_count"] != "0" or not (previews / "states").is_dir():
