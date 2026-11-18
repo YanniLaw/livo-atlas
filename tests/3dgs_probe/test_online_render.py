@@ -3,6 +3,8 @@ from pathlib import Path
 import tempfile
 import socket
 import threading
+import subprocess
+import sys
 import unittest
 from unittest import mock
 
@@ -32,6 +34,14 @@ class OnlineRenderTest(unittest.TestCase):
         self.addCleanup(self.fixture.release)
         self.fixture.provision()
         self.actor = self.fixture.actor
+
+    def test_worker_inference_import_does_not_require_offline_yaml(self):
+        modules = Path(__file__).resolve().parents[2] / 'tools/3dgs_probe'
+        code = ('import sys; sys.path.insert(0, ' + repr(str(modules)) +
+                "); import online_render; assert 'yaml' not in sys.modules")
+        result = subprocess.run([sys.executable, '-I', '-c', code],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_asset_query_excludes_third_resident_and_preserves_training_state(self):
         before = training_state(self.actor)

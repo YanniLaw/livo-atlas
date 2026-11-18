@@ -14,10 +14,13 @@ import time
 
 import numpy as np
 
-from gaussian_map import (_inspect_gaussian_map, _require,
-                          inspect_gaussian_finalization)
 from gaussian_state import (_PARAMETERS, _array, _open_file, _pose,
                             _reject_constant, _unique_object, _unsigned, read_state)
+
+
+def _require(condition, message):
+    if not condition:
+        raise ValueError(message)
 
 
 @dataclass
@@ -121,6 +124,10 @@ def verify_snapshot(snapshot: RenderSnapshot) -> None:
 
 def load_snapshot(directory: Path, keyframes: Path, keyframe_id: int,
                   submap_ids: list[int]) -> RenderSnapshot:
+    # Snapshot inspection is offline-only; the online worker needs neither
+    # YAML nor the finalized-dataset reader.
+    from gaussian_map import _inspect_gaussian_map, inspect_gaussian_finalization
+
     keyframe_id = _id(keyframe_id)
     _require(isinstance(submap_ids, (list, tuple)) and 1 <= len(submap_ids) <= 2,
              'Select one or two submaps')

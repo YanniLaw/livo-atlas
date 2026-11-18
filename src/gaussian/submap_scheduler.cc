@@ -39,6 +39,7 @@ void OnlineGaussianMapper::ObserveSubmaps(const OnlineSubmapUpdate& update) {
   stats_.submap_id = submap_ ? submap_->primary.id : 0;
   stats_.pose_version = poses_->version;
   ++state_sequence_;
+  RefreshRenderDemand();
 }
 
 bool OnlineGaussianMapper::CurrentTarget(const GaussianTarget& target) const {
@@ -74,6 +75,7 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
   }
   if (command.kind != CommandKind::kDecision &&
       command.kind != CommandKind::kSave &&
+      command.kind != CommandKind::kSaveRender &&
       command.kind != CommandKind::kWriteMap &&
       command.kind != CommandKind::kStatus) {
     if (next_job_ == std::numeric_limits<std::uint64_t>::max())
@@ -101,6 +103,15 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
       command.kind == CommandKind::kActivate &&
       command.operation == GaussianOperation::kRebuild)
     ++finalization_result_->repair_attempts;
+  if (command.kind == CommandKind::kRender) {
+    command.render_request->job_id = command.job_id;
+    ++render_stats_.submitted;
+    render_stats_.in_flight = render_stats_.peak_in_flight = 1;
+    render_stats_.pending = 0;
+    render_pending_ = false;
+    render_attempts_ = 0;
+    render_dispatched_at_ = Clock::now();
+  }
   command_ = std::move(command);
   busy_ = true;
   lock.unlock();
@@ -114,6 +125,8 @@ void OnlineGaussianMapper::EndSubmapWork(bool retry) {
     pending_ = submap_work_->source;
     stats_.pending = stats_.peak_pending = 1;
   }
+  if (submap_work_ && options_.joint_render_enabled)
+    render_attempts_ = std::min(2, render_attempts_ + 1);
   submap_work_.reset();
   foreground_started_ = false;
   stats_.in_flight = 0;
@@ -152,6 +165,15 @@ void OnlineGaussianMapper::DispatchSubmaps() {
   const auto resident =
       std::find_if(map.entries.begin(), map.entries.end(),
                    [](const auto& entry) { return entry.resident; });
+  // Do not reserve the next content attempt while publishing the previous
+  // confirmation. Otherwise continuous input can hide every render boundary.
+  if (options_.joint_render_enabled && !submap_work_ && unsaved_) {
+    command.kind = CommandKind::kSave;
+    command.preview = unsaved_;
+    QueueSubmapCommand(std::move(command));
+    return;
+  }
+  if (!submap_work_ && DispatchRender(map)) return;
   const bool quiescing = finalization_phase_ == FinalizationPhase::kQuiescing;
   const bool repairing = finalization_phase_ == FinalizationPhase::kRepairing;
   if ((finishing_ || quiescing) && !busy_) EndSubmapWork(false);
@@ -265,6 +287,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
       throw std::overflow_error("Gaussian generation overflow");
     command.target.generation = ++generation_;
     stats_.generation = generation_;
+    latest_render_.reset();
     command.kind = CommandKind::kActivate;
     command.content = entry.content;
     command.operation =
@@ -331,6 +354,8 @@ void OnlineGaussianMapper::HandleSubmapReply(Reply reply) {
     case ReplyKind::kActivated:
       map_index_.RecordResidentReleased();
       remote_target_ = command.target;
+      if (options_.joint_render_enabled && !CurrentTarget(command.target))
+        EndSubmapWork(true);
       break;
     case ReplyKind::kCandidate:
       ++stats_.completed;
@@ -412,12 +437,18 @@ void OnlineGaussianMapper::HandleSubmapReply(Reply reply) {
         ++stats_.resource_limited;
       EndSubmapWork(false);
       break;
+    case ReplyKind::kRendered:
+    case ReplyKind::kRenderError:
+    case ReplyKind::kRenderSaved:
+      HandleRenderReply(std::move(reply));
+      break;
     case ReplyKind::kError:
       Fail(reply.detail);
       break;
     default:
       throw std::runtime_error("Unexpected Gaussian submap reply");
   }
+  RefreshRenderDemand();
 }
 
 bool OnlineGaussianMapper::SubmapsDrained() const {

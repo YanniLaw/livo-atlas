@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "mapping/pose_math.h"
+#include "gaussian/render_protocol.h"
 
 namespace livo_atlas {
 namespace {
@@ -282,6 +283,18 @@ GaussianTarget DecodeGaussianTarget(const cv::FileNode& header,
 void ValidateGaussianSubmapMessage(const cv::FileNode& root,
                                    const std::vector<std::uint8_t>& body) {
   const auto kind = String(root, "type");
+  if (kind == "joint_render" || kind == "joint_render_ok" ||
+      kind == "joint_render_error") {
+    ValidateGaussianRenderMessage(root, body);
+    return;
+  }
+  if (root["capabilities"].type() != cv::FileNode::NONE) {
+    const auto capabilities = root["capabilities"];
+    Require((kind == "hello" || kind == "hello_ok") &&
+                capabilities.isSeq() && capabilities.size() == 1 &&
+                static_cast<std::string>(capabilities[0]) == "joint_render_v1",
+            "Invalid render capabilities");
+  }
   Require(Hex(String(root, "session_id"), 32), "Invalid session ID");
   auto required = Base();
   if (kind != "hello" && kind != "hello_ok" && kind != "error")
@@ -290,7 +303,7 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
   if (kind == "hello") {
     required = Base(false);
     required.insert("state_directory");
-    Keys(root, required);
+    Keys(root, required, {"capabilities"});
     const auto name = String(root, "state_directory");
     const std::filesystem::path path(name);
     Require(name.find('\0') == std::string::npos && path.is_absolute() &&
@@ -303,7 +316,7 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
     required = Base(false);
     required.insert({"mode", "state_schema", "python", "torch", "gsplat",
                      "cuda", "device", "gpu_free_bytes", "gpu_total_bytes"});
-    Keys(root, required);
+    Keys(root, required, {"capabilities"});
     Require(String(root, "mode") == "persistent_submaps" &&
                 Integer(root, "state_schema", 1, 1) == 1,
             "Worker lacks persistent submap support");

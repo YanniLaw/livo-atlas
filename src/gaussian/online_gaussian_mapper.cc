@@ -160,6 +160,8 @@ void OnlineGaussianMapper::Invalidate() {
 void OnlineGaussianMapper::Fail(const std::string& message) noexcept {
   if (failed_) return;
   failed_ = true;
+  if (render_stats_.in_flight) ++render_stats_.failed;
+  StopRendering();
   ++stats_.failed;
   try {
     stats_.error = message.substr(0, 1024);
@@ -375,6 +377,9 @@ void OnlineGaussianMapper::HandleReply(Reply reply) {
     case ReplyKind::kMapWritten:
     case ReplyKind::kMapCommitted:
     case ReplyKind::kPruned:
+    case ReplyKind::kRendered:
+    case ReplyKind::kRenderError:
+    case ReplyKind::kRenderSaved:
       throw std::runtime_error("Unexpected persistent Gaussian reply");
     case ReplyKind::kError:
       Fail(reply.detail);
@@ -497,6 +502,7 @@ OnlineGaussianMapper::GetMapSnapshot() const {
 
 void OnlineGaussianMapper::Finish() noexcept {
   if (finished_) return;
+  StopRendering();
   if (options_.persist_submaps) {
     finishing_ = true;
     pending_.reset();
@@ -606,6 +612,8 @@ void OnlineGaussianMapper::Run() noexcept {
         fd,
         {Json([&](auto& out) {
            Base(out, "hello", session_id_, options_.persist_submaps ? 2 : 1);
+           if (options_.joint_render_enabled)
+             out << "capabilities" << "[" << "joint_render_v1" << "]";
            if (options_.persist_submaps)
              out << "state_directory"
                  << (fs::canonical(options_.output_directory) / "states")
@@ -619,6 +627,12 @@ void OnlineGaussianMapper::Run() noexcept {
     if (static_cast<int>(greeting["schema"]) !=
         (options_.persist_submaps ? 2 : 1))
       throw std::runtime_error("Gaussian worker protocol mode mismatch");
+    if (options_.joint_render_enabled &&
+        (!greeting["capabilities"].isSeq() ||
+         greeting["capabilities"].size() != 1 ||
+         static_cast<std::string>(greeting["capabilities"][0]) !=
+             "joint_render_v1"))
+      throw std::runtime_error("Worker lacks joint_render_v1 capability");
     post({ReplyKind::kConnected});
 
     while (!stopping_) {

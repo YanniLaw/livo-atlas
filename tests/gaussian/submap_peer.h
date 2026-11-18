@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "gaussian/wire_protocol.h"
+#include "gaussian/render_test_helpers.h"
 
 namespace livo_atlas {
 namespace test {
@@ -63,6 +64,9 @@ class SubmapPeer {
   std::atomic<bool> hold_candidate{false}, hold_commit{false},
       hold_checkpoint{false}, hold_map_ack{false}, hold_empty{false},
       corrupt_checkpoint{false}, wrong_stop{false}, ineffective_training{false};
+  std::atomic<bool> hold_render{false}, oom_render{false},
+      no_render_capability{false};
+  std::atomic<int> renders{0};
   std::atomic<int> views{0}, checkpoints{0}, acknowledgements{0}, prunes{0},
       discards{0}, reuses{0}, rebuilds{0}, commits{0}, decisions{0};
   std::atomic<bool> stopping{false};
@@ -108,6 +112,8 @@ class SubmapPeer {
               (input["submap_id"].empty() ? "" : Text(input["submap_id"])));
         }
         if (kind == "hello") {
+          if (!input["capabilities"].empty() && !no_render_capability)
+            out << "capabilities" << "[" << "joint_render_v1" << "]";
           states = Text(input["state_directory"]);
           fs::create_directory(states);
           out << "type"
@@ -122,6 +128,11 @@ class SubmapPeer {
               << "5000000000"
               << "gpu_total_bytes"
               << "8000000000";
+        } else if (kind == "joint_render") {
+          ++renders;
+          Hold(hold_render);
+          WriteGaussianMessage(client_, RenderReply(message, oom_render), 3s);
+          continue;
         } else if (kind == "activate" || kind == "view") {
           const auto action = kind == "view" ? "view" : Text(input["action"]);
           if (action == "empty") {

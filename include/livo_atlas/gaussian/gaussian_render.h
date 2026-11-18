@@ -80,6 +80,17 @@ struct GaussianRender {
   std::uint64_t worker_peak_rss_bytes = 0;
 };
 
+struct GaussianRenderStats {
+  std::uint64_t submitted = 0, accepted = 0, stale = 0, coalesced = 0;
+  std::uint64_t skipped = 0, failed = 0, saved = 0, dual_accepted = 0;
+  std::uint64_t pending = 0, in_flight = 0, peak_pending = 0;
+  std::uint64_t peak_in_flight = 0;
+  double last_latency_seconds = 0, max_latency_seconds = 0;
+  double total_latency_seconds = 0;
+  bool disabled = false;
+  std::string error;
+};
+
 std::optional<GaussianRenderRequest> SelectGaussianRender(
     const GaussianMapSnapshot& map, const PoseSnapshot& poses,
     std::uint64_t generation, std::string* reason);

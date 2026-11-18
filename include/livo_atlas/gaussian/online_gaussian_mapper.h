@@ -18,6 +18,7 @@
 #include "livo_atlas/core/online_gaussian_options.h"
 #include "livo_atlas/core/online_submap_update.h"
 #include "livo_atlas/gaussian/gaussian_map_index.h"
+#include "livo_atlas/gaussian/gaussian_render.h"
 
 namespace livo_atlas {
 
@@ -85,6 +86,8 @@ class OnlineGaussianMapper {
       std::chrono::milliseconds timeout) noexcept;
   std::shared_ptr<const GaussianPreview> GetLatestPreview() const;
   OnlineGaussianStats GetStats() const;
+  std::shared_ptr<const GaussianRender> GetLatestRender() const;
+  GaussianRenderStats GetRenderStats() const;
   std::shared_ptr<const GaussianMapSnapshot> GetMapSnapshot() const;
 
  private:
@@ -108,7 +111,9 @@ class OnlineGaussianMapper {
     kCheckpoint,
     kWriteMap,
     kMapCommitted,
-    kPrune
+    kPrune,
+    kRender,
+    kSaveRender
   };
 
   struct Command {
@@ -127,6 +132,8 @@ class OnlineGaussianMapper {
     std::shared_ptr<const GaussianMapSnapshot> map;
     std::vector<std::uint64_t> frame_ids, asset_ids;
     int gaussian_count = 0;
+    std::optional<GaussianRenderRequest> render_request;
+    std::shared_ptr<const GaussianRender> render;
   };
 
   enum class ReplyKind {
@@ -142,6 +149,9 @@ class OnlineGaussianMapper {
     kMapWritten,
     kMapCommitted,
     kPruned,
+    kRendered,
+    kRenderError,
+    kRenderSaved,
     kError
   };
 
@@ -151,6 +161,7 @@ class OnlineGaussianMapper {
     std::shared_ptr<GaussianPreview> preview;
     std::string detail;
     std::optional<GaussianAssetReference> asset;
+    std::shared_ptr<GaussianRender> render;
   };
 
   void Run() noexcept;
@@ -161,6 +172,10 @@ class OnlineGaussianMapper {
   bool CurrentTarget(const GaussianTarget& target) const;
   bool QueueSubmapCommand(Command command);
   void EndSubmapWork(bool retry);
+  void RefreshRenderDemand();
+  bool DispatchRender(const GaussianMapSnapshot& map);
+  void HandleRenderReply(Reply reply);
+  void StopRendering();
   void ConfirmPreview(const std::shared_ptr<GaussianPreview>& preview,
                       Clock::time_point observed_at);
   bool SubmapsDrained() const;
@@ -203,6 +218,12 @@ class OnlineGaussianMapper {
   std::optional<std::uint64_t> prune_asset_;
   std::uint64_t next_asset_ = 1, acknowledged_map_ = 0;
   int foreground_attempts_ = 0;
+  int render_attempts_ = 0;
+  bool render_pending_ = false;
+  std::uint64_t render_sequence_ = 0, render_skip_sequence_ = 0;
+  Clock::time_point render_dispatched_at_;
+  std::shared_ptr<const GaussianRender> latest_render_, unsaved_render_;
+  GaussianRenderStats render_stats_;
   bool foreground_started_ = false;
   bool finishing_ = false, published_since_work_ = false;
   bool checkpoint_needs_map_ = false;
@@ -222,6 +243,7 @@ class OnlineGaussianMapper {
   std::thread thread_;
   // Only the worker owns and prunes these paths after creating the directory.
   std::deque<std::string> written_previews_;
+  std::deque<std::string> written_renders_;
 };
 
 }  // namespace livo_atlas

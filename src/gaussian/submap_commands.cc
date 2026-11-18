@@ -5,6 +5,7 @@
 
 #include "gaussian/mapper_io.h"
 #include "gaussian/submap_protocol.h"
+#include "gaussian/render_protocol.h"
 #include "livo_atlas/io/gaussian_map_writer.h"
 #include "livo_atlas/io/reconstruction_view.h"
 #include "mapping/pose_math.h"
@@ -50,6 +51,24 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
     int fd, const Command& command) {
   Reply reply;
   reply.command = command;
+  if (command.kind == CommandKind::kRender) {
+    const auto& request = *command.render_request;
+    WriteGaussianMessage(fd, EncodeGaussianRenderRequest(request),
+                         options_.transfer_timeout);
+    const auto response =
+        ReadGaussianMessage(fd, options_.joint_render_timeout);
+    cv::FileStorage json(response.header_json,
+                         cv::FileStorage::READ | cv::FileStorage::MEMORY);
+    if (static_cast<std::string>(json["type"]) == "joint_render_error") {
+      reply.detail = DecodeGaussianRenderError(response, request);
+      reply.kind = ReplyKind::kRenderError;
+    } else {
+      reply.render = std::make_shared<GaussianRender>(
+          DecodeGaussianRenderReply(response, request));
+      reply.kind = ReplyKind::kRendered;
+    }
+    return reply;
+  }
   if (command.kind == CommandKind::kWriteMap) {
     WriteGaussianMapIndex(options_.output_directory, *command.map);
     reply.kind = ReplyKind::kMapWritten;

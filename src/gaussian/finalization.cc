@@ -139,6 +139,7 @@ GaussianFinalizationResult OnlineGaussianMapper::Finalize(
   result.before = Counters(stats_);
   pending_.reset();
   stats_.pending = 0;
+  StopRendering();
   finalization_phase_ = FinalizationPhase::kQuiescing;
   bool repaired = false;
   bool timed_out = false;
