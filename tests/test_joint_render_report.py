@@ -15,6 +15,10 @@ from render_fixtures import render_request_fixture, render_reply_fixture
 from tools.joint_render_report import inspect_joint_renders
 
 
+def source_identity(request):
+    return json.dumps(request, allow_nan=False).encode('utf-8').hex()
+
+
 class JointRenderReportTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -42,9 +46,11 @@ class JointRenderReportTest(unittest.TestCase):
         event = ('livo_atlas gaussian joint accepted: session=' + request['session_id'] +
             ' job=9007199254740993 map_sequence=9 pose_version=0 frame_count=6'
             ' optimized_frame_count=0 generation=4 query=5 owner=2 blocks=2 changed_pixels=2'
-            ' accepted_at_steady_seconds=900.000000000 latency_seconds=0.1 worker_seconds=0.1\n')
+            ' accepted_at_steady_seconds=900.000000000 latency_seconds=0.1 worker_seconds=0.1'
+            ' source_identity=' + source_identity(request) + '\n')
         stats = ('livo_atlas gaussian joint: submitted=1 accepted=1 dual_accepted=1 stale=0'
-                 ' coalesced=0 skipped=0 failed=0 saved=1 peak_pending=1 peak_in_flight=1 disabled=0\n')
+                 ' coalesced=0 skipped=0 failed=0 saved=1 peak_pending=1 peak_in_flight=1 disabled=0'
+                 ' pending=0 in_flight=0 pending_storage=0\n')
         (self.root / 'mapping.log').write_text(event + stats)
         self.summary = dict(playback_started_steady_seconds=800., playback_eof_steady_seconds=1000.,
                             playback_confirmed_running_until_steady_seconds=999.,
@@ -121,6 +127,31 @@ class JointRenderReportTest(unittest.TestCase):
             with self.subTest(edit=edit), self.assertRaises(ValueError):
                 inspect_joint_renders(self.root, self.previews)
 
+    def test_valid_looking_source_hash_cannot_replace_accepted_identity(self):
+        self.data['as_of']['blocks'][0]['asset']['manifest_sha256'] = 'c' * 64
+        self.write()
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews)
+
+    def test_original_request_type_cannot_be_overwritten_by_the_checker(self):
+        self.data['as_of']['type'] = 'joint_render_ok'
+        self.write()
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews)
+
+    def test_jpeg_disguised_as_png_is_rejected(self):
+        Image.new('RGB', (8, 6)).save(self.json.with_suffix('.png'), format='JPEG')
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews)
+
+    def test_terminal_owner_counters_cannot_claim_live_render_storage(self):
+        log = self.root / 'mapping.log'
+        original = log.read_text()
+        for field in ('pending', 'in_flight', 'pending_storage'):
+            log.write_text(original.replace(' ' + field + '=0', ' ' + field + '=1'))
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                inspect_joint_renders(self.root, self.previews)
+
     def test_retained_pair_limit_and_nonreference_contribution_are_enforced(self):
         for job in range(4):
             (self.previews / ('joint-render-' + str(job) + '.json')).write_text('{}')
@@ -147,7 +178,8 @@ class JointRenderReportTest(unittest.TestCase):
             if offset:
                 shutil.copyfile(self.json.with_suffix('.png'), path.with_suffix('.png'))
             paths.append(path)
-            events.append(event.replace('job=' + str(base), 'job=' + job))
+            events.append(event.replace('job=' + str(base), 'job=' + job).replace(
+                source_identity(self.data['as_of']), source_identity(data['as_of'])))
         for field in ('submitted', 'accepted', 'dual_accepted', 'saved'):
             stats = stats.replace(field + '=1', field + '=4')
         (self.root / 'mapping.log').write_text('\n'.join(events + [stats]) + '\n')

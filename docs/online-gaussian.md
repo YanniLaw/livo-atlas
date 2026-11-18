@@ -331,6 +331,10 @@ gaussian.joint_render_timeout_ms: 5000
 两端仍使用同一 C++ main 和 Python worker。新能力通过 schema2 的
 `joint_render_v1` 显式协商；worker 版本不支持时会报告 Gaussian 会话失败。
 
+SDK 的 `WriteGaussianRender(directory, render)` 要求每个输出目录只有一个发布者，
+该目录的写入和保留清理操作全部串行执行。直接从多个线程或进程使用 SDK 时也须遵守；
+内置 mapper 的单 I/O 线程已经满足此约束。
+
 worker 只读取 CPU 确认或与当前确认完全对应的持久资产，单次至多两块、20,000 个
 Gaussian 和 1,000,000 像素。驻留训练模型可以是未选中的第三块。
 推理临时缓冲独立于模型参数、Adam 和梯度；会话代数作为 fence，每块绑定代数独立。
@@ -342,11 +346,16 @@ Gaussian 和 1,000,000 像素。驻留训练模型可以是未选中的第三块
 owner 使用同一 map/poses 捕获请求，返回时严格核对 `map_sequence`、位姿前沿、查询和选块来源。
 过期结果计入 `stale`。`GetLatestRender()` 返回只读拥有结果；索引、位姿、内容或终端状态变化时失效，
 查询不读文件。`GetRenderStats()` 独立记录渲染提交、接纳、过期、保存及失败，不增加训练计数。
+`pending_storage` 表示尚未完成写入的拥有结果；明确失败或 I/O 线程 join 后与当前在途计数清零，
+累计计数和峰值保留。`wait_reason` 与 `wait_map_sequence` 区分未确认、最新查询不可用、
+同步、训练配额和间隔等待；`wait_changes` 只在该二元状态变化时递增，节点据此去重打印。
 
 预览目录最多保留四对 `joint-render-<job>.png/.json`，分别限制为 4 MiB 和 64 KiB。
 JSON 最后发布，`as_of` 固定接纳时的 session、map sequence、前沿、绑定、内容和资产引用；
 相机、原始 K、采集/接纳时刻、指标与资源数据一并记录。后续地图前进时，文件仍是原版本的历史记录。
 当前有效性应查询 owner，文件存在本身不表示当前有效；历史资产沿现有策略剪枝。
+新 owner 接纳日志的 `source_identity` 是完整请求头的有界十六进制编码；检查器逐字段核对
+文件 `as_of`，检查原请求类型和真实 PNG 格式。旧归档没有这项记录，不能补造增强来源证据。
 
 `single` 是查询所属块基准，`joint` 是选中块共同进行深度排序的结果。
 `changed_pixels` 比较二者量化后的 RGB 像素；深度误差使用相机 z 和有效稀疏标签。

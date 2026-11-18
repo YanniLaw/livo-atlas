@@ -36,12 +36,13 @@ namespace {
 
 void ReportJointRender(const livo_atlas::GaussianRender& r) {
   const auto& q = r.request;
+  const auto identity = livo_atlas::GaussianRenderSourceIdentity(q);
   std::printf(
       "livo_atlas gaussian joint accepted: session=%s job=%llu "
       "map_sequence=%llu pose_version=%llu frame_count=%llu "
       "optimized_frame_count=%llu generation=%llu query=%llu owner=%llu "
       "blocks=%zu changed_pixels=%d accepted_at_steady_seconds=%.9f "
-      "latency_seconds=%.9f worker_seconds=%.9f\n",
+      "latency_seconds=%.9f worker_seconds=%.9f source_identity=%s\n",
       q.session_id.c_str(), static_cast<unsigned long long>(q.job_id),
       static_cast<unsigned long long>(q.map_sequence),
       static_cast<unsigned long long>(q.pose_version),
@@ -51,13 +52,23 @@ void ReportJointRender(const livo_atlas::GaussianRender& r) {
       static_cast<unsigned long long>(q.query_keyframe_id),
       static_cast<unsigned long long>(q.query_submap_id), q.blocks.size(),
       r.changed_pixels, r.accepted_at_steady_seconds, r.latency_seconds,
-      r.worker_seconds);
+      r.worker_seconds, identity.c_str());
   std::fflush(stdout);
 }
 
 void PollGaussian(livo_atlas::OnlineGaussianMapper& mapper,
-                  std::uint64_t* reported_job) {
+                  std::uint64_t* reported_job, std::uint64_t* reported_wait) {
   mapper.Poll();
+  const auto stats = mapper.GetRenderStats();
+  if (stats.wait_changes != *reported_wait) {
+    std::printf(
+        "livo_atlas gaussian joint waiting: reason=%s map_sequence=%llu "
+        "changes=%llu\n", stats.wait_reason.c_str(),
+        static_cast<unsigned long long>(stats.wait_map_sequence),
+        static_cast<unsigned long long>(stats.wait_changes));
+    *reported_wait = stats.wait_changes;
+    std::fflush(stdout);
+  }
   const auto render = mapper.GetLatestRender();
   if (render && render->request.job_id != *reported_job) {
     ReportJointRender(*render);
@@ -169,6 +180,7 @@ int main(int argc, char** argv) {
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
     std::unique_ptr<livo_atlas::OnlineGaussianMapper> gaussian;
     std::uint64_t reported_render_job = 0;
+    std::uint64_t reported_render_wait = 0;
     if (parameters.livo.gaussian.enabled) {
       gaussian = std::make_unique<livo_atlas::OnlineGaussianMapper>(
           system, parameters.livo.system.frontend.calibration.camera,
@@ -221,14 +233,16 @@ int main(int argc, char** argv) {
         if (trajectory) trajectory->Poll();
         if (geometry) geometry->Poll();
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
-        if (gaussian) PollGaussian(*gaussian, &reported_render_job);
+        if (gaussian)
+          PollGaussian(*gaussian, &reported_render_job, &reported_render_wait);
 #endif
       };
     }
     if (trajectory) trajectory->Poll();
     if (geometry) geometry->Poll();
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
-    if (gaussian) PollGaussian(*gaussian, &reported_render_job);
+    if (gaussian)
+      PollGaussian(*gaussian, &reported_render_job, &reported_render_wait);
 #endif
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(after_process));
@@ -295,6 +309,7 @@ int main(int argc, char** argv) {
             "livo_atlas gaussian joint: submitted=%llu accepted=%llu "
             "dual_accepted=%llu stale=%llu coalesced=%llu skipped=%llu "
             "failed=%llu saved=%llu peak_pending=%llu peak_in_flight=%llu "
+            "pending=%llu in_flight=%llu pending_storage=%llu "
             "disabled=%d max_latency_seconds=%.9f "
             "total_latency_seconds=%.9f\n",
             static_cast<unsigned long long>(r.submitted),
@@ -307,6 +322,9 @@ int main(int argc, char** argv) {
             static_cast<unsigned long long>(r.saved),
             static_cast<unsigned long long>(r.peak_pending),
             static_cast<unsigned long long>(r.peak_in_flight),
+            static_cast<unsigned long long>(r.pending),
+            static_cast<unsigned long long>(r.in_flight),
+            static_cast<unsigned long long>(r.pending_storage),
             static_cast<int>(r.disabled),
             r.max_latency_seconds, r.total_latency_seconds);
         if (!r.error.empty())

@@ -21,9 +21,7 @@ def _finite(value):
     return value
 
 
-def _json(path):
-    _require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 65536,
-             'Render JSON exceeds its budget or is not a regular file')
+def _load_json(text):
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -32,7 +30,26 @@ def _json(path):
         return result
     def constant(value):
         raise ValueError('Nonfinite JSON value: ' + value)
-    return json.loads(path.read_text(), object_pairs_hook=unique, parse_constant=constant)
+    return json.loads(text, object_pairs_hook=unique, parse_constant=constant)
+
+
+def _json(path):
+    _require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 65536,
+             'Render JSON exceeds its budget or is not a regular file')
+    return _load_json(path.read_text())
+
+
+def _source_identity(event):
+    value = event.get('source_identity')
+    _require(type(value) is str and 0 < len(value) <= 131072 and len(value) % 2 == 0 and
+             re.fullmatch('[0-9a-f]+', value), 'Missing or invalid accepted source identity')
+    try:
+        header = _load_json(bytes.fromhex(value).decode('utf-8'))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError('Invalid accepted source header') from error
+    _require(isinstance(header, dict) and header.get('type') == 'joint_render',
+             'Expected original accepted render request')
+    return header
 
 
 def _records(text, marker):
@@ -43,7 +60,7 @@ def _records(text, marker):
         fields = dict(re.findall(r'([a-z_]+)=([^\s]+)', line.split(marker, 1)[1]))
         converted = {}
         for key, value in fields.items():
-            if key == 'session':
+            if key in ('session', 'source_identity'):
                 converted[key] = value
             elif key.endswith('_seconds'):
                 converted[key] = _finite(float(value))
@@ -75,6 +92,8 @@ def _pair(path):
     data = _json(path)
     _require(data.get('schema') == 1 and data.get('kind') == 'livo_atlas.joint_render' and
              data.get('training_view') is True, 'Expected a retained training-view render')
+    _require(isinstance(data.get('as_of'), dict) and
+             data['as_of'].get('type') == 'joint_render', 'Expected original render request type')
     header = dict(data['as_of'], type='joint_render_ok')
     _require(path.stem == 'joint-render-' + header['job_id'], 'Render filename and job differ')
     image = path.with_suffix('.png')
@@ -84,7 +103,8 @@ def _pair(path):
     _require(type(width) is int and type(height) is int and width > 0 and height > 0 and
              width * height <= 1_000_000, 'Stored render camera exceeds its budget')
     with Image.open(image) as pixels:
-        _require(pixels.mode == 'RGB' and pixels.size == (width, height), 'Render PNG shape differs')
+        _require(pixels.format == 'PNG' and pixels.mode == 'RGB' and
+                 pixels.size == (width, height), 'Render PNG format or shape differs')
         rgb = pixels.tobytes()
     K = data['K']
     _require(isinstance(K, list) and len(K) == 9 and K[1] == K[3] == K[6] == K[7] == 0 and K[8] == 1,
@@ -137,9 +157,12 @@ def inspect_joint_renders(run, previews, min_dual=0, min_groups=0):
     stats = counters[0]
     _require(stats.get('accepted') == len(events) and stats.get('failed') == 0 and
              stats.get('disabled') == 0 and stats.get('peak_pending', 2) <= 1 and
-             stats.get('peak_in_flight', 2) <= 1, 'Failed or unbounded owner render session')
+             stats.get('peak_in_flight', 2) <= 1 and
+             all(stats.get(key) == 0 for key in ('pending', 'in_flight', 'pending_storage')),
+             'Failed, active or unbounded owner render session')
     jobs = {}
     for event in events:
+        _source_identity(event)
         _require(event['job'] not in jobs and 0 < event['job'] < 2**64 and
                  1 <= event['blocks'] <= 2 and event['query'] < event['frame_count'] <= 512 and
                  event['changed_pixels'] >= 0, 'Invalid owner render event')
@@ -163,6 +186,7 @@ def inspect_joint_renders(run, previews, min_dual=0, min_groups=0):
         q = data['as_of']
         event = jobs.get(int(q['job_id']))
         _require(event is not None, 'Stored render has no owner acceptance')
+        _require(q == _source_identity(event), 'Stored render differs from accepted source identity')
         for field, key in (('job_id', 'job'), ('map_sequence', 'map_sequence'), ('pose_version', 'pose_version'),
                            ('frame_count', 'frame_count'), ('optimized_frame_count', 'optimized_frame_count'),
                            ('generation', 'generation'), ('query_keyframe_id', 'query'), ('query_submap_id', 'owner')):

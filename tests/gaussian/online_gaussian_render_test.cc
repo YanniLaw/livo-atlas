@@ -27,11 +27,21 @@
 
 namespace {
 std::atomic<bool> fail_joint_publication{false};
+std::atomic<bool> hold_joint_publication{false};
+std::atomic<bool> joint_publication_waiting{false};
 }  // namespace
 
 // Exercise a real local publication failure without modifying the GPU worker.
 extern "C" int rename(const char* from, const char* to) noexcept {
   const std::string name(from);
+  if (hold_joint_publication && name.find("joint-render-") !=
+                                    std::string::npos &&
+      name.find(".tmp.json") != std::string::npos) {
+    joint_publication_waiting = true;
+    while (hold_joint_publication) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
   if (fail_joint_publication && name.find("joint-render-") !=
                                     std::string::npos &&
       name.find(".tmp.json") != std::string::npos) {
@@ -79,6 +89,7 @@ class OnlineGaussianRenderTest : public testing::Test {
 
   void TearDown() override {
     fail_joint_publication = false;
+    hold_joint_publication = joint_publication_waiting = false;
     if (peer_)
       peer_->hold_candidate = peer_->hold_commit = peer_->hold_checkpoint =
           peer_->hold_map_ack = peer_->hold_empty = peer_->hold_render = false;
@@ -166,6 +177,19 @@ class OnlineGaussianRenderTest : public testing::Test {
   void Confirm() {
     ASSERT_TRUE(Wait([&] { return mapper_->GetStats().accepted > accepted_; }));
     accepted_ = mapper_->GetStats().accepted;
+  }
+
+  void RestartWithShortShutdown() {
+    mapper_->Finish();
+    mapper_.reset();
+    peer_.reset();
+    fs::remove_all(options_.output_directory);
+    options_.shutdown_timeout = 5ms;
+    options_.joint_render_timeout = 5s;
+    peer_ = std::make_unique<SubmapPeer>(options_.socket_path);
+    mapper_ = std::make_unique<OnlineGaussianMapper>(
+        *system_, CameraConfig{"Pinhole", 8, 6, 1, 4, 4, 3.5, 2.5, {}},
+        options_);
   }
 
   fs::path root_;
@@ -288,6 +312,113 @@ TEST_F(OnlineGaussianRenderTest, TimeoutIsFatalRatherThanRecoverableOom) {
   }
   EXPECT_EQ(mapper_->GetStats().failed, 1u);
   EXPECT_FALSE(mapper_->GetLatestRender());
+  EXPECT_EQ(mapper_->GetRenderStats().in_flight, 0u);
+  EXPECT_EQ(mapper_->GetRenderStats().pending, 0u);
+  EXPECT_EQ(mapper_->GetRenderStats().pending_storage, 0u);
+  EXPECT_EQ(mapper_->GetRenderStats().peak_in_flight, 1u);
+}
+
+TEST_F(OnlineGaussianRenderTest, JoinedFinishReleasesPendingStorage) {
+  RestartWithShortShutdown();
+  hold_joint_publication = true;
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().accepted == 1; }));
+  const std::weak_ptr<const GaussianRender> held = mapper_->GetLatestRender();
+  EXPECT_EQ(mapper_->GetRenderStats().pending_storage, 1u);
+  ASSERT_TRUE(Wait([&] { return joint_publication_waiting.load(); }));
+  std::thread release([] {
+    std::this_thread::sleep_for(50ms);
+    hold_joint_publication = false;
+  });
+  mapper_->Finish();
+  release.join();
+  EXPECT_EQ(mapper_->GetRenderStats().in_flight, 0u);
+  EXPECT_EQ(mapper_->GetRenderStats().pending_storage, 0u);
+  EXPECT_TRUE(held.expired());
+  EXPECT_EQ(mapper_->GetRenderStats().accepted, 1u);
+}
+
+TEST_F(OnlineGaussianRenderTest, InterruptedFinishClearsTheJoinedRender) {
+  RestartWithShortShutdown();
+  peer_->hold_render = true;
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return peer_->renders == 1; }));
+  EXPECT_EQ(mapper_->GetRenderStats().in_flight, 1u);
+  mapper_->Finish();
+  EXPECT_EQ(mapper_->GetRenderStats().in_flight, 0u);
+  EXPECT_EQ(mapper_->GetRenderStats().pending_storage, 0u);
+  EXPECT_EQ(mapper_->GetRenderStats().peak_in_flight, 1u);
+  peer_->hold_render = false;
+}
+
+TEST_F(OnlineGaussianRenderTest,
+       UnchangedUnavailableQueryReasonIsDeduplicated) {
+  Append(false, false);
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetStats().skipped_no_image == 1 &&
+           mapper_->GetRenderStats().wait_reason == "no_confirmation";
+  }));
+  const auto waiting = mapper_->GetRenderStats();
+  EXPECT_EQ(waiting.wait_map_sequence,
+            mapper_->GetMapSnapshot()->map_sequence);
+  for (int i = 0; i < 100; ++i) mapper_->Poll();
+  EXPECT_EQ(mapper_->GetRenderStats().wait_changes, waiting.wait_changes);
+  EXPECT_EQ(mapper_->GetRenderStats().skipped, waiting.skipped);
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().accepted == 1; }));
+  EXPECT_GT(mapper_->GetRenderStats().wait_changes, waiting.wait_changes);
+}
+
+TEST_F(OnlineGaussianRenderTest, ChangedQueryWaitsForTheRenderInterval) {
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().saved == 1; }));
+  Correct();
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetRenderStats().wait_reason == "interval";
+  }));
+  EXPECT_EQ(mapper_->GetRenderStats().wait_map_sequence,
+            mapper_->GetMapSnapshot()->map_sequence);
+}
+
+TEST_F(OnlineGaussianRenderTest, UnusableNewestQueryHasItsOwnWaitReason) {
+  Append();
+  Confirm();
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().saved >= 1; }));
+  std::this_thread::sleep_for(110ms);
+  peer_->hold_candidate = true;
+  Correct(true, 1);
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetRenderStats().wait_reason == "query_unavailable";
+  }));
+  const auto waiting = mapper_->GetRenderStats();
+  for (int i = 0; i < 100; ++i) mapper_->Poll();
+  EXPECT_EQ(mapper_->GetRenderStats().wait_changes, waiting.wait_changes);
+  peer_->hold_candidate = false;
+}
+
+TEST_F(OnlineGaussianRenderTest, PendingMapHasADistinctSynchronizationReason) {
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().saved == 1; }));
+  peer_->hold_map_ack = true;
+  Append(true);
+  ASSERT_TRUE(Wait([&] {
+    return peer_->checkpoints == 1 &&
+           mapper_->GetRenderStats().wait_reason == "synchronization";
+  }));
+  const auto waiting = mapper_->GetRenderStats();
+  EXPECT_EQ(waiting.wait_map_sequence,
+            mapper_->GetMapSnapshot()->map_sequence);
+  for (int i = 0; i < 100; ++i) mapper_->Poll();
+  EXPECT_EQ(mapper_->GetRenderStats().wait_changes, waiting.wait_changes);
+  peer_->hold_map_ack = false;
+  Confirm();
 }
 
 TEST_F(OnlineGaussianRenderTest, TwoContentAttemptsYieldOnceThenTrainAgain) {

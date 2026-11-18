@@ -18,6 +18,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "gaussian/render_protocol.h"
+#include "gaussian/render_validation.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -39,7 +40,7 @@ void Optional(std::ostream& out, const std::optional<double>& value) {
 }
 
 void Pose(std::ostream& out, const RigidTransform& pose) {
-  pose_math::Validate(pose);
+  ValidateRenderPose(pose);
   out << '[';
   for (int i = 0; i < 16; ++i) {
     if (i) out << ',';
@@ -50,21 +51,7 @@ void Pose(std::ostream& out, const RigidTransform& pose) {
   out << ']';
 }
 
-void Metrics(std::ostream& out, const GaussianRenderMetrics& m, int pixels) {
-  Require(m.image_pixels >= 0 && m.image_pixels <= pixels &&
-              m.covered_pixels >= 0 && m.covered_pixels <= m.image_pixels &&
-              m.depth_pixels_available >= 0 &&
-              m.depth_pixels_available <= m.image_pixels &&
-              m.depth_pixels_used >= 0 &&
-              m.depth_pixels_used <= m.depth_pixels_available &&
-              m.depth_pixels_used <= m.covered_pixels &&
-              m.rgb_l1.has_value() == (m.image_pixels > 0) &&
-              m.rgb_mse.has_value() == (m.image_pixels > 0) &&
-              m.alpha_coverage.has_value() == (m.image_pixels > 0) &&
-              m.depth_l1_m.has_value() == (m.depth_pixels_used > 0) &&
-              m.depth_rmse_m.has_value() == (m.depth_pixels_used > 0) &&
-              m.rgb_perfect == (m.rgb_mse && *m.rgb_mse == 0),
-          "Inconsistent render metrics");
+void Metrics(std::ostream& out, const GaussianRenderMetrics& m) {
   out << "{\"image_pixels\":" << m.image_pixels
       << ",\"covered_pixels\":" << m.covered_pixels
       << ",\"depth_pixels_available\":" << m.depth_pixels_available
@@ -116,9 +103,9 @@ std::string Metadata(const GaussianRender& r) {
     Number(out, field.second);
   }
   out << ",\"changed_pixels\":" << r.changed_pixels << ",\"single\":";
-  Metrics(out, r.single, r.width * r.height);
+  Metrics(out, r.single);
   out << ",\"joint\":";
-  Metrics(out, r.joint, r.width * r.height);
+  Metrics(out, r.joint);
   for (const auto& field :
        {std::pair<const char*, std::uint64_t>{
             "gpu_peak_allocated_bytes", r.gpu_peak_allocated_bytes},
@@ -160,11 +147,7 @@ void WriteNew(const fs::path& path, const char* data, std::size_t size) {
 
 void WriteGaussianRender(const fs::path& directory,
                          const GaussianRender& render) {
-  const auto pixels =
-      static_cast<std::int64_t>(render.width) * render.height;
-  Require(render.width > 0 && render.height > 0 && pixels <= 1000000 &&
-              render.rgb.size() == 3u * render.width * render.height,
-          "Invalid render pixels");
+  ValidateRenderImage(render);
   const auto metadata = Metadata(render);
   cv::Mat rgb(render.height, render.width, CV_8UC3,
               const_cast<std::uint8_t*>(render.rgb.data()));

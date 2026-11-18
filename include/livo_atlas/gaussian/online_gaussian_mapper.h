@@ -176,6 +176,7 @@ class OnlineGaussianMapper {
   bool DispatchRender(const GaussianMapSnapshot& map);
   void HandleRenderReply(Reply reply);
   void StopRendering();
+  void SetRenderWait(const std::string& reason, std::uint64_t map_sequence);
   void ConfirmPreview(const std::shared_ptr<GaussianPreview>& preview,
                       Clock::time_point observed_at);
   bool SubmapsDrained() const;
@@ -222,6 +223,7 @@ class OnlineGaussianMapper {
   bool render_sync_attempted_ = false;
   bool render_pending_ = false;
   std::uint64_t render_sequence_ = 0, render_skip_sequence_ = 0;
+  std::string render_unavailable_reason_;
   Clock::time_point render_dispatched_at_;
   std::shared_ptr<const GaussianRender> latest_render_, unsaved_render_;
   GaussianRenderStats render_stats_;

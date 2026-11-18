@@ -68,5 +68,48 @@ TEST(RenderProtocol, BoundsAndCameraRelationRejectCorruptPayload) {
   EXPECT_THROW(EncodeGaussianRenderRequest(request), std::exception);
 }
 
+TEST(RenderProtocol, PublicRequestRejectsMissingOrContradictoryOmission) {
+  auto request = test::RenderRequest();
+  request.neighbor_reason = "neighbor_unavailable";
+  EXPECT_THROW(ValidateGaussianRenderRequest(request), std::invalid_argument);
+  request.neighbor_reason.clear();
+  request.blocks.erase(request.blocks.begin());
+  EXPECT_THROW(ValidateGaussianRenderRequest(request), std::invalid_argument);
+}
+
+TEST(RenderProtocol, PublicRequestRejectsZeroBindingGeneration) {
+  auto request = test::RenderRequest();
+  request.blocks.front().target.generation = 0;
+  EXPECT_THROW(ValidateGaussianRenderRequest(request), std::invalid_argument);
+}
+
+TEST(RenderProtocol, RenderBoundaryUsesStrictRotationTolerance) {
+  auto request = test::RenderRequest();
+  // Valid under the legacy 1e-4 extrinsic tolerance, but not on render wire.
+  request.blocks.front().target.submap_from_body.back().rotation(0, 0) += 2e-6;
+  EXPECT_THROW(ValidateGaussianRenderRequest(request), std::invalid_argument);
+}
+
+TEST(RenderProtocol, AcceptedIdentityOwnsTheWholeSafeRequestHeader) {
+  auto request = test::RenderRequest();
+  const auto identity = GaussianRenderSourceIdentity(request);
+  ASSERT_FALSE(identity.empty());
+  ASSERT_EQ(identity.size() % 2, 0u);
+  ASSERT_LE(identity.size(), 131072u);
+  ASSERT_EQ(identity.find_first_not_of("0123456789abcdef"), std::string::npos);
+  std::string text;
+  for (std::size_t i = 0; i < identity.size(); i += 2)
+    text.push_back(static_cast<char>(std::stoi(identity.substr(i, 2),
+                                              nullptr, 16)));
+  cv::FileStorage json(text, cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  EXPECT_EQ(static_cast<std::string>(json["type"]), "joint_render");
+  EXPECT_EQ(static_cast<std::string>(json["job_id"]), "9007199254740993");
+  EXPECT_EQ(static_cast<std::string>(
+                json["blocks"][0]["asset"]["manifest_sha256"]),
+            std::string(64, 'b'));
+  request.blocks.front().asset->manifest_sha256 = std::string(64, 'c');
+  EXPECT_NE(GaussianRenderSourceIdentity(request), identity);
+}
+
 }  // namespace
 }  // namespace livo_atlas

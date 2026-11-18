@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "gaussian/mapper_io.h"
+#include "gaussian/render_validation.h"
 #include "gaussian/submap_protocol.h"
 #include "mapping/pose_math.h"
 
@@ -80,7 +81,7 @@ RigidTransform PoseValues(const double* values) {
     else
       pose.rotation(i / 4, i % 4) = value;
   }
-  pose_math::Validate(pose);
+  ValidateRenderPose(pose);
   return pose;
 }
 
@@ -316,17 +317,7 @@ GaussianRenderMetrics Metrics(const cv::FileNode& node, int pixels) {
   result.alpha_coverage = optional("alpha_coverage", image > 0);
   result.depth_l1_m = optional("depth_l1_m", depth > 0);
   result.depth_rmse_m = optional("depth_rmse_m", depth > 0);
-  const double coverage =
-      image ? static_cast<double>(result.covered_pixels) / image : 0;
-  Require(Number(node["rgb_l1"]) >= 0 && Number(node["rgb_l1"]) <= 1 &&
-              Number(node["depth_l1_m"]) >= 0 &&
-              Number(node["depth_rmse_m"]) >= 0 &&
-              std::abs(Number(node["alpha_coverage"]) -
-                       coverage) <
-                  1e-9, "Invalid render error or alpha coverage");
-  if (result.rgb_psnr_db)
-    Require(std::abs(*result.rgb_psnr_db + 10 * std::log10(mse)) < 1e-6,
-            "Incorrect render PSNR");
+  ValidateRenderMetrics(result, pixels);
   return result;
 }
 
@@ -418,6 +409,20 @@ GaussianRenderRequest DecodeGaussianRenderRequest(
   return Request(json.root(), message.body);
 }
 
+std::string GaussianRenderSourceIdentity(const GaussianRenderRequest& request) {
+  const auto header = EncodeGaussianRenderRequest(request).header_json;
+  Require(!header.empty() && header.size() <= 65536,
+          "Accepted render header exceeds its identity budget");
+  constexpr char kHex[] = "0123456789abcdef";
+  std::string identity;
+  identity.reserve(2 * header.size());
+  for (const unsigned char byte : header) {
+    identity.push_back(kHex[byte >> 4]);
+    identity.push_back(kHex[byte & 15]);
+  }
+  return identity;
+}
+
 void ValidateGaussianRenderMessage(const cv::FileNode& root,
                                    const std::vector<std::uint8_t>& body) {
   const auto kind = Text(root["type"]);
@@ -507,6 +512,7 @@ GaussianRender DecodeGaussianRenderReply(
   result.gpu_peak_allocated_bytes = Uint(json["gpu_peak_allocated_bytes"]);
   result.gpu_peak_reserved_bytes = Uint(json["gpu_peak_reserved_bytes"]);
   result.worker_peak_rss_bytes = Uint(json["worker_peak_rss_bytes"]);
+  ValidateRenderImage(result);
   return result;
 }
 

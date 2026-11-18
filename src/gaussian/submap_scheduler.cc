@@ -112,6 +112,10 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
     render_attempts_ = 0;
     render_dispatched_at_ = Clock::now();
   }
+  if (render_pending_ && command.map &&
+      (command.kind == CommandKind::kWriteMap ||
+       command.kind == CommandKind::kMapCommitted))
+    SetRenderWait("synchronization", command.map->map_sequence);
   command_ = std::move(command);
   busy_ = true;
   lock.unlock();

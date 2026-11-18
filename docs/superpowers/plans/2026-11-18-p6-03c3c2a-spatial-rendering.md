@@ -85,6 +85,10 @@ tests/io/gaussian_render_writer_test.cc, tests/test_joint_render_report.py.
 - Produce `ValidateRenderPose(const RigidTransform&)` and
   `ValidateRenderMetrics(const GaussianRenderMetrics&, int pixels)` in the
   internal render_validation header, throwing invalid_argument.
+- `ValidateRenderImage(const GaussianRender&)` shares image/camera/composition,
+  timing and metric validation between decoded DTOs and the direct SDK writer.
+- `GaussianRenderSourceIdentity(const GaussianRenderRequest&)` is the public
+  bounded header-identity function used by the shared node entry and SDK.
 - Append `pending_storage`, bounded string `wait_reason`, `wait_map_sequence`
   and `wait_changes` to GaussianRenderStats. Add private
   `SetRenderWait(const std::string&, std::uint64_t)` for state-change dedup.

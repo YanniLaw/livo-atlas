@@ -9,6 +9,8 @@ namespace livo_atlas {
 
 // Publish one new historical pair; the final JSON rename marks completion.
 // Retention belongs to the serialized I/O owner, which knows its own files.
+// A directory must have one publisher. Serialize every write and retention
+// operation for it, including direct SDK calls from other threads/processes.
 void WriteGaussianRender(const std::filesystem::path& directory,
                          const GaussianRender& render);
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "gaussian/render_validation.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -106,7 +107,7 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
               request.query_keyframe_id < request.frame_count &&
               !request.blocks.empty() && request.blocks.size() <= 2,
           "Render request exceeds its frontier or block budget");
-  pose_math::Validate(request.parent_from_body);
+  ValidateRenderPose(request.parent_from_body);
   const GaussianRenderBlock* owner = nullptr;
   int total = 0;
   int residents = 0;
@@ -114,11 +115,14 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
   for (const auto& block : request.blocks) {
     const auto& target = block.target;
     ValidateGaussianTarget(target);
+    ValidateRenderPose(target.parent_from_submap);
+    for (const auto& pose : target.submap_from_body) ValidateRenderPose(pose);
     const auto id = target.group.primary.id;
     Require((!previous || id > *previous) &&
                 (id == request.query_submap_id ||
                  (request.query_submap_id > 0 &&
                   id == request.query_submap_id - 1)) &&
+                target.generation > 0 &&
                 target.session_id == request.session_id &&
                 target.pose_version == request.pose_version &&
                 target.frame_count == request.frame_count &&
@@ -161,10 +165,10 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
               pose_math::Compose(owner->target.parent_from_submap,
                                  owner->target.submap_from_body.at(offset))),
           "Query body pose differs from the captured target");
-  Require(request.neighbor_reason.empty() ||
-              request.neighbor_reason == "no_previous_group" ||
-              request.neighbor_reason == "neighbor_unavailable",
-          "Unknown render coverage reason");
+  Require(request.neighbor_reason ==
+              (request.blocks.size() == 2 ? "" : request.query_submap_id
+                  ? "neighbor_unavailable" : "no_previous_group"),
+          "Missing or contradictory render coverage reason");
 }
 
 std::optional<GaussianRenderRequest> SelectGaussianRender(

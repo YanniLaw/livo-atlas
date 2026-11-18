@@ -163,6 +163,8 @@ void OnlineGaussianMapper::Fail(const std::string& message) noexcept {
   failed_ = true;
   if (render_stats_.in_flight) ++render_stats_.failed;
   StopRendering();
+  render_stats_.in_flight = 0;
+  render_stats_.pending_storage = 0;
   ++stats_.failed;
   try {
     stats_.error = message.substr(0, 1024);
@@ -531,6 +533,11 @@ void OnlineGaussianMapper::Finish() noexcept {
   }
   condition_.notify_all();
   if (thread_.joinable()) thread_.join();
+  // StopRendering only withdraws demand. A running render/publication remains
+  // in flight until definitive failure or this join releases its command.
+  unsaved_render_.reset();
+  render_stats_.in_flight = 0;
+  render_stats_.pending_storage = 0;
   if (options_.enabled && options_.persist_submaps && !stop_acknowledged_)
     stats_.incomplete_shutdown = true;
   // After the join no background task or mailbox still owns a live job.

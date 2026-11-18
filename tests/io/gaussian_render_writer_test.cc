@@ -118,5 +118,53 @@ TEST_F(GaussianRenderWriterTest, LastRenameFailureLeavesNoSuccessfulPair) {
   EXPECT_FALSE(fs::exists(Path(".tmp.png")));
 }
 
+TEST_F(GaussianRenderWriterTest, RejectsContradictoryOptionalPsnr) {
+  const auto original = render_;
+  for (int mode = 0; mode < 4; ++mode) {
+    render_ = original;
+    if (mode == 0) render_.joint.rgb_psnr_db.reset();
+    if (mode == 1) {
+      render_.joint.rgb_l1 = render_.joint.rgb_mse = 0;
+      render_.joint.rgb_perfect = true;
+    }
+    if (mode == 2) {
+      render_.joint = {};
+      render_.joint.rgb_psnr_db = 1;
+    }
+    if (mode == 3) render_.joint.rgb_psnr_db = 1;
+    EXPECT_THROW(WriteGaussianRender(directory_, render_),
+                 std::invalid_argument) << mode;
+    EXPECT_FALSE(fs::exists(Path(".json")));
+    EXPECT_FALSE(fs::exists(Path(".png")));
+    fs::remove(Path(".json"));
+    fs::remove(Path(".png"));
+  }
+}
+
+TEST_F(GaussianRenderWriterTest, RejectsRenderRotationBeyondWireTolerance) {
+  render_.camera_from_body.rotation(0, 0) += 2e-6;
+  EXPECT_THROW(WriteGaussianRender(directory_, render_),
+               std::invalid_argument);
+  EXPECT_FALSE(fs::exists(Path(".json")));
+}
+
+TEST_F(GaussianRenderWriterTest, RejectsCameraAndImageSemanticsInvalidOnWire) {
+  const auto original = render_;
+  for (int mode = 0; mode < 6; ++mode) {
+    render_ = original;
+    if (mode == 0) render_.K(0, 0) = -1;
+    if (mode == 1) render_.camera_from_parent.translation.x() += 1;
+    if (mode == 2) render_.changed_pixels = 49;
+    if (mode == 3) render_.worker_seconds = -1;
+    if (mode == 4) render_.calibration_id = 1;
+    if (mode == 5) render_.K(0, 1) = 1;
+    EXPECT_THROW(WriteGaussianRender(directory_, render_),
+                 std::invalid_argument) << mode;
+    EXPECT_FALSE(fs::exists(Path(".json")));
+    fs::remove(Path(".json"));
+    fs::remove(Path(".png"));
+  }
+}
+
 }  // namespace
 }  // namespace livo_atlas

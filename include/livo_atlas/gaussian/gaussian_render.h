@@ -89,6 +89,11 @@ struct GaussianRenderStats {
   double total_latency_seconds = 0;
   bool disabled = false;
   std::string error;
+  std::uint64_t pending_storage = 0;
+  // Codes describe owner state, rather than emitting a line on every Poll.
+  std::string wait_reason;
+  std::uint64_t wait_map_sequence = 0;
+  std::uint64_t wait_changes = 0;
 };
 
 std::optional<GaussianRenderRequest> SelectGaussianRender(
@@ -100,6 +105,9 @@ bool IsCurrentGaussianRender(const GaussianRenderRequest& request,
                              const PoseSnapshot& poses);
 
 void ValidateGaussianRenderRequest(const GaussianRenderRequest& request);
+
+// Bounded, single-line encoding of the complete accepted request header.
+std::string GaussianRenderSourceIdentity(const GaussianRenderRequest& request);
 
 }  // namespace livo_atlas
 
