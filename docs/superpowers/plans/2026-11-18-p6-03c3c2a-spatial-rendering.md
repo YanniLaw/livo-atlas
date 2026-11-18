@@ -287,12 +287,12 @@ Produce reproducible versioned evidence and explicit remaining C3c2b boundary.
 - [x] Collect CPU selection/worker time, RSS/VRAM, stale/admitted/saved/peaks and
   latency. Run actual owner GPU tests, OOM/write-failure continuation and timeout
   classification, full suite and matrix; expect PASS and bounds1/1.
-- [ ] Commit product/validation docs, create whole-range review package using
+- [x] Commit product/validation docs, create whole-range review package using
   fdaea4e as implementation base; one most-capable fresh reviewer reads exact
   spec/plan/ledger and Review Focus. Re-grade findings by user effect; Important
   and Critical each get RED/GREEN in one fix pass and final full suite/matrix/
   relevant real replays; defer only Minor, record all rulings with cost if wrong.
-- [ ] Archive exact ledger/raw review/logs with SHA256 before deleting only this
+- [x] Archive exact ledger/raw review/logs with SHA256 before deleting only this
   plan's scratch directory; hash own retained artifacts, clean own redundant
   builds/data toward1GiB. Leave old evidence untouched. Final report links results,
   includes all rulings/deferred minors and identifies C3c2b as next separate work.

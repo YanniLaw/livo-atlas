@@ -61,7 +61,7 @@
 
 46. [P6-03c3c1 在线联合渲染设计](superpowers/specs/2026-11-18-p6-03c3c1-online-joint-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3c1-online-joint-rendering.md)、[使用说明](online-gaussian.md#在线联合渲染c3c1)和[验证记录](p6-03c3c1-validation.md)：同 worker 只读联合最多两块、严格 owner 版本接纳和四对文件预览已接线；审阅修正后的71项核心、174项Python/CUDA、92项工具及Humble74项CTest通过；真实输入边界前52次双块贡献跨11组，归档清理完成，阶段保留低于1GiB。
 
-47. [P6-03c3c2 空间候选与双ROS预览推进设计](superpowers/specs/2026-11-18-p6-03c3c2-spatial-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3c2a-spatial-rendering.md)和[验证记录](p6-03c3c2a-validation.md)：C3c1可靠性收尾及空间候选已实施，共用ROS入口与worker；双ROS矩阵和官方数据对照通过，最终审阅/归档收尾中。C3c2b图像发布单独推进。
+47. [P6-03c3c2 空间候选与双ROS预览推进设计](superpowers/specs/2026-11-18-p6-03c3c2-spatial-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3c2a-spatial-rendering.md)和[验证记录](p6-03c3c2a-validation.md)：C3c1可靠性收尾及空间候选已实施，共用ROS入口与worker；双ROS矩阵和官方数据对照通过，审阅必要修复、全量复验及归档完成；最终55次双块贡献跨12组，其中24次非相邻。C3c2b图像发布单独推进。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。
