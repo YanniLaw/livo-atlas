@@ -1,5 +1,7 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -8,8 +10,10 @@ from unittest import mock
 import weakref
 
 import numpy as np
+import yaml
 
 import gaussian_map
+import joint_renderer
 from joint_fixtures import make_snapshot, pose, rigid_update
 from joint_renderer import load_snapshot, load_block, verify_snapshot
 
@@ -130,6 +134,85 @@ class JointSnapshotTest(unittest.TestCase):
         snapshot=self.load()
         (self.keyframes/'online_submaps/records/0/4.yml').write_text('{}')
         with self.assertRaisesRegex(ValueError,'changed'):verify_snapshot(snapshot)
+
+    def test_newer_pose_version_is_rejected_before_opening_the_snapshot(self):
+        rigid_update(self.directory, self.keyframes)
+        path = self.keyframes / 'online_submaps/poses/1.yml'
+        newer = yaml.safe_load(path.read_text())
+        newer.update(version='2', base_version='1')
+        for row in newer['poses']:
+            row['map_from_body']['translation'][1] += 10
+        path.with_name('2.yml').write_text(yaml.safe_dump(newer))
+        # The old inspector only checks the explicitly requested prefix/version.
+        gaussian_map.inspect_gaussian_map(self.directory, self.keyframes, 1, 6)
+        with self.assertRaises(ValueError):
+            self.load()
+
+    def test_later_raw_frame_frontier_is_not_silently_ignored(self):
+        path = self.keyframes / 'frames/6'
+        path.mkdir()
+        frame = yaml.safe_load((self.keyframes / 'frames/5/frame.yml').read_text())
+        frame['id'] = '6'
+        frame['odom_from_body']['translation'][0] = 6
+        (path / 'frame.yml').write_text(yaml.safe_dump(frame))
+        gaussian_map.inspect_gaussian_map(self.directory, self.keyframes, 0, 6)
+        with self.assertRaises(ValueError):
+            self.load()
+
+    def test_authoritative_group_root_is_required_for_rendering_only(self):
+        shutil.rmtree(self.keyframes / 'online_submaps/records')
+        gaussian_map.inspect_gaussian_map(self.directory, self.keyframes, 0, 6)
+        with self.assertRaises(ValueError):
+            self.load()
+
+    def test_group_root_and_group_directory_symlinks_are_rejected(self):
+        for link_root in (False, True):
+            with self.subTest(link_root=link_root), tempfile.TemporaryDirectory() as tmp:
+                directory, keyframes = make_snapshot(Path(tmp))
+                path = keyframes / 'online_submaps/records'
+                if not link_root:
+                    path = path / '0'
+                target = Path(tmp) / 'group-target'
+                path.rename(target)
+                path.symlink_to(target, target_is_directory=True)
+                gaussian_map.inspect_gaussian_map(directory, keyframes, 0, 6)
+                with self.assertRaises(ValueError):
+                    load_snapshot(directory, keyframes, 5, [0, 1])
+
+    def test_map_switch_before_identity_capture_is_rejected(self):
+        real_open = gaussian_map._open_file
+        map_path = self.directory / 'map.json'
+        switched = False
+
+        @contextmanager
+        def switch_after_read(path, limit):
+            nonlocal switched
+            with real_open(path, limit) as stream:
+                yield stream
+            if Path(path) == map_path and not switched:
+                switched = True
+                document = json.loads(map_path.read_text())
+                document['map_sequence'] = '2'
+                for row in document['entries']:
+                    old = row['asset']['asset_id']
+                    new = str(int(old) + 3)
+                    (self.directory / 'states' / old).rename(self.directory / 'states' / new)
+                    row['asset']['asset_id'] = new
+                map_path.write_text(json.dumps(document))
+                self.edit('finalization.json', lambda r: r.update(map_sequence='2', asset_ids=['4', '5', '6']))
+
+        rejected = False
+        with mock.patch.object(gaussian_map, '_open_file', side_effect=switch_after_read), \
+             mock.patch.object(joint_renderer, '_open_file', side_effect=switch_after_read):
+            try:
+                self.load()
+            except (ValueError, OSError):
+                rejected = True
+        # Both on-disk maps are valid; rejecting the change is the behavior tested.
+        summary = gaussian_map.inspect_gaussian_map(self.directory, self.keyframes, 0, 6)
+        gaussian_map.inspect_gaussian_finalization(self.directory, summary)
+        self.assertTrue(switched)
+        self.assertTrue(rejected, 'Mixed map references and monitored paths were accepted')
 
     def test_cpu_preflight_never_imports_torch(self):
         script='''

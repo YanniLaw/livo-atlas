@@ -112,3 +112,38 @@ def rigid_update(directory, keyframes, optimized=4):
         tail_policy='last_optimized_anchor_projected', tail_anchor_keyframe_id=str(optimized-1),
         poses=[dict(id=str(i), map_from_body=transform(pose(i,10))) for i in range(optimized)])
     (folder / '1.yml').write_text(yaml.safe_dump(data))
+
+
+def make_sparse_snapshot(root, content_blocks=1):
+    """Reach 512 frames with real confirmed assets and many one-frame missing groups."""
+    directory, keyframes = make_snapshot(root, blocks=content_blocks)
+    document = json.loads((directory / 'map.json').read_text())
+    document['frame_count'] = '512'
+    for row in document['entries']:
+        row['binding']['frame_count'] = '512'
+    for submap in range(content_blocks, 512 - content_blocks):
+        anchor = submap + content_blocks
+        binding = copy.deepcopy(document['entries'][0]['binding'])
+        binding.update(submap_id=str(submap), anchor_keyframe_id=str(anchor),
+                       primary_count=1, membership_revision='2',
+                       parent_from_submap=pose(anchor).ravel().tolist())
+        document['entries'].append(dict(submap_id=str(submap), anchor_keyframe_id=str(anchor),
+            primary_count=1, membership_revision='2', submap_state='sealed',
+            availability='missing', reason='resource_limit', resident=0, volatile=0,
+            binding=binding, binding_job_id='0'))
+        record = keyframes / 'online_submaps/records' / str(submap)
+        record.mkdir()
+        (record / '2.yml').write_text(yaml.safe_dump(dict(schema_version=1, id=str(submap),
+            membership_revision='2', state='sealed', anchor_keyframe_id=str(anchor),
+            keyframe_ids=[str(anchor)], support_keyframe_ids=[])))
+    for frame in range(2 * content_blocks, 512):
+        folder = keyframes / 'frames' / str(frame)
+        folder.mkdir()
+        (folder / 'frame.yml').write_text(yaml.safe_dump(dict(
+            id=str(frame), odom_from_body=transform(pose(frame)))))
+    (directory / 'map.json').write_text(json.dumps(document))
+    path = directory / 'finalization.json'
+    report = json.loads(path.read_text())
+    report.update(frame_count='512', missing=512 - 2 * content_blocks)
+    path.write_text(json.dumps(report))
+    return directory, keyframes

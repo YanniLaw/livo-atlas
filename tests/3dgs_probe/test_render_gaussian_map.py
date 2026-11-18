@@ -4,6 +4,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,8 +13,9 @@ from unittest import mock
 
 import numpy as np
 
-from joint_fixtures import make_snapshot
-from render_gaussian_map import image_metrics, main, run
+from joint_fixtures import make_snapshot, make_sparse_snapshot
+from joint_renderer import load_snapshot
+from render_gaussian_map import _sources_report, image_metrics, main, run
 
 
 def arguments(directory, keyframes, output, query=5, selected=(1, 0)):
@@ -68,6 +70,21 @@ class RenderMetricsTest(unittest.TestCase):
 
 
 class RenderPreflightTest(unittest.TestCase):
+    def test_source_digest_supports_deep_paths_and_portable_identical_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            short = root / 'short'
+            short.mkdir()
+            directory, keyframes = make_sparse_snapshot(short)
+            deep = root.joinpath(*(['d' * 60] * 20))
+            deep.mkdir(parents=True)
+            shutil.copytree(directory, deep / 'map')
+            shutil.copytree(keyframes, deep / 'keyframes')
+            before = _sources_report(load_snapshot(directory, keyframes, 1, [0]))
+            after = _sources_report(load_snapshot(deep / 'map', deep / 'keyframes', 1, [0]))
+            self.assertEqual(before['verified_small_files_sha256'],
+                             after['verified_small_files_sha256'])
+
     def blocked(self, args):
         code = '''import importlib.abc, sys
 class BlockTorch(importlib.abc.MetaPathFinder):
@@ -191,6 +208,23 @@ class RenderCudaCliTest(unittest.TestCase):
             report = run(args)
             self.assertEqual(len(report['blocks']), 32)
             self.assertLessEqual((args.output / 'report.json').stat().st_size, 65536)
+
+    def test_many_missing_groups_still_publish_a_bounded_success_report(self):
+        from gaussian_map import inspect_gaussian_map, inspect_gaussian_finalization
+
+        for content_blocks in (1, 32):
+            with self.subTest(content_blocks=content_blocks), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                directory, keyframes = make_sparse_snapshot(root, content_blocks)
+                summary = inspect_gaussian_map(directory, keyframes, 0, 512)
+                inspect_gaussian_finalization(directory, summary)
+                args = arguments(directory, keyframes, root / 'output', query=1, selected=(0,))
+                report = run(args)
+                self.assertEqual(len(report['blocks']), content_blocks)
+                self.assertEqual(report['missing_ids'],
+                                 [str(i) for i in range(content_blocks, 512 - content_blocks)])
+                self.assertLessEqual((args.output / 'report.json').stat().st_size, 65536)
+                self.assertEqual(json.loads((args.output / 'report.json').read_text())['status'], 'passed')
 
     def test_cuda_oom_and_missing_prebuilt_extension_never_publish_success(self):
         import importlib

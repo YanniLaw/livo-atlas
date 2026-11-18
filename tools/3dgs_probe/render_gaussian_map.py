@@ -81,30 +81,43 @@ def _png(path, rgb):
 def _blocks_report(snapshot):
     blocks = []
     for row in snapshot.document['entries']:
+        # All missing IDs are reported separately. Their unused transforms
+        # would otherwise make legal sparse directories exceed 64 KiB.
+        if 'asset' not in row:
+            continue
         item = dict(submap_id=row['submap_id'], availability=row['availability'],
                     selected=int(row['submap_id']) in snapshot.selected_ids,
-                    binding=row['binding'])
-        if 'asset' in row:
-            # Primary pose histories are already verified; copying them would
-            # turn this small report into a second map format.
-            item.update(asset=row['asset'], gaussian_count=row['asset_gaussian_count'],
-                        retained_ids=row['asset_trained_frame_ids'],
-                        capture={key: value for key, value in row['asset_source'].items()
-                                 if key != 'primary'})
+                    binding=row['binding'], asset=row['asset'],
+                    gaussian_count=row['asset_gaussian_count'],
+                    retained_ids=row['asset_trained_frame_ids'],
+                    capture={key: row['asset_source'][key] for key in (
+                        'pose_version', 'frame_count', 'optimized_frame_count', 'parent_frame',
+                        'generation', 'membership_revision', 'anchor_keyframe_id', 'primary_count')})
         blocks.append(item)
     return blocks
 
 
 def _sources_report(snapshot):
     digests = snapshot.fingerprint['digests']
+    relative = []
+    for name, digest in digests.items():
+        path = Path(name)
+        root, label = ((snapshot.directory, 'map') if path.is_relative_to(snapshot.directory)
+                       else (snapshot.keyframes, 'keyframes'))
+        relative.append((label + '/' + path.relative_to(root).as_posix(), digest))
+    combined = hashlib.sha256()
+    for name, digest in sorted(relative):
+        # Paths cannot contain NUL. Stream the small records without making
+        # mount-path length part of either the identity or a byte budget.
+        combined.update(name.encode('utf-8') + b'\0' + digest.encode('ascii') + b'\n')
     result = dict(map_directory=str(snapshot.directory), keyframes=str(snapshot.keyframes),
                   map_sha256=digests[str(snapshot.directory / 'map.json')],
                   finalization_sha256=digests[str(snapshot.directory / 'finalization.json')],
                   dataset_sha256=digests[str(snapshot.keyframes / 'dataset.yml')],
                   verified_small_files=len(digests),
                   verified_path_identities=len(snapshot.fingerprint['stamps']),
-                  verified_small_files_sha256=hashlib.sha256(
-                      _json_bytes(digests, 1024 * 1024)).hexdigest())
+                  verified_small_files_sha256=combined.hexdigest(),
+                  verified_small_files_digest_format='relative-path-nul-sha256-lf-v1')
     version = snapshot.document['pose_version']
     result['pose_update_sha256'] = (digests[str(snapshot.keyframes / 'online_submaps/poses' /
                                               (version + '.yml'))] if version != '0' else None)

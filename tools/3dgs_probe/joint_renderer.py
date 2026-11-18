@@ -6,15 +6,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import json
 from pathlib import Path
+import stat
 import time
 
 import numpy as np
 
-from gaussian_map import (_inspect_gaussian_map, _json, _require,
+from gaussian_map import (_inspect_gaussian_map, _require,
                           inspect_gaussian_finalization)
-from gaussian_state import (_PARAMETERS, _array, _open_file, _pose, _unsigned,
-                            read_state)
+from gaussian_state import (_PARAMETERS, _array, _open_file, _pose,
+                            _reject_constant, _unique_object, _unsigned, read_state)
 
 
 @dataclass
@@ -49,6 +51,34 @@ def _stamp(path):
 def _small_digest(path):
     with _open_file(path, 512 * 1024) as stream:
         return hashlib.sha256(stream.read()).hexdigest()
+
+
+def _real_directory(path):
+    identity = _stamp(path)
+    _require(identity is not None and stat.S_ISDIR(identity[2]),
+             'Required snapshot directory is missing or linked: ' + str(path))
+
+
+def _check_frontier(keyframes, frames, version):
+    """Compare the two supplied inputs, rather than trusting the map's own target."""
+    frame_root = keyframes / 'frames'
+    _real_directory(frame_root)
+    paths = list(frame_root.iterdir())
+    _require(len(paths) == frames and {_unsigned(path.name) for path in paths} == set(range(frames)),
+             'Keyframe directory differs from the final map frontier')
+    for path in paths:
+        _real_directory(path)
+    pose_root = keyframes / 'online_submaps/poses'
+    latest = 0
+    if _stamp(pose_root) is not None:
+        _real_directory(pose_root)
+        for path in pose_root.iterdir():
+            _require(path.suffix == '.yml' and stat.S_ISREG(path.lstat().st_mode),
+                     'Invalid pose history file')
+            number = _unsigned(path.stem)
+            _require(number > 0, 'Pose history versions must be positive')
+            latest = max(latest, number)
+    _require(latest == version, 'Keyframe pose version differs from the final map frontier')
 
 
 def _fingerprint(directory, keyframes, document):
@@ -96,12 +126,26 @@ def load_snapshot(directory: Path, keyframes: Path, keyframe_id: int,
     selected = tuple(sorted(_id(value) for value in submap_ids))
     _require(len(set(selected)) == len(selected), 'Duplicate submap IDs')
     directory, keyframes = Path(directory).resolve(strict=True), Path(keyframes).resolve(strict=True)
-    document = _json(directory / 'map.json')
+    map_path = directory / 'map.json'
+    with _open_file(map_path, 512 * 1024) as stream:
+        raw = stream.read()
+    document = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_object,
+                          parse_constant=_reject_constant)
     frames, version = (_unsigned(document[key]) for key in ('frame_count', 'pose_version'))
     _require(keyframe_id < frames <= 512, 'Query frame is outside the snapshot frontier')
     fingerprint = _fingerprint(directory, keyframes, document)
+    _require(fingerprint['digests'][str(map_path)] == hashlib.sha256(raw).hexdigest(),
+             'Snapshot map changed while collecting its file identities')
+    _check_frontier(keyframes, frames, version)
+    # The legacy inspector also serves older exports without grouping records.
+    # Rendering needs the authoritative directories so membership is monitored.
+    records = keyframes / 'online_submaps/records'
+    _real_directory(records)
+    for row in document['entries']:
+        _real_directory(records / str(_unsigned(row['submap_id'])))
     summary, data, poses, query = _inspect_gaussian_map(directory, keyframes, version, frames,
                                                        query_id=keyframe_id)
+    _require(data == document, 'Snapshot map changed during validation')
     finalization = inspect_gaussian_finalization(directory, summary)
     _require(summary['verified_assets'] > 0, 'Snapshot has no confirmed content')
     for submap in selected:
