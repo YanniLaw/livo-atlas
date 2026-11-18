@@ -1,6 +1,6 @@
 # P6-03c3c1 在线联合渲染验证记录
 
-状态：固定源码的最终实测通过；完成检查和证据归档收尾进行中。
+状态：五项实施任务、最终验收、执行记录归档与清理均已完成。
 
 实现及操作见[使用说明](online-gaussian.md#在线联合渲染c3c1)，
 决策依据见[设计](superpowers/specs/2026-11-18-p6-03c3c1-online-joint-rendering-design.md)
@@ -40,6 +40,9 @@ Humble覆盖CPU、配置、协议入口和安装消费；真实CUDA验收位于N
 主机CMake3.16不支持 `ctest --test-dir`；候选阶段的“无测试”结果未计入覆盖，
 已改用 `cmake -E chdir` 并重新运行。Humble直接使用构建目录需DDS类型支持插件和库搜索路径。
 Noetic参数测试的外层摘要与内部完整日志现分开保存，最终13项已完整重跑。
+完成检查曾发现ROS0重配置前未固定OpenMP环境，`ProcessorCount`改变了LIO/VIO编译宏；
+脚本统一在配置前设置OMP1后，两库恢复原冻结SHA，全套与身份检查再次通过。
+原始失败记录保留，实际Noetic回放节点及其库的SHA始终一致。
 
 ## 真实在线回放
 
@@ -97,7 +100,8 @@ GPU总量包含上下文及其他系统占用，1Hz采样可能漏过瞬时峰�
 ## 故障与边界
 
 - 真实短bag首次联合推理尝试分配4GiB CUDA张量，在40% allocator预算下触发真实OOM。
-  联合预览failed/disabled各1；5次后续/已有训练确认无会话失败，Finalize成功且durable。
+  联合预览failed/disabled各1；共5次训练确认，OOM后仍继续真实训练，无会话失败，
+  Finalize成功且durable。
 - 1ms渲染超时使Gaussian会话失败，worker退出1；原前端继续完成相同数据，runner正常退出。
   OOM和超时两例的前端数组、原始观测与发布语义均与普通前端严格一致。
 - 本地JSON最终rename失败的真实GPU集成用例：禁用预览后继续训练，并完成持久退出。
@@ -127,10 +131,27 @@ YAML持久配置的问题从Minor升为Important。8项均在一次修复中完�
 
 ## 归档与清理
 
-完成检查后，执行记录、逐项Ruling、原始审阅和各次测试输出按字节归档并记录SHA。
-只移除本阶段的重复回放、对象文件和临时SDK；保留完整ON原始关键帧及13块最终资产、
-源码压缩归档、必要原生二进制、全部对照/故障摘要和校验清单。目标最终保留不超过1GiB。
-实际字节数、清理清单和归档SHA在收尾完成后填写。
+执行记录、16项Ruling、原始审阅和各次测试输出已按字节归档；仅本计划scratch被移除，
+相邻计划的执行记录保留。清理前对所有阶段文件记录SHA与字节数，重复数据的元数据另有压缩归档。
+清理只涉及本阶段重复回放、对象文件、临时SDK和已完成的测试可执行文件。
+
+最终阶段目录实际占用约1014.53MiB，低于1GiB；主机回收约3.53GiB，另清理本阶段容器目录。
+保留完整ON原始关键帧、13块最终资产、源码压缩归档、必要Noetic/普通核心二进制、
+Humble运行时归档，以及全部对照/故障摘要和校验清单。
+清理后重新检查13块资产仍为current/durable、原始数据完整，2695个保留文件的SHA全部核对通过。
+旧阶段来源、环境、SDK、bag和工程源码保持原有内容。
+
+| 归档 | SHA256 |
+| --- | --- |
+| `execution-records.tar.gz` | `c8d3afa99d8cef659dfede009e0769593ec952bda1d274fe2a2f69660c889749` |
+| `final-source.tar.gz` | `5eb7e9266938ccd586e8794e9e199d8a5fbedf0f06a336ac0409c9a6089fc086` |
+| `humble-evidence/final-runtime.tar.gz` | `2507cab62b609b7b0d778bafa7f63c4696ef43118243369fb4fe5b109e3a3683` |
+
+`cleanup-manifest.json`记录删除内容，`all-artifacts-before-cleanup.jsonl`保存清理前的逐文件身份；
+`retained-artifacts.sha256`核对清理后保留文件，`retained-evidence-check.json`记录资产/归档复查。
+`execution-decisions.json`与执行归档保留全部裁决和代价，前述5项Minor均明确暂缓。
+本机预览例为 `g-final-full-on/joint-render-509.png/.json`，query170，双块，53171个像素产生变化。
+它是当前稀疏确认块的诊断预览，图像质量优化和densification尚未进入本阶段。
 
 后续工作仍是空间可见性选块、双ROS图像显示及更长真实序列验证；本阶段交付有版本的
 在线文件预览。跨块联合训练、densification、断电恢复和完整在线3DGS SLAM属于后续阶段。
