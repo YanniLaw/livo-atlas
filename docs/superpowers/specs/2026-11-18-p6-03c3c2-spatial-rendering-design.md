@@ -83,7 +83,8 @@ extent来自真实优化参数：对每个origin分组计算means的AABB，scale
 4. rigid reuse保持同一content的局部范围；使用新的binding变换到当前parent。
 5. 非刚性primary变化继续标记needs_rebuild，重建成功后随新content重新计算metadata。
 6. checkpoint不改变metadata所属content；资产内存描述可带对应metadata，prune一起释放。
-   最多32个逻辑组及现有受限的checkpoint过渡，不能形成无界旁路缓存。
+   最多32个已确认Gaussian内容组及现有受限的checkpoint过渡，不能形成无界旁路缓存。
+   未训练分组的占位沿用现有512主帧/分组声明上限，不保存额外空间metadata。
 
 查询仍取所有确认内容中的最新retained帧。查询owner或其metadata不可用时等待，不能退回旧相机。
 根generation仍为会话fence，块绑定generation独立；保留C3c1丢弃激活后恢复旧绑定的合法场景。
@@ -176,7 +177,7 @@ flowchart LR
 
 - 一条GPU通道、一个训练模型、总in-flight1、pending render1；不另开GPUworker或旁路模型。
 - 原两次内容尝试/一次到期render机会及一次同步上限不变，前台/repair/持久链继续前进。
-- 最多32组、512个primary帧、每组10个extent、每块10000个Gaussian；实际联合仍最多20000个Gaussian、1M像素。
+- 最多32个已确认Gaussian组、512个primary帧、每组10个extent、每块10000个Gaussian；实际联合仍最多20000个Gaussian、1M像素。
 - 消息header64KiB、body16MiB上限及render request 131200bytes上限保持；新metadata也受实际编码预算检查。
 - 元数据提取计入真实worker时间/RSS；选块不读文件、不持有图像/深度、参数或Adam。
 - 入队前重建当前引用，返回后严格比对当前map/poses/metadata及重新选择结果；不把旧结果重新贴版本。

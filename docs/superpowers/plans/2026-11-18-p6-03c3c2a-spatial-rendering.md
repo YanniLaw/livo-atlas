@@ -26,7 +26,8 @@ Noetic and Humble, existing CMake/catkin/ament and unittest/GoogleTest.
   parameter validation. Humble validation is CPU/entry/SDK, not CUDA evidence.
 - One GPU channel/model/mailbox; total in-flight 1 and pending render 1. Preserve
   two content attempts, one due-render opportunity and one synchronization bound.
-- At most 32 logical groups, 512 primary frames, 10 extents/group, 10000
+- At most 32 confirmed Gaussian groups, 512 primary frames/declarations,
+  10 extents/group, 10000
   Gaussians/block, 20000 selected Gaussians, 1M pixels, 64KiB header, 16MiB body,
   131200-byte render request. No filesystem work during C++ selection.
 - Render rotations use 1e-6 SO3 tolerance without changing frontend tolerance.
@@ -174,6 +175,15 @@ CMake, tests/gaussian/gaussian_projection_test.cc and gaussian_render_test.cc.
   projection_uncertain and selection_seconds to request; these describe the
   chosen neighbor (zero area/count if none). Keep old selector overload and add
   `SelectGaussianRender(map, poses, generation, policy, reason)`.
+- Append optional render_metadata to GaussianRenderBlock so a selected request
+  owns the exact content bounds/camera used to choose it. Temporal blocks omit it.
+- Internal projection_envelope.h defines GaussianEnvelope with half-open integer
+  left/top/right/bottom and uncertain, and ProjectGaussianEnvelope(extent,
+  camera, camera_from_submap, coordinate_abs_upper). The public aggregate uses
+  it for the <=10 rectangle union; the real GPU probe can inspect that same
+  production envelope without expanding the public SDK result type.
+- The coordinate bound is the sum of absolute translation components of query
+  parent, block parent and camera/body; means use a componentwise L1 upper bound.
 - IsCurrent reselects using request.policy and compares selection identity,
   camera metadata and content, excluding diagnostic timing from identity.
 

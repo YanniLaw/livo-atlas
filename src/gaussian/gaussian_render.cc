@@ -1,9 +1,13 @@
 #include "livo_atlas/gaussian/gaussian_render.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #include "gaussian/render_validation.h"
+#include "livo_atlas/gaussian/gaussian_projection.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -57,14 +61,20 @@ bool Usable(const GaussianSubmapEntry& entry, const PoseSnapshot& poses) {
          CanonicalCurrent(entry.asset_source, poses);
 }
 
-GaussianRenderBlock MakeBlock(const GaussianSubmapEntry& entry,
-                              const PoseSnapshot& poses) {
+void ValidateBinding(const GaussianSubmapEntry& entry,
+                     const PoseSnapshot& poses) {
   const auto anchor = entry.group.primary.anchor_keyframe_id;
   Require(SameGroup(entry.group, entry.binding.group) &&
               CanonicalCurrent(entry.binding, poses) &&
               pose_math::Equal(entry.binding.parent_from_submap,
                                 poses.poses.at(anchor).map_from_body),
           "Render binding differs from the captured poses");
+}
+
+GaussianRenderBlock MakeBlock(
+    const GaussianSubmapEntry& entry, const PoseSnapshot& poses,
+    GaussianRenderPolicy policy = GaussianRenderPolicy::kTemporal) {
+  ValidateBinding(entry, poses);
   GaussianRenderBlock result;
   result.target = entry.binding;
   result.content = *entry.content;
@@ -72,6 +82,8 @@ GaussianRenderBlock MakeBlock(const GaussianSubmapEntry& entry,
   if (!result.resident) result.asset = entry.asset;
   result.frame_ids = entry.frame_ids;
   result.gaussian_count = entry.gaussian_count;
+  if (policy == GaussianRenderPolicy::kSpatial)
+    result.render_metadata = entry.render_metadata;
   return result;
 }
 
@@ -99,9 +111,96 @@ bool SameAsset(const std::optional<GaussianAssetReference>& a,
                 a->observation_bytes == b->observation_bytes);
 }
 
+void ValidateSpatialEntries(const GaussianMapSnapshot& map) {
+  std::uint64_t next = 0;
+  int confirmed = 0;
+  for (const auto& entry : map.entries) {
+    const auto& ids = entry.group.primary.keyframe_ids;
+    Require(!ids.empty() && entry.group.primary.anchor_keyframe_id == next,
+            "Spatial primary groups must form an ordered partition");
+    for (const auto id : ids)
+      Require(id == next++ && id < map.frame_count,
+              "Spatial primary groups overlap or contain gaps");
+    if (!entry.content) {
+      Require(!entry.render_metadata, "Spatial metadata has no confirmation");
+      continue;
+    }
+    Require(++confirmed <= 32 &&
+                entry.content->session_id == map.session_id &&
+                entry.content->submap_id == entry.group.primary.id &&
+                !entry.frame_ids.empty() &&
+                entry.frame_ids.front() >= ids.front() &&
+                entry.frame_ids.back() <= ids.back(),
+            "Spatial confirmation exceeds its group budget or coverage");
+    if (entry.render_metadata)
+      ValidateGaussianRenderMetadata(*entry.render_metadata, *entry.content,
+                                     entry.frame_ids);
+  }
+}
+
+double CoordinateBound(const RigidTransform& query,
+                       const RigidTransform& parent,
+                       const RigidTransform& camera) {
+  long double sum = 0;
+  for (const auto* pose : {&query, &parent, &camera})
+    for (int i = 0; i < 3; ++i)
+      sum += std::abs(static_cast<long double>(pose->translation[i]));
+  return sum > std::numeric_limits<double>::max()
+      ? std::numeric_limits<double>::infinity() : static_cast<double>(sum);
+}
+
+void SelectSpatialNeighbor(const GaussianMapSnapshot& map,
+                           const PoseSnapshot& poses,
+                           const GaussianSubmapEntry& owner,
+                           GaussianRenderRequest* request) {
+  const auto& camera = owner.render_metadata->camera;
+  const auto camera_from_parent = pose_math::Compose(
+      camera.camera_from_body, pose_math::Inverse(request->parent_from_body));
+  const GaussianSubmapEntry* best = nullptr;
+  GaussianProjection best_projection;
+  for (const auto& entry : map.entries) {
+    if (!entry.content || entry.group.primary.id == request->query_submap_id)
+      continue;
+    Require(entry.group.primary.id < request->query_submap_id,
+            "Confirmed spatial group lies after the latest query owner");
+    if (!entry.render_metadata || !Usable(entry, poses)) continue;
+    ValidateBinding(entry, poses);
+    const auto transform = pose_math::Compose(
+        camera_from_parent, entry.binding.parent_from_submap);
+    GaussianProjection projection;
+    if (!transform.rotation.allFinite() || !transform.translation.allFinite())
+      projection = {static_cast<std::uint64_t>(camera.width) * camera.height,
+                    std::numeric_limits<double>::max(), true};
+    else
+      projection = ProjectGaussianExtents(entry.render_metadata->extents,
+          camera, transform, CoordinateBound(request->parent_from_body,
+              entry.binding.parent_from_submap, camera.camera_from_body));
+    if (!projection.candidate_pixels) continue;
+    ++request->candidate_count;
+    if (!best || projection.candidate_pixels > best_projection.candidate_pixels
+        || (projection.candidate_pixels == best_projection.candidate_pixels &&
+            (projection.distance < best_projection.distance ||
+             (projection.distance == best_projection.distance &&
+              entry.group.primary.id < best->group.primary.id)))) {
+      best = &entry;
+      best_projection = projection;
+    }
+  }
+  if (best) {
+    request->blocks.push_back(MakeBlock(*best, poses, request->policy));
+    request->candidate_pixels = best_projection.candidate_pixels;
+    request->projection_uncertain = best_projection.uncertain;
+  } else {
+    request->neighbor_reason = "no_spatial_candidate";
+  }
+}
+
 }  // namespace
 
 void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
+  const bool spatial = request.policy == GaussianRenderPolicy::kSpatial;
+  Require(spatial || request.policy == GaussianRenderPolicy::kTemporal,
+          "Unknown Gaussian render selection policy");
   Require(request.map_sequence > 0 && request.generation > 0 &&
               request.frame_count <= 512 &&
               request.query_keyframe_id < request.frame_count &&
@@ -120,8 +219,8 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
     const auto id = target.group.primary.id;
     Require((!previous || id > *previous) &&
                 (id == request.query_submap_id ||
-                 (request.query_submap_id > 0 &&
-                  id == request.query_submap_id - 1)) &&
+                 (id < request.query_submap_id &&
+                  (spatial || id == request.query_submap_id - 1))) &&
                 target.generation > 0 &&
                 target.session_id == request.session_id &&
                 target.pose_version == request.pose_version &&
@@ -144,6 +243,14 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
                 block.gaussian_count <= 10000 &&
                 block.gaussian_count <= static_cast<int>(frames.size()) * 1000,
             "Render coverage exceeds its source or Gaussian budget");
+    if (spatial) {
+      Require(block.render_metadata.has_value(),
+              "Spatial source lacks confirmed metadata");
+      ValidateGaussianRenderMetadata(*block.render_metadata, block.content,
+                                     frames);
+    } else {
+      Require(!block.render_metadata, "Temporal source has spatial metadata");
+    }
     if (block.resident) {
       Require(!block.asset, "Resident render source cannot name an asset");
       ++residents;
@@ -166,14 +273,46 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
                                  owner->target.submap_from_body.at(offset))),
           "Query body pose differs from the captured target");
   Require(request.neighbor_reason ==
-              (request.blocks.size() == 2 ? "" : request.query_submap_id
-                  ? "neighbor_unavailable" : "no_previous_group"),
+              (request.blocks.size() == 2 ? "" : spatial
+                  ? "no_spatial_candidate" : request.query_submap_id
+                      ? "neighbor_unavailable" : "no_previous_group"),
           "Missing or contradictory render coverage reason");
+  if (spatial) {
+    const auto& camera = owner->render_metadata->camera;
+    const auto pixels =
+        static_cast<std::uint64_t>(camera.width) * camera.height;
+    const bool dual = request.blocks.size() == 2;
+    Require(request.candidate_count <= 31 &&
+                (request.candidate_count > 0) == dual &&
+                (request.candidate_pixels > 0) == dual &&
+                request.candidate_pixels <= pixels &&
+                (!request.projection_uncertain ||
+                 request.candidate_pixels == pixels) &&
+                std::isfinite(request.selection_seconds) &&
+                request.selection_seconds >= 0,
+            "Invalid spatial selection summary");
+  } else {
+    Require(!request.candidate_count && !request.candidate_pixels &&
+                !request.projection_uncertain && request.selection_seconds == 0,
+            "Temporal request has a spatial selection summary");
+  }
 }
 
 std::optional<GaussianRenderRequest> SelectGaussianRender(
     const GaussianMapSnapshot& map, const PoseSnapshot& poses,
     std::uint64_t generation, std::string* reason) {
+  return SelectGaussianRender(map, poses, generation,
+                               GaussianRenderPolicy::kTemporal, reason);
+}
+
+std::optional<GaussianRenderRequest> SelectGaussianRender(
+    const GaussianMapSnapshot& map, const PoseSnapshot& poses,
+    std::uint64_t generation, GaussianRenderPolicy policy,
+    std::string* reason) {
+  const auto started = std::chrono::steady_clock::now();
+  const bool spatial = policy == GaussianRenderPolicy::kSpatial;
+  Require(spatial || policy == GaussianRenderPolicy::kTemporal,
+          "Unknown Gaussian render policy");
   if (reason) reason->clear();
   ValidatePoseSnapshot(poses);
   Require(map.entries.size() <= 512 && map.frame_count <= 512 &&
@@ -182,6 +321,7 @@ std::optional<GaussianRenderRequest> SelectGaussianRender(
               map.optimized_frame_count == poses.optimized_frame_count &&
               map.parent_frame == poses.parent_frame,
           "Render map and poses must share one frontier");
+  if (spatial) ValidateSpatialEntries(map);
   const GaussianSubmapEntry* newest = nullptr;
   for (std::size_t i = 0; i < map.entries.size(); ++i) {
     const auto& entry = map.entries[i];
@@ -192,12 +332,14 @@ std::optional<GaussianRenderRequest> SelectGaussianRender(
     if (!newest || entry.frame_ids.back() > newest->frame_ids.back())
       newest = &entry;
   }
-  if (!newest || !Usable(*newest, poses)) {
+  if (!newest || !Usable(*newest, poses) ||
+      (spatial && !newest->render_metadata)) {
     if (reason) *reason = newest ? "query_unavailable" : "no_confirmation";
     return std::nullopt;
   }
   GaussianRenderRequest result;
   result.session_id = map.session_id;
+  result.policy = policy;
   result.generation = generation;
   result.map_sequence = map.map_sequence;
   result.pose_version = map.pose_version;
@@ -208,7 +350,11 @@ std::optional<GaussianRenderRequest> SelectGaussianRender(
   result.query_keyframe_id = newest->frame_ids.back();
   result.parent_from_body =
       poses.poses.at(result.query_keyframe_id).map_from_body;
-  if (result.query_submap_id > 0) {
+  if (spatial) {
+    SelectSpatialNeighbor(map, poses, *newest, &result);
+    result.selection_seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - started).count();
+  } else if (result.query_submap_id > 0) {
     const auto& neighbor = map.entries[result.query_submap_id - 1];
     if (Usable(neighbor, poses)) {
       result.blocks.push_back(MakeBlock(neighbor, poses));
@@ -218,7 +364,7 @@ std::optional<GaussianRenderRequest> SelectGaussianRender(
   } else {
     result.neighbor_reason = "no_previous_group";
   }
-  result.blocks.push_back(MakeBlock(*newest, poses));
+  result.blocks.push_back(MakeBlock(*newest, poses, policy));
   ValidateGaussianRenderRequest(result);
   return result;
 }
@@ -232,10 +378,14 @@ bool IsCurrentGaussianRender(const GaussianRenderRequest& request,
   try {
     ValidateGaussianRenderRequest(request);
     const auto current =
-        SelectGaussianRender(map, poses, request.generation, nullptr);
+        SelectGaussianRender(map, poses, request.generation, request.policy,
+                              nullptr);
     if (!current || current->query_keyframe_id != request.query_keyframe_id ||
         current->query_submap_id != request.query_submap_id ||
         current->neighbor_reason != request.neighbor_reason ||
+        current->candidate_count != request.candidate_count ||
+        current->candidate_pixels != request.candidate_pixels ||
+        current->projection_uncertain != request.projection_uncertain ||
         !pose_math::Equal(current->parent_from_body,
                           request.parent_from_body) ||
         current->blocks.size() != request.blocks.size())
@@ -245,6 +395,7 @@ bool IsCurrentGaussianRender(const GaussianRenderRequest& request,
       const auto& b = current->blocks[i];
       if (a.resident != b.resident || a.content != b.content ||
           a.frame_ids != b.frame_ids || a.gaussian_count != b.gaussian_count ||
+          a.render_metadata != b.render_metadata ||
           !SameAsset(a.asset, b.asset) || !SameTarget(a.target, b.target))
         return false;
     }

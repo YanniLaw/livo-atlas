@@ -9,6 +9,7 @@
 #include <Eigen/Core>
 
 #include "livo_atlas/gaussian/gaussian_map.h"
+#include "livo_atlas/gaussian/gaussian_render_policy.h"
 
 namespace livo_atlas {
 
@@ -20,6 +21,7 @@ struct GaussianRenderBlock {
   std::vector<std::uint64_t> frame_ids;
   int gaussian_count = 0;
   bool resident = false;
+  std::optional<GaussianRenderMetadata> render_metadata;
 };
 
 struct GaussianRenderRequest {
@@ -36,6 +38,11 @@ struct GaussianRenderRequest {
   RigidTransform parent_from_body;
   std::vector<GaussianRenderBlock> blocks;
   std::string neighbor_reason;
+  GaussianRenderPolicy policy = GaussianRenderPolicy::kTemporal;
+  std::uint64_t candidate_count = 0;
+  std::uint64_t candidate_pixels = 0;
+  bool projection_uncertain = false;
+  double selection_seconds = 0;
 };
 
 struct GaussianRenderMetrics {
@@ -99,6 +106,10 @@ struct GaussianRenderStats {
 std::optional<GaussianRenderRequest> SelectGaussianRender(
     const GaussianMapSnapshot& map, const PoseSnapshot& poses,
     std::uint64_t generation, std::string* reason);
+
+std::optional<GaussianRenderRequest> SelectGaussianRender(
+    const GaussianMapSnapshot& map, const PoseSnapshot& poses,
+    std::uint64_t generation, GaussianRenderPolicy policy, std::string* reason);
 
 bool IsCurrentGaussianRender(const GaussianRenderRequest& request,
                              const GaussianMapSnapshot& map,

@@ -8,6 +8,7 @@ namespace livo_atlas {
 // Render DTOs, wire messages and files share this stricter boundary. Frontend
 // calibration keeps its existing tolerance.
 void ValidateRenderPose(const RigidTransform& pose);
+void ValidateRenderCamera(const GaussianCamera& camera);
 void ValidateRenderMetrics(const GaussianRenderMetrics& metrics, int pixels);
 void ValidateRenderImage(const GaussianRender& render);
 

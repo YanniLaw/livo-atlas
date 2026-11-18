@@ -30,6 +30,19 @@ void ValidateRenderPose(const RigidTransform& pose) {
           "Invalid render rigid pose");
 }
 
+void ValidateRenderCamera(const GaussianCamera& camera) {
+  Require(camera.keyframe_id < 512 && camera.calibration_id == 0 &&
+              camera.width > 0 && camera.height > 0 &&
+              static_cast<std::int64_t>(camera.width) * camera.height <=
+                  1000000 && std::isfinite(camera.capture_time) &&
+              camera.K.allFinite() && camera.K(0, 0) > 0 &&
+              camera.K(1, 1) > 0 && camera.K(0, 1) == 0 &&
+              camera.K(1, 0) == 0 && camera.K(2, 0) == 0 &&
+              camera.K(2, 1) == 0 && camera.K(2, 2) == 1,
+          "Invalid retained render camera");
+  ValidateRenderPose(camera.camera_from_body);
+}
+
 void ValidateRenderMetrics(const GaussianRenderMetrics& m, int pixels) {
   Require(pixels > 0 && m.image_pixels >= 0 && m.image_pixels <= pixels &&
               m.covered_pixels >= 0 && m.covered_pixels <= m.image_pixels &&

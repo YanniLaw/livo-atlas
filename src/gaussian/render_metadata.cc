@@ -71,16 +71,9 @@ void ValidateGaussianRenderMetadata(
             "Invalid Gaussian spatial extent");
   }
   const auto& camera = metadata.camera;
-  Require(camera.keyframe_id == frames.back() && camera.calibration_id == 0 &&
-              camera.width > 0 && camera.height > 0 &&
-              static_cast<std::int64_t>(camera.width) * camera.height <=
-                  1000000 && std::isfinite(camera.capture_time) &&
-              camera.K.allFinite() && camera.K(0, 0) > 0 &&
-              camera.K(1, 1) > 0 && camera.K(0, 1) == 0 &&
-              camera.K(1, 0) == 0 && camera.K(2, 0) == 0 &&
-              camera.K(2, 1) == 0 && camera.K(2, 2) == 1,
-          "Invalid retained spatial query camera");
-  ValidateRenderPose(camera.camera_from_body);
+  Require(camera.keyframe_id == frames.back(),
+          "Spatial query is not the latest retained camera");
+  ValidateRenderCamera(camera);
 }
 
 }  // namespace livo_atlas
