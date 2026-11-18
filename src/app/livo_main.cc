@@ -338,6 +338,7 @@ int main(int argc, char** argv) {
             static_cast<unsigned long long>(r.pending_storage),
             static_cast<int>(r.disabled),
             r.max_latency_seconds, r.total_latency_seconds);
+        std::fflush(stdout);
         if (!r.error.empty())
           std::fprintf(stderr, "Joint render: %.4096s\n", r.error.c_str());
       }
@@ -402,6 +403,8 @@ int main(int argc, char** argv) {
             static_cast<int>(s.incomplete_shutdown),
             static_cast<unsigned long long>(s.effective_training));
       }
+      // Keep merged stdout/stderr logs parseable on an incomplete shutdown.
+      std::fflush(stdout);
       if (s.incomplete_shutdown) {
         // Keep the last confirmed identities available in the node log even
         // when the latest asynchronous catalogue could not be committed.
