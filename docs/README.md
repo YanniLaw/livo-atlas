@@ -59,7 +59,7 @@
 
 45. [P6-03c3b 最终快照联合渲染设计](superpowers/specs/2026-11-18-p6-03c3b-snapshot-joint-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3b-snapshot-joint-rendering.md)、[使用说明](online-gaussian.md#最终快照联合渲染)与[验证记录](p6-03c3b-validation.md)：只读联合一至两块，按最终相机和绑定处理坐标/遮挡；审阅修正后 148 项 Python/CUDA、76 项工具和 8 个真实快照案例通过，最终全量复验及执行记录归档完成；Unicode 诊断问题后续补验关闭（149 项 Python/CUDA）。
 
-46. [P6-03c3c1 在线联合渲染设计](superpowers/specs/2026-11-18-p6-03c3c1-online-joint-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3c1-online-joint-rendering.md)、[使用说明](online-gaussian.md#在线联合渲染c3c1)和[验证记录](p6-03c3c1-validation.md)：同 worker 只读联合最多两块、严格 owner 版本接纳和四对文件预览已接线；当前正在完成审阅修正与最终复验。
+46. [P6-03c3c1 在线联合渲染设计](superpowers/specs/2026-11-18-p6-03c3c1-online-joint-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3c1-online-joint-rendering.md)、[使用说明](online-gaussian.md#在线联合渲染c3c1)和[验证记录](p6-03c3c1-validation.md)：同 worker 只读联合最多两块、严格 owner 版本接纳和四对文件预览已接线；审阅修正后的最终矩阵、真实回放及故障复验已通过，输入边界前52次双块贡献跨11组；正在归档收尾。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。

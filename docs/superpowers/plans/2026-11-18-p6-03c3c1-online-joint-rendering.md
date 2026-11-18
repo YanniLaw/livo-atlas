@@ -10,6 +10,8 @@
 
 **Spec:** [已确认设计](../specs/2026-11-18-p6-03c3c1-online-joint-rendering-design.md)，用户在文档/切换模型通知后回复“继续”。
 
+实施进度：Task1–4及Task5最终实测已通过；完成检查和归档收尾见[验证记录](../../p6-03c3c1-validation.md)。
+
 ## Global Constraints
 
 - 基线838d327，保留 framework_completion 原地开发，不改 vikit、无 Pimpl、不合并/推送/tag。
