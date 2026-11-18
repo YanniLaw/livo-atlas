@@ -227,8 +227,19 @@ def run(args) -> dict:
             pending.unlink(missing_ok=True)
             failure = dict(schema=1, kind='livo_atlas.gaussian_render_failure', status='failed',
                            error_type=type(error).__name__, error=str(error)[:512])
-            _exclusive_write(output / 'failure.json', _json_bytes(failure, 4096))
-        except OSError:
+            # JSON escaping can expand one non-BMP character to twelve bytes.
+            # Bound the actual encoding while retaining the original text prefix.
+            while True:
+                try:
+                    raw = _json_bytes(failure, 4096)
+                    break
+                except ValueError:
+                    if not failure['error']:
+                        raise
+                    failure['error'] = failure['error'][:len(failure['error']) // 2]
+            _exclusive_write(output / 'failure.json', raw)
+        except (OSError, ValueError):
+            # Best-effort diagnostics must never replace the rendering exception.
             pass
         raise
 

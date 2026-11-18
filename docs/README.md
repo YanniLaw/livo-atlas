@@ -57,7 +57,7 @@
 
 44. [P6-03c3a Gaussian 最终收敛设计](superpowers/specs/2026-11-18-p6-03c3a-gaussian-finalization-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3a-gaussian-finalization.md)和[验证记录](p6-03c3a-validation.md)：可选终端 Finalize 已接入共用 ROS 入口，14 次成组官方回放、13 块 GPU 冷恢复及独立审阅修正后的最终复验通过；默认模式保持，已有确认内容全部 current，仍不代表完整在线 3DGS SLAM。
 
-45. [P6-03c3b 最终快照联合渲染设计](superpowers/specs/2026-11-18-p6-03c3b-snapshot-joint-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3b-snapshot-joint-rendering.md)、[使用说明](online-gaussian.md#最终快照联合渲染)与[验证记录](p6-03c3b-validation.md)：只读联合一至两块，按最终相机和绑定处理坐标/遮挡；审阅修正后 148 项 Python/CUDA、76 项工具和 8 个真实快照案例通过，最终全量复验及执行记录归档完成。
+45. [P6-03c3b 最终快照联合渲染设计](superpowers/specs/2026-11-18-p6-03c3b-snapshot-joint-rendering-design.md)、[实施计划](superpowers/plans/2026-11-18-p6-03c3b-snapshot-joint-rendering.md)、[使用说明](online-gaussian.md#最终快照联合渲染)与[验证记录](p6-03c3b-validation.md)：只读联合一至两块，按最终相机和绑定处理坐标/遮挡；审阅修正后 148 项 Python/CUDA、76 项工具和 8 个真实快照案例通过，最终全量复验及执行记录归档完成；Unicode 诊断问题后续补验关闭（149 项 Python/CUDA）。
 
 这些文档描述目标设计。实际完成情况以源码、测试和验证报告为准；阶段表中的验收条件不代表已经通过。
 当前已完成 P0 本机构建修复，以及 P1-01 的数学/状态隔离、直接测试、配对 bag 回归和独立审阅问题闭环。

@@ -252,6 +252,31 @@ class RenderCudaCliTest(unittest.TestCase):
                 self.assertFalse((args.output / 'report.json').exists())
                 self.assertLessEqual((args.output / 'failure.json').stat().st_size, 4096)
 
+    def test_long_unicode_failure_keeps_original_exception_and_bounded_report(self):
+        import rasterizer
+
+        for text in ('renderer: ' + '\U0001f9e0' * 600,
+                     'renderer: ' + '\\\n' * 600,
+                     'renderer: ' + '\udcff' * 600):
+            with self.subTest(prefix=repr(text[:12])), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                directory, keyframes = make_snapshot(root)
+                args = arguments(directory, keyframes, root / 'output')
+                before = hashes(directory, keyframes)
+                original = RuntimeError(text)
+                with mock.patch.object(rasterizer, 'render', side_effect=original):
+                    with self.assertRaises(RuntimeError) as caught:
+                        run(args)
+                self.assertIs(caught.exception, original)
+                raw = (args.output / 'failure.json').read_bytes()
+                self.assertLessEqual(len(raw), 4096)
+                failure = json.loads(raw)
+                self.assertEqual(failure['error_type'], 'RuntimeError')
+                self.assertTrue(text.startswith(failure['error']))
+                self.assertTrue(0 < len(failure['error']) <= 512)
+                self.assertFalse((args.output / 'report.json').exists())
+                self.assertEqual(hashes(directory, keyframes), before)
+
     def test_file_and_last_rename_failures_leave_no_success_marker(self):
         real_open, real_rename = os.open, os.rename
 
