@@ -91,9 +91,7 @@ def _header(header):
         resident = _integer(block['resident'], 'resident', 0, 1)
         residents += resident
         _require(('asset' in block) == (not resident), 'Invalid resident source fields')
-        if resident:
-            _require(target['generation'] == header['generation'], 'Resident generation differs from fence')
-        else:
+        if not resident:
             asset = block['asset']
             _keys(asset, _ASSET)
             _require(all(asset[key] == content[key] for key in _CONTENT), 'Asset content mismatch')

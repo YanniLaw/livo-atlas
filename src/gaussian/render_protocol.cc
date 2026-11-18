@@ -6,6 +6,8 @@
 #include <cstring>
 #include <set>
 #include <stdexcept>
+#include <system_error>
+#include <utility>
 
 #include "gaussian/mapper_io.h"
 #include "gaussian/submap_protocol.h"
@@ -95,7 +97,8 @@ RigidTransform BodyPose(const std::vector<std::uint8_t>& body,
   for (int i = 0; i < 16; ++i) {
     std::uint64_t bits = 0;
     for (int byte = 0; byte < 8; ++byte)
-      bits |= std::uint64_t(body[offset + i * 8 + byte]) << (8 * byte);
+      bits |= static_cast<std::uint64_t>(body[offset + i * 8 + byte])
+              << (8 * byte);
     std::memcpy(&values[i], &bits, 8);
   }
   return PoseValues(values);
@@ -173,7 +176,8 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
     const auto anchor = t.group.primary.anchor_keyframe_id;
     const auto state = Text(target["submap_state"]);
     Require(t.generation && anchor < result.frame_count &&
-                std::uint64_t(count) <= result.frame_count - anchor &&
+                static_cast<std::uint64_t>(count) <=
+                    result.frame_count - anchor &&
                 (state == "active" || state == "sealed") &&
                 t.group.membership_revision == count + (state == "sealed"),
             "Invalid render membership");
@@ -202,9 +206,7 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
             "Invalid render content");
     block.resident = resident;
     residents += resident;
-    if (resident) {
-      Require(t.generation == result.generation, "Resident fence mismatch");
-    } else {
+    if (!resident) {
       const auto asset = row["asset"];
       Keys(asset, {"asset_id", "submap_id", "source_generation",
                    "content_job_id", "manifest_sha256", "manifest_bytes",
@@ -230,8 +232,9 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
               "Invalid retained render frame order");
       block.frame_ids.push_back(id);
     }
-    block.gaussian_count = Count(row["gaussian_count"], frames.size(),
-                                 1000 * frames.size());
+    block.gaussian_count = Count(
+        row["gaussian_count"], static_cast<int>(frames.size()),
+        1000 * static_cast<int>(frames.size()));
     Require(result.blocks.empty() ||
                 t.group.primary.id >
                     result.blocks.back().target.group.primary.id,
@@ -314,11 +317,13 @@ GaussianRenderMetrics Metrics(const cv::FileNode& node, int pixels) {
   result.alpha_coverage = optional("alpha_coverage", image > 0);
   result.depth_l1_m = optional("depth_l1_m", depth > 0);
   result.depth_rmse_m = optional("depth_rmse_m", depth > 0);
+  const double coverage =
+      image ? static_cast<double>(result.covered_pixels) / image : 0;
   Require(Number(node["rgb_l1"]) >= 0 && Number(node["rgb_l1"]) <= 1 &&
               Number(node["depth_l1_m"]) >= 0 &&
               Number(node["depth_rmse_m"]) >= 0 &&
               std::abs(Number(node["alpha_coverage"]) -
-                       (image ? double(result.covered_pixels) / image : 0)) <
+                       coverage) <
                   1e-9, "Invalid render error or alpha coverage");
   if (result.rgb_psnr_db)
     Require(std::abs(*result.rgb_psnr_db + 10 * std::log10(mse)) < 1e-6,
@@ -335,7 +340,7 @@ bool EqualJson(const cv::FileNode& a, const cv::FileNode& b) {
   }
   if (a.isSeq() && b.isSeq()) {
     if (a.size() != b.size()) return false;
-    for (int i = 0; i < int(a.size()); ++i)
+    for (int i = 0; i < static_cast<int>(a.size()); ++i)
       if (!EqualJson(a[i], b[i])) return false;
     return true;
   }
@@ -379,7 +384,7 @@ GaussianMessage EncodeGaussianRenderRequest(
       WriteGaussianTargetHeader(out, block.target);
       out << "}" << "content" << "{";
       Content(out, block.content);
-      out << "}" << "resident" << int(block.resident)
+      out << "}" << "resident" << static_cast<int>(block.resident)
           << "frame_ids" << "[";
       for (const auto id : block.frame_ids) out << std::to_string(id);
       out << "]" << "gaussian_count" << block.gaussian_count;
@@ -445,7 +450,7 @@ void ValidateGaussianRenderMessage(const cv::FileNode& root,
   const auto request = Header(root);
   const int width = Count(root["width"], 1, 1000000);
   const int height = Count(root["height"], 1, 1000000);
-  Require(std::int64_t(width) * height <= 1000000 &&
+  Require(static_cast<std::int64_t>(width) * height <= 1000000 &&
               body.size() == 3u * width * height, "Incorrect render RGB size");
   (void)Count(root["training_view"], 1, 1);
   Require(Uint(root["calibration_id"]) == 0 && Number(root["fx"]) > 0 &&

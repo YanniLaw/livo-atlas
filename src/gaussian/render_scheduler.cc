@@ -1,6 +1,8 @@
 #include "livo_atlas/gaussian/online_gaussian_mapper.h"
 
 #include <algorithm>
+#include <chrono>
+#include <string>
 #include <utility>
 
 namespace livo_atlas {
@@ -56,6 +58,7 @@ void OnlineGaussianMapper::HandleRenderReply(Reply reply) {
     ++render_stats_.failed;
     render_stats_.disabled = true;
     render_stats_.error = std::move(reply.detail);
+    unsaved_render_.reset();
     StopRendering();
     return;
   }

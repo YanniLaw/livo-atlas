@@ -18,6 +18,9 @@ def serve_persistent(connection, hello):
     metadata = dict(type="hello_ok", mode="persistent_submaps", state_schema=1,
                     python="test", torch="test", gsplat="test", cuda="test", device="test",
                     gpu_free_bytes="5000000000", gpu_total_bytes="8000000000")
+    if 'capabilities' in hello:
+        metadata['capabilities'] = hello['capabilities']
+        print('capability', ','.join(hello['capabilities']), flush=True)
     write_message(connection, dict(base, **metadata), b"", 5)
     while True:
         header, _ = read_message(connection, 180)

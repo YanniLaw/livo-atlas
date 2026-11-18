@@ -67,6 +67,7 @@ class SubmapPeer {
   std::atomic<bool> hold_render{false}, oom_render{false},
       no_render_capability{false};
   std::atomic<int> renders{0};
+  std::atomic<std::uint64_t> render_job{0};
   std::atomic<int> views{0}, checkpoints{0}, acknowledgements{0}, prunes{0},
       discards{0}, reuses{0}, rebuilds{0}, commits{0}, decisions{0};
   std::atomic<bool> stopping{false};
@@ -129,6 +130,7 @@ class SubmapPeer {
               << "gpu_total_bytes"
               << "8000000000";
         } else if (kind == "joint_render") {
+          render_job = std::stoull(Text(input["job_id"]));
           ++renders;
           Hold(hold_render);
           WriteGaussianMessage(client_, RenderReply(message, oom_render), 3s);

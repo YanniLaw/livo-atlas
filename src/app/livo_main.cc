@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <iomanip>
@@ -32,6 +33,37 @@ namespace ros_integration = livo_atlas::ros2;
 
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
 namespace {
+
+void ReportJointRender(const livo_atlas::GaussianRender& r) {
+  const auto& q = r.request;
+  std::printf(
+      "livo_atlas gaussian joint accepted: session=%s job=%llu "
+      "map_sequence=%llu pose_version=%llu frame_count=%llu "
+      "optimized_frame_count=%llu generation=%llu query=%llu owner=%llu "
+      "blocks=%zu changed_pixels=%d accepted_at_steady_seconds=%.9f "
+      "latency_seconds=%.9f worker_seconds=%.9f\n",
+      q.session_id.c_str(), static_cast<unsigned long long>(q.job_id),
+      static_cast<unsigned long long>(q.map_sequence),
+      static_cast<unsigned long long>(q.pose_version),
+      static_cast<unsigned long long>(q.frame_count),
+      static_cast<unsigned long long>(q.optimized_frame_count),
+      static_cast<unsigned long long>(q.generation),
+      static_cast<unsigned long long>(q.query_keyframe_id),
+      static_cast<unsigned long long>(q.query_submap_id), q.blocks.size(),
+      r.changed_pixels, r.accepted_at_steady_seconds, r.latency_seconds,
+      r.worker_seconds);
+  std::fflush(stdout);
+}
+
+void PollGaussian(livo_atlas::OnlineGaussianMapper& mapper,
+                  std::uint64_t* reported_job) {
+  mapper.Poll();
+  const auto render = mapper.GetLatestRender();
+  if (render && render->request.job_id != *reported_job) {
+    ReportJointRender(*render);
+    *reported_job = render->request.job_id;
+  }
+}
 
 void ReportFinalization(const livo_atlas::GaussianFinalizationResult& r) {
   const char* status = "failed";
@@ -136,6 +168,7 @@ int main(int argc, char** argv) {
 #endif
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
     std::unique_ptr<livo_atlas::OnlineGaussianMapper> gaussian;
+    std::uint64_t reported_render_job = 0;
     if (parameters.livo.gaussian.enabled) {
       gaussian = std::make_unique<livo_atlas::OnlineGaussianMapper>(
           system, parameters.livo.system.frontend.calibration.camera,
@@ -188,14 +221,14 @@ int main(int argc, char** argv) {
         if (trajectory) trajectory->Poll();
         if (geometry) geometry->Poll();
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
-        if (gaussian) gaussian->Poll();
+        if (gaussian) PollGaussian(*gaussian, &reported_render_job);
 #endif
       };
     }
     if (trajectory) trajectory->Poll();
     if (geometry) geometry->Poll();
 #if LIVO_ATLAS_ONLINE_GAUSSIAN
-    if (gaussian) gaussian->Poll();
+    if (gaussian) PollGaussian(*gaussian, &reported_render_job);
 #endif
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(after_process));
@@ -255,6 +288,29 @@ int main(int argc, char** argv) {
           result = 1;
       } else {
         gaussian->Finish();
+      }
+      if (parameters.livo.gaussian.joint_render_enabled) {
+        const auto r = gaussian->GetRenderStats();
+        std::printf(
+            "livo_atlas gaussian joint: submitted=%llu accepted=%llu "
+            "dual_accepted=%llu stale=%llu coalesced=%llu skipped=%llu "
+            "failed=%llu saved=%llu peak_pending=%llu peak_in_flight=%llu "
+            "disabled=%d max_latency_seconds=%.9f "
+            "total_latency_seconds=%.9f\n",
+            static_cast<unsigned long long>(r.submitted),
+            static_cast<unsigned long long>(r.accepted),
+            static_cast<unsigned long long>(r.dual_accepted),
+            static_cast<unsigned long long>(r.stale),
+            static_cast<unsigned long long>(r.coalesced),
+            static_cast<unsigned long long>(r.skipped),
+            static_cast<unsigned long long>(r.failed),
+            static_cast<unsigned long long>(r.saved),
+            static_cast<unsigned long long>(r.peak_pending),
+            static_cast<unsigned long long>(r.peak_in_flight),
+            static_cast<int>(r.disabled),
+            r.max_latency_seconds, r.total_latency_seconds);
+        if (!r.error.empty())
+          std::fprintf(stderr, "Joint render: %.4096s\n", r.error.c_str());
       }
       const auto s = gaussian->GetStats();
       std::printf(

@@ -68,7 +68,7 @@ class RenderActor:
         self.job_id += 1
         return self.job_id
 
-    def activate(self, submap, first, count, asset=None, version=0):
+    def activate(self, submap, first, count, asset=None, version=0, accept=True):
         self.generation += 1
         header, body = target_fixture(submap=submap, first=first, count=count,
             generation=self.generation, version=version, job=self.job(),
@@ -83,13 +83,13 @@ class RenderActor:
         self.target, self.target_body = header, body
         self.targets[submap], self.target_bodies[submap] = copy.deepcopy(header), body
         if reply['type'] == 'candidate':
-            self.decide(reply)
+            self.decide(reply, accept=accept)
         return reply
 
-    def decide(self, candidate):
+    def decide(self, candidate, accept=True):
         header = {key: candidate[key] for key in ('job_id', 'generation', 'pose_version', 'submap_id', 'operation')}
         return self.actor.handle(dict(schema=2, type='decision', session_id=SESSION,
-                                      action='accept', **header), b'')[0]
+                                      action='accept' if accept else 'discard', **header), b'')[0]
 
     def view(self, frame, accept=True):
         target = self.target

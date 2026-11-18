@@ -392,6 +392,71 @@ TEST(Ros2ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
   std::filesystem::remove_all(directory);
 }
 
+TEST(Ros2ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("gaussian-final-schema-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  params.emplace_back("gaussian.joint_render_enabled", 1);
+  {
+    rclcpp::Node node("final_boolean",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() = rclcpp::Parameter("gaussian.joint_render_enabled", true);
+  {
+    rclcpp::Node node("final_disabled",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.enabled", true);
+  params.emplace_back("gaussian.socket_path", "/tmp/gaussian-test.sock");
+  params.emplace_back("gaussian.output_directory", "/tmp/gaussian-test-output");
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  {
+    rclcpp::Node node("final_persistence",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.persist_submaps", true);
+  {
+    rclcpp::Node node("final_default",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_EQ(ReadNodeOptions(node).livo.gaussian.joint_render_interval.count(),
+              1000);
+  }
+  params.emplace_back("gaussian.joint_render_interval_ms", 0);
+  for (const auto invalid : {-1, 0, 99, 60001}) {
+    params.back() =
+        rclcpp::Parameter("gaussian.joint_render_interval_ms", invalid);
+    rclcpp::Node node("final_budget",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  for (const auto& invalid :
+       {rclcpp::Parameter("gaussian.joint_render_interval_ms", 1.5),
+        rclcpp::Parameter("gaussian.joint_render_interval_ms", "1000")}) {
+    params.back() = invalid;
+    rclcpp::Node node("final_type",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  for (const auto valid : {100, 1000, 60000}) {
+    params.back() =
+        rclcpp::Parameter("gaussian.joint_render_interval_ms", valid);
+    rclcpp::Node node("final_valid",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    const auto options = ReadNodeOptions(node).livo.gaussian;
+    EXPECT_TRUE(options.joint_render_enabled);
+    EXPECT_EQ(options.joint_render_interval.count(), valid);
+  }
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
 TEST(Ros2ParametersTest, GaussianFinalizationUsesStrictSharedSchema) {
   const auto directory =
       std::filesystem::temp_directory_path() /

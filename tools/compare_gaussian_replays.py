@@ -159,7 +159,7 @@ def _previews(directory):
     return result
 
 
-def compare(off, on, previews):
+def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_groups=0):
     """Return every observed difference; no numeric tolerance is applied."""
     off, on, previews = map(Path, (off, on, previews))
     summaries = [json.loads((run / "summary.json").read_text()) for run in (off, on)]
@@ -171,7 +171,18 @@ def compare(off, on, previews):
         tree = yaml.safe_load((run / "parameters.yaml").read_text()) or {}
         config = tree.get("gaussian", {})
         configs.append(config if isinstance(config, dict) else {})
-    if configs[0].get("enabled", False) is not False or configs[1].get("enabled") is not True:
+    if joint_render:
+        if (any(config.get('enabled') is not True or config.get('persist_submaps') is not True
+                for config in configs) or configs[0].get('joint_render_enabled', False) is not False or
+                configs[1].get('joint_render_enabled') is not True):
+            differences['gaussian_configuration'] = 'Joint comparison requires persistent training on both sides'
+        ignored = {'socket_path', 'output_directory', 'joint_render_enabled',
+                   'joint_render_interval_ms', 'joint_render_timeout_ms'}
+        normalized = [{key: value for key, value in config.items() if key not in ignored}
+                      for config in configs]
+        if normalized[0] != normalized[1]:
+            differences['gaussian_parameters'] = 'Non-render Gaussian settings differ'
+    elif configs[0].get("enabled", False) is not False or configs[1].get("enabled") is not True:
         differences["gaussian_configuration"] = "OFF must disable Gaussian and ON must enable it"
     output_directory = configs[1].get("output_directory")
     if (not isinstance(output_directory, str) or not output_directory or
@@ -271,8 +282,30 @@ def compare(off, on, previews):
                                                 stats, _stats(on, 'livo_atlas gaussian submaps:'))
         except (OSError, ValueError, TypeError, KeyError) as error:
             differences['gaussian_finalization'] = str(error)
+    joint_report = None
+    if joint_render:
+        try:
+            try:
+                from .joint_render_report import inspect_joint_renders
+            except ImportError:
+                from joint_render_report import inspect_joint_renders
+            joint_report = inspect_joint_renders(on, previews, min_joint_dual, min_joint_groups)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            differences['joint_render'] = str(error)
+        try:
+            off_previews = Path(configs[0]['output_directory'])
+            if list(off_previews.glob('joint-render-*')) or 'livo_atlas gaussian joint accepted:' in (off / 'mapping.log').read_text():
+                raise ValueError('Disabled replay published a joint render')
+            off_map = inspect_gaussian_map(off_previews, off / 'keyframes', loops[0]['pose_version'], loops[0]['frames'])
+            if not off_map['durable']:
+                raise ValueError('Disabled replay did not persist its training')
+            if configs[0].get('finalize_on_shutdown'):
+                _finalization(off, off_previews, off_map, summaries[0],
+                              _stats(off, 'livo_atlas gaussian:'), _stats(off, 'livo_atlas gaussian submaps:'))
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            differences['off_gaussian_map'] = str(error)
     return {"passed": not differences, "differences": differences, "arrays": arrays,
-            "gaussian_finalization": finalization_report,
+            "gaussian_finalization": finalization_report, "joint_render": joint_report,
             "gaussian_map": map_report, "confirmed_training_operations": confirmed_training,
             "raw_files": len(raw_off), "loop_stats": loops, "gaussian_stats": stats,
             "first_preview_during_playback_s": first, "previews": preview_report,
@@ -284,9 +317,16 @@ def main():
     parser.add_argument("--off", type=Path, required=True)
     parser.add_argument("--on", type=Path, required=True)
     parser.add_argument("--previews", type=Path, required=True)
+    parser.add_argument('--joint-render-comparison', action='store_true',
+                        help='Compare rendering OFF/ON with persistent training enabled in both')
+    parser.add_argument('--min-joint-dual', type=int, default=0)
+    parser.add_argument('--min-joint-query-groups', type=int, default=0)
     args = parser.parse_args()
+    if args.min_joint_dual < 0 or args.min_joint_query_groups < 0:
+        parser.error('Joint render evidence thresholds must be nonnegative')
     try:
-        result = compare(args.off, args.on, args.previews)
+        result = compare(args.off, args.on, args.previews, args.joint_render_comparison,
+                         args.min_joint_dual, args.min_joint_query_groups)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}, indent=2))
         return 2

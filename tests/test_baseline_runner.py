@@ -98,6 +98,34 @@ class GlobalBaselineParserTest(unittest.TestCase):
                 self.assertIn('--geometry-map requires online submaps', result.stderr)
                 self.assertFalse((root / 'output').exists())
 
+    def test_joint_render_requires_persistence_before_output(self):
+        for script in ('run_baseline.py', 'run_ros2_baseline.py'):
+            with self.subTest(script=script), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                result = self.invoke(script, root, '--gaussian-joint-render')
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('requires --gaussian-persist-submaps', result.stderr)
+                self.assertFalse((root / 'output').exists())
+
+    def test_joint_render_ranges_and_defaults_are_shared_by_both_runners(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                entry = ['--workspace', str(root / 'ws')] if module is run_baseline else ['--executable', str(root / 'node')]
+                flags = entry + ['--bag', str(root / 'bag'), '--output', str(root / 'output'),
+                    '--gaussian-socket', str(root / 'worker.sock'), '--gaussian-output', str(root / 'g'),
+                    '--gaussian-persist-submaps', '--gaussian-joint-render']
+                options = module.parse_arguments(flags)
+                self.assertTrue(options.gaussian_joint_render)
+                self.assertEqual(options.gaussian_joint_render_interval_ms, 1000)
+                self.assertEqual(options.gaussian_joint_render_timeout_ms, 5000)
+                for argument, values in (('--gaussian-joint-render-interval-ms', ['99', '60001', '1.5']),
+                                         ('--gaussian-joint-render-timeout-ms', ['0', '60001', '1.5'])):
+                    for value in values:
+                        with self.subTest(argument=argument, value=value), self.assertRaises(SystemExit):
+                            module.parse_arguments(flags + [argument, value])
+                self.assertFalse((root / 'output').exists())
+
     def test_gaussian_persistence_requires_worker_paths(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

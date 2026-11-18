@@ -14,6 +14,14 @@ import subprocess
 import time
 
 
+try:
+    from tools.gaussian_replay_options import (add_gaussian_arguments,
+        gaussian_parameters, validate_gaussian_arguments)
+except ImportError:
+    from gaussian_replay_options import (add_gaussian_arguments,
+        gaussian_parameters, validate_gaussian_arguments)
+
+
 def exited_cleanly(returncode, log):
     return returncode == 0 and not any(text in log for text in (
         'terminate called', 'Segmentation fault', 'AddressSanitizer', '[FATAL]'))
@@ -107,7 +115,9 @@ def parse_arguments(arguments=None):
                         help='Record versioned keyframe history; enables global output and online storage')
     parser.add_argument('--geometry-map', action='store_true',
                         help='Record versioned geometry maps; enables global output and online storage')
+    add_gaussian_arguments(parser)
     args = parser.parse_args(arguments)
+    validate_gaussian_arguments(args, parser)
     if args.geometry_map and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-map requires online submaps')
     if args.keyframe_trajectory or args.geometry_map:
@@ -119,7 +129,7 @@ def parse_arguments(arguments=None):
     if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-submaps requires online submaps')
     if args.submap_mode is None:
-        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output) else 'keyframe_groups'
+        args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output or args.gaussian_socket) else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
     if args.submap_mode == 'online':
@@ -180,6 +190,7 @@ def main():
         raise ValueError('Bag has no selected input')
     parameters = load_config(args.config)
     parameters.update(load_config(args.camera))
+    parameters.update(gaussian_parameters(args))
     parameters.update({'use_sim_time': True, 'qos.reliability': 'reliable',
                        'evo.pose_output_en': True, 'evo.seq_name': 'p4_humble',
                        'output.directory': str(output / 'node-output')})
@@ -357,6 +368,7 @@ def main():
             stream = reader()
             began = time.monotonic()
             last_published_timestamp = start
+            confirmed_running_until = began
             while stream.has_next():
                 topic, data, timestamp = stream.read_next()
                 if timestamp >= start + round(args.duration * 1e9):
@@ -369,11 +381,13 @@ def main():
                 message = Clock()
                 message.clock.sec, message.clock.nanosec = divmod(timestamp, 1000000000)
                 clock.publish(message)
+                confirmed_running_until = time.monotonic()
                 publishers[topic].publish(data)  # Humble native serialized publish; no object conversion.
                 last_published_timestamp = timestamp
                 rclpy.spin_once(observer, timeout_sec=0)
                 peak_rss = max(peak_rss, psutil.Process(process.pid).memory_info().rss)
-            playback_wall_s = time.monotonic() - began
+            playback_eof_steady_seconds = time.monotonic()
+            playback_wall_s = playback_eof_steady_seconds - began
             input_span_s = (last_published_timestamp - start) * 1e-9
             del stream
             settle = time.monotonic() + 3
@@ -382,7 +396,8 @@ def main():
                 if process.poll() is not None:
                     raise RuntimeError('Node exited while draining inputs')
             process.send_signal(signal.SIGINT)
-            process.wait(timeout=30)
+            process.wait(timeout=(args.gaussian_finalize_timeout_ms / 1000 + 90
+                                  if args.gaussian_finalize_on_shutdown else 40))
             # Drain the final already-published output samples.
             settle = time.monotonic() + .2
             while time.monotonic() < settle:
@@ -448,6 +463,10 @@ def main():
                    loop_closure_enabled=args.loop_closure,
                    geometry_timing_seconds=geometry_timings,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
+                   playback_started_steady_seconds=began,
+                   playback_eof_steady_seconds=playback_eof_steady_seconds,
+                   playback_confirmed_running_until_steady_seconds=confirmed_running_until,
+                   joint_render_enabled=args.gaussian_joint_render,
                    playback_wall_s=playback_wall_s, input_span_s=input_span_s,
                    requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,
                    image_queue_size=image_queue_size, observer_image_depth=observer_image_depth,

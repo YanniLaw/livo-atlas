@@ -1,7 +1,7 @@
 livo_atlas_library(online_gaussian src/gaussian/wire_protocol.cc
   src/gaussian/unix_socket.cc src/gaussian/online_gaussian_mapper.cc
   src/gaussian/gaussian_map_index.cc src/gaussian/submap_protocol.cc
-  src/io/gaussian_map_writer.cc src/gaussian/mapper_io.cc
+  src/io/gaussian_map_writer.cc src/io/gaussian_render_writer.cc src/gaussian/mapper_io.cc
   src/gaussian/submap_scheduler.cc src/gaussian/submap_commands.cc
   src/gaussian/render_protocol.cc src/gaussian/render_scheduler.cc
   src/gaussian/finalization.cc src/gaussian/gaussian_render.cc)

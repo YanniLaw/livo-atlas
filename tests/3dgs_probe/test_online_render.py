@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import socket
 import threading
+import time
 import subprocess
 import sys
 import unittest
@@ -16,9 +17,12 @@ from online_model import checked_cuda_device
 from online_protocol import encode_message, read_message, write_message
 from online_worker import serve_connection
 from render_actor_fixtures import METADATA, RenderActor, training_state
+from render_fixtures import TARGET_FIELDS
+from state_fixtures import pose
 from online_model import OnlineGaussianModel
 from submap_fixtures import SESSION, control_fixture
 import rasterizer
+import online_render
 
 
 class OnlineRenderTest(unittest.TestCase):
@@ -83,6 +87,34 @@ class OnlineRenderTest(unittest.TestCase):
                                    [[0, -1, 0, 11], [1, 0, 0, -4], [0, 0, 1, 3], [0, 0, 0, 1]], atol=1e-9)
         self.assertEqual(training_state(self.actor), before)
         self.assertEqual(self.actor._max_version, 0)
+
+    def test_discarded_repair_fence_can_render_restored_resident_confirmation(self):
+        self.fixture.checkpoint()
+        self.fixture.activate(1, 3, 2, asset=self.fixture.assets[1], accept=False)
+        before = training_state(self.actor)
+        target = {key: self.fixture.targets[0][key] for key in TARGET_FIELDS}
+        header, _ = self.fixture.request()
+        block = dict(target=target, content=dict(self.actor.content), resident=1,
+                     frame_ids=['0', '1'], gaussian_count=2)
+        header.update(blocks=[block], query_keyframe_id='1', query_submap_id='0',
+                      neighbor_reason='no_previous_group')
+        primary = np.array([entry['submap_from_body'] for entry in
+                            self.actor.confirmed_binding['primary']], dtype='<f8')
+        body = pose(1).astype('<f8').tobytes() + primary.tobytes()
+        reply, _ = self.actor.handle(header, body)
+        self.assertEqual(reply['type'], 'joint_render_ok')
+        self.assertEqual(reply['generation'], '5')
+        self.assertEqual(reply['blocks'][0]['target']['generation'], '4')
+        self.assertEqual(training_state(self.actor), before)
+
+    def test_worker_timing_includes_both_real_metric_evaluations(self):
+        real = online_render.image_metrics
+        def measured(*args):
+            time.sleep(.1)
+            return real(*args)
+        with mock.patch.object(online_render, 'image_metrics', side_effect=measured):
+            reply, _ = self.actor.handle(*self.fixture.request())
+        self.assertGreaterEqual(reply['worker_seconds'], .2)
 
     def test_online_inference_preserves_allocator_history_and_releases_its_tensors(self):
         sentinel = torch.empty(4 * 1024 * 1024, dtype=torch.uint8, device=self.device)

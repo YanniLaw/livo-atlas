@@ -58,6 +58,8 @@ def render_confirmed(actor, request):
                                              'cloud_timestamp', 'inverse_exposure_time')})
     single_rgb = np.rint(np.clip(single['rgb'], 0, 1) * 255).astype(np.uint8)
     joint_rgb = np.rint(np.clip(joint['rgb'], 0, 1) * 255).astype(np.uint8)
+    single_metrics = image_metrics(single, query)
+    joint_metrics = image_metrics(joint, query)
     metadata.update(changed_pixels=int(np.any(single_rgb != joint_rgb, axis=2).sum()),
         single_gaussian_count=single['gaussian_count'], gaussian_count=joint['gaussian_count'],
         worker_seconds=time.perf_counter() - started,
@@ -66,7 +68,7 @@ def render_confirmed(actor, request):
         gpu_allocated_bytes=str(torch.cuda.memory_allocated(actor.device)),
         gpu_reserved_bytes=str(torch.cuda.memory_reserved(actor.device)),
         worker_peak_rss_bytes=str(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024))
-    return dict(rgb=joint_rgb, metadata=metadata, single=image_metrics(single, query), joint=image_metrics(joint, query))
+    return dict(rgb=joint_rgb, metadata=metadata, single=single_metrics, joint=joint_metrics)
 
 
 def render_operation(actor, header, body):

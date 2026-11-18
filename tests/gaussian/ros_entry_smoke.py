@@ -50,11 +50,14 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--persistent", action="store_true")
     parser.add_argument("--finalize", action="store_true")
+    parser.add_argument("--joint-render", action="store_true")
     parser.add_argument("--fail-report", action="store_true",
                         help="Block the report's temporary file to test failed publication")
     parser.add_argument("--expect-unavailable", action="store_true",
                         help="Check that a build without the optional bridge fails before output")
     args = parser.parse_args()
+    if args.joint_render and not args.persistent:
+        parser.error('--joint-render requires --persistent')
     if args.finalize and not args.persistent:
         parser.error('--finalize requires --persistent')
     if args.fail_report and not args.finalize:
@@ -94,6 +97,10 @@ def main():
         if args.persistent:
             common.update({"gaussian.persist_submaps": True,
                            "gaussian.shutdown_timeout_ms": 30000})
+        if args.joint_render:
+            common.update({'gaussian.joint_render_enabled': True,
+                           'gaussian.joint_render_interval_ms': 1000,
+                           'gaussian.joint_render_timeout_ms': 5000})
         if args.finalize:
             common.update({"gaussian.finalize_on_shutdown": True,
                            "gaussian.finalize_timeout_ms": 60000})
@@ -157,6 +164,10 @@ def main():
                        "livo_atlas geometry map:", "livo_atlas gaussian:"):
             if marker not in text:
                 raise RuntimeError("Missing consumer shutdown report: " + marker)
+        if args.joint_render:
+            if ('capability joint_render_v1' not in (output / 'worker.log').read_text() or
+                    'livo_atlas gaussian joint:' not in text):
+                raise RuntimeError('Joint render capability was not negotiated/reported')
         if args.persistent:
             state = json.loads((previews / "map.json").read_text())
             if state["entries"] or state["frame_count"] != "0" or not (previews / "states").is_dir():

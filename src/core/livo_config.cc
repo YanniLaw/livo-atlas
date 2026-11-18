@@ -42,6 +42,12 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   gaussian.persist_submaps = reader.Boolean("gaussian.persist_submaps", false);
   gaussian.finalize_on_shutdown =
       reader.Boolean("gaussian.finalize_on_shutdown", false);
+  gaussian.joint_render_enabled =
+      reader.Boolean("gaussian.joint_render_enabled", false);
+  if (gaussian.joint_render_enabled &&
+      (!gaussian.enabled || !gaussian.persist_submaps))
+    throw std::invalid_argument(
+        "Joint rendering requires Gaussian persistence");
   if (gaussian.finalize_on_shutdown &&
       (!gaussian.enabled || !gaussian.persist_submaps))
     throw std::invalid_argument("Gaussian finalization requires persistence");
@@ -55,6 +61,12 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
         reader.Integer("gaussian.shutdown_timeout_ms", 3000));
     gaussian.finalize_timeout = std::chrono::milliseconds(
         reader.Integer("gaussian.finalize_timeout_ms", 60000));
+    if (gaussian.joint_render_enabled) {
+      gaussian.joint_render_interval = std::chrono::milliseconds(
+          reader.Integer("gaussian.joint_render_interval_ms", 1000));
+      gaussian.joint_render_timeout = std::chrono::milliseconds(
+          reader.Integer("gaussian.joint_render_timeout_ms", 5000));
+    }
     ValidateOnlineGaussianOptions(gaussian);
   }
   auto& global = config.global_output;

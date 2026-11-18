@@ -24,6 +24,14 @@ import uuid
 import xmlrpc.client
 
 
+try:
+    from tools.gaussian_replay_options import (add_gaussian_arguments,
+        gaussian_parameters, nonempty_path, validate_gaussian_arguments)
+except ImportError:
+    from gaussian_replay_options import (add_gaussian_arguments,
+        gaussian_parameters, nonempty_path, validate_gaussian_arguments)
+
+
 def exited_cleanly(returncode, log, gdb_enabled):
     if returncode != 0:
         return False
@@ -45,12 +53,6 @@ def gaussian_preview_available(directory):
     """A published metadata file and its image form one complete preview."""
     return any(path.with_suffix('.png').is_file()
                for path in Path(directory).glob('preview-*.json'))
-
-
-def nonempty_path(value):
-    if not value.strip():
-        raise argparse.ArgumentTypeError('path must not be empty')
-    return Path(value)
 
 
 def shutdown_wait_seconds(options):
@@ -120,39 +122,9 @@ def parse_arguments(arguments=None):
                         help='Record versioned keyframe history; enables global output and online storage')
     parser.add_argument('--geometry-map', action='store_true',
                         help='Record versioned geometry maps; enables global output and online storage')
-    parser.add_argument('--gaussian-socket', type=nonempty_path,
-                        help='Socket of an already started online Gaussian worker')
-    parser.add_argument('--gaussian-output', type=nonempty_path,
-                        help='New directory for online Gaussian previews')
-    parser.add_argument('--gaussian-persist-submaps', action='store_true',
-                        help='Persist online Gaussian submaps; requires socket/output and uses a 30 s shutdown')
-    parser.add_argument('--gaussian-finalize-on-shutdown', action='store_true',
-                        help='Repair confirmed submaps after the backend finishes; requires persistence')
-    parser.add_argument('--gaussian-finalize-timeout-ms', type=int, default=60000,
-                        help='Final repair budget in milliseconds (1..600000)')
+    add_gaussian_arguments(parser)
     args = parser.parse_args(arguments)
-    if args.gaussian_finalize_on_shutdown and not args.gaussian_persist_submaps:
-        parser.error('--gaussian-finalize-on-shutdown requires --gaussian-persist-submaps')
-    if not 1 <= args.gaussian_finalize_timeout_ms <= 600000:
-        parser.error('--gaussian-finalize-timeout-ms must be in 1..600000')
-    if args.gaussian_persist_submaps and not args.gaussian_socket:
-        parser.error('--gaussian-persist-submaps requires --gaussian-socket and --gaussian-output')
-    if bool(args.gaussian_socket) != bool(args.gaussian_output):
-        parser.error('--gaussian-socket and --gaussian-output must be provided together')
-    if args.gaussian_socket:
-        if args.submap_mode == 'keyframe_groups':
-            parser.error('--gaussian-socket requires online submaps')
-        if len(os.fsencode(args.gaussian_socket.absolute())) > 107:
-            parser.error('--gaussian-socket path is too long')
-        if os.path.lexists(args.gaussian_output):
-            parser.error('--gaussian-output must not already exist')
-        gaussian_output = args.gaussian_output.resolve()
-        baseline_output = args.output.resolve()
-        if gaussian_output == baseline_output or gaussian_output in baseline_output.parents:
-            parser.error('--gaussian-output must not contain the baseline output')
-        dataset = baseline_output / 'node_output/keyframes'
-        if gaussian_output == dataset or dataset in gaussian_output.parents:
-            parser.error('--gaussian-output must be separate from the keyframe dataset')
+    validate_gaussian_arguments(args, parser)
     if args.geometry_map and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-map requires online submaps')
     if args.keyframe_trajectory or args.geometry_map:
@@ -304,17 +276,9 @@ def main():
             run(['rosparam', 'set', '/loop_closure/enabled', 'true'])
         if args.geometry_submaps:
             run(['rosparam', 'set', '/submaps/geometry/enabled', 'true'])
-        if args.gaussian_socket:
-            run(['rosparam', 'set', '/gaussian/enabled', 'true'])
-            if args.gaussian_persist_submaps:
-                run(['rosparam', 'set', '/gaussian/persist_submaps', 'true'])
-                run(['rosparam', 'set', '/gaussian/shutdown_timeout_ms', '30000'])
-            if args.gaussian_finalize_on_shutdown:
-                run(['rosparam', 'set', '/gaussian/finalize_on_shutdown', 'true'])
-                run(['rosparam', 'set', '/gaussian/finalize_timeout_ms',
-                     str(args.gaussian_finalize_timeout_ms)])
-            run(['rosparam', 'set', '/gaussian/socket_path', str(args.gaussian_socket.resolve())])
-            run(['rosparam', 'set', '/gaussian/output_directory', str(args.gaussian_output.resolve())])
+        for name, value in gaussian_parameters(args).items():
+            run(['rosparam', 'set', '/' + name.replace('.', '/'),
+                 json.dumps(value) if isinstance(value, bool) else str(value)])
         if args.image_queue_size is not None:
             run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
         if args.save_products:
@@ -494,7 +458,12 @@ def main():
         first_gaussian_preview_seconds = None
         deadline = playback_started + args.duration / args.rate + 90
         last_report = playback_started
-        while player.poll() is None:
+        confirmed_running_until = playback_started
+        while True:
+            sampled_before_poll = time.monotonic()
+            if player.poll() is not None:
+                break
+            confirmed_running_until = sampled_before_poll
             if node.poll() is not None:
                 raise RuntimeError('Mapping node exited during playback; see mapping.log')
             now = time.monotonic()
@@ -511,7 +480,8 @@ def main():
                     print('progress', dict(counts), 'rss_mib', round(resources[-1][1] / 2**20, 1), flush=True)
                 last_report = now
             time.sleep(0.2)
-        playback_wall_s = time.monotonic() - playback_started
+        playback_eof_steady_seconds = time.monotonic()
+        playback_wall_s = playback_eof_steady_seconds - playback_started
         if player.returncode:
             raise RuntimeError('rosbag play exited with %s' % player.returncode)
 
@@ -596,6 +566,10 @@ def main():
             'forced_termination': shutdown['forced_termination'],
             'shutdown_wait_budget_s': shutdown_wait_seconds(args),
             'peak_shutdown_rss_mib': max((row[1] for row in shutdown_resources), default=0) / 2**20,
+            'playback_started_steady_seconds': playback_started,
+            'playback_eof_steady_seconds': playback_eof_steady_seconds,
+            'playback_confirmed_running_until_steady_seconds': confirmed_running_until,
+            'joint_render_enabled': args.gaussian_joint_render,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,
             'input_count_mismatches': mismatches,

@@ -274,6 +274,13 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     QueueSubmapCommand(std::move(command));
     return;
   }
+  if (unsaved_render_) {
+    command = {};
+    command.kind = CommandKind::kSaveRender;
+    command.render = unsaved_render_;
+    QueueSubmapCommand(std::move(command));
+    return;
+  }
   if (!submap_work_ || finishing_ || quiescing) return;
   if (repairing && Clock::now() >= finalization_deadline_) return;
 
@@ -453,7 +460,8 @@ void OnlineGaussianMapper::HandleSubmapReply(Reply reply) {
 
 bool OnlineGaussianMapper::SubmapsDrained() const {
   if (!connected_ || busy_ || awaiting_decision_ || submap_work_ ||
-      map_to_ack_ || prune_asset_ || unsaved_ || checkpoint_needs_map_ ||
+      map_to_ack_ || prune_asset_ || unsaved_ || unsaved_render_ ||
+      checkpoint_needs_map_ ||
       state_sequence_ != saved_status_sequence_)
     return false;
   const auto map = map_index_.Snapshot();

@@ -65,6 +65,19 @@ class CompareGaussianReplaysTest(unittest.TestCase):
         self.assertEqual(result["raw_files"], 2)
         self.assertEqual(result["first_preview_during_playback_s"], 1.0)
 
+    def test_joint_comparison_keeps_training_on_both_sides_and_requires_online_proof(self):
+        for run, enabled in ((self.off, False), (self.on, True)):
+            path = run / 'parameters.yaml'
+            config = yaml.safe_load(path.read_text())
+            config['gaussian'] = dict(enabled=True, persist_submaps=True,
+                joint_render_enabled=enabled,
+                output_directory=str(self.previews if enabled else self.off / 'previews'))
+            path.write_text(yaml.safe_dump(config))
+        result = compare(self.off, self.on, self.previews, joint_render=True)
+        self.assertFalse(result['passed'])
+        self.assertIn('joint_render', result['differences'])
+        self.assertNotIn('gaussian_configuration', result['differences'])
+
     def test_frontend_and_raw_differences_are_reported(self):
         (self.on / "mat_out.txt").write_text("1 2\n3 5\n")
         (self.on / "keyframes/frames/0/image.png").write_bytes(b"changed")

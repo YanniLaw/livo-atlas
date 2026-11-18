@@ -25,6 +25,7 @@
 #include "gaussian/wire_protocol.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/io/reconstruction_view.h"
+#include "livo_atlas/io/gaussian_render_writer.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -174,6 +175,7 @@ void OnlineGaussianMapper::Fail(const std::string& message) noexcept {
   in_flight_.reset();
   candidate_.reset();
   unsaved_.reset();
+  unsaved_render_.reset();
   decision_.reset();
   awaiting_decision_ = false;
   stats_.pending = 0;
@@ -648,7 +650,26 @@ void OnlineGaussianMapper::Run() noexcept {
       if (stopping_) break;
       Reply reply;
       reply.command = command;
-      if (options_.persist_submaps && command.kind != CommandKind::kSave &&
+      if (command.kind == CommandKind::kSaveRender) {
+        try {
+          if (written_renders_.size() == 4) {
+            const auto oldest = written_renders_.front();
+            if (!fs::remove(options_.output_directory / (oldest + ".json")) ||
+                !fs::remove(options_.output_directory / (oldest + ".png")))
+              throw std::runtime_error("Could not remove oldest joint render");
+            written_renders_.pop_front();
+          }
+          WriteGaussianRender(options_.output_directory, *command.render);
+          written_renders_.push_back("joint-render-" +
+              std::to_string(command.render->request.job_id));
+          reply.kind = ReplyKind::kRenderSaved;
+        } catch (const std::exception& error) {
+          reply.kind = ReplyKind::kRenderError;
+          reply.detail = std::string("Joint preview write failed: ") +
+                         error.what();
+        }
+      } else if (options_.persist_submaps &&
+                 command.kind != CommandKind::kSave &&
           command.kind != CommandKind::kStatus) {
         reply = RunSubmapCommand(fd, command);
       } else if (command.kind == CommandKind::kReset) {

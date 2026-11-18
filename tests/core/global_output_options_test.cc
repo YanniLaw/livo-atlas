@@ -102,6 +102,41 @@ TEST_F(GlobalOutputOptionsTest, DisabledPreservesLegacyConfiguration) {
   EXPECT_FALSE(fs::exists(directory_));
 }
 
+TEST_F(GlobalOutputOptionsTest, GaussianJointRenderDependenciesAndRanges) {
+  GlobalParameters parameters(directory_);
+  auto defaults = LoadLivoConfig(parameters).gaussian;
+  EXPECT_FALSE(defaults.joint_render_enabled);
+  EXPECT_EQ(defaults.joint_render_interval.count(), 1000);
+  EXPECT_EQ(defaults.joint_render_timeout.count(), 5000);
+  parameters.booleans_["gaussian.joint_render_enabled"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["gaussian.enabled"] = true;
+  parameters.strings_["gaussian.socket_path"] = "/tmp/joint-test.sock";
+  parameters.strings_["gaussian.output_directory"] = "/tmp/joint-output";
+  parameters.EnableOnlineStorage();
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["gaussian.persist_submaps"] = true;
+  for (int interval : {-1, 0, 99, 60001}) {
+    parameters.integers_["gaussian.joint_render_interval_ms"] = interval;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  for (int interval : {100, 1000, 60000}) {
+    parameters.integers_["gaussian.joint_render_interval_ms"] = interval;
+    EXPECT_EQ(LoadLivoConfig(parameters).gaussian.joint_render_interval.count(),
+              interval);
+  }
+  for (int timeout : {-1, 0, 60001}) {
+    parameters.integers_["gaussian.joint_render_timeout_ms"] = timeout;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  }
+  for (int timeout : {1, 5000, 60000}) {
+    parameters.integers_["gaussian.joint_render_timeout_ms"] = timeout;
+    EXPECT_EQ(LoadLivoConfig(parameters).gaussian.joint_render_timeout.count(),
+              timeout);
+  }
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
 TEST_F(GlobalOutputOptionsTest,
        GaussianFinalizationRequiresPersistenceAndBudget) {
   GlobalParameters parameters(directory_);

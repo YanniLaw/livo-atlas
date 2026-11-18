@@ -25,6 +25,16 @@ void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options) {
   if (options.finalize_on_shutdown &&
       (!options.enabled || !options.persist_submaps))
     throw std::invalid_argument("Gaussian finalization requires persistence");
+  if (options.joint_render_enabled &&
+      (!options.enabled || !options.persist_submaps))
+    throw std::invalid_argument(
+        "Joint rendering requires Gaussian persistence");
+  if (options.joint_render_enabled &&
+      (options.joint_render_interval.count() < 100 ||
+       options.joint_render_interval.count() > 60000 ||
+       options.joint_render_timeout.count() < 1 ||
+       options.joint_render_timeout.count() > 60000))
+    throw std::invalid_argument("Invalid joint render interval or timeout");
   if (!options.enabled) return;
   if (options.socket_path.empty() || options.output_directory.empty() ||
       options.connect_timeout.count() <= 0 ||

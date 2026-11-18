@@ -16,6 +16,18 @@ TEST(RenderProtocol, OwnedRequestPreservesLargeIdsAndAllCanonicalBodies) {
   EXPECT_EQ(decoded.parent_from_body.translation.x(), 5);
 }
 
+TEST(RenderProtocol, ResidentBindingCanPredateDiscardedActivationFence) {
+  auto request = test::RenderRequest();
+  request.blocks.erase(request.blocks.begin());
+  request.blocks[0].resident = true;
+  request.blocks[0].asset.reset();
+  request.neighbor_reason = "neighbor_unavailable";
+  const auto decoded =
+      DecodeGaussianRenderRequest(EncodeGaussianRenderRequest(request));
+  EXPECT_EQ(decoded.generation, 4u);
+  EXPECT_EQ(decoded.blocks[0].target.generation, 3u);
+}
+
 TEST(RenderProtocol, ReplyHasOwnedPixelsMetricsAndExactEcho) {
   const auto request = test::RenderRequest();
   auto message = test::RenderReply(EncodeGaussianRenderRequest(request));

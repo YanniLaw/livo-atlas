@@ -25,6 +25,22 @@
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/gaussian/online_gaussian_mapper.h"
 
+namespace {
+std::atomic<bool> fail_joint_publication{false};
+}  // namespace
+
+// Exercise a real local publication failure without modifying the GPU worker.
+extern "C" int rename(const char* from, const char* to) noexcept {
+  const std::string name(from);
+  if (fail_joint_publication && name.find("joint-render-") !=
+                                    std::string::npos &&
+      name.find(".tmp.json") != std::string::npos) {
+    errno = EIO;
+    return -1;
+  }
+  return static_cast<int>(syscall(SYS_rename, from, to));
+}
+
 namespace livo_atlas {
 namespace {
 namespace fs = std::filesystem;
@@ -62,6 +78,7 @@ class OnlineGaussianRenderTest : public testing::Test {
   }
 
   void TearDown() override {
+    fail_joint_publication = false;
     if (peer_)
       peer_->hold_candidate = peer_->hold_commit = peer_->hold_checkpoint =
           peer_->hold_map_ack = peer_->hold_empty = peer_->hold_render = false;
@@ -336,6 +353,80 @@ TEST_F(OnlineGaussianRenderTest, RealWorkerRendersAssetsDuringHistoryRepair) {
   EXPECT_TRUE(Entry(0).asset_current);
   EXPECT_TRUE(Entry(1).asset_current);
   EXPECT_TRUE(Entry(2).asset_current);
+}
+
+TEST_F(OnlineGaussianRenderTest, SavesAtMostFourOwnedHistoricalPairs) {
+  std::ofstream(options_.output_directory / "unrelated.json") << "keep";
+  for (int i = 0; i < 6; ++i) {
+    Append();
+    Confirm();
+    ASSERT_TRUE(Wait([&] {
+      return mapper_->GetRenderStats().saved == std::uint64_t(i + 1);
+    }));
+    EXPECT_LE(mapper_->GetRenderStats().peak_pending, 1u);
+    EXPECT_LE(mapper_->GetRenderStats().peak_in_flight, 1u);
+  }
+  int images = 0, metadata = 0;
+  for (const auto& path : fs::directory_iterator(options_.output_directory)) {
+    const auto name = path.path().filename().string();
+    if (name.rfind("joint-render-", 0) != 0) continue;
+    images += path.path().extension() == ".png";
+    metadata += path.path().extension() == ".json";
+    EXPECT_EQ(name.find(".tmp."), std::string::npos);
+  }
+  EXPECT_EQ(images, 4);
+  EXPECT_EQ(metadata, 4);
+  EXPECT_TRUE(fs::exists(options_.output_directory / "unrelated.json"));
+}
+
+TEST_F(OnlineGaussianRenderTest, WriteFailureDisablesOnlyJointPreview) {
+  peer_->hold_render = true;
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return peer_->renders == 1; }));
+  const auto name = "joint-render-" + std::to_string(peer_->render_job.load());
+  fs::create_directory(options_.output_directory / (name + ".tmp.json"));
+  peer_->hold_render = false;
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().failed == 1; }));
+  EXPECT_TRUE(mapper_->GetRenderStats().disabled);
+  EXPECT_FALSE(mapper_->GetLatestRender());
+  EXPECT_FALSE(fs::exists(options_.output_directory / (name + ".json")));
+  EXPECT_EQ(mapper_->GetStats().failed, 0u);
+  Append();
+  Confirm();
+  mapper_->Finish();
+  EXPECT_FALSE(mapper_->GetStats().incomplete_shutdown);
+}
+
+TEST_F(OnlineGaussianRenderTest, RealWorkerContinuesAfterPreviewRenameFailure) {
+  const char* socket = std::getenv("LIVO_REAL_GAUSSIAN_SOCKET");
+  const char* output = std::getenv("LIVO_REAL_GAUSSIAN_OUTPUT");
+  if (!socket || !output) GTEST_SKIP() << "Real GPU worker was not requested";
+  mapper_->Finish();
+  mapper_.reset();
+  peer_.reset();
+  options_.socket_path = socket;
+  options_.output_directory = output;
+  options_.connect_timeout = 20s;
+  options_.shutdown_timeout = 30s;
+  options_.joint_render_timeout = 5s;
+  mapper_ = std::make_unique<OnlineGaussianMapper>(
+      *system_, CameraConfig{"Pinhole", 8, 6, 1, 4, 4, 3.5, 2.5, {}}, options_);
+  fail_joint_publication = true;
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().failed == 1; }));
+  EXPECT_TRUE(mapper_->GetRenderStats().disabled);
+  EXPECT_EQ(mapper_->GetStats().failed, 0u);
+  EXPECT_FALSE(mapper_->GetLatestRender());
+  Append();
+  Confirm();
+  EXPECT_EQ(mapper_->GetStats().effective_training, 2u);
+  mapper_->Finish();
+  EXPECT_FALSE(mapper_->GetStats().incomplete_shutdown);
+  EXPECT_TRUE(Entry(0).asset_current);
+  for (const auto& path : fs::directory_iterator(options_.output_directory))
+    EXPECT_NE(path.path().filename().string().rfind("joint-render-", 0), 0u);
 }
 
 }  // namespace

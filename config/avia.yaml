@@ -88,3 +88,9 @@ pcd_save:
 image_save:
   img_save_en: false
   interval: 1
+
+# Optional online joint previews; requires Gaussian persistence when enabled.
+gaussian:
+  joint_render_enabled: false
+  joint_render_interval_ms: 1000
+  joint_render_timeout_ms: 5000
