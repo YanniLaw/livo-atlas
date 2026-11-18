@@ -9,7 +9,6 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
-import math
 import os
 from pathlib import Path
 import resource
@@ -20,31 +19,8 @@ import numpy as np
 
 from gaussian_map import _require
 from gaussian_state import _unsigned
-from joint_renderer import load_block, load_snapshot, render_blocks, verify_snapshot
-
-_ALPHA_THRESHOLD = .05
-
-
-def image_metrics(result: dict, query: dict) -> dict:
-    """Measure RGB on valid image pixels and camera z on covered sparse labels."""
-    image = query['image_mask']
-    covered = image & (result['alpha'] >= _ALPHA_THRESHOLD)
-    available_depth = image & query['depth_mask']
-    depth = available_depth & covered
-    image_count, covered_count, depth_count = map(int, (image.sum(), covered.sum(), depth.sum()))
-    error = result['rgb'][image].astype(np.float64) - query['rgb'][image]
-    mse = float(np.mean(error**2)) if image_count else None
-    z_error = result['depth_m'][depth].astype(np.float64) - query['depth_m'][depth]
-    return dict(image_pixels=image_count, covered_pixels=covered_count,
-                alpha_threshold=_ALPHA_THRESHOLD,
-                alpha_coverage=covered_count / image_count if image_count else None,
-                rgb_l1=float(np.mean(np.abs(error))) if image_count else None,
-                rgb_mse=mse, rgb_perfect=mse == 0 if mse is not None else False,
-                rgb_psnr_db=-10 * math.log10(mse) if mse is not None and mse > 0 else None,
-                depth_pixels_available=int(available_depth.sum()), depth_pixels_used=depth_count,
-                depth_l1_m=float(np.mean(np.abs(z_error))) if depth_count else None,
-                depth_rmse_m=float(np.sqrt(np.mean(z_error**2))) if depth_count else None)
-
+from joint_renderer import (_ALPHA_THRESHOLD, image_metrics, load_block, load_snapshot,
+                            render_blocks, verify_snapshot)
 
 def _new_output(directory, keyframes, output):
     output = Path(output).absolute()

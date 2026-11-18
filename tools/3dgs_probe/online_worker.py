@@ -49,15 +49,17 @@ def _read_when_ready(sock, transfer_timeout):
     return read_message(sock, transfer_timeout)
 
 
-def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout):
+def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout, joint_render_enabled=False):
     from gaussian_state import CommitUncertainError
     from submap_worker import GaussianCapacityError, GaussianSubmapWorker
 
     actor = None
     request = {}
     try:
-        actor = GaussianSubmapWorker(session, Path(directory), model, metadata)
-        write_message(sock, dict(_base("hello_ok", session, 2), **actor.software,
+        actor = GaussianSubmapWorker(session, Path(directory), model, metadata,
+                                     joint_render_enabled=joint_render_enabled)
+        capabilities = dict(capabilities=["joint_render_v1"]) if joint_render_enabled else {}
+        write_message(sock, dict(_base("hello_ok", session, 2), **actor.software, **capabilities,
                                  mode="persistent_submaps", state_schema=1), b"", transfer_timeout)
         while True:
             request, body = _read_when_ready(sock, transfer_timeout)
@@ -111,7 +113,8 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
             print("Gaussian worker initialization failed:", error, file=sys.stderr)
             return False
         if schema == 2:
-            return _serve_submaps(sock, session, hello["state_directory"], model, metadata, transfer_timeout)
+            return _serve_submaps(sock, session, hello["state_directory"], model, metadata,
+                                  transfer_timeout, bool(hello.get("capabilities")))
         write_message(sock, dict(_base("hello_ok", session), **metadata), b"",
                       transfer_timeout)
         current = None

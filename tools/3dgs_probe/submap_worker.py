@@ -70,7 +70,7 @@ def _headers(model, target, refresh_cameras=False):
 class GaussianSubmapWorker:
     """One serialized session; owner decisions are separate from durable references."""
 
-    def __init__(self, session_id, state_directory, model, software):
+    def __init__(self, session_id, state_directory, model, software, *, joint_render_enabled=False):
         path = Path(state_directory)
         if path.name != "states" or not path.is_absolute() or os.path.lexists(path):
             raise ValueError("Expected a new absolute states directory")
@@ -85,6 +85,7 @@ class GaussianSubmapWorker:
         self.device = model.device
         self.model = model
         self.software = dict(software)
+        self.joint_render_enabled = joint_render_enabled
         self.confirmed_state = None
         self.confirmed_binding = None
         self.content = None
@@ -363,6 +364,11 @@ class GaussianSubmapWorker:
             if kind == "decision" or int(header["job_id"]) <= self._last_job:
                 raise ValueError("Operation job ID did not advance")
             self._last_job = int(header["job_id"])
+            if kind == 'joint_render':
+                if not self.joint_render_enabled:
+                    raise ValueError('Joint render capability was not negotiated')
+                from online_render import render_operation
+                return render_operation(self, header, body)
             if kind == "activate":
                 return self._activate(header, body)
             if kind == "view":

@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import stat
 import time
@@ -242,8 +243,8 @@ def transform_parameters(parameters: dict, camera_from_submap: np.ndarray) -> di
     return result
 
 
-def render_blocks(blocks: list[tuple], K: np.ndarray, width: int, height: int,
-                  device) -> dict:
+def _infer(blocks: list[tuple], K: np.ndarray, width: int, height: int,
+           device, standalone: bool) -> dict:
     """Rasterize one bounded selection together, returning only owned CPU results."""
     started = time.perf_counter()
     _require(isinstance(blocks, (list, tuple)) and 1 <= len(blocks) <= 2,
@@ -270,7 +271,8 @@ def render_blocks(blocks: list[tuple], K: np.ndarray, width: int, height: int,
     _require(device == torch.device('cuda:0'), 'Rendering requires the selected CUDA0 device')
     intrinsic, view = to_gsplat_camera(K, np.eye(4))
     torch.cuda.synchronize(device)
-    torch.cuda.reset_peak_memory_stats(device)
+    if standalone:
+        torch.cuda.reset_peak_memory_stats(device)
     tensors, values = {}, None
     try:
         with torch.no_grad():
@@ -297,4 +299,39 @@ def render_blocks(blocks: list[tuple], K: np.ndarray, width: int, height: int,
         # Baseline and joint calls run sequentially, including when CUDA raises.
         values = None
         tensors.clear()
-        torch.cuda.empty_cache()
+        if standalone:
+            torch.cuda.empty_cache()
+
+
+_ALPHA_THRESHOLD = .05
+
+
+def image_metrics(result: dict, query: dict) -> dict:
+    """Measure RGB on valid image pixels and camera z on covered sparse labels."""
+    image = query['image_mask']
+    covered = image & (result['alpha'] >= _ALPHA_THRESHOLD)
+    available_depth = image & query['depth_mask']
+    depth = available_depth & covered
+    image_count, covered_count, depth_count = map(int, (image.sum(), covered.sum(), depth.sum()))
+    error = result['rgb'][image].astype(np.float64) - query['rgb'][image]
+    mse = float(np.mean(error**2)) if image_count else None
+    z_error = result['depth_m'][depth].astype(np.float64) - query['depth_m'][depth]
+    return dict(image_pixels=image_count, covered_pixels=covered_count,
+                alpha_threshold=_ALPHA_THRESHOLD,
+                alpha_coverage=covered_count / image_count if image_count else None,
+                rgb_l1=float(np.mean(np.abs(error))) if image_count else None,
+                rgb_mse=mse, rgb_perfect=mse == 0 if mse is not None else False,
+                rgb_psnr_db=-10 * math.log10(mse) if mse is not None and mse > 0 else None,
+                depth_pixels_available=int(available_depth.sum()), depth_pixels_used=depth_count,
+                depth_l1_m=float(np.mean(np.abs(z_error))) if depth_count else None,
+                depth_rmse_m=float(np.sqrt(np.mean(z_error**2))) if depth_count else None)
+
+
+def render_blocks(blocks, K, width, height, device):
+    """Standalone offline lifecycle, including its own allocator peak window."""
+    return _infer(blocks, K, width, height, device, standalone=True)
+
+
+def infer_blocks(blocks, K, width, height, device):
+    """Serial worker inference; retain its allocator cache and cumulative peak."""
+    return _infer(blocks, K, width, height, device, standalone=False)

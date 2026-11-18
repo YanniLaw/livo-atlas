@@ -90,6 +90,12 @@ def _frame_ids(header):
 
 
 def validate_message(header, body):
+    if header.get('type') in ('joint_render', 'joint_render_ok', 'joint_render_error'):
+        from joint_render_protocol import validate_render_message
+        return validate_render_message(header, body)
+    if 'capabilities' in header:
+        if header.get('type') not in ('hello', 'hello_ok') or header['capabilities'] != ['joint_render_v1']:
+            raise ValueError('Invalid requested render capabilities')
     session = header.get("session_id")
     if not isinstance(session, str) or not _SESSION.fullmatch(session):
         raise ValueError("Invalid session ID")
@@ -101,7 +107,7 @@ def validate_message(header, body):
         for name in _JOB_FIELDS:
             _unsigned(header.get(name), name)
     if kind == "hello":
-        _fields(header, _BASE_FIELDS | {"state_directory"})
+        _fields(header, _BASE_FIELDS | {"state_directory"}, {"capabilities"})
         path = header["state_directory"]
         if (not isinstance(path, str) or "\0" in path or not path.startswith("/") or
                 str(PurePosixPath(path)) != path or PurePosixPath(path).name != "states" or
@@ -109,7 +115,7 @@ def validate_message(header, body):
             raise ValueError("Expected a normalized absolute states directory")
     elif kind == "hello_ok":
         _fields(header, _BASE_FIELDS | {"mode", "state_schema", "python", "torch", "gsplat",
-                                       "cuda", "device", "gpu_free_bytes", "gpu_total_bytes"})
+                                       "cuda", "device", "gpu_free_bytes", "gpu_total_bytes"}, {"capabilities"})
         if header["mode"] != "persistent_submaps" or type(header["state_schema"]) is not int or header["state_schema"] != 1:
             raise ValueError("Worker does not support persistent submaps")
         for name in ("python", "torch", "gsplat", "cuda", "device"):
