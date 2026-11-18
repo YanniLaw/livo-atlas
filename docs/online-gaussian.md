@@ -10,7 +10,7 @@
 覆盖在 Noetic 主机，Humble 验证构建、配置、安装消费及真实入口与受控 socket peer。
 
 这里保存的是每块最近至多 10 个视图的稀疏工作集。Gaussian 不向前端或后端反馈定位测量，
-当前阶段也不做 densification、跨块联合渲染或整套 SLAM session 恢复。
+在线联合渲染读取已确认的最多两块；densification、跨块联合训练和整套 SLAM session 恢复属于后续工作。
 
 ## 环境与构建
 
@@ -292,6 +292,85 @@ status=succeeded 且 report_persisted=1 才返回成功；报告发布失败仍�
 退出时间和 forced_termination；原 resources.csv 仍只描述在线回放。
 严格比较工具会逐资产核验 SHA、数组及完整 canonical primary，再核对最终报告、节点日志
 和正常退出。单独查看一个可见 JSON 不能证明原进程完成了持久发布。
+
+## 在线联合渲染（C3c1）
+
+开启后，同一个 worker 在安全的串行边界读取已确认内容，生成独立文件预览。
+查询为所有已确认内容中最新的 retained 训练帧；选择其所属组及紧邻的前一逻辑组。
+若查询组尚待重建，则等待；邻组不可用时明确记录单块及原因。
+当前策略按时间相邻选择，空间可见性选择和 ROS 图像显示留在下一阶段。
+
+| 参数 | 默认值 | 开启时范围/依赖 |
+| --- | --- | --- |
+| `gaussian.joint_render_enabled` | `false` | 必须启用 Gaussian 和 `persist_submaps` |
+| `gaussian.joint_render_interval_ms` | `1000` | `100..60000` 毫秒 |
+| `gaussian.joint_render_timeout_ms` | `5000` | `1..60000` 毫秒 |
+
+ROS1 在节点启动前补充：
+
+```bash
+rosparam set /gaussian/joint_render_enabled true
+rosparam set /gaussian/joint_render_interval_ms 1000
+rosparam set /gaussian/joint_render_timeout_ms 5000
+```
+
+ROS2 在 `laserMapping.ros__parameters` 下使用同名点分参数：
+
+```yaml
+gaussian.enabled: true
+gaussian.persist_submaps: true
+gaussian.joint_render_enabled: true
+gaussian.joint_render_interval_ms: 1000
+gaussian.joint_render_timeout_ms: 5000
+```
+
+两端仍使用同一 C++ main 和 Python worker。新能力通过 schema2 的
+`joint_render_v1` 显式协商；worker 版本不支持时会报告 Gaussian 会话失败。
+
+worker 只读取 CPU 确认或与当前确认完全对应的持久资产，单次至多两块、20,000 个
+Gaussian 和 1,000,000 像素。驻留训练模型可以是未选中的第三块。
+推理临时缓冲独立于模型参数、Adam 和梯度；会话代数作为 fence，每块绑定代数独立。
+候选丢弃后恢复旧确认，也可以继续只读渲染。训练、持久化、剪枝和渲染共享单任务通道。
+两次完整内容尝试后给到期渲染一次机会，随后继续原训练/修复选择；空闲期间只对新输入身份重新渲染。
+
+owner 使用同一 map/poses 捕获请求，返回时严格核对 `map_sequence`、位姿前沿、查询和选块来源。
+过期结果计入 `stale`。`GetLatestRender()` 返回只读拥有结果；索引、位姿、内容或终端状态变化时失效，
+查询不读文件。`GetRenderStats()` 独立记录渲染提交、接纳、过期、保存及失败，不增加训练计数。
+
+预览目录最多保留四对 `joint-render-<job>.png/.json`，分别限制为 4 MiB 和 64 KiB。
+JSON 最后发布，`as_of` 固定接纳时的 session、map sequence、前沿、绑定、内容和资产引用；
+相机、原始 K、采集/接纳时刻、指标与资源数据一并记录。后续地图前进时，文件仍是原版本的历史记录。
+当前有效性应查询 owner，文件存在本身不表示当前有效；历史资产沿现有策略剪枝。
+
+`single` 是查询所属块基准，`joint` 是选中块共同进行深度排序的结果。
+`changed_pixels` 比较二者量化后的 RGB 像素；深度误差使用相机 z 和有效稀疏标签。
+无有效样本的指标写 `null`；完美 RGB 使用 `rgb_perfect=true`，PSNR 写 `null`。
+GPU peak 字段为 worker 累计值，current 字段为当前分配/保留量；在线推理保留 allocator 历史与缓存。
+CUDA OOM 或预览写入失败会停用本会话联合预览，训练及持久链继续。
+来源、协议、设备或超时错误沿用 Gaussian 会话失败策略，前端继续运行。
+
+两个运行工具共享以下参数：
+
+```text
+--gaussian-socket /path/to/worker.sock --gaussian-output /path/to/new-preview-dir
+--gaussian-persist-submaps --gaussian-finalize-on-shutdown
+--gaussian-joint-render --gaussian-joint-render-interval-ms 1000
+--gaussian-joint-render-timeout-ms 5000
+```
+
+`run_baseline.py` 接收 ROS1 bag，`run_ros2_baseline.py` 接收已转换的 rosbag2。
+脚本记录输入结束观测和最后一次确认仍在回放的稳态时间；检查器采用后者作为保守接纳边界，
+避免把轮询间隙或结束后生成的图算作在线证据。例：
+
+```bash
+python3 tools/compare_gaussian_replays.py \
+  --off /path/to/render-off --on /path/to/render-on \
+  --previews /path/to/render-on-gaussian --joint-render-comparison \
+  --min-joint-dual 6 --min-joint-query-groups 3
+```
+
+这对运行均需开启持久训练和 Finalize。比较器检查原始前端数值、观测文件、最终资产及接纳时序；
+异步训练次数可以不同。具体实测范围及源码身份见 [C3c1 验证记录](p6-03c3c1-validation.md)。
 
 ## 最终快照联合渲染
 
