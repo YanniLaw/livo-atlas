@@ -1,5 +1,6 @@
 add_message_files(FILES TrajectoryKeyframe.msg KeyframeTrajectory.msg
-  GeometryMapSource.msg GeometryMapParameters.msg GeometryMap.msg)
+  GeometryMapSource.msg GeometryMapParameters.msg GeometryMap.msg
+  GaussianRenderSource.msg GaussianRenderFrame.msg)
 generate_messages(DEPENDENCIES std_msgs geometry_msgs sensor_msgs)
 
 set(livo_atlas_runtime_libraries ${CMAKE_THREAD_LIBS_INIT})
@@ -44,6 +45,10 @@ target_link_libraries(livo_atlas_ros1_conversions PUBLIC livo_atlas::core
 add_library(livo_atlas_ros1_node src/ros1/livo_node.cc src/ros1/node_options.cc
   src/ros1/livo_publisher.cc src/ros1/keyframe_trajectory_publisher.cc
   src/ros1/geometry_map_publisher.cc)
+if(LIVO_ATLAS_WITH_ONLINE_GAUSSIAN)
+  target_sources(livo_atlas_ros1_node PRIVATE src/ros1/gaussian_render_publisher.cc)
+  target_link_libraries(livo_atlas_ros1_node PUBLIC livo_atlas_online_gaussian)
+endif()
 add_dependencies(livo_atlas_ros1_node ${PROJECT_NAME}_generate_messages_cpp)
 target_include_directories(livo_atlas_ros1_node PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_include_directories(livo_atlas_ros1_node PUBLIC

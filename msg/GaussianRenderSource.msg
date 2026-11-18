@@ -1,0 +1,10 @@
+uint64 submap_id
+uint64 binding_generation
+uint64 source_generation
+uint64 content_job_id
+uint64 membership_revision
+bool resident
+uint64 asset_id
+string manifest_sha256
+uint64[] frame_ids
+uint32 gaussian_count

@@ -11,12 +11,12 @@ using Clock = std::chrono::steady_clock;
 
 std::string ProducerId() {
   std::random_device random;
-  const char hex[] = "0123456789abcdef";
+  constexpr char kHex[] = "0123456789abcdef";
   std::string result;
   for (int i = 0; i < 4; ++i) {
     const std::uint32_t value = random();
     for (int shift = 28; shift >= 0; shift -= 4)
-      result.push_back(hex[(value >> shift) & 15]);
+      result.push_back(kHex[(value >> shift) & 15]);
   }
   return result;
 }
@@ -33,9 +33,10 @@ bool SameHeader(const GaussianRenderSnapshot& a,
 
 }  // namespace
 
-GaussianRenderOutput::GaussianRenderOutput(
-    GaussianRenderOutputOptions options, Consumer consumer)
-    : options_(std::move(options)), consumer_(std::move(consumer)),
+GaussianRenderOutput::GaussianRenderOutput(GaussianRenderOutputOptions options,
+                                           Consumer consumer)
+    : options_(std::move(options)),
+      consumer_(std::move(consumer)),
       producer_id_(options_.enabled ? ProducerId() : "") {
   if (!options_.enabled) return;
   // The CPU scheduler uses only the interval. Frame names are validated by the
@@ -88,8 +89,8 @@ void GaussianRenderOutput::Observe(
     if (latest_ && SameHeader(*latest_, source) &&
         latest_render_.lock() == source.render)
       return;
-    const bool urgent = !latest_ ||
-        source.status != GaussianRenderStatus::kReady;
+    const bool urgent =
+        !latest_ || source.status != GaussianRenderStatus::kReady;
     // Release the old pending payload before taking a new RGB reference. The
     // in-flight callback may still own a different image.
     if (pending_) {
@@ -137,12 +138,19 @@ void GaussianRenderOutput::Run() noexcept {
     stats_.in_flight = stats_.peak_in_flight = 1;
     lock.unlock();
     const auto start = Clock::now();
-    bool published = false, failed = false;
+    bool published = false;
+    const char* failure = nullptr;
     try {
       ValidateGaussianRenderSnapshot(source);
-      published = consumer_(source);
     } catch (...) {
-      failed = true;
+      failure = "invalid_snapshot";
+    }
+    if (!failure) {
+      try {
+        published = consumer_(source);
+      } catch (...) {
+        failure = "publication_failed";
+      }
     }
     // Release pixels before opening the next execution slot.
     source.render.reset();
@@ -151,8 +159,8 @@ void GaussianRenderOutput::Run() noexcept {
     stats_.in_flight = 0;
     stats_.max_worker_seconds =
         std::max(stats_.max_worker_seconds, elapsed.count());
-    if (failed) {
-      Fail("publication_failed");
+    if (failure) {
+      Fail(failure);
     } else if (published) {
       ++stats_.published;
     } else {
@@ -175,7 +183,8 @@ void GaussianRenderOutput::Finish() noexcept {
         stopped.status = GaussianRenderStatus::kStopped;
         stopped.reason = latest_->reason == "mapper_failed" ||
                                  latest_->reason == "render_disabled"
-                             ? latest_->reason : "stopped";
+                             ? latest_->reason
+                             : "stopped";
         Queue(std::move(stopped), true);
       }
     }

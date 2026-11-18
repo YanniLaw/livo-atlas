@@ -16,10 +16,17 @@
 namespace livo_atlas {
 
 struct GaussianRenderOutputStats {
-  std::uint64_t observed = 0, submitted = 0, coalesced = 0;
-  std::uint64_t published = 0, unavailable = 0, failed = 0;
-  std::uint64_t pending = 0, in_flight = 0;
-  std::uint64_t peak_pending = 0, peak_in_flight = 0, last_revision = 0;
+  std::uint64_t observed = 0;
+  std::uint64_t submitted = 0;
+  std::uint64_t coalesced = 0;
+  std::uint64_t published = 0;
+  std::uint64_t unavailable = 0;
+  std::uint64_t failed = 0;
+  std::uint64_t pending = 0;
+  std::uint64_t in_flight = 0;
+  std::uint64_t peak_pending = 0;
+  std::uint64_t peak_in_flight = 0;
+  std::uint64_t last_revision = 0;
   double max_worker_seconds = 0;
   bool finished = false;
   std::string error;
@@ -51,10 +58,13 @@ class GaussianRenderOutput {
   const std::string producer_id_;
   mutable std::mutex mutex_;
   std::condition_variable condition_;
-  std::optional<GaussianRenderSnapshot> latest_, pending_;
+  // latest_ is metadata only; deduplication never retains RGB ownership.
+  std::optional<GaussianRenderSnapshot> latest_;
+  std::optional<GaussianRenderSnapshot> pending_;
   std::weak_ptr<const GaussianRender> latest_render_;
   GaussianRenderOutputStats stats_;
-  bool urgent_ = false, closing_ = false;
+  bool urgent_ = false;
+  bool closing_ = false;
   std::thread thread_;
 };
 

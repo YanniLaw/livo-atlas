@@ -18,11 +18,10 @@ void ValidateGaussianRenderOutputOptions(
     throw std::invalid_argument("Gaussian parent frame exceeds 256 bytes");
   const auto& frame = options.optical_frame;
   if (options.minimum_interval.count() < 100 ||
-      options.minimum_interval.count() > 60000 ||
-      frame.empty() || frame.size() > 128 || frame.front() == '/' ||
-      frame.back() == '/' || frame.find("//") != std::string::npos ||
-      frame == "camera_init" || frame == "aft_mapped" || frame == "world" ||
-      frame == map_frame ||
+      options.minimum_interval.count() > 60000 || frame.empty() ||
+      frame.size() > 128 || frame.front() == '/' || frame.back() == '/' ||
+      frame.find("//") != std::string::npos || frame == "camera_init" ||
+      frame == "aft_mapped" || frame == "world" || frame == map_frame ||
       !std::all_of(frame.begin(), frame.end(), [](unsigned char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                (c >= '0' && c <= '9') || c == '_' || c == '/';

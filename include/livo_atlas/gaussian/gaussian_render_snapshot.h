@@ -25,8 +25,11 @@ struct GaussianRenderSnapshot {
   std::string producer_id;
   std::uint64_t revision = 0;
   std::string session_id;
-  std::uint64_t generation = 0, map_sequence = 0, pose_version = 0;
-  std::uint64_t frame_count = 0, optimized_frame_count = 0;
+  std::uint64_t generation = 0;
+  std::uint64_t map_sequence = 0;
+  std::uint64_t pose_version = 0;
+  std::uint64_t frame_count = 0;
+  std::uint64_t optimized_frame_count = 0;
   PoseFrame parent_frame = PoseFrame::kOdom;
   GaussianRenderPolicy policy = GaussianRenderPolicy::kTemporal;
   GaussianRenderStatus status = GaussianRenderStatus::kWaiting;
@@ -37,7 +40,7 @@ struct GaussianRenderSnapshot {
 // Bounded scalar/dimension checks are safe on the owner. Complete camera/source
 // validation belongs to the worker, or to a native transport boundary.
 void ValidateGaussianRenderSnapshotHeader(const GaussianRenderSnapshot& source,
-                                         bool require_output_identity);
+                                          bool require_output_identity);
 void ValidateGaussianRenderSnapshot(const GaussianRenderSnapshot& source);
 
 }  // namespace livo_atlas

@@ -1,16 +1,16 @@
 #include "livo_atlas/gaussian/gaussian_render_output.h"
 
+#include <gtest/gtest.h>
+
 #include <chrono>
 #include <condition_variable>
 #include <functional>
-#include <mutex>
 #include <memory>
-#include <string>
+#include <mutex>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "gaussian/render_output_test_helpers.h"
 
@@ -36,7 +36,10 @@ GaussianRenderOutputOptions Enabled() {
 
 TEST(GaussianRenderOutputTest, DisabledDoesNoWorkAndCreatesNoSource) {
   int calls = 0;
-  GaussianRenderOutput output({}, [&](const auto&) { ++calls; return true; });
+  GaussianRenderOutput output({}, [&](const auto&) {
+    ++calls;
+    return true;
+  });
   output.Observe(test::ReadyRenderSnapshot());
   output.Finish();
   EXPECT_EQ(calls, 0);
@@ -89,10 +92,8 @@ TEST(GaussianRenderOutputTest, BlockedConsumerKeepsOnlyLatestPendingAndJoins) {
   ASSERT_EQ(received.size(), 3u);
   EXPECT_EQ(received[0].revision, 1u);
   EXPECT_EQ(received[1].revision, 101u);
-  EXPECT_EQ(received[1].render->request.job_id,
-            9007199254741093ULL);
-  EXPECT_EQ(received[0].render->capture_time,
-            received[1].render->capture_time);
+  EXPECT_EQ(received[1].render->request.job_id, 9007199254741093ULL);
+  EXPECT_EQ(received[0].render->capture_time, received[1].render->capture_time);
   EXPECT_EQ(received.back().status, GaussianRenderStatus::kStopped);
   EXPECT_FALSE(received.back().render);
   EXPECT_LT(received[1].revision, received.back().revision);
@@ -139,6 +140,8 @@ TEST(GaussianRenderOutputTest, FailureClearsPixelsAndTriesErrorOnlyOnce) {
     output.Finish();
     ASSERT_FALSE(received.empty());
     EXPECT_EQ(received.back().status, GaussianRenderStatus::kError);
+    EXPECT_EQ(received.back().reason,
+              malformed ? "invalid_snapshot" : "publication_failed");
     EXPECT_FALSE(received.back().render);
     EXPECT_EQ(output.GetStats().failed, 1u);
     EXPECT_FALSE(output.GetStats().error.empty());

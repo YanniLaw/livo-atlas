@@ -15,6 +15,7 @@ set(BUILD_SHARED_LIBS ON)
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/TrajectoryKeyframe.msg msg/KeyframeTrajectory.msg
   msg/GeometryMapSource.msg msg/GeometryMapParameters.msg msg/GeometryMap.msg
+  msg/GaussianRenderSource.msg msg/GaussianRenderFrame.msg
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs)
 set(BUILD_SHARED_LIBS ${livo_atlas_algorithm_shared})
 unset(livo_atlas_algorithm_shared)
@@ -29,6 +30,10 @@ ament_target_dependencies(livo_atlas_ros2_conversions
 add_library(livo_atlas_ros2_node src/ros2/node_options.cc src/ros2/livo_node.cc
   src/ros2/livo_publisher.cc src/ros2/keyframe_trajectory_publisher.cc
   src/ros2/geometry_map_publisher.cc)
+if(LIVO_ATLAS_WITH_ONLINE_GAUSSIAN)
+  target_sources(livo_atlas_ros2_node PRIVATE src/ros2/gaussian_render_publisher.cc)
+  target_link_libraries(livo_atlas_ros2_node livo_atlas_online_gaussian)
+endif()
 target_include_directories(livo_atlas_ros2_node PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_ros2_node livo_atlas_core
   livo_atlas_ros2_conversions "${livo_atlas_typesupport}")

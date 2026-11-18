@@ -33,8 +33,7 @@ bool Reason(const GaussianRenderSnapshot& source) {
     case GaussianRenderStatus::kStopping:
       return source.reason == "stopping";
     case GaussianRenderStatus::kStopped:
-      return source.reason == "stopped" ||
-             source.reason == "mapper_failed" ||
+      return source.reason == "stopped" || source.reason == "mapper_failed" ||
              source.reason == "render_disabled";
   }
   return false;
@@ -43,7 +42,7 @@ bool Reason(const GaussianRenderSnapshot& source) {
 }  // namespace
 
 void ValidateGaussianRenderSnapshotHeader(const GaussianRenderSnapshot& s,
-                                         bool require_output_identity) {
+                                          bool require_output_identity) {
   if (!Identity(s.session_id) || s.producer_id.size() > 32 ||
       (require_output_identity && (!Identity(s.producer_id) || !s.revision)) ||
       !Reason(s) || s.frame_count > 512 ||
@@ -70,9 +69,8 @@ void ValidateGaussianRenderSnapshotHeader(const GaussianRenderSnapshot& s,
       q.map_sequence != s.map_sequence || q.pose_version != s.pose_version ||
       q.frame_count != s.frame_count ||
       q.optimized_frame_count != s.optimized_frame_count ||
-      q.parent_frame != s.parent_frame || q.policy != s.policy ||
-      !q.job_id || q.blocks.empty() || q.blocks.size() > 2 ||
-      q.neighbor_reason.size() > 64)
+      q.parent_frame != s.parent_frame || q.policy != s.policy || !q.job_id ||
+      q.blocks.empty() || q.blocks.size() > 2 || q.neighbor_reason.size() > 64)
     throw std::invalid_argument("Invalid Gaussian render snapshot payload");
 }
 
@@ -98,8 +96,9 @@ GaussianRenderSnapshot OnlineGaussianMapper::GetRenderSnapshot() const {
                         render_stats_.disabled;
   if (finished_) {
     result.status = GaussianRenderStatus::kStopped;
-    result.reason = failed_ ? "mapper_failed"
-                           : disabled ? "render_disabled" : "stopped";
+    result.reason = failed_    ? "mapper_failed"
+                    : disabled ? "render_disabled"
+                               : "stopped";
   } else if (failed_) {
     result.status = GaussianRenderStatus::kError;
     result.reason = "mapper_failed";
