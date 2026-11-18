@@ -293,6 +293,8 @@ status=succeeded 且 report_persisted=1 才返回成功；报告发布失败仍�
 严格比较工具会逐资产核验 SHA、数组及完整 canonical primary，再核对最终报告、节点日志
 和正常退出。单独查看一个可见 JSON 不能证明原进程完成了持久发布。
 
+<a id="在线联合渲染c3c1"></a>
+
 ## 在线联合渲染（C3c1 / C3c2a）
 
 开启后，同一个 worker 在安全的串行边界读取已确认内容，生成独立文件预览。
@@ -342,6 +344,24 @@ gaussian.joint_render_timeout_ms: 5000
 使用 `no_spatial_candidate` 单块结果。投影面积是候选上界，包含 scale 和数值余量，
 不表示实际可见像素或遮挡结论。默认重载仍按前一逻辑组选择。空间请求携带选中块的确切元数据与选择摘要，
 worker 在推理前核对已确认内容；返回时 owner 再按当前地图校验。
+
+空间投影的 CUDA 对照可以独立复现。先按本文准备预编译 gsplat 环境，再从工作空间根目录运行；
+将 `Sophus_DIR` 与 `LIVO_PYTHON` 换成本机路径：
+
+```bash
+export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OPENBLAS_NUM_THREADS=1
+cmake -S src/livo-atlas -B build/spatial-check -DLIVO_ATLAS_ROS_VERSION=0 \
+  -DBUILD_TESTING=ON -DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=ON \
+  -DSophus_DIR=/path/to/Sophus/build
+cmake --build build/spatial-check --target gaussian_projection_probe -j1
+export LIVO_PROJECTION_PROBE="$PWD/build/spatial-check/gaussian_projection_probe"
+cd src/livo-atlas
+PYTHONPATH=tools/3dgs_probe:tests/3dgs_probe "$LIVO_PYTHON" -m unittest \
+  discover -s tests/3dgs_probe -p test_spatial_projection.py -v
+```
+
+测试使用真实 C++ 投影实现与固定种子的实际 gsplat 中心、半径及 alpha 像素，要求可用 CUDA，
+缺少 probe 或 GPU 时会失败。普通核心及头文件检查本身仍不需要 CUDA。
 
 SDK 的 `WriteGaussianRender(directory, render)` 要求每个输出目录只有一个发布者，
 该目录的写入和保留清理操作全部串行执行。直接从多个线程或进程使用 SDK 时也须遵守；
@@ -408,7 +428,8 @@ python3 tools/compare_gaussian_replays.py \
 ```
 
 这对运行均需开启持久训练和 Finalize。比较器检查原始前端数值、观测文件、最终资产及接纳时序；
-异步训练次数可以不同。具体实测范围及源码身份见 [C3c1 验证记录](p6-03c3c1-validation.md)。
+异步训练次数可以不同。具体实测范围及源码身份见 [空间候选验证记录](p6-03c3c2a-validation.md)与
+[C3c1 验证记录](p6-03c3c1-validation.md)。
 
 ## 最终快照联合渲染
 

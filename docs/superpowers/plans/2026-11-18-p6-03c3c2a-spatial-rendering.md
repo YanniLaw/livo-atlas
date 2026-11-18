@@ -1,6 +1,6 @@
 # P6-03c3c2a Spatial Rendering Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Close the five C3c1 reliability findings and select at most one spatial
 Gaussian neighbor using confirmed content metadata and the retained query camera.
@@ -97,19 +97,19 @@ tests/io/gaussian_render_writer_test.cc, tests/test_joint_render_report.py.
   EncodeGaussianRenderRequest header, at most twice the 64KiB header budget.
   The report decodes/parses it and compares the entire original as_of object.
 
-- [ ] Add failing timeout/Finish count tests, waiting reason and unchanged-map
+- [x] Add failing timeout/Finish count tests, waiting reason and unchanged-map
   polls, missing single-block reason/zero block generation, SO3 between 1e-6 and
   1e-4, perfect/empty/positive-MSE PSNR inconsistencies, changed source hash/type
   and a JPEG renamed PNG. Run focused tests; expect assertion failures.
-- [ ] Clear current render/storage objects only at definitive failure or join;
+- [x] Clear current render/storage objects only at definitive failure or join;
   preserve cumulative/peak stats. Surface and cache unusable-source reasons by
   map sequence; distinguish interval and map synchronization without Poll spam.
-- [ ] Share render checks across DTO/codec/writer; require single omission reason
+- [x] Share render checks across DTO/codec/writer; require single omission reason
   and no omission for a dual request. Reuse existing request encoder for log
   identity; require original joint_render type and actual PNG format in report.
-- [ ] Document one serial publisher per output directory in public writer and
+- [x] Document one serial publisher per output directory in public writer and
   SDK docs; no new locks. Run focused tests; expect PASS, then full command above.
-- [ ] Commit `fix: close Gaussian rendering reliability findings`.
+- [x] Commit `fix: close Gaussian rendering reliability findings`.
 
 ### Task 2: Confirm content-bound metadata under an opt-in capability
 
@@ -149,15 +149,15 @@ gaussian_render_policy.h and the defaulted core-options policy member.
   decision checks the same metadata before owner index insertion. Persisted
   schema stays unchanged, asset in-memory descriptions may retain metadata.
 
-- [ ] Add failing extraction/identity/origin/query/budget tests and lifecycle
+- [x] Add failing extraction/identity/origin/query/budget tests and lifecycle
   candidate/discard/accept/reuse/rebuild/checkpoint/prune tests. Pin old default
   headers. Run focused CPU/Python tests; expect failure for absent metadata.
-- [ ] Implement values/validation/extraction and negotiated codec transport.
+- [x] Implement values/validation/extraction and negotiated codec transport.
   Actor pending metadata never becomes confirmed until accept; no data leak on
   empty activation or failure. Bound asset metadata by existing references/prune.
-- [ ] Run lifecycle and real actor tests, old protocol tests, public headers and
+- [x] Run lifecycle and real actor tests, old protocol tests, public headers and
   old C++17 aggregate consumer; expect PASS. Run full completion command.
-- [ ] Commit `feat: confirm bounded Gaussian render metadata`.
+- [x] Commit `feat: confirm bounded Gaussian render metadata`.
 
 ### Task 3: Pure C++ conservative projection and spatial selector
 
@@ -187,21 +187,21 @@ CMake, tests/gaussian/gaussian_projection_test.cc and gaussian_render_test.cc.
 - IsCurrent reselects using request.policy and compares selection identity,
   camera metadata and content, excluding diagnostic timing from identity.
 
-- [ ] Add failing front/behind/edge/near/far/inside/half-pixel/extreme/uncertain
+- [x] Add failing front/behind/edge/near/far/inside/half-pixel/extreme/uncertain
   projection cases and deterministic union/tie tests. Synthetic owner3, invisible
   previous2 and visible old0 must select0+3; unavailable latest never falls back.
   Test malformed partitions, missing metadata, <=32 groups and exact ranking.
   Run focused CTest; expect failure for missing API/temporal-only selection.
-- [ ] Implement spec section6 envelope: transformed8 corners, outward
+- [x] Implement spec section6 envelope: transformed8 corners, outward
   64*epsilon_float allowance, scale*(1+1e-4), z clip [.01,1e10], effective K
   +.5 once, clamped Jacobian radius (3.33,.3,+2), <=10 rectangle integer union.
   Legal unstable arithmetic returns uncertain/full canvas; invalid DTO throws.
-- [ ] Spatial selector applies existing usability/canonical checks and metadata
+- [x] Spatial selector applies existing usability/canonical checks and metadata
   validation, includes owner, ranks area descending/distance ascending/ID
   ascending; no candidate gives no_spatial_candidate. Validate source ordering
   and new spatial summary, retain default temporal semantics byte-for-byte.
-- [ ] Run focused tests and full completion command; expect PASS.
-- [ ] Commit `feat: select Gaussian neighbors by conservative projection`.
+- [x] Run focused tests and full completion command; expect PASS.
+- [x] Commit `feat: select Gaussian neighbors by conservative projection`.
 
 ### Task 4: Wire spatial policy through the existing worker and owner
 
@@ -229,19 +229,19 @@ tests/3dgs_probe and online_gaussian_render_test.cc.
 - Preserve original scheduler quotas and source/timeout fatal vs OOM/write
   preview-only classification. Return-time re-selection includes metadata.
 
-- [ ] Add failing unsupported capability, invalid mode/dependencies, forged
+- [x] Add failing unsupported capability, invalid mode/dependencies, forged
   metadata/camera/summary, stale spatial map, restored old binding generation and
   nonadjacent third-resident asset tests. Pin temporal wire fixtures; run focused
   tests and observe failure for absent policy integration.
-- [ ] Connect shared options and capability, candidate index insertion,
+- [x] Connect shared options and capability, candidate index insertion,
   selection/admission/return validation. Keep full primary body arrays only for
   selected blocks and retain request/body limits. Worker inference is read-only.
-- [ ] Run actual GPU nonadjacent asset render with third block resident, snapshot
+- [x] Run actual GPU nonadjacent asset render with third block resident, snapshot
   parameters/Adam/grads/frontiers before and after. Compare actual gsplat projected
   support/radii with C++ envelope on seeded random and adversarial fixtures; no
   tested visible Gaussian may fall outside the envelope. Run real OOM and writer
   failure continuation/Finalize and all focused tests; expect PASS.
-- [ ] Run full completion command and commit `feat: integrate spatial joint rendering`.
+- [x] Run full completion command and commit `feat: integrate spatial joint rendering`.
 
 ### Task 5: Replay controls and independently checked spatial evidence
 
@@ -261,11 +261,11 @@ README and SDK/validation docs; associated tools tests.
 - Old archived logs retain their original evidence strength; new acceptance
   requires source_identity, never substitutes rewritten owner records.
 
-- [ ] Add failing both-runner forwarding/default/dependency tests and report
+- [x] Add failing both-runner forwarding/default/dependency tests and report
   tampering/policy/summary/nonadjacent tests. Run tools suite; expect failures.
-- [ ] Implement shared forwarding and verified reporting, preserve omitted
+- [x] Implement shared forwarding and verified reporting, preserve omitted
   persist/Finalize YAML semantics and path checks, document new mode and limits.
-- [ ] Run tools tests/full completion command; expect PASS. Commit
+- [x] Run tools tests/full completion command; expect PASS. Commit
   `feat: report spatial Gaussian selection and source evidence`.
 
 ### Task 6: Full matrix, official bag, fresh review and retained handoff
@@ -275,16 +275,16 @@ README and SDK/validation docs; associated tools tests.
 **Interfaces:** Consume Tasks1-5 public APIs, exact header identities and report.
 Produce reproducible versioned evidence and explicit remaining C3c2b boundary.
 
-- [ ] Freeze source/peer/node/libs and bag checksums after build. Run shared and
+- [x] Freeze source/peer/node/libs and bag checksums after build. Run shared and
   static SDK Gaussian OFF/ON with old consumers/headers; Noetic/Humble entry and
   real typed params. Expect all pass, no Gaussian/Torch/CUDA/vikit linkage OFF.
-- [ ] Run short and full Noetic paired OFF/temporal/spatial persist+Finalize
+- [x] Run short and full Noetic paired OFF/temporal/spatial persist+Finalize
   replays with identical OMP/settings/source. Expect frontend arrays/raw retained
   observations/published semantics exact; current durable successful Finalize.
   Spatial requires >=6 actual dual RGB contributions before conservative input
   cutoff in >=3 query groups. Report Retail nonadjacent count honestly (zero is
   a dataset coverage gap); synthetic real-GPU nonadjacent success is mandatory.
-- [ ] Collect CPU selection/worker time, RSS/VRAM, stale/admitted/saved/peaks and
+- [x] Collect CPU selection/worker time, RSS/VRAM, stale/admitted/saved/peaks and
   latency. Run actual owner GPU tests, OOM/write-failure continuation and timeout
   classification, full suite and matrix; expect PASS and bounds1/1.
 - [ ] Commit product/validation docs, create whole-range review package using
