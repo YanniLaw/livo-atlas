@@ -70,41 +70,41 @@ GPU gate LIVO_REQUIRE_GPU=1，不计skip为成功；独立正式资产实验不�
 **Files:** gaussian_map.py、joint_renderer.py；joint_fixtures.py、test_joint_snapshot.py。
 **Interfaces:** 产生RenderSnapshot/load_snapshot/verify_snapshot/load_block，供后续精简读者与CLI使用。
 
-- [ ] **Step 1: RED tests。** 真实文件fixture创建至少三块各2帧、sealed/current、map+finalization及raw poses；测试选择[1,0]归一(0,1)，query来自2的帧5，固定最终相机；旧capture刚性current和优化前缀+投影尾部合法。拒绝duplicate/3块/bool/负/超uint64/缺块/未保留帧/坏资产SHA/历史或dirty/失败报告/错误session与frontier；验证只保留一个query、来源改动被拒绝，import不需要torch。每个预期姿态独立手算。
-- [ ] **Step 2: Run RED。** 新suite因joint_renderer/load_snapshot缺失失败；fixture自身用现有inspect_gaussian_map和inspect_gaussian_finalization通过，不能以坏fixture充当RED。
-- [ ] **Step 3: 实现。** 内部流式读者返回已验证poses并在当前state释放前只克隆查询；旧public返回保持。RenderSnapshot固定文件身份（inode/dev/mode/size/mtime_ns/ctime_ns，目录存在性）及小文件摘要。load_block前后核对身份及map引用manifest SHA、返回参数后释放views；最终相机由对应camera_from_body和完整poses构造。
-- [ ] **Step 4: GREEN。** 新CPU tests、旧map比较器和全部Python/CUDA+root工具通过，无GPU依赖混入CPU预检。
-- [ ] **Step 5: Commit/task-done。** `feat: load verified final snapshots for joint rendering`；gate run-all.sh。
+- [x] **Step 1: RED tests。** 真实文件fixture创建至少三块各2帧、sealed/current、map+finalization及raw poses；测试选择[1,0]归一(0,1)，query来自2的帧5，固定最终相机；旧capture刚性current和优化前缀+投影尾部合法。拒绝duplicate/3块/bool/负/超uint64/缺块/未保留帧/坏资产SHA/历史或dirty/失败报告/错误session与frontier；验证只保留一个query、来源改动被拒绝，import不需要torch。每个预期姿态独立手算。
+- [x] **Step 2: Run RED。** 新suite因joint_renderer/load_snapshot缺失失败；fixture自身用现有inspect_gaussian_map和inspect_gaussian_finalization通过，不能以坏fixture充当RED。
+- [x] **Step 3: 实现。** 内部流式读者返回已验证poses并在当前state释放前只克隆查询；旧public返回保持。RenderSnapshot固定文件身份（inode/dev/mode/size/mtime_ns/ctime_ns，目录存在性）及小文件摘要。load_block前后核对身份及map引用manifest SHA、返回参数后释放views；最终相机由对应camera_from_body和完整poses构造。
+- [x] **Step 4: GREEN。** 新CPU tests、旧map比较器和全部Python/CUDA+root工具通过，无GPU依赖混入CPU预检。
+- [x] **Step 5: Commit/task-done。** `feat: load verified final snapshots for joint rendering`；gate run-all.sh。
 
 ### Task 2: 相对几何和真实 CUDA 联合光栅化
 
 **Files:** joint_renderer.py、test_joint_renderer.py。
 **Interfaces:** 消费Task1 block/query；产生transform_parameters/render_blocks。
 
-- [ ] **Step 1: RED tests。** 独立期望：Rz90平移中心；Rx/Rz非交换旋转、anisotropic covariance的全矩阵；q与−q；全局共同刚性变换及1e6原点取消；坏刚体/数组/计数拒绝；输入字节不变。真实GPU单块vs旧render路径，绝对容差RGB/alpha1e-5、depth1e-4m。两块含深度2/8与4/6的交错Gaussian，以四个单Gaussian的真实alpha和解析front-to-back公式独立算RGB/alpha/ED，不能用被测拼接函数生成期望；改变顺序和前后关系验证遮挡。requires_grad全部false。
-- [ ] **Step 2: Run RED。** 缺少新增函数的import/API失败；不以CUDA不可用跳过冒充RED。
-- [ ] **Step 3: 实现。** 验证刚体后SVD投影并统一变换中心与wxyz，复制其它raw参数；推理时激活scale/color/opacity，按blockid规范次序拼接，一次render，单位viewmat。device由调用者选定且必须CUDA0；lazy imports，no_grad，输出立即转CPU、释放GPU临时张量。记录实际CUDA同步耗时与allocator峰值。
-- [ ] **Step 4: GREEN。** CPU+真实CUDA新suite和全部suite；基准可用旧render输入，但期望不能调用被测几何函数。
-- [ ] **Step 5: Commit/task-done。** `feat: render bounded Gaussian blocks in one camera`；gate run-all.sh。
+- [x] **Step 1: RED tests。** 独立期望：Rz90平移中心；Rx/Rz非交换旋转、anisotropic covariance的全矩阵；q与−q；全局共同刚性变换及1e6原点取消；坏刚体/数组/计数拒绝；输入字节不变。真实GPU单块vs旧render路径，绝对容差RGB/alpha1e-5、depth1e-4m。两块含深度2/8与4/6的交错Gaussian，以四个单Gaussian的真实alpha和解析front-to-back公式独立算RGB/alpha/ED，不能用被测拼接函数生成期望；改变顺序和前后关系验证遮挡。requires_grad全部false。
+- [x] **Step 2: Run RED。** 缺少新增函数的import/API失败；不以CUDA不可用跳过冒充RED。
+- [x] **Step 3: 实现。** 验证刚体后SVD投影并统一变换中心与wxyz，复制其它raw参数；推理时激活scale/color/opacity，按blockid规范次序拼接，一次render，单位viewmat。device由调用者选定且必须CUDA0；lazy imports，no_grad，输出立即转CPU、释放GPU临时张量。记录实际CUDA同步耗时与allocator峰值。
+- [x] **Step 4: GREEN。** CPU+真实CUDA新suite和全部suite；基准可用旧render输入，但期望不能调用被测几何函数。
+- [x] **Step 5: Commit/task-done。** `feat: render bounded Gaussian blocks in one camera`；gate run-all.sh。
 
 ### Task 3: CLI、真实指标及失败发布
 
 **Files:** render_gaussian_map.py、test_render_gaussian_map.py。
 **Interfaces:** 消费Task1/2；产生命令入口、image_metrics、report schema。
 
-- [ ] **Step 1: RED tests。** 真CLI解析非法IDs/路径/输入输出包含/已有sentinel拒绝且不导入torch；GPU真实fixture成功输出5文件，query属于第三块仍联合两块。指标用独立小数组手算RGB L1/MSE/coverage/z，零深度样本和完美MSE为null；输出有限且training_view=true/omitted/missing明确。测试输入SHA不变、验证后source变动、OOM/缺扩展/写文件或最后rename失败不发布成功report；注入只在测试侧外部运行边界，不增加产品hooks。
-- [ ] **Step 2: Run RED。** 缺CLI/functions导致非预期成功的测试失败，确认不是fixture/模块路径错误。
-- [ ] **Step 3: 实现。** CPU全量验证先于CUDA/输出，路径新建0700；单块reference先渲染后释放，再按selected渲染，第三块不得加进联合。保存joint/reference/single PNG与render.npz，report含所有设计字段但不复制full primary/所有观测，≤64KiB、无NaN/Infinity；最后独占临时report并rename。失败清理本次未完成report、非零及有界failure.json；不覆盖已有输出。来源验证前后；GPU错误不回退。
-- [ ] **Step 4: GREEN。** CLI CPU/真实GPU/故障与完整suite通过；文件发布故障用真实FS测试并保留输入，mock仅对外部故障点。
-- [ ] **Step 5: Commit/task-done。** `feat: expose read-only joint rendering diagnostics`；gate run-all.sh。
+- [x] **Step 1: RED tests。** 真CLI解析非法IDs/路径/输入输出包含/已有sentinel拒绝且不导入torch；GPU真实fixture成功输出5文件，query属于第三块仍联合两块。指标用独立小数组手算RGB L1/MSE/coverage/z，零深度样本和完美MSE为null；输出有限且training_view=true/omitted/missing明确。测试输入SHA不变、验证后source变动、OOM/缺扩展/写文件或最后rename失败不发布成功report；注入只在测试侧外部运行边界，不增加产品hooks。
+- [x] **Step 2: Run RED。** 缺CLI/functions导致非预期成功的测试失败，确认不是fixture/模块路径错误。
+- [x] **Step 3: 实现。** CPU全量验证先于CUDA/输出，路径新建0700；单块reference先渲染后释放，再按selected渲染，第三块不得加进联合。保存joint/reference/single PNG与render.npz，report含所有设计字段但不复制full primary/所有观测，≤64KiB、无NaN/Infinity；最后独占临时report并rename。失败清理本次未完成report、非零及有界failure.json；不覆盖已有输出。来源验证前后；GPU错误不回退。
+- [x] **Step 4: GREEN。** CLI CPU/真实GPU/故障与完整suite通过；文件发布故障用真实FS测试并保留输入，mock仅对外部故障点。
+- [x] **Step 5: Commit/task-done。** `feat: expose read-only joint rendering diagnostics`；gate run-all.sh。
 
 ### Task 4: 实际资产、整范围审阅及最终记录
 
 **Files:** docs/online-gaussian.md、docs/README.md、docs/p6-03c3b-validation.md、spec/plan状态；验证脚本/产物只在phase。
 **Interfaces:** 前三项完整CLI与报告；输入只读C3a g-final-full-finalize与final-full-finalize/keyframes。
 
-- [ ] **Step 1: 候选实测。** 固定源码/依赖与源文件SHA；首/中/末三组相邻块各两侧retained查询共至少6例，必要时在12组边界内寻找共视。真实参数20k上限/版本/非参考块贡献、输入SHA前后不变；保存可比较图像、数值与资源，不要求画质必提高。查询含投影尾部和未选中owner的实际正例；来源低覆盖明确失败而非放宽。
-- [ ] **Step 2: 文档与候选提交。** 记录命令、pins/source、实际选块/coverage/metrics/timings、局限，说明C++/ROS未改；普通核心旧可执行67CTest可补验，但不把旧二进制当新构建。新磁盘≤1GiB，只清本阶段重复产物并保留摘要/最终组。
+- [x] **Step 1: 候选实测。** 固定源码/依赖与源文件SHA；首/中/末三组相邻块各两侧retained查询共至少6例，必要时在12组边界内寻找共视。真实参数20k上限/版本/非参考块贡献、输入SHA前后不变；保存可比较图像、数值与资源，不要求画质必提高。查询含投影尾部和未选中owner的实际正例；来源低覆盖明确失败而非放宽。
+- [x] **Step 2: 文档与候选提交。** 记录命令、pins/source、实际选块/coverage/metrics/timings、局限，说明C++/ROS未改；普通核心旧可执行67CTest可补验，但不把旧二进制当新构建。新磁盘≤1GiB，只清本阶段重复产物并保留摘要/最终组。
 - [ ] **Step 3: 一次独立整范围审阅。** most capable fresh reviewer，给Review Focus/设计/ledger；按影响评级，Important/Critical各先RED后统一一次修复，整套绿；Minor及所有declined-to-judge记录，不追加复审。
 - [ ] **Step 4: 最终重跑。** 固定修正后源码，重跑至少同6实际正例+第三块owner/尾部+全Python/CUDA/root tools，核对所有来源/输出hash和报告，不能沿用修复前结果。
 - [ ] **Step 5: Commit/task-done/归档。** `docs: record verified snapshot joint rendering`；gate完整suite+最终报告/身份检查。勾选真实完成状态，保留分支；字节/哈希核对归档本计划ledger/rawreview，仅删除此计划scratch，不碰同级。

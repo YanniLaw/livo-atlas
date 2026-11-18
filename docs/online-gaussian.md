@@ -292,3 +292,59 @@ status=succeeded 且 report_persisted=1 才返回成功；报告发布失败仍�
 退出时间和 forced_termination；原 resources.csv 仍只描述在线回放。
 严格比较工具会逐资产核验 SHA、数组及完整 canonical primary，再核对最终报告、节点日志
 和正常退出。单独查看一个可见 JSON 不能证明原进程完成了持久发布。
+
+## 最终快照联合渲染
+
+`tools/3dgs_probe/render_gaussian_map.py` 只读消费已停止且 Finalize 成功的目录，
+将显式选中的一至两块 Gaussian 放在同一次光栅化中处理遮挡。查询相机来自某个
+已经保留的训练观测，使用完整最终位姿，包括优化前缀之后的投影尾部。
+查询所属块可以不在选择集合内；它仅用于额外的单块参考图，不会自动加入联合输入。
+
+在包根目录运行，路径和 ID 换成实际快照中的值：
+
+```bash
+env -u PYTHONPATH PYTHONNOUSERSITE=1 CUDA_VISIBLE_DEVICES=0 \
+  "$LIVO_PYTHON" tools/3dgs_probe/render_gaussian_map.py \
+  --map-directory /path/to/final-gaussian \
+  --keyframes /path/to/keyframes \
+  --keyframe-id 17 --submap-ids 0 1 \
+  --output /path/to/new-render
+```
+
+使用[已固定的 GPU 环境](p6-03b-gpu-probe.md)，另需 PyYAML（本机验证为 6.0.2）；
+原 GPU pip 清单不包含 PyYAML，可在对应独立环境中安装 `PyYAML==6.0.2`。
+本机验证复用已有隔离前缀，没有升级环境。无需启动 ROS，也无需加载训练模型或优化器。
+CUDA0 至少有 4 GiB 可用，沿用 PyTorch 40% 分配比例及预编译 gsplat 1.5.3。
+
+输入必须在整个调用中保持不变。工具完整检查目录、最终报告、分组、原始/优化位姿和
+逐资产 SHA/数组；重读及发布前再次检查来源。已有内容必须 current、durable，且 E 已冻结、
+worker 已停止。未选中的逻辑 missing 明确记录，选中 missing、未保留查询帧或坏引用会失败。
+ID 使用规范非负 uint64 十进制；重复、三块以上或超预算请求会拒绝，不自动减块或降分辨率。
+输出父目录须存在，输出本身须为新目录，且不能与两个输入目录互相包含。
+
+成功目录包含：
+
+| 文件 | 含义 |
+| --- | --- |
+| `joint.png` | 选中块的联合 RGB |
+| `reference.png` | 保存的去畸变训练观测 |
+| `single-reference.png` | 查询所属块在同一最终相机下的渲染 |
+| `render.npz` | float32 `rgb/alpha/depth_m` 和 uint8 `valid_mask`（alpha ≥ 0.05） |
+| `report.json` | 来源、实际训练覆盖、相机、误差、阶段耗时及资源；最后发布的完成标记 |
+
+深度是 alpha 归一化的相机 z，须结合 mask 使用。RGB L1/MSE/PSNR 在观测的有效图像
+mask 内计算；深度误差只使用同时满足图像 mask、稀疏深度 mask 和 alpha 阈值的像素。
+零深度样本的误差为 null；完美 MSE 的 PSNR 也为 null，并用 `rgb_perfect` 区分。
+报告标注 `training_view=true`、选中/省略/missing 块、实际 retained IDs、capture 与最新绑定，
+不能将局部选择解释为完整场景或新视角评价。变化像素只证明数值变化，不保证画质提升。
+
+每次至多 20,000 Gaussian、一个至多 1M 像素的相机；CPU 一次只读取一个完整资产，
+GPU 只接收精简推理参数。相机相对变换先在 float64 中完成，中心和各向异性形状使用同一旋转。
+报告区分全目录读取/验证、CUDA 初始化、首帧、单块/联合渲染和传输；总时间到报告发布前，
+GPU 峰值仅指 PyTorch allocator，RSS 为进程历史峰值。离线启动耗时不能当作在线刷新速度。
+
+OOM、设备/扩展或文件错误返回非零；创建输出后的失败尽量留下至多 4 KiB 的 `failure.json`，
+不会发布成功报告或覆盖旧输出。完成标记不新增 fsync 承诺，也不能由文件自证原 Finalize 的
+持久提交。来源变化检测不提供并发事务隔离，不能传入仍在更新的在线目录。
+实际结果与复现见 [C3b 验证记录](p6-03c3b-validation.md)。自动选块、在线显示、跨块去重、
+自由相机与外观修正留待后续设计。
