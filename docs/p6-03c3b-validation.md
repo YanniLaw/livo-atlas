@@ -2,7 +2,7 @@
 
 2026-11-18。按[设计](superpowers/specs/2026-11-18-p6-03c3b-snapshot-joint-rendering-design.md)
 和[实施计划](superpowers/plans/2026-11-18-p6-03c3b-snapshot-joint-rendering.md)执行。
-候选实现、完整测试和 8 个真实快照案例已通过；本记录尚待独立代码审阅及最终重跑关闭。
+已完成一次独立审阅、问题修复及最终同源 8 例重跑；最后全量 gate 与执行记录归档正在关闭。
 
 ## 交付与边界
 
@@ -40,7 +40,7 @@ NumPy，避免系统 Python3.8 子进程误加载；这修正了首轮基线的�
 ```bash
 phase=/home/yanni/livo-atlas_ws/validation/P6-03c3b-20261118
 "$phase/run-all.sh"
-"$phase/run-python.sh" "$phase/validate.py" verify candidate
+"$phase/run-python.sh" "$phase/validate.py" verify final
 ```
 
 `validate.py run <新组名>` 会固定 tools/tests SHA、记录两个输入树全部文件 SHA，
@@ -50,10 +50,10 @@ phase=/home/yanni/livo-atlas_ws/validation/P6-03c3b-20261118
 完全一致。源码及逐文件清单保留在组内 `source-before.json/input-after.json`。
 包装脚本带本机路径，换电脑按使用说明恢复环境、复制最终快照并替换路径。
 
-## 测试及候选真实案例
+## 测试及最终真实案例
 
-- Python/真实 CUDA 141/141，root 工具 76/76；GPU 必须可用，无跳过或回退。
-- 新增 31 项包含严格 CPU 快照/blocked-Torch 预检、完整 state 逐次释放、旧 capture/尾部、
+- Python/真实 CUDA 148/148，root 工具 76/76；GPU 必须可用，无跳过或回退。
+- 新增 38 项包含严格 CPU 快照/blocked-Torch 预检、完整 state 逐次释放、旧 capture/尾部、
   非交换旋转、协方差、q 与 -q、180°、大原点、输入所有权和预算。
 - 真实 CUDA 单块对旧路径：RGB/alpha 绝对容差 1e-5，深度 1e-4m；两块深度 2/8 与 4/6
   交错，用四个真实单 Gaussian alpha 和独立 front-to-back 公式验证 RGB/alpha/ED。
@@ -62,7 +62,7 @@ phase=/home/yanni/livo-atlas_ws/validation/P6-03c3b-20261118
   写入、报告写入和最后 rename 故障均非零且无成功标记；渲染期间来源变化也被拒绝。
   故障注入只在测试侧外部调用边界，保留真实文件、校验和渲染路径。
 
-候选产品提交 `613addb`，全部观测 640×512；以下均为 training_view，非新视角评价。
+候选产品提交 `613addb`，最终修正提交 `b3a5a4c`，全部观测 640×512；以下均为 training_view，非新视角评价。
 变化像素以有效图像内相对所属单块 RGB 的最大通道差 >1e-6 计算。
 第三块查询的变化还包含选择范围不同的影响，不能单独当作新增一块的增益。
 
@@ -81,15 +81,42 @@ phase=/home/yanni/livo-atlas_ws/validation/P6-03c3b-20261118
 联合图 PSNR 在这些训练相机提高，但多数 z L1 变差，不能宣称几何质量普遍改善。
 重复表面、透明度叠加、重影、有限训练窗口和低 alpha 均如实保留。
 
-候选完整 CPU 验证约 1.16..1.37s；首个单块调用包含扩展首次开销，联合调用是暖调用，
-同步 render 约 1.14..1.52ms。到报告发布前总墙钟约 2.67..2.97s，不包含解释器启动及报告
-写入；外部进程总时间另存。PyTorch allocator allocated 峰值 16.38..17.94MiB、reserved
-24..26MiB，进程 RSS 792..836MiB；不包含驱动上下文等第三方 GPU 分配，不能据此声称
-完整系统只需这些显存。每例 report 约 24KiB，候选整阶段约 64MiB。
+最终完整 CPU 验证约 1.14..1.28s；首个单块调用包含扩展首次开销，联合调用是暖调用，
+同步 render 约 1.13..1.74ms。到报告发布前总墙钟约 2.67..2.87s，不包含解释器启动及报告
+写入；外部进程总时间约 3.05..3.36s。PyTorch allocator allocated 峰值 16.38..17.94MiB、
+reserved 24..26MiB，进程 RSS 791..834MiB；不包含驱动上下文等第三方 GPU 分配，不能据此
+声称完整系统只需这些显存。每例 report 20,312..20,350 字节；候选加最终产物约 127MiB，
+低于 1GiB 预算。候选与最终 8 例 RGB/alpha/depth 数组逐值相同（最大差 0），mask 相同。
 
 ## 审阅与最终复验
 
-待一次完整范围独立审阅后记录评级、修复和最终同源 8 例重跑。最终测试、来源/输出 SHA、
-完整执行 ledger 和原始审阅将保留在本阶段目录；不会推送、合并、打 tag 或改动旧阶段产物。
+一次 fresh-context 整范围审阅覆盖 `1a82012..0748be5`。四项 Important 均先复现失败再修复：
+
+1. 帧目录规范 ID 集合及最新位姿版本独立核对，拒绝稳定但较晚的关键帧目录配旧地图。
+2. 渲染入口强制权威分组根/各组为真实目录，保留旧 public inspector 对旧导出的兼容。
+3. 同一次有界读取固定 map 原始字节、解析对象和摘要，核对 inspector 实际验证内容，
+   拒绝清单采集期间切换到另一份合法资产引用。
+4. missing 完整 ID 集合单列，`blocks` 只描述有内容块并精简 capture 元数据。
+   真实 CUDA 验证 512 帧下的 1 内容+510 missing，以及 32 内容+448 missing，均成功发布有界报告。
+
+原第二项 Minor 经真实约 1,200 字符路径复现合法输入拒绝后，提升为第五项 Important，纳入
+同一轮修复：小文件集合按带 map/keyframes 前缀的相对路径和 SHA 流式哈希，移除绝对路径
+聚合 JSON 的 1MiB 门槛；相同目录复制到深路径后摘要相同。五项修复统一后，148/148 +
+76/76 全量通过，没有追加第二次独立审阅。之后固定 `b3a5a4c`，以独立进程重跑同 8 例，
+全部报告、产物 SHA、来源与最终相机通过核对；源文件 780 个的 SHA 前后及两组之间完全相同。
+
+保留一项诊断 Minor：极长非 BMP Unicode 错误消息经 JSON 转义后可能超过 4KiB，
+导致 `failure.json` 无法生成并遮蔽原异常文本；仍然非零退出且没有成功标记。
+
+`candidate/`、`final/` 分别保留两组结果和源码/输入清单；`review-*-red/green` 与实际文件名
+以阶段目录为准，具体包括 `review-red.log`、`review-i1-frame-red.log`、`review-i5-red.log`、
+`review-i[1-5]-green.log` 和 `review-fix-final-all.log`。
+最终全量 gate、原始审阅、决策/延期记录将归档到本阶段 `execution-review-record/`，
+逐文件字节和 SHA 核对后仅移走该计划 scratch；同级与旧阶段数据保留。
+
+执行决策及代价：沿用已确认设计和本会话授权，不增加逐项计划审批；输入固定且停止，
+没有并发事务隔离；最后 rename 是诊断完成标记，断电时可丢失报告，不能证明原 Finalize 退出；
+只验证选择块的训练视图，不能证明全图/自由视角/在线质量或去重；Python 工具修改未重跑
+C++/ROS/IPC 矩阵，其他平台交互仍未复验；最终修复与关闭由执行者测试和记录，未做第二轮独立审阅。
 
 在线一致快照交付、可见工作集、自动选块、刷新预算与 ROS 显示仍是下一阶段，尚未实现。

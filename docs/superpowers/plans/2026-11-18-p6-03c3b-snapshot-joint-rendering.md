@@ -105,8 +105,8 @@ GPU gate LIVO_REQUIRE_GPU=1，不计skip为成功；独立正式资产实验不�
 
 - [x] **Step 1: 候选实测。** 固定源码/依赖与源文件SHA；首/中/末三组相邻块各两侧retained查询共至少6例，必要时在12组边界内寻找共视。真实参数20k上限/版本/非参考块贡献、输入SHA前后不变；保存可比较图像、数值与资源，不要求画质必提高。查询含投影尾部和未选中owner的实际正例；来源低覆盖明确失败而非放宽。
 - [x] **Step 2: 文档与候选提交。** 记录命令、pins/source、实际选块/coverage/metrics/timings、局限，说明C++/ROS未改；普通核心旧可执行67CTest可补验，但不把旧二进制当新构建。新磁盘≤1GiB，只清本阶段重复产物并保留摘要/最终组。
-- [ ] **Step 3: 一次独立整范围审阅。** most capable fresh reviewer，给Review Focus/设计/ledger；按影响评级，Important/Critical各先RED后统一一次修复，整套绿；Minor及所有declined-to-judge记录，不追加复审。
-- [ ] **Step 4: 最终重跑。** 固定修正后源码，重跑至少同6实际正例+第三块owner/尾部+全Python/CUDA/root tools，核对所有来源/输出hash和报告，不能沿用修复前结果。
+- [x] **Step 3: 一次独立整范围审阅。** most capable fresh reviewer，给Review Focus/设计/ledger；按影响评级，Important/Critical各先RED后统一一次修复，整套绿；Minor及所有declined-to-judge记录，不追加复审。
+- [x] **Step 4: 最终重跑。** 固定修正后源码，重跑至少同6实际正例+第三块owner/尾部+全Python/CUDA/root tools，核对所有来源/输出hash和报告，不能沿用修复前结果。
 - [ ] **Step 5: Commit/task-done/归档。** `docs: record verified snapshot joint rendering`；gate完整suite+最终报告/身份检查。勾选真实完成状态，保留分支；字节/哈希核对归档本计划ledger/rawreview，仅删除此计划scratch，不碰同级。
 
 ## Self-Review
