@@ -7,12 +7,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
+import time
 
 import numpy as np
 
 from gaussian_map import (_inspect_gaussian_map, _json, _require,
                           inspect_gaussian_finalization)
-from gaussian_state import _open_file, _unsigned, read_state
+from gaussian_state import (_PARAMETERS, _array, _open_file, _pose, _unsigned,
+                            read_state)
 
 
 @dataclass
@@ -134,3 +136,121 @@ def load_block(snapshot: RenderSnapshot, submap_id: int) -> tuple:
         row['binding']['parent_from_submap'], dtype=np.float64).reshape(4, 4)
     verify_snapshot(snapshot)
     return submap_id, parameters, camera_from_submap
+
+
+def _rotation_quaternion(rotation):
+    """Convert a proper rotation to wxyz, including rotations near 180 degrees."""
+    r = rotation
+    terms = [1 + np.trace(r), 1 + r[0, 0] - r[1, 1] - r[2, 2],
+             1 - r[0, 0] + r[1, 1] - r[2, 2],
+             1 - r[0, 0] - r[1, 1] + r[2, 2]]
+    index = int(np.argmax(terms))
+    value = 0.5 * np.sqrt(terms[index])
+    divisor = 4 * value
+    if index == 0:
+        return np.array([value, (r[2, 1] - r[1, 2]) / divisor,
+                         (r[0, 2] - r[2, 0]) / divisor,
+                         (r[1, 0] - r[0, 1]) / divisor])
+    if index == 1:
+        return np.array([(r[2, 1] - r[1, 2]) / divisor, value,
+                         (r[0, 1] + r[1, 0]) / divisor,
+                         (r[0, 2] + r[2, 0]) / divisor])
+    if index == 2:
+        return np.array([(r[0, 2] - r[2, 0]) / divisor,
+                         (r[0, 1] + r[1, 0]) / divisor, value,
+                         (r[1, 2] + r[2, 1]) / divisor])
+    return np.array([(r[1, 0] - r[0, 1]) / divisor,
+                     (r[0, 2] + r[2, 0]) / divisor,
+                     (r[1, 2] + r[2, 1]) / divisor, value])
+
+
+def transform_parameters(parameters: dict, camera_from_submap: np.ndarray) -> dict:
+    """Own a temporary SH0 parameter set in camera coordinates; leave raw data intact."""
+    _require(isinstance(parameters, dict) and parameters.keys() == _PARAMETERS.keys(),
+             'Unknown or missing Gaussian parameters')
+    means = parameters['means']
+    _require(isinstance(means, np.ndarray) and means.ndim == 2 and
+             1 <= len(means) <= 10_000, 'Gaussian count exceeds the block budget')
+    count = len(means)
+    for name, columns in _PARAMETERS.items():
+        _array(parameters[name], '<f4', (count, columns) if columns else (count,))
+    _require(np.allclose(np.linalg.norm(parameters['quats'], axis=1), 1,
+                         atol=1e-5, rtol=0), 'Gaussian quaternions must be normalized')
+    scales = parameters['log_scales']
+    _require(np.all(scales >= np.log(.001) - 1e-6) and
+             np.all(scales <= np.log(.2) + 1e-6), 'Gaussian scales exceed model bounds')
+    pose = _pose(camera_from_submap)
+    left, _, right = np.linalg.svd(pose[:3, :3])
+    correction = np.diag([1, 1, np.linalg.det(left @ right)])
+    rotation = left @ correction @ right
+    q = _rotation_quaternion(rotation)
+    local = parameters['quats'].astype(np.float64)
+    # Hamilton left product rotates both the center and anisotropic covariance.
+    quats = np.empty_like(local)
+    quats[:, 0] = q[0] * local[:, 0] - local[:, 1:] @ q[1:]
+    quats[:, 1:] = (q[0] * local[:, 1:] + local[:, :1] * q[1:] +
+                    np.cross(q[1:], local[:, 1:]))
+    quats /= np.linalg.norm(quats, axis=1, keepdims=True)
+    result = {name: value.copy() for name, value in parameters.items()}
+    result['means'] = (means.astype(np.float64) @ rotation.T + pose[:3, 3]).astype('<f4')
+    result['quats'] = quats.astype('<f4')
+    _require(np.isfinite(result['means']).all(), 'Camera-relative means exceed float32')
+    return result
+
+
+def render_blocks(blocks: list[tuple], K: np.ndarray, width: int, height: int,
+                  device) -> dict:
+    """Rasterize one bounded selection together, returning only owned CPU results."""
+    started = time.perf_counter()
+    _require(isinstance(blocks, (list, tuple)) and 1 <= len(blocks) <= 2,
+             'Select one or two Gaussian blocks')
+    _require(type(width) is int and type(height) is int and width > 0 and height > 0
+             and width * height <= 1_000_000, 'Camera exceeds the pixel budget')
+    ids = [_id(block[0]) for block in blocks]
+    _require(len(set(ids)) == len(ids), 'Duplicate Gaussian blocks')
+    counts = {}
+    transformed = []
+    for submap_id, raw, camera in sorted(blocks, key=lambda block: block[0]):
+        transformed.append(transform_parameters(raw, camera))
+        counts[str(submap_id)] = len(raw['means'])
+    packed = {key: np.concatenate([block[key] for block in transformed])
+              for key in _PARAMETERS}
+    del transformed
+    _require(sum(counts.values()) <= 20_000, 'Joint Gaussian count exceeds its budget')
+
+    # Importing or validating a snapshot never initializes the optional CUDA stack.
+    import torch
+    from rasterizer import render, to_gsplat_camera
+
+    device = torch.device(device)
+    _require(device == torch.device('cuda:0'), 'Rendering requires the selected CUDA0 device')
+    intrinsic, view = to_gsplat_camera(K, np.eye(4))
+    torch.cuda.synchronize(device)
+    torch.cuda.reset_peak_memory_stats(device)
+    tensors, values = {}, None
+    try:
+        with torch.no_grad():
+            tensors = {key: torch.as_tensor(value, device=device) for key, value in packed.items()}
+            del packed
+            torch.cuda.synchronize(device)
+            uploaded = time.perf_counter()
+            values = render(tensors['means'], tensors['quats'], tensors['log_scales'].exp(),
+                            tensors['opacity_logits'].sigmoid(), tensors['color_logits'].sigmoid(),
+                            view, intrinsic, width, height)
+            torch.cuda.synchronize(device)
+            rendered = time.perf_counter()
+            result = {key: value.cpu().numpy().copy()
+                      for key, value in zip(('rgb', 'alpha', 'depth_m'), values)}
+            result.update(gaussian_counts=counts, gaussian_count=sum(counts.values()),
+                          K_gsplat=intrinsic,
+                          timings={'transform_upload_seconds': uploaded - started,
+                                   'render_seconds': rendered - uploaded,
+                                   'total_seconds': time.perf_counter() - started},
+                          gpu_peak_allocated_bytes=torch.cuda.max_memory_allocated(device),
+                          gpu_peak_reserved_bytes=torch.cuda.max_memory_reserved(device))
+            return result
+    finally:
+        # Baseline and joint calls run sequentially, including when CUDA raises.
+        values = None
+        tensors.clear()
+        torch.cuda.empty_cache()
