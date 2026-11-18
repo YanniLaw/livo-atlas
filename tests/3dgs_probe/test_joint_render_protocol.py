@@ -35,6 +35,21 @@ class JointRenderProtocolTest(unittest.TestCase):
             with self.subTest(edit=edit), self.assertRaises(ValueError):
                 decode_render_request(changed, body)
 
+    def test_future_binding_generation_is_rejected_before_body_decode(self):
+        header, body = render_request_fixture()
+        header['blocks'][0]['target']['generation'] = '5'
+        with self.assertRaises(ValueError):
+            decode_render_request(header, body)
+
+    def test_spatial_copied_camera_rejects_subnanounit_translation(self):
+        header, _ = spatial_request_fixture()
+        reply, rgb = render_reply_fixture()
+        reply.update(header, type='joint_render_ok')
+        reply['camera_from_body'][3] += 5e-10
+        reply['camera_from_parent'][3] += 5e-10
+        with self.assertRaises(ValueError):
+            validate_render_message(reply, rgb)
+
     def test_query_must_be_the_last_retained_owner_camera(self):
         header, body = render_request_fixture()
         header['query_keyframe_id'] = '4'

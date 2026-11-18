@@ -13,25 +13,13 @@ void Require(bool condition, const char* detail) {
   if (!condition) throw std::invalid_argument(detail);
 }
 
-bool SamePose(const RigidTransform& a, const RigidTransform& b) {
-  return (a.rotation.array() == b.rotation.array()).all() &&
-         (a.translation.array() == b.translation.array()).all();
-}
-
 }  // namespace
 
 bool operator==(const GaussianRenderMetadata& a,
                 const GaussianRenderMetadata& b) {
   if (a.content != b.content || a.extents.size() != b.extents.size())
     return false;
-  const auto& x = a.camera;
-  const auto& y = b.camera;
-  if (x.keyframe_id != y.keyframe_id ||
-      x.calibration_id != y.calibration_id || x.width != y.width ||
-      x.height != y.height || !(x.K.array() == y.K.array()).all() ||
-      !SamePose(x.camera_from_body, y.camera_from_body) ||
-      x.capture_time != y.capture_time)
-    return false;
+  if (!SameRenderCamera(a.camera, b.camera)) return false;
   for (std::size_t i = 0; i < a.extents.size(); ++i) {
     const auto& left = a.extents[i];
     const auto& right = b.extents[i];

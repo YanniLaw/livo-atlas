@@ -22,6 +22,19 @@ void Range(const std::optional<double>& value, double high) {
 
 }  // namespace
 
+bool SameRenderPose(const RigidTransform& a, const RigidTransform& b) {
+  return (a.rotation.array() == b.rotation.array()).all() &&
+         (a.translation.array() == b.translation.array()).all();
+}
+
+bool SameRenderCamera(const GaussianCamera& a, const GaussianCamera& b) {
+  return a.keyframe_id == b.keyframe_id &&
+         a.calibration_id == b.calibration_id && a.width == b.width &&
+         a.height == b.height && (a.K.array() == b.K.array()).all() &&
+         SameRenderPose(a.camera_from_body, b.camera_from_body) &&
+         a.capture_time == b.capture_time;
+}
+
 void ValidateRenderPose(const RigidTransform& pose) {
   Require(pose.rotation.allFinite() && pose.translation.allFinite() &&
               (pose.rotation.transpose() * pose.rotation -
@@ -125,7 +138,7 @@ void ValidateRenderImage(const GaussianRender& r) {
     Require(r.width == camera.width && r.height == camera.height &&
                 r.calibration_id == camera.calibration_id &&
                 (r.K.array() == camera.K.array()).all() &&
-                pose_math::Equal(r.camera_from_body, camera.camera_from_body) &&
+                SameRenderPose(r.camera_from_body, camera.camera_from_body) &&
                 r.capture_time == camera.capture_time,
             "Render replaced the retained spatial query camera");
   }

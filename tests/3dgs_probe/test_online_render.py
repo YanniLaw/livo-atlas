@@ -147,6 +147,48 @@ class OnlineRenderTest(unittest.TestCase):
         self.assertEqual(reply['blocks'][-1]['target']['generation'], '5')
         self.assertEqual(training_state(self.actor), before)
 
+    def test_restored_binding_rejects_unconfirmed_in_range_generation(self):
+        neighbor_generation = self.fixture.targets[1]['generation']
+        self.fixture.checkpoint()
+        self.fixture.activate(2, 5, 2, asset=self.fixture.assets[2])
+        self.fixture.activate(1, 3, 2, asset=self.fixture.assets[1], accept=False)
+        before = training_state(self.actor)
+        header, body = self.fixture.request()
+        header['blocks'][0]['target']['generation'] = neighbor_generation
+        block = header['blocks'][-1]
+        block.update(target={key: self.fixture.targets[2][key] for key in TARGET_FIELDS},
+                     content=dict(self.actor.content), resident=1)
+        block.pop('asset')
+        block['target']['generation'] = '6'
+        with self.assertRaises(ValueError):
+            self.actor.handle(header, body)
+        self.assertEqual(training_state(self.actor), before)
+
+    def test_restored_binding_rejects_future_generation(self):
+        neighbor_generation = self.fixture.targets[1]['generation']
+        self.fixture.checkpoint()
+        self.fixture.activate(2, 5, 2, asset=self.fixture.assets[2])
+        self.fixture.activate(1, 3, 2, asset=self.fixture.assets[1], accept=False)
+        before = training_state(self.actor)
+        header, body = self.fixture.request()
+        header['blocks'][0]['target']['generation'] = neighbor_generation
+        block = header['blocks'][-1]
+        block.update(target={key: self.fixture.targets[2][key] for key in TARGET_FIELDS},
+                     content=dict(self.actor.content), resident=1)
+        block.pop('asset')
+        block['target']['generation'] = '7'
+        with self.assertRaises(ValueError):
+            self.actor.handle(header, body)
+        self.assertEqual(training_state(self.actor), before)
+
+    def test_durable_binding_rejects_unconfirmed_in_range_generation(self):
+        header, body = self.fixture.request()
+        header['blocks'][0]['target']['generation'] = '3'
+        before = training_state(self.actor)
+        with self.assertRaises(ValueError):
+            self.actor.handle(header, body)
+        self.assertEqual(training_state(self.actor), before)
+
     def test_worker_timing_includes_both_real_metric_evaluations(self):
         real = online_render.image_metrics
         def measured(*args):

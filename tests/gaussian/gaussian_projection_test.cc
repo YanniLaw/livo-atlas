@@ -21,6 +21,18 @@ GaussianExtent Point(double x = 0, double y = 0, double z = 4) {
   return {0, {x, y, z}, {x, y, z}, .03};
 }
 
+TEST(GaussianProjection, FloatRepresentableInputsWithOverflowAreUncertain) {
+  auto camera = Camera();
+  camera.K(0, 0) = 1e30;
+  auto result = ProjectGaussianExtents({Point(1)}, camera, {}, 0);
+  EXPECT_TRUE(result.uncertain);
+  EXPECT_EQ(result.candidate_pixels, 8000u);
+  camera.K(0, 0) = 1e12;
+  result = ProjectGaussianExtents({Point(1e30)}, camera, {}, 0);
+  EXPECT_TRUE(result.uncertain);
+  EXPECT_EQ(result.candidate_pixels, 8000u);
+}
+
 TEST(GaussianProjection, OriginalPixelCentersAreConvertedExactlyOnce) {
   const auto result = ProjectGaussianExtents({Point()}, Camera(), {}, 0);
   // Radius6 plus outward FP32 padding gives [43,57) x [33,47).

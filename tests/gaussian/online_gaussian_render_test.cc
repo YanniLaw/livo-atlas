@@ -277,6 +277,74 @@ TEST_F(OnlineGaussianRenderTest, AlteredReuseMetadataFailsBeforeAccept) {
 }
 
 
+TEST_F(OnlineGaussianRenderTest, SpatialViewCameraMustMatchSentFocal) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper();
+  peer_->alter_candidate_focal = true;
+  Append();
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (!mapper_->GetStats().failed &&
+         std::chrono::steady_clock::now() < deadline) {
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(peer_->commits, 0);
+  EXPECT_FALSE(Entry(0).content);
+}
+
+TEST_F(OnlineGaussianRenderTest, SpatialViewCameraMustMatchSentTime) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper();
+  peer_->alter_candidate_time = true;
+  Append();
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (!mapper_->GetStats().failed &&
+         std::chrono::steady_clock::now() < deadline) {
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(peer_->commits, 0);
+  EXPECT_FALSE(Entry(0).content);
+}
+
+TEST_F(OnlineGaussianRenderTest, SpatialViewCameraMustMatchSentExtrinsic) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper();
+  peer_->alter_candidate_extrinsic = true;
+  Append();
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (!mapper_->GetStats().failed &&
+         std::chrono::steady_clock::now() < deadline) {
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(peer_->commits, 0);
+  EXPECT_FALSE(Entry(0).content);
+}
+
+TEST_F(OnlineGaussianRenderTest, SpatialRebuildKeepsRetainedCamera) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper();
+  Append();
+  Confirm();
+  Append();
+  Confirm();
+  const auto commits = peer_->commits.load();
+  peer_->alter_rebuild_camera = true;
+  Correct(true, 1);
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (!mapper_->GetStats().failed &&
+         std::chrono::steady_clock::now() < deadline) {
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(peer_->commits, commits);
+}
+
 TEST_F(OnlineGaussianRenderTest, AcceptsCurrentOwnedResultThenInvalidates) {
   Append();
   Confirm();

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "gaussian/render_validation.h"
 #include "gaussian/mapper_io.h"
 #include "gaussian/render_metadata_protocol.h"
 #include "gaussian/render_protocol.h"
@@ -109,6 +110,7 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
   }
 
   std::optional<ReconstructionView> view;
+  std::optional<GaussianCamera> sent_camera;
   if (command.kind == CommandKind::kView) {
     const auto& frame = *command.source.keyframe;
     reply.kind = ReplyKind::kSkipped;
@@ -128,6 +130,19 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
       reply.detail = "no_depth";
       return reply;
     }
+    sent_camera.emplace();
+    auto& camera = *sent_camera;
+    camera.keyframe_id = view->keyframe_id;
+    camera.calibration_id = view->calibration_id;
+    camera.width = view->image_bgr.cols;
+    camera.height = view->image_bgr.rows;
+    camera.K << view->camera.fx, 0, view->camera.cx,
+                0, view->camera.fy, view->camera.cy, 0, 0, 1;
+    camera.capture_time = view->image_timestamp;
+    // Measure C_B independently of the proposed target's canonical body pose.
+    camera.camera_from_body = pose_math::Compose(
+        pose_math::ProjectPose(*frame.camera_from_odom),
+        pose_math::ProjectPose(frame.odom_from_body));
     request.body = ViewBody(*view);
     const auto primary = EncodeGaussianPrimaryPoses(command.target);
     request.body.insert(request.body.end(), primary.begin(), primary.end());
@@ -173,14 +188,7 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
           << view->image_bgr.cols << "height" << view->image_bgr.rows << "fx"
           << view->camera.fx << "fy" << view->camera.fy << "cx"
           << view->camera.cx << "cy" << view->camera.cy;
-      // C_B is measured independently; deriving it from target S_B would make
-      // the camera/pose consistency check circular. Match ColmapCamera's
-      // temporary rotation projection for rounded calibration, leaving raw
-      // poses intact.
-      Transform(
-          out, "camera_from_body",
-          pose_math::Compose(pose_math::ProjectPose(*frame.camera_from_odom),
-                             pose_math::ProjectPose(frame.odom_from_body)));
+      Transform(out, "camera_from_body", sent_camera->camera_from_body);
       Transform(out, "camera_from_submap",
                 pose_math::Compose(view->camera_from_parent,
                                    command.target.parent_from_submap));
@@ -255,6 +263,13 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
       if (command.operation == GaussianOperation::kReuse &&
           command.render_metadata && *command.render_metadata != metadata)
         throw std::runtime_error("Gaussian reuse changed spatial metadata");
+      if (sent_camera && !SameRenderCamera(metadata.camera, *sent_camera))
+        throw std::runtime_error("Gaussian candidate replaced the sent camera");
+      if (command.operation == GaussianOperation::kRebuild &&
+          command.render_metadata &&
+          !SameRenderCamera(metadata.camera,
+                            command.render_metadata->camera))
+        throw std::runtime_error("Gaussian rebuild changed retained camera");
       reply.command.render_metadata = metadata;
     }
     preview->steps = static_cast<int>(json["steps"]);

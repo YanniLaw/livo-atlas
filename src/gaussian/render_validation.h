@@ -7,6 +7,10 @@ namespace livo_atlas {
 
 // Render DTOs, wire messages and files share this stricter boundary. Frontend
 // calibration keeps its existing tolerance.
+// Copied identities use exact values; computed compositions use tolerance.
+bool SameRenderPose(const RigidTransform& a, const RigidTransform& b);
+bool SameRenderCamera(const GaussianCamera& a, const GaussianCamera& b);
+
 void ValidateRenderPose(const RigidTransform& pose);
 void ValidateRenderCamera(const GaussianCamera& camera);
 void ValidateRenderSelection(const GaussianRenderRequest& request);

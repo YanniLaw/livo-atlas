@@ -146,6 +146,33 @@ class JointRenderReportTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'source identity'):
             inspect_joint_renders(self.root, self.previews)
 
+    def test_impossible_unretained_pixels_cannot_satisfy_the_contribution_gate(self):
+        self.spatial()
+        path = self.root / 'mapping.log'
+        event, stats = path.read_text().splitlines()
+        forged = copy.deepcopy(self.data['as_of'])
+        forged['job_id'] = '9007199254740994'
+        event2 = event.replace('job=9007199254740993', 'job=9007199254740994').replace(
+            source_identity(self.data['as_of']), source_identity(forged)).replace('changed_pixels=2', 'changed_pixels=49')
+        for field in ('submitted', 'accepted', 'dual_accepted'):
+            stats = stats.replace(field + '=1', field + '=2')
+        path.write_text('\n'.join((event, event2, stats)) + '\n')
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews, min_dual=2, min_groups=1)
+
+    def test_unretained_temporal_contribution_obeys_global_pixel_budget(self):
+        path = self.root / 'mapping.log'
+        event, stats = path.read_text().splitlines()
+        forged = copy.deepcopy(self.data['as_of'])
+        forged['job_id'] = '9007199254740994'
+        event2 = event.replace('job=9007199254740993', 'job=9007199254740994').replace(
+            source_identity(self.data['as_of']), source_identity(forged)).replace('changed_pixels=2', 'changed_pixels=1000001')
+        for field in ('submitted', 'accepted', 'dual_accepted'):
+            stats = stats.replace(field + '=1', field + '=2')
+        path.write_text('\n'.join((event, event2, stats)) + '\n')
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews, min_dual=2, min_groups=1)
+
     def test_player_lifetime_alone_is_not_input_publication_evidence(self):
         self.summary.pop('playback_input_cutoff_steady_seconds', None)
         self.summary.pop('playback_input_cutoff_source', None)

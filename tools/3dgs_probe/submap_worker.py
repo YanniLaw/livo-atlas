@@ -308,6 +308,9 @@ class GaussianSubmapWorker:
             if self.spatial_render_enabled:
                 self.confirmed_metadata = pending['render_metadata']
             self.confirmed_binding = copy.deepcopy(pending["target"])
+            # Reuse can advance the binding while preserving this exact asset.
+            if self.checkpoint_id is not None:
+                self.assets[self.checkpoint_id]['binding_generation'] = pending['target']['generation']
             self._known_submaps.add(request["submap_id"])
             result = self._reply("commit_ok", request, **{name: self.content[name] for name in
                                                          ("source_generation", "content_job_id")},
@@ -344,6 +347,7 @@ class GaussianSubmapWorker:
                        "frame_ids": [str(view["keyframe_id"]) for view in verified.views],
                        "gaussian_count": int(verified.origin_ids.size)}
         self.assets[asset_id] = dict(description)
+        self.assets[asset_id]['binding_generation'] = self.confirmed_binding['generation']
         if self.spatial_render_enabled:
             # This cache follows the existing checkpoint/prune lifetime. The
             # persisted state schema and checkpoint reply stay unchanged.

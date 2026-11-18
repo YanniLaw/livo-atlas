@@ -30,6 +30,39 @@ double Radius(double focal, double center, int size, double z, double scale) {
   return std::ceil(3.33 * std::hypot(sigma, sigma * limit, std::sqrt(.3))) + 2;
 }
 
+bool UnstableProjection(const Eigen::Vector3d& low,
+                        const Eigen::Vector3d& high,
+                        const GaussianCamera& camera, double scale,
+                        double ru, double rv) {
+  constexpr double kFloatSafe = std::numeric_limits<float>::max() / 64.;
+  const double covariance_safe = std::sqrt(kFloatSafe) / 64.;
+  const double radius_safe = std::numeric_limits<int>::max() / 4.;
+  if (scale * scale > kFloatSafe || ru > radius_safe || rv > radius_safe)
+    return true;
+  for (int axis = 0; axis < 2; ++axis) {
+    const double focal = camera.K(axis, axis);
+    const double center = camera.K(axis, 2) + .5;
+    const double size = axis == 0 ? camera.width : camera.height;
+    const double limit = std::max(std::abs((size - center) / focal) +
+                                     .15 * size / focal,
+                                 std::abs(center / focal) + .15 * size / focal);
+    const double position = std::max(std::abs(low[axis]),
+                                     std::abs(high[axis]));
+    const double jacobian = focal / low.z();
+    const double tx = high.z() * limit;
+    const double sigma = scale * jacobian;
+    const double variance = sigma * sigma * (1 + limit * limit) + .3;
+    // Pinned gsplat uses float products before division, J*cov*J^T,
+    // a quadratic determinant, and finally int32 footprint radii.
+    for (const double value : {limit, tx, jacobian, focal * tx,
+             focal * tx / (low.z() * low.z()), focal * position,
+             focal * position / low.z() + std::abs(center)})
+      if (!std::isfinite(value) || value > kFloatSafe) return true;
+    if (!std::isfinite(variance) || variance > covariance_safe) return true;
+  }
+  return false;
+}
+
 std::uint64_t UnionArea(const std::vector<GaussianEnvelope>& rectangles) {
   std::vector<int> edges;
   for (const auto& r : rectangles) {
@@ -115,7 +148,9 @@ GaussianEnvelope ProjectGaussianEnvelope(
   const double scale = extent.max_scale * (1 + 1e-4);
   const double ru = Radius(fx, cx, camera.width, low.z(), scale);
   const double rv = Radius(fy, cy, camera.height, low.z(), scale);
-  if (!std::isfinite(ru) || !std::isfinite(rv)) return Uncertain(camera);
+  if (!std::isfinite(ru) || !std::isfinite(rv) ||
+      UnstableProjection(low, high, camera, scale, ru, rv))
+    return Uncertain(camera);
   double min_u = std::numeric_limits<double>::infinity(), min_v = min_u;
   double max_u = -min_u, max_v = -min_u;
   for (int i = 0; i < 8; ++i) {

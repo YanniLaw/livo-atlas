@@ -222,6 +222,7 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
                  (id < request.query_submap_id &&
                   (spatial || id == request.query_submap_id - 1))) &&
                 target.generation > 0 &&
+                target.generation <= request.generation &&
                 target.session_id == request.session_id &&
                 target.pose_version == request.pose_version &&
                 target.frame_count == request.frame_count &&

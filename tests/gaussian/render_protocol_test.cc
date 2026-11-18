@@ -8,6 +8,41 @@
 namespace livo_atlas {
 namespace {
 
+// Alter parsed values, preserving valid JSON and every unrelated identity.
+void CopyChangedNumber(cv::FileStorage& out, const cv::FileNode& node,
+                       const std::string& key, double value) {
+  if (node.isMap()) {
+    out << "{";
+    for (const auto& child : node) {
+      out << child.name();
+      if (child.name() == key) out << value;
+      else CopyChangedNumber(out, child, key, value);
+    }
+    out << "}";
+  } else if (node.isSeq()) {
+    out << "[";
+    for (const auto& child : node)
+      CopyChangedNumber(out, child, key, value);
+    out << "]";
+  } else {
+    test::CopyJson(out, node);
+  }
+}
+
+GaussianMessage ChangedNumber(GaussianMessage message,
+                              const std::string& key, double value) {
+  cv::FileStorage input(message.header_json,
+                        cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  message.header_json = gaussian_mapper_io::Json([&](auto& out) {
+    for (const auto& child : input.root()) {
+      out << child.name();
+      if (child.name() == key) out << value;
+      else CopyChangedNumber(out, child, key, value);
+    }
+  });
+  return message;
+}
+
 TEST(GaussianRenderPolicyTest, SpatialPolicyRequiresEveryRenderPrerequisite) {
   OnlineGaussianOptions options;
   options.joint_render_policy = GaussianRenderPolicy::kSpatial;
@@ -158,6 +193,62 @@ TEST(RenderProtocol, SpatialReplyCannotReplaceTheRetainedQueryCamera) {
     }
   });
   EXPECT_THROW(DecodeGaussianRenderReply(reply, request), std::exception);
+}
+
+TEST(RenderProtocol, CopiedSpatialIdentityRejectsSubNanounitChanges) {
+  const auto request = test::SpatialRenderRequest();
+  const auto encoded = EncodeGaussianRenderRequest(request);
+  for (const auto* field : {"max_scale", "selection_seconds"}) {
+    const double value = std::string(field) == "max_scale"
+        ? .0300000005 : .0010000005;
+    const auto ok = ChangedNumber(test::RenderReply(encoded), field, value);
+    EXPECT_THROW(DecodeGaussianRenderReply(ok, request), std::exception);
+    const auto oom =
+        ChangedNumber(test::RenderReply(encoded, true), field, value);
+    EXPECT_THROW(DecodeGaussianRenderError(oom, request), std::exception);
+  }
+}
+
+TEST(RenderProtocol, CopiedSpatialExtrinsicRejectsTinyTranslationChange) {
+  const auto request = test::SpatialRenderRequest();
+  auto message = test::RenderReply(EncodeGaussianRenderRequest(request));
+  cv::FileStorage input(message.header_json,
+                        cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  message.header_json = gaussian_mapper_io::Json([&](auto& out) {
+    for (const auto& child : input.root()) {
+      out << child.name();
+      if (child.name() == "camera_from_body" ||
+          child.name() == "camera_from_parent") {
+        out << "[";
+        for (int i = 0; i < 16; ++i)
+          out << static_cast<double>(child[i]) + (i == 3 ? 5e-10 : 0);
+        out << "]";
+      } else {
+        test::CopyJson(out, child);
+      }
+    }
+  });
+  EXPECT_THROW(DecodeGaussianRenderReply(message, request), std::exception);
+}
+
+TEST(RenderProtocol, FutureBindingFailsSdkAndHeaderOnlyValidation) {
+  auto request = test::SpatialRenderRequest();
+  request.blocks.front().target.generation = request.generation + 1;
+  EXPECT_THROW(ValidateGaussianRenderRequest(request), std::invalid_argument);
+  auto message = EncodeGaussianRenderRequest(test::SpatialRenderRequest());
+  cv::FileStorage input(message.header_json,
+                        cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  message.header_json = gaussian_mapper_io::Json([&](auto& out) {
+    for (const auto& child : input.root()) {
+      out << child.name();
+      if (child.name() == "generation") out << "2";
+      else test::CopyJson(out, child);
+    }
+  });
+  cv::FileStorage changed(message.header_json,
+                          cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  EXPECT_THROW(ValidateGaussianRenderMessage(changed.root(), message.body),
+               std::invalid_argument);
 }
 
 }  // namespace

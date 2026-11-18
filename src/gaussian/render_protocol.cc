@@ -199,7 +199,8 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
     const int count = Count(target["primary_count"], 1, 512);
     const auto anchor = t.group.primary.anchor_keyframe_id;
     const auto state = Text(target["submap_state"]);
-    Require(t.generation && anchor < result.frame_count &&
+    Require(t.generation && t.generation <= result.generation &&
+                anchor < result.frame_count &&
                 static_cast<std::uint64_t>(count) <=
                     result.frame_count - anchor &&
                 (state == "active" || state == "sealed") &&
@@ -360,7 +361,7 @@ bool EqualJson(const cv::FileNode& a, const cv::FileNode& b) {
   }
   if (a.isString()) return b.isString() && Text(a) == Text(b);
   return (a.isInt() || a.isReal()) && (b.isInt() || b.isReal()) &&
-         std::abs(Number(a) - Number(b)) <= 1e-9;
+         Number(a) == Number(b);
 }
 
 void Echo(const cv::FileNode& root, const GaussianRenderRequest& request) {
@@ -522,7 +523,7 @@ GaussianRender DecodeGaussianRenderReply(
   const auto json = gaussian_mapper_io::Parse(
       message, "joint_render_ok", request.session_id, 2);
   Echo(json.root(), request);
-  Require(pose_math::Equal(Pose(json["parent_from_body"]),
+  Require(SameRenderPose(Pose(json["parent_from_body"]),
                            request.parent_from_body),
           "Query pose echo mismatch");
   GaussianRender result;

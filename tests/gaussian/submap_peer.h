@@ -70,6 +70,8 @@ class SubmapPeer {
       no_render_capability{false};
   std::atomic<bool> no_spatial_capability{false}, omit_spatial_metadata{false};
   std::atomic<bool> alter_reuse_metadata{false};
+  std::atomic<bool> alter_candidate_focal{false}, alter_candidate_time{false},
+      alter_candidate_extrinsic{false}, alter_rebuild_camera{false};
   std::atomic<int> renders{0};
   std::atomic<std::uint64_t> render_job{0};
   std::atomic<int> views{0}, checkpoints{0}, acknowledgements{0}, prunes{0},
@@ -208,7 +210,8 @@ class SubmapPeer {
                 << "parameter_updated"
                 << (action == "reuse" || ineffective_training ? 0 : 1)
                 << "capture_time"
-                << (spatial ? 100. + std::stoull(proposed.back()) : 100.);
+                << (spatial ? 100. + std::stoull(proposed.back()) +
+                                  (alter_candidate_time ? 1. : 0.) : 100.);
             if (spatial && !omit_spatial_metadata) {
               std::vector<std::uint64_t> frames;
               for (const auto& id : proposed)
@@ -221,6 +224,13 @@ class SubmapPeer {
                                                : Text(input["job_id"]))};
               out << "render_metadata";
               auto metadata = RenderMetadata(content, frames);
+              if (action == "view" && alter_candidate_focal)
+                metadata.camera.K(0, 0) += 1;
+              if (alter_candidate_time) metadata.camera.capture_time += 1;
+              if (action == "view" && alter_candidate_extrinsic)
+                metadata.camera.camera_from_body.translation.x() += 1;
+              if (action == "rebuild" && alter_rebuild_camera)
+                metadata.camera.K(0, 0) += 1;
               if (action == "reuse" && alter_reuse_metadata)
                 metadata.extents.front().max.x() = 1;
               WriteGaussianRenderMetadata(out, metadata);

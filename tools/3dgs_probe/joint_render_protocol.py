@@ -96,7 +96,8 @@ def _header(header):
         _keys(content, _CONTENT)
         submap = _unsigned(target['submap_id'], 'submap')
         ids.append(submap)
-        _positive(target['generation'], 'target generation')
+        _require(_positive(target['generation'], 'target generation') <= int(header['generation']),
+                 'Render binding generation exceeds the session fence')
         count = _integer(target['primary_count'], 'primary count', 1, 512)
         anchor = _unsigned(target['anchor_keyframe_id'], 'anchor')
         sealed = target['submap_state'] == 'sealed'
@@ -242,7 +243,7 @@ def validate_render_message(header, body):
                  header['calibration_id'] == saved['calibration_id'] and
                  [header[key] for key in ('fx', 'fy', 'cx', 'cy')] == [K[0], K[4], K[2], K[5]] and
                  header['image_timestamp'] == saved['capture_time'] and
-                 _same_pose(camera, _pose(saved['camera_from_body'], 'spatial query camera')),
+                 np.array_equal(camera, _pose(saved['camera_from_body'], 'spatial query camera')),
                  'Render replaced the retained spatial query camera')
     for key in ('single', 'joint'):
         _metrics(header[key], pixels)

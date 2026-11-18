@@ -84,6 +84,11 @@ def _event_selection(event, policy):
     actual = header.get('policy', 'temporal')
     _require(actual == policy and event.get('policy', actual) == actual,
              'Owner render policy differs from source or run configuration')
+    camera = (header['blocks'][-1]['render_metadata']['camera']
+              if policy == 'spatial' else None)
+    pixel_limit = camera['width'] * camera['height'] if camera is not None else 1_000_000
+    _require(type(event.get('changed_pixels')) is int and 0 <= event['changed_pixels'] <= pixel_limit,
+             'Owner contribution exceeds the accepted camera pixel budget')
     ids = [int(block['target']['submap_id']) for block in header['blocks']]
     selection = dict(candidate_count=0, candidate_pixels=0, projection_uncertain=0, selection_seconds=0.)
     selection.update(header.get('selection', {}))
