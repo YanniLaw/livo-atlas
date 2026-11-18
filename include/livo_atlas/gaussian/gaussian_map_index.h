@@ -37,6 +37,8 @@ class GaussianMapIndex {
   void MarkRepairAttempt(std::uint64_t submap_id);
   GaussianMapSnapshot Snapshot() const;
 
+  std::uint64_t sequence() const { return sequence_; }
+
  private:
   void Reclassify();
 

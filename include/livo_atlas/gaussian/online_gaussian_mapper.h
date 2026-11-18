@@ -19,6 +19,7 @@
 #include "livo_atlas/core/online_submap_update.h"
 #include "livo_atlas/gaussian/gaussian_map_index.h"
 #include "livo_atlas/gaussian/gaussian_render.h"
+#include "livo_atlas/gaussian/gaussian_render_snapshot.h"
 
 namespace livo_atlas {
 
@@ -88,6 +89,7 @@ class OnlineGaussianMapper {
   OnlineGaussianStats GetStats() const;
   std::shared_ptr<const GaussianRender> GetLatestRender() const;
   GaussianRenderStats GetRenderStats() const;
+  GaussianRenderSnapshot GetRenderSnapshot() const;
   std::shared_ptr<const GaussianMapSnapshot> GetMapSnapshot() const;
 
  private:

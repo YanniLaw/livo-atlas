@@ -209,6 +209,29 @@ class OnlineGaussianRenderTest : public testing::Test {
   bool rounded_camera_ = false;
 };
 
+TEST_F(OnlineGaussianRenderTest, SnapshotWithdrawsOnChangeAndStopsTerminally) {
+  EXPECT_EQ(mapper_->GetRenderSnapshot().status,
+            GaussianRenderStatus::kWaiting);
+  Append();
+  ASSERT_TRUE(Wait([&] { return bool(mapper_->GetLatestRender()); }));
+  const auto ready = mapper_->GetRenderSnapshot();
+  ASSERT_EQ(ready.status, GaussianRenderStatus::kReady);
+  EXPECT_EQ(ready.render, mapper_->GetLatestRender());
+  EXPECT_EQ(ready.map_sequence, mapper_->GetMapSnapshot()->map_sequence);
+  peer_->hold_render = true;
+  Append();
+  const auto changed = mapper_->GetRenderSnapshot();
+  EXPECT_EQ(changed.status, GaussianRenderStatus::kInvalidated);
+  EXPECT_FALSE(changed.render);
+  EXPECT_GT(changed.map_sequence, ready.map_sequence);
+  peer_->hold_render = false;
+  mapper_->Finish();
+  const auto stopped = mapper_->GetRenderSnapshot();
+  EXPECT_EQ(stopped.status, GaussianRenderStatus::kStopped);
+  EXPECT_FALSE(stopped.render);
+  EXPECT_EQ(stopped.session_id, ready.session_id);
+}
+
 TEST_F(OnlineGaussianRenderTest, SpatialMetadataWaitsForConfirmedDecision) {
   options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
   RestartMapper();
@@ -239,6 +262,11 @@ TEST_F(OnlineGaussianRenderTest, SpatialCapabilityCannotFallBackToTemporal) {
     std::this_thread::sleep_for(1ms);
   }
   EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(mapper_->GetRenderSnapshot().status,
+            GaussianRenderStatus::kError);
+  mapper_->Finish();
+  EXPECT_EQ(mapper_->GetRenderSnapshot().status,
+            GaussianRenderStatus::kStopped);
   EXPECT_NE(mapper_->GetStats().error.find("joint_render_spatial_v1"),
             std::string::npos);
 }
@@ -792,6 +820,8 @@ TEST_F(OnlineGaussianRenderTest, WriteFailureDisablesOnlyJointPreview) {
   peer_->hold_render = false;
   ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().failed == 1; }));
   EXPECT_TRUE(mapper_->GetRenderStats().disabled);
+  EXPECT_EQ(mapper_->GetRenderSnapshot().status,
+            GaussianRenderStatus::kDisabled);
   EXPECT_FALSE(mapper_->GetLatestRender());
   EXPECT_FALSE(fs::exists(options_.output_directory / (name + ".json")));
   EXPECT_EQ(mapper_->GetStats().failed, 0u);
@@ -820,6 +850,8 @@ TEST_F(OnlineGaussianRenderTest, RealWorkerContinuesAfterPreviewRenameFailure) {
   Confirm();
   ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().failed == 1; }));
   EXPECT_TRUE(mapper_->GetRenderStats().disabled);
+  EXPECT_EQ(mapper_->GetRenderSnapshot().status,
+            GaussianRenderStatus::kDisabled);
   EXPECT_EQ(mapper_->GetStats().failed, 0u);
   EXPECT_FALSE(mapper_->GetLatestRender());
   Append();

@@ -102,6 +102,43 @@ TEST_F(GlobalOutputOptionsTest, DisabledPreservesLegacyConfiguration) {
   EXPECT_FALSE(fs::exists(directory_));
 }
 
+TEST_F(GlobalOutputOptionsTest, GaussianPreviewRequiresJointAndSafeFrame) {
+  GlobalParameters parameters(directory_);
+  EXPECT_FALSE(LoadLivoConfig(parameters).gaussian_output.enabled);
+  parameters.booleans_["gaussian.publish_preview"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.EnableOnlineStorage();
+  parameters.booleans_["gaussian.enabled"] = true;
+  parameters.booleans_["gaussian.persist_submaps"] = true;
+  parameters.strings_["gaussian.socket_path"] = "/tmp/preview-test.sock";
+  parameters.strings_["gaussian.output_directory"] = "/tmp/preview-test";
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.booleans_["gaussian.joint_render_enabled"] = true;
+  parameters.integers_["gaussian.joint_render_interval_ms"] = 234;
+  const auto config = LoadLivoConfig(parameters);
+  EXPECT_TRUE(config.gaussian_output.enabled);
+  EXPECT_EQ(config.gaussian_output.minimum_interval.count(), 234);
+  EXPECT_EQ(config.gaussian_output.optical_frame, "gaussian_camera_optical");
+  for (const auto* frame : {"", "/cam", "cam/", "cam//sub", "camera_init",
+                            "aft_mapped", "world", "map", "bad frame"}) {
+    parameters.strings_["gaussian.preview_frame_id"] = frame;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument) << frame;
+  }
+  parameters.strings_["gaussian.preview_frame_id"] = std::string(129, 'a');
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.strings_["gaussian.preview_frame_id"] = "atlas/camera_optical";
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+  for (const auto* frame : {"", "/map", "map/", "bad frame", "world"}) {
+    parameters.strings_["global_output.map_frame"] = frame;
+    EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument) << frame;
+  }
+  parameters.strings_["global_output.map_frame"] = std::string(257, 'm');
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  parameters.strings_["global_output.map_frame"] = "atlas/map";
+  EXPECT_NO_THROW(LoadLivoConfig(parameters));
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
 TEST_F(GlobalOutputOptionsTest, GaussianJointRenderDependenciesAndRanges) {
   GlobalParameters parameters(directory_);
   auto defaults = LoadLivoConfig(parameters).gaussian;

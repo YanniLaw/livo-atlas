@@ -97,7 +97,7 @@ Noetic 两者 queue1/latch；Humble 两者 reliable/transient_local/keep_last1�
 新增 gaussian.publish_preview=false、gaussian.preview_frame_id=gaussian_camera_optical。
 共享 LivoConfig 末尾追加 GaussianRenderOutputOptions，保持 OnlineGaussianOptions 聚合布局。
 开启要求 Gaussian+persist_submaps+joint_render_enabled 且编译 Gaussian ON；在创建输出前检查。
-帧名采用1..128字节ASCII非空slash分段，不得与 camera_init/aft_mapped/world/map_frame 重名。
+光学帧名采用1..128字节ASCII非空slash分段，父地图帧同样校验并限256字节，不得与 camera_init/aft_mapped/world/map_frame 重名。
 节流直接复用 joint_render_interval（100..60000ms），不增加同义频率配置。
 
 同一 main 创建 publisher 后创建 output；after_process 中先 mapper.Poll，再 Observe(GetRenderSnapshot)。

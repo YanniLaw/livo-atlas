@@ -44,6 +44,15 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.Boolean("gaussian.finalize_on_shutdown", false);
   gaussian.joint_render_enabled =
       reader.Boolean("gaussian.joint_render_enabled", false);
+  auto& gaussian_output = config.gaussian_output;
+  gaussian_output.enabled = reader.Boolean("gaussian.publish_preview", false);
+  gaussian_output.optical_frame = reader.String(
+      "gaussian.preview_frame_id", gaussian_output.optical_frame);
+  if (gaussian_output.enabled &&
+      (!gaussian.enabled || !gaussian.persist_submaps ||
+       !gaussian.joint_render_enabled))
+    throw std::invalid_argument(
+        "Gaussian preview publication requires persistent joint rendering");
   const auto render_policy =
       reader.String("gaussian.joint_render_policy", "temporal");
   if (render_policy == "spatial") {
@@ -111,6 +120,8 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.Integer("global_output.geometry.max_message_bytes",
                      geometry_output.map.max_message_bytes);
   ValidateGlobalOutputOptions(global);
+  gaussian_output.minimum_interval = gaussian.joint_render_interval;
+  ValidateGaussianRenderOutputOptions(gaussian_output, global.map_frame);
   auto& options = config.system;
   auto& front = options.frontend;
   auto& visual = front.visual;
