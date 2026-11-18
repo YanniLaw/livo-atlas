@@ -1,5 +1,6 @@
 """CPU-only inspection of a bounded online Gaussian map and its durable assets."""
 
+import copy
 import hashlib
 import json
 import math
@@ -180,7 +181,8 @@ def _check_groups(keyframes, rows):
                  "Logical membership differs from authoritative grouping")
 
 
-def inspect_gaussian_map(directory, keyframes, expected_version, expected_frames):
+def _inspect_gaussian_map(directory, keyframes, expected_version, expected_frames,
+                          query_id=None):
     """Verify one state at a time; never retain a map-wide parameter cache."""
     directory, keyframes = Path(directory), Path(keyframes)
     data = _json(directory / "map.json")
@@ -226,6 +228,7 @@ def inspect_gaussian_map(directory, keyframes, expected_version, expected_frames
               "volatile": 0, "asset_bytes": total, "referenced_bytes": 0,
               "asset_directories": len(assets)}
     referenced = set()
+    query = None
     next_primary = residents = 0
     for submap, row in enumerate(rows):
         binding = row["binding"]
@@ -302,13 +305,24 @@ def inspect_gaussian_map(directory, keyframes, expected_version, expected_frames
                      row["gaussian_count"] == row["asset_gaussian_count"], "Durable and confirmed coverage differ")
         report["verified_assets"] += 1
         report["referenced_bytes"] += sum(sizes.values())
+        if query_id is not None:
+            for view in state.views:
+                if view["keyframe_id"] == query_id:
+                    _require(query is None, "Query frame belongs to multiple assets")
+                    query = (submap, copy.deepcopy(view))
+            del view
         del state
     _require(next_primary == frames and residents <= 1 and len(referenced) <= 32,
              "Logical frontier is incomplete or resident budget exceeded")
     _check_groups(keyframes, rows)
     report["unreferenced_assets"] = len(assets) - len(referenced)
     report["durable"] = report["volatile"] == 0 and report["unreferenced_assets"] == 0
-    return report
+    return report, data, poses, query
+
+
+def inspect_gaussian_map(directory, keyframes, expected_version, expected_frames):
+    return _inspect_gaussian_map(directory, keyframes, expected_version,
+                                 expected_frames)[0]
 
 
 def inspect_gaussian_finalization(directory, map_report):
