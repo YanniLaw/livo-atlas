@@ -70,6 +70,7 @@ class CompareGaussianReplaysTest(unittest.TestCase):
             path = run / 'parameters.yaml'
             config = yaml.safe_load(path.read_text())
             config['gaussian'] = dict(enabled=True, persist_submaps=True,
+                finalize_on_shutdown=True,
                 joint_render_enabled=enabled,
                 output_directory=str(self.previews if enabled else self.off / 'previews'))
             path.write_text(yaml.safe_dump(config))
@@ -77,6 +78,18 @@ class CompareGaussianReplaysTest(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertIn('joint_render', result['differences'])
         self.assertNotIn('gaussian_configuration', result['differences'])
+
+    def test_joint_comparison_requires_explicit_finalize_on_both_sides(self):
+        for off_finalize, on_finalize in ((False, False), (False, True), (True, False), (None, True)):
+            for run, enabled, finalize in ((self.off, False, off_finalize), (self.on, True, on_finalize)):
+                config = dict(enabled=True, persist_submaps=True, joint_render_enabled=enabled,
+                              output_directory=str(self.previews if enabled else self.off / 'previews'))
+                if finalize is not None:
+                    config['finalize_on_shutdown'] = finalize
+                (run / 'parameters.yaml').write_text(yaml.safe_dump({'gaussian': config}))
+            with self.subTest(off=off_finalize, on=on_finalize):
+                result = compare(self.off, self.on, self.previews, joint_render=True)
+                self.assertIn('Finalize', result['differences'].get('gaussian_configuration', ''))
 
     def test_frontend_and_raw_differences_are_reported(self):
         (self.on / "mat_out.txt").write_text("1 2\n3 5\n")
@@ -463,6 +476,24 @@ class FinalizedGaussianReplayTest(unittest.TestCase):
     def test_missing_report_is_rejected(self):
         (self.previews / 'finalization.json').unlink()
         self.assertFalse(compare(self.off, self.on, self.previews)['passed'])
+
+    def test_joint_comparison_validates_the_off_finalization_independently(self):
+        off_previews = self.off / 'previews'
+        shutil.copytree(self.previews, off_previews)
+        for name in ('summary.json', 'mapping.log'):
+            shutil.copyfile(self.on / name, self.off / name)
+        for run, enabled, previews in ((self.off, False, off_previews),
+                                       (self.on, True, self.previews)):
+            path = run / 'parameters.yaml'
+            config = yaml.safe_load((self.on / 'parameters.yaml').read_text())
+            config['gaussian'].update(joint_render_enabled=enabled, output_directory=str(previews))
+            path.write_text(yaml.safe_dump(config))
+        baseline = compare(self.off, self.on, self.previews, joint_render=True)
+        self.assertNotIn('off_gaussian_map', baseline['differences'])
+        self.assertNotIn('gaussian_finalization', baseline['differences'])
+        (off_previews / 'finalization.json').unlink()
+        result = compare(self.off, self.on, self.previews, joint_render=True)
+        self.assertIn('off_gaussian_map', result['differences'])
 
     def test_forged_report_cannot_replace_map_and_stop_evidence(self):
         changes = [('status', 'timed_out'), ('session_id', 'b'*32), ('frame_count', '3'),

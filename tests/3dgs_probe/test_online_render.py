@@ -17,7 +17,7 @@ from online_model import checked_cuda_device
 from online_protocol import encode_message, read_message, write_message
 from online_worker import serve_connection
 from render_actor_fixtures import METADATA, RenderActor, training_state
-from render_fixtures import TARGET_FIELDS
+from render_fixtures import ASSET_FIELDS, TARGET_FIELDS
 from state_fixtures import pose
 from online_model import OnlineGaussianModel
 from submap_fixtures import SESSION, control_fixture
@@ -76,6 +76,38 @@ class OnlineRenderTest(unittest.TestCase):
         self.assertTrue(continued['nonzero_gradient'])
         self.assertTrue(continued['parameter_updated'])
 
+    def test_dirty_resident_rejects_its_still_referenced_previous_checkpoint(self):
+        root = Path(self.temp.name) / 'dirty'
+        root.mkdir(mode=0o700)
+        fixture = RenderActor(root, self.device)
+        self.addCleanup(fixture.release)
+        fixture.activate(0, 0, 2)
+        fixture.view(0)
+        asset = fixture.checkpoint()
+        fixture.view(1)
+        fixture.acknowledge()
+        header = dict(schema=2, type='joint_render', session_id=SESSION, job_id=str(fixture.job()),
+            generation=str(fixture.generation), pose_version='0', map_sequence=str(fixture.sequence),
+            frame_count='2', optimized_frame_count='0', parent_frame='odom', query_keyframe_id='0',
+            query_submap_id='0', neighbor_reason='no_previous_group', blocks=[dict(
+                target={key: fixture.target[key] for key in TARGET_FIELDS}, resident=0,
+                content={key: asset[key] for key in ('submap_id', 'source_generation', 'content_job_id')},
+                asset={key: asset[key] for key in ASSET_FIELDS}, frame_ids=['0'], gaussian_count=1)])
+        body = pose(0).astype('<f8').tobytes() + fixture.target_body
+        self.assertIn(int(asset['asset_id']), fixture.actor.references)
+        before = training_state(fixture.actor)
+        with self.assertRaisesRegex(ValueError, 'superseded'):
+            fixture.actor.handle(header, body)
+        self.assertEqual(training_state(fixture.actor), before)
+
+    def test_query_cannot_predate_a_newer_known_confirmation(self):
+        header, body = self.fixture.request()
+        header.update(blocks=header['blocks'][:1], query_submap_id='1', query_keyframe_id='3',
+                      neighbor_reason='neighbor_unavailable')
+        body = pose(3).astype('<f8').tobytes() + body[128:384]
+        with self.assertRaisesRegex(ValueError, 'known confirmation'):
+            self.actor.handle(header, body)
+
     def test_old_capture_and_new_projected_query_do_not_advance_training_frontier(self):
         self.fixture.acknowledge(version=1)
         before = training_state(self.actor)
@@ -89,22 +121,21 @@ class OnlineRenderTest(unittest.TestCase):
         self.assertEqual(self.actor._max_version, 0)
 
     def test_discarded_repair_fence_can_render_restored_resident_confirmation(self):
+        neighbor_generation = self.fixture.targets[1]['generation']
         self.fixture.checkpoint()
+        self.fixture.activate(2, 5, 2, asset=self.fixture.assets[2])
         self.fixture.activate(1, 3, 2, asset=self.fixture.assets[1], accept=False)
         before = training_state(self.actor)
-        target = {key: self.fixture.targets[0][key] for key in TARGET_FIELDS}
-        header, _ = self.fixture.request()
-        block = dict(target=target, content=dict(self.actor.content), resident=1,
-                     frame_ids=['0', '1'], gaussian_count=2)
-        header.update(blocks=[block], query_keyframe_id='1', query_submap_id='0',
-                      neighbor_reason='no_previous_group')
-        primary = np.array([entry['submap_from_body'] for entry in
-                            self.actor.confirmed_binding['primary']], dtype='<f8')
-        body = pose(1).astype('<f8').tobytes() + primary.tobytes()
+        header, body = self.fixture.request()
+        block = header['blocks'][-1]
+        block.update(target={key: self.fixture.targets[2][key] for key in TARGET_FIELDS},
+                     content=dict(self.actor.content), resident=1)
+        block.pop('asset')
+        header['blocks'][0]['target']['generation'] = neighbor_generation
         reply, _ = self.actor.handle(header, body)
         self.assertEqual(reply['type'], 'joint_render_ok')
-        self.assertEqual(reply['generation'], '5')
-        self.assertEqual(reply['blocks'][0]['target']['generation'], '4')
+        self.assertEqual(reply['generation'], '6')
+        self.assertEqual(reply['blocks'][-1]['target']['generation'], '5')
         self.assertEqual(training_state(self.actor), before)
 
     def test_worker_timing_includes_both_real_metric_evaluations(self):

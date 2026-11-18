@@ -324,6 +324,10 @@ gaussian.joint_render_interval_ms: 1000
 gaussian.joint_render_timeout_ms: 5000
 ```
 
+两个回放工具在创建输出前同时检查工作关键帧目录和最终导出目录；预览目录须与它们互不包含。
+未提供的旧持久化/Finalize CLI开关不会覆盖已加载的YAML配置。联合验收模式要求两侧显式开启Finalize，
+分别核对最终报告，并要求实际保留文件对数等于 `min(4, saved)`。
+
 两端仍使用同一 C++ main 和 Python worker。新能力通过 schema2 的
 `joint_render_v1` 显式协商；worker 版本不支持时会报告 Gaussian 会话失败。
 
@@ -331,7 +335,9 @@ worker 只读取 CPU 确认或与当前确认完全对应的持久资产，单�
 Gaussian 和 1,000,000 像素。驻留训练模型可以是未选中的第三块。
 推理临时缓冲独立于模型参数、Adam 和梯度；会话代数作为 fence，每块绑定代数独立。
 候选丢弃后恢复旧确认，也可以继续只读渲染。训练、持久化、剪枝和渲染共享单任务通道。
-两次完整内容尝试后给到期渲染一次机会，随后继续原训练/修复选择；空闲期间只对新输入身份重新渲染。
+两次完整内容尝试后给到期渲染一次机会，随后继续原训练/修复选择。若先同步map时确认已过期，
+本次机会到此结束，保留需求并归还原训练/修复选择，避免持续输入导致同步重试饿死内容工作。
+空激活不算驻留内容；无可执行内容工作时，空闲预览不等待不存在的重绑定。
 
 owner 使用同一 map/poses 捕获请求，返回时严格核对 `map_sequence`、位姿前沿、查询和选块来源。
 过期结果计入 `stale`。`GetLatestRender()` 返回只读拥有结果；索引、位姿、内容或终端状态变化时失效，
@@ -359,8 +365,13 @@ CUDA OOM 或预览写入失败会停用本会话联合预览，训练及持久�
 ```
 
 `run_baseline.py` 接收 ROS1 bag，`run_ros2_baseline.py` 接收已转换的 rosbag2。
-脚本记录输入结束观测和最后一次确认仍在回放的稳态时间；检查器采用后者作为保守接纳边界，
-避免把轮询间隙或结束后生成的图算作在线证据。例：
+Noetic记录启动播放器前的稳态时刻和实际选中输入的首末bag时间，以固定速率时间线给出
+最终发布的保守下界，再减去10ms余量；启动等待和进程退出耗时均不计入在线窗口。
+播放器禁用交互输入，未使用immediate/skip模式；发现wall/steady时钟偏差超过10ms时拒绝时序证明。
+该下界依据[Noetic player](https://github.com/ros/ros_comm/blob/noetic-devel/tools/rosbag/src/player.cpp)
+与[时间平移实现](https://github.com/ros/ros_comm/blob/noetic-devel/tools/rosbag/src/time_translator.cpp)推导。
+Humble在实际输入publish之前记录稳态时刻。检查器独立重算Noetic下界，
+播放器仍存活或文件存在本身均不能证明在线。该保守策略会漏计部分有效的末段预览。例：
 
 ```bash
 python3 tools/compare_gaussian_replays.py \

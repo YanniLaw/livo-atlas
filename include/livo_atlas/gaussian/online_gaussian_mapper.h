@@ -219,6 +219,7 @@ class OnlineGaussianMapper {
   std::uint64_t next_asset_ = 1, acknowledged_map_ = 0;
   int foreground_attempts_ = 0;
   int render_attempts_ = 0;
+  bool render_sync_attempted_ = false;
   bool render_pending_ = false;
   std::uint64_t render_sequence_ = 0, render_skip_sequence_ = 0;
   Clock::time_point render_dispatched_at_;

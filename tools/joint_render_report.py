@@ -111,7 +111,21 @@ def inspect_joint_renders(run, previews, min_dual=0, min_groups=0):
     _require(summary.get('joint_render_enabled') is True, 'Run did not enable joint rendering')
     start = _finite(summary.get('playback_started_steady_seconds'))
     eof = _finite(summary.get('playback_eof_steady_seconds'))
-    cutoff = _finite(summary.get('playback_confirmed_running_until_steady_seconds'))
+    cutoff = _finite(summary.get('playback_input_cutoff_steady_seconds'))
+    source = summary.get('playback_input_cutoff_source')
+    _require(source in ('fixed_rate_lower_bound', 'source_publish_begin'), 'Missing input publication proof')
+    if source == 'fixed_rate_lower_bound':
+        try:
+            from .run_baseline import fixed_rate_input_cutoff
+        except ImportError:
+            from run_baseline import fixed_rate_input_cutoff
+        _require(summary.get('playback_wall_clock_stable') is True, 'Input timeline clock changed')
+        stamps = [summary.get(key) for key in
+                  ('playback_first_input_timestamp_ns', 'playback_last_input_timestamp_ns')]
+        _require(all(type(value) is str and re.fullmatch('0|[1-9][0-9]*', value) for value in stamps),
+                 'Invalid input timeline timestamps')
+        bound = fixed_rate_input_cutoff(start, int(stamps[0]), int(stamps[1]), summary['playback_rate'])
+        _require(abs(bound - cutoff) < 1e-7, 'Input publication lower bound differs')
     _require(0 <= start <= cutoff <= eof and start < eof, 'Missing or inconsistent input EOF interval')
     log = run / 'mapping.log'
     if not log.is_file():
@@ -138,7 +152,10 @@ def inspect_joint_renders(run, previews, min_dual=0, min_groups=0):
              'Insufficient joint contributions accepted before input EOF')
     files = sorted(previews.glob('joint-render-*.json'))
     images = sorted(previews.glob('joint-render-*.png'))
-    _require(1 <= len(files) <= 4 and {path.stem for path in files} == {path.stem for path in images} and
+    saved = stats.get('saved', -1)
+    _require(type(saved) is int and 1 <= saved <= stats['accepted'] and
+             len(files) == min(4, saved) and
+             {path.stem for path in files} == {path.stem for path in images} and
              not any('.tmp.' in path.name for path in files + images), 'Invalid retained render pairs')
     retained = []
     for path in files:

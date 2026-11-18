@@ -27,7 +27,7 @@ def add_gaussian_arguments(parser):
     parser.add_argument('--gaussian-joint-render-timeout-ms', type=int, default=5000)
 
 
-def validate_gaussian_arguments(args, parser):
+def validate_gaussian_arguments(args, parser, working_dataset):
     if args.gaussian_joint_render and not args.gaussian_persist_submaps:
         parser.error('--gaussian-joint-render requires --gaussian-persist-submaps')
     if not 100 <= args.gaussian_joint_render_interval_ms <= 60000:
@@ -53,9 +53,10 @@ def validate_gaussian_arguments(args, parser):
         baseline_output = args.output.resolve()
         if gaussian_output == baseline_output or gaussian_output in baseline_output.parents:
             parser.error('--gaussian-output must not contain the baseline output')
-        dataset = baseline_output / 'node_output/keyframes'
-        if gaussian_output == dataset or dataset in gaussian_output.parents:
-            parser.error('--gaussian-output must be separate from the keyframe dataset')
+        for dataset in (working_dataset.resolve(), baseline_output / 'keyframes'):
+            if (gaussian_output == dataset or dataset in gaussian_output.parents or
+                    gaussian_output in dataset.parents):
+                parser.error('--gaussian-output must be separate from the keyframe dataset')
 
 
 def gaussian_parameters(args):
@@ -64,12 +65,13 @@ def gaussian_parameters(args):
     parameters = {'gaussian.enabled': True,
         'gaussian.socket_path': str(args.gaussian_socket.resolve()),
         'gaussian.output_directory': str(args.gaussian_output.resolve()),
-        'gaussian.persist_submaps': args.gaussian_persist_submaps,
-        'gaussian.finalize_on_shutdown': args.gaussian_finalize_on_shutdown,
-        'gaussian.finalize_timeout_ms': args.gaussian_finalize_timeout_ms,
         'gaussian.joint_render_enabled': args.gaussian_joint_render,
         'gaussian.joint_render_interval_ms': args.gaussian_joint_render_interval_ms,
         'gaussian.joint_render_timeout_ms': args.gaussian_joint_render_timeout_ms}
     if args.gaussian_persist_submaps:
+        parameters['gaussian.persist_submaps'] = True
         parameters['gaussian.shutdown_timeout_ms'] = 30000
+    if args.gaussian_finalize_on_shutdown:
+        parameters['gaussian.finalize_on_shutdown'] = True
+        parameters['gaussian.finalize_timeout_ms'] = args.gaussian_finalize_timeout_ms
     return parameters

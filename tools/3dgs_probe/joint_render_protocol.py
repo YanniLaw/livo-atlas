@@ -110,7 +110,7 @@ def _header(header):
     else:
         _require(reason == ('no_previous_group' if owner == 0 else 'neighbor_unavailable'),
                  'Missing single-block reason')
-    _require(str(query) in blocks[-1]['frame_ids'], 'Query is not retained by its owner')
+    _require(str(query) == blocks[-1]['frame_ids'][-1], 'Query is not the last retained owner camera')
     return primary_count
 
 

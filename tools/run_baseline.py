@@ -55,6 +55,20 @@ def gaussian_preview_available(directory):
                for path in Path(directory).glob('preview-*.json'))
 
 
+def fixed_rate_input_cutoff(launch_before, first_ns, last_ns, rate):
+    """Lower bound on final publication, excluding startup and teardown time.
+
+    The native player anchors its fixed-rate timeline after process launch and
+    advertising. No immediate/skip/interactive playback is permitted here.
+    Subtract the 10 ms clock-drift tolerance rather than crediting startup delay.
+    """
+    if (not math.isfinite(launch_before) or launch_before < 0 or
+            type(first_ns) is not int or type(last_ns) is not int or
+            not 0 <= first_ns <= last_ns or not math.isfinite(rate) or rate <= 0):
+        raise ValueError('Invalid fixed-rate input timeline')
+    return launch_before + (last_ns - first_ns) * 1e-9 / rate - .01
+
+
 def shutdown_wait_seconds(options):
     return (options.gaussian_finalize_timeout_ms / 1000 + 90
             if options.gaussian_finalize_on_shutdown else 10)
@@ -124,7 +138,9 @@ def parse_arguments(arguments=None):
                         help='Record versioned geometry maps; enables global output and online storage')
     add_gaussian_arguments(parser)
     args = parser.parse_args(arguments)
-    validate_gaussian_arguments(args, parser)
+    working_dataset = (args.workspace / 'src/livo-atlas/Log/keyframes' if args.legacy_output
+                       else args.output / 'node_output/keyframes')
+    validate_gaussian_arguments(args, parser, working_dataset)
     if args.geometry_map and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-map requires online submaps')
     if args.keyframe_trajectory or args.geometry_map:
@@ -217,6 +233,7 @@ def main():
         log_handles.append(handle)
         commands.append(command)
         proc = subprocess.Popen(command, env=env, stdout=handle,
+                                stdin=subprocess.DEVNULL if name == 'player' else None,
                                 stderr=subprocess.STDOUT, start_new_session=True)
         processes.append((name, proc))
         return proc
@@ -446,21 +463,30 @@ def main():
             bag_start, bag_end = data.get_start_time(), data.get_end_time()
             replay_end = min(bag_end, bag_start + args.duration)
             expected = collections.Counter()
+            first_input_ns = last_input_ns = None
             for topic, _, stamp in data.read_messages(raw=True):
                 if stamp.to_sec() >= bag_start + args.duration:
                     break
                 expected[topic] += 1
+                if first_input_ns is None:
+                    first_input_ns = stamp.to_nsec()
+                last_input_ns = stamp.to_nsec()
 
+        playback_started = time.monotonic()
+        playback_wall_started = time.time()
+        input_cutoff = fixed_rate_input_cutoff(playback_started, first_input_ns, last_input_ns, args.rate)
+        wall_clock_stable = True
         player = launch(['rosbag', 'play', str(bag), '--clock', '--rate', str(args.rate),
                          '--duration', str(args.duration), '--delay', '1', '--queue', '2000'], 'player')
         process_info = psutil.Process(node.pid)
-        playback_started = time.monotonic()
         first_gaussian_preview_seconds = None
         deadline = playback_started + args.duration / args.rate + 90
         last_report = playback_started
         confirmed_running_until = playback_started
         while True:
             sampled_before_poll = time.monotonic()
+            if abs((time.time() - playback_wall_started) - (sampled_before_poll - playback_started)) > .01:
+                wall_clock_stable = False
             if player.poll() is not None:
                 break
             confirmed_running_until = sampled_before_poll
@@ -481,6 +507,9 @@ def main():
                 last_report = now
             time.sleep(0.2)
         playback_eof_steady_seconds = time.monotonic()
+        if abs((time.time() - playback_wall_started) -
+               (playback_eof_steady_seconds - playback_started)) > .01:
+            wall_clock_stable = False
         playback_wall_s = playback_eof_steady_seconds - playback_started
         if player.returncode:
             raise RuntimeError('rosbag play exited with %s' % player.returncode)
@@ -569,6 +598,11 @@ def main():
             'playback_started_steady_seconds': playback_started,
             'playback_eof_steady_seconds': playback_eof_steady_seconds,
             'playback_confirmed_running_until_steady_seconds': confirmed_running_until,
+            'playback_input_cutoff_steady_seconds': input_cutoff if wall_clock_stable else None,
+            'playback_input_cutoff_source': 'fixed_rate_lower_bound',
+            'playback_wall_clock_stable': wall_clock_stable,
+            'playback_first_input_timestamp_ns': str(first_input_ns),
+            'playback_last_input_timestamp_ns': str(last_input_ns),
             'joint_render_enabled': args.gaussian_joint_render,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,

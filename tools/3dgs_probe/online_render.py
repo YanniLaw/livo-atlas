@@ -14,7 +14,8 @@ def render_confirmed(actor, request):
 
     header = request['header']
     if (int(header['generation']) != actor._max_generation or
-            int(header['map_sequence']) != actor.map_sequence or actor.pending_checkpoint is not None):
+            int(header['map_sequence']) != actor.map_sequence or actor.pending_checkpoint is not None or
+            int(header['frame_count']) < actor._max_frontier or int(header['pose_version']) < actor._max_version):
         raise ValueError('Render fence differs from the acknowledged worker map')
     started = time.perf_counter()
     blocks, query = [], None
@@ -22,6 +23,9 @@ def render_confirmed(actor, request):
     for block in request['blocks']:
         source = block['header']
         content = dict(source['content'])
+        if (actor.content is not None and actor.content['submap_id'] == content['submap_id'] and
+                actor.content != content):
+            raise ValueError('Render source is superseded by the resident confirmation')
         if not source['resident']:
             asset = source['asset']
             known = actor.assets.get(int(asset['asset_id']))
@@ -45,6 +49,12 @@ def render_confirmed(actor, request):
         del state
     if query is None:
         raise ValueError('Requested training query is missing')
+    known_query = max((int(frame) for key in actor.references
+                       for frame in actor.assets[key]['frame_ids']), default=-1)
+    if actor.confirmed_state is not None:
+        known_query = max(known_query, max(int(view['keyframe_id']) for view in actor.confirmed_state.views))
+    if int(header['query_keyframe_id']) < known_query:
+        raise ValueError('Render query predates a newer known confirmation')
     blocks = [(key, parameters, camera_from_parent @ parent) for key, parameters, parent in blocks]
     height, width = query['rgb'].shape[:2]
     single = infer_blocks([blocks[-1]], query['K'], width, height, actor.device)

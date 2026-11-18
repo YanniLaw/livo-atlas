@@ -153,10 +153,8 @@ void ValidateGaussianRenderRequest(const GaussianRenderRequest& request) {
     total += block.gaussian_count;
   }
   Require(owner && residents <= 1 && total <= 20000 &&
-              std::binary_search(owner->frame_ids.begin(),
-                                 owner->frame_ids.end(),
-                                 request.query_keyframe_id),
-          "Query is not retained by a selected owner");
+              owner->frame_ids.back() == request.query_keyframe_id,
+          "Query is not the last retained owner camera");
   const auto offset = request.query_keyframe_id -
                       owner->target.group.primary.anchor_keyframe_id;
   Require(pose_math::Equal(request.parent_from_body,

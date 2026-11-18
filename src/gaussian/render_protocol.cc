@@ -243,10 +243,9 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
   }
   Require(residents <= 1 && result.blocks.back().target.group.primary.id ==
                                 result.query_submap_id &&
-              std::binary_search(result.blocks.back().frame_ids.begin(),
-                                 result.blocks.back().frame_ids.end(),
-                                 result.query_keyframe_id),
-          "Query owner is missing from render selection");
+              result.blocks.back().frame_ids.back() ==
+                  result.query_keyframe_id,
+          "Query is not the last retained owner camera");
   if (result.blocks.size() == 2) {
     Require(result.query_submap_id > 0 && result.neighbor_reason.empty() &&
                 result.blocks[0].target.group.primary.id ==

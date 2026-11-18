@@ -21,4 +21,15 @@ void WriteOptionalRender(const std::filesystem::path& directory,
   livo_atlas::WriteGaussianRender(directory, render);
 }
 
-int main() { return 0; }
+int main() {
+  // Existing C++17 aggregate clients must retain their member ordering.
+  const livo_atlas::OnlineGaussianOptions options{
+      true, true, false, std::chrono::milliseconds{60000},
+      "/tmp/livo-consumer.sock", "/tmp/livo-consumer-output"};
+  return options.finalize_timeout == std::chrono::milliseconds{60000} &&
+                 !options.joint_render_enabled &&
+                 options.joint_render_interval ==
+                     std::chrono::milliseconds{1000}
+             ? 0
+             : 1;
+}

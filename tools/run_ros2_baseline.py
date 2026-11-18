@@ -117,7 +117,7 @@ def parse_arguments(arguments=None):
                         help='Record versioned geometry maps; enables global output and online storage')
     add_gaussian_arguments(parser)
     args = parser.parse_args(arguments)
-    validate_gaussian_arguments(args, parser)
+    validate_gaussian_arguments(args, parser, args.output / 'node-output/keyframes')
     if args.geometry_map and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-map requires online submaps')
     if args.keyframe_trajectory or args.geometry_map:
@@ -466,6 +466,8 @@ def main():
                    playback_started_steady_seconds=began,
                    playback_eof_steady_seconds=playback_eof_steady_seconds,
                    playback_confirmed_running_until_steady_seconds=confirmed_running_until,
+                   playback_input_cutoff_steady_seconds=confirmed_running_until,
+                   playback_input_cutoff_source='source_publish_begin',
                    joint_render_enabled=args.gaussian_joint_render,
                    playback_wall_s=playback_wall_s, input_span_s=input_span_s,
                    requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,

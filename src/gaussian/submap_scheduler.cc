@@ -125,8 +125,10 @@ void OnlineGaussianMapper::EndSubmapWork(bool retry) {
     pending_ = submap_work_->source;
     stats_.pending = stats_.peak_pending = 1;
   }
-  if (submap_work_ && options_.joint_render_enabled)
+  if (submap_work_ && options_.joint_render_enabled) {
     render_attempts_ = std::min(2, render_attempts_ + 1);
+    render_sync_attempted_ = false;
+  }
   submap_work_.reset();
   foreground_started_ = false;
   stats_.in_flight = 0;

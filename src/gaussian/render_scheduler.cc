@@ -27,8 +27,12 @@ bool OnlineGaussianMapper::DispatchRender(const GaussianMapSnapshot& map) {
       unsaved_ || Clock::now() - render_dispatched_at_ <
                       options_.joint_render_interval)
     return false;
+  const bool resident = std::any_of(
+      map.entries.begin(), map.entries.end(),
+      [](const auto& entry) { return entry.resident; });
   const bool content = pending_ || map_index_.NextRepair() ||
-      (remote_target_ && remote_target_->pose_version != poses_->version);
+      (resident && (!remote_target_ ||
+                    remote_target_->pose_version != poses_->version));
   if (content && render_attempts_ < 2) return false;
   std::string reason;
   auto request = SelectGaussianRender(map, *poses_, generation_, &reason);
@@ -43,13 +47,24 @@ bool OnlineGaussianMapper::DispatchRender(const GaussianMapSnapshot& map) {
   // Admission always rebuilds the references from this exact map. A pending
   // request owns no asset references while training/checkpoint/prune runs.
   if (map.map_sequence != acknowledged_map_) {
+    if (render_sync_attempted_ && content) {
+      // One missed synchronization spends this opportunity. Keep the demand,
+      // but let foreground/repair advance even if every acknowledgement ages.
+      render_attempts_ = 0;
+      render_sync_attempted_ = false;
+      return false;
+    }
     command.kind = CommandKind::kWriteMap;
     command.map = std::make_shared<GaussianMapSnapshot>(map);
-  } else {
-    command.kind = CommandKind::kRender;
-    command.render_request = std::move(request);
+    if (!QueueSubmapCommand(std::move(command))) return false;
+    render_sync_attempted_ = true;
+    return true;
   }
-  return QueueSubmapCommand(std::move(command));
+  command.kind = CommandKind::kRender;
+  command.render_request = std::move(request);
+  if (!QueueSubmapCommand(std::move(command))) return false;
+  render_sync_attempted_ = false;
+  return true;
 }
 
 void OnlineGaussianMapper::HandleRenderReply(Reply reply) {

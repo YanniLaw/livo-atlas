@@ -18,6 +18,13 @@ from submap_fixtures import SESSION
 
 
 class JointRenderProtocolTest(unittest.TestCase):
+    def test_query_must_be_the_last_retained_owner_camera(self):
+        header, body = render_request_fixture()
+        header['query_keyframe_id'] = '4'
+        body = pose(4).astype('<f8').tobytes() + body[128:]
+        with self.assertRaisesRegex(ValueError, 'latest|last'):
+            decode_render_request(header, body)
+
     def test_complete_owned_request_keeps_big_job_and_exact_body_poses(self):
         header, body = render_request_fixture()
         self.assertEqual(len(body), 640)

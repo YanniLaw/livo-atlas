@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -47,6 +48,8 @@ class JointRenderReportTest(unittest.TestCase):
         (self.root / 'mapping.log').write_text(event + stats)
         self.summary = dict(playback_started_steady_seconds=800., playback_eof_steady_seconds=1000.,
                             playback_confirmed_running_until_steady_seconds=999.,
+                            playback_input_cutoff_steady_seconds=999.,
+                            playback_input_cutoff_source='source_publish_begin',
                             joint_render_enabled=True)
         (self.root / 'summary.json').write_text(json.dumps(self.summary))
         self.write()
@@ -61,6 +64,31 @@ class JointRenderReportTest(unittest.TestCase):
         self.assertEqual(report['pairs'], 1)
         self.assertEqual(report['events'][0]['job'], 9007199254740993)
 
+    def test_player_lifetime_alone_is_not_input_publication_evidence(self):
+        self.summary.pop('playback_input_cutoff_steady_seconds', None)
+        self.summary.pop('playback_input_cutoff_source', None)
+        (self.root / 'summary.json').write_text(json.dumps(self.summary))
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews)
+
+    def test_fixed_rate_proof_is_recomputed_and_clock_changes_are_rejected(self):
+        self.summary.update(playback_input_cutoff_source='fixed_rate_lower_bound',
+            playback_wall_clock_stable=True, playback_rate=1.,
+            playback_first_input_timestamp_ns='100000000000',
+            playback_last_input_timestamp_ns='299010000000')
+        path = self.root / 'summary.json'
+        path.write_text(json.dumps(self.summary))
+        self.assertEqual(inspect_joint_renders(self.root, self.previews)['accepted_before_eof'], 1)
+        self.summary['playback_input_cutoff_steady_seconds'] += .01
+        path.write_text(json.dumps(self.summary))
+        with self.assertRaisesRegex(ValueError, 'lower bound'):
+            inspect_joint_renders(self.root, self.previews)
+        self.summary['playback_input_cutoff_steady_seconds'] = 999.
+        self.summary['playback_wall_clock_stable'] = False
+        path.write_text(json.dumps(self.summary))
+        with self.assertRaisesRegex(ValueError, 'clock'):
+            inspect_joint_renders(self.root, self.previews)
+
     def test_eof_after_acceptance_is_required_not_just_a_saved_file(self):
         self.summary['playback_eof_steady_seconds'] = 899.
         (self.root / 'summary.json').write_text(json.dumps(self.summary))
@@ -74,7 +102,7 @@ class JointRenderReportTest(unittest.TestCase):
             inspect_joint_renders(self.root, self.previews)
 
     def test_observer_poll_delay_cannot_count_acceptance_after_last_running_proof(self):
-        self.summary['playback_confirmed_running_until_steady_seconds'] = 899.
+        self.summary['playback_input_cutoff_steady_seconds'] = 899.
         (self.root / 'summary.json').write_text(json.dumps(self.summary))
         with self.assertRaisesRegex(ValueError, 'EOF'):
             inspect_joint_renders(self.root, self.previews)
@@ -104,6 +132,31 @@ class JointRenderReportTest(unittest.TestCase):
         log.write_text(log.read_text().replace('changed_pixels=2', 'changed_pixels=0'))
         with self.assertRaises(ValueError):
             inspect_joint_renders(self.root, self.previews, min_dual=1)
+
+    def test_removing_complete_history_pairs_is_not_a_successful_session(self):
+        event, stats = (self.root / 'mapping.log').read_text().splitlines()
+        base = int(self.data['as_of']['job_id'])
+        events = []
+        paths = []
+        for offset in range(4):
+            job = str(base + offset)
+            data = copy.deepcopy(self.data)
+            data['as_of']['job_id'] = job
+            path = self.previews / ('joint-render-' + job + '.json')
+            path.write_text(json.dumps(data))
+            if offset:
+                shutil.copyfile(self.json.with_suffix('.png'), path.with_suffix('.png'))
+            paths.append(path)
+            events.append(event.replace('job=' + str(base), 'job=' + job))
+        for field in ('submitted', 'accepted', 'dual_accepted', 'saved'):
+            stats = stats.replace(field + '=1', field + '=4')
+        (self.root / 'mapping.log').write_text('\n'.join(events + [stats]) + '\n')
+        self.assertEqual(inspect_joint_renders(self.root, self.previews)['pairs'], 4)
+        for path in paths[1:]:
+            path.unlink()
+            path.with_suffix('.png').unlink()
+        with self.assertRaisesRegex(ValueError, 'retained'):
+            inspect_joint_renders(self.root, self.previews)
 
 
 if __name__ == '__main__':

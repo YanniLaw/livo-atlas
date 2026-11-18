@@ -311,6 +311,64 @@ TEST_F(OnlineGaussianRenderTest, TwoContentAttemptsYieldOnceThenTrainAgain) {
   EXPECT_EQ(mapper_->GetStats().failed, 0u);
 }
 
+TEST_F(OnlineGaussianRenderTest, ChangingMapAcknowledgementsCannotStarveViews) {
+  Append();
+  Confirm();
+  Append(true);
+  Confirm();
+  ASSERT_TRUE(Wait([&] {
+    const auto render = mapper_->GetLatestRender();
+    return render && render->request.query_submap_id == 1;
+  }));
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetRenderStats().saved ==
+           mapper_->GetRenderStats().accepted;
+  }));
+  std::this_thread::sleep_for(110ms);
+  const auto before = peer_->views.load();
+  auto events = peer_->Events();
+  auto seen = std::count(events.begin(), events.end(), "map_committed:");
+  peer_->hold_map_ack = true;
+  Append();
+  for (int attempt = 0; attempt < 10 && peer_->views < before + 3; ++attempt) {
+    ASSERT_TRUE(Wait([&] {
+      events = peer_->Events();
+      return std::count(events.begin(), events.end(), "map_committed:") >
+                 seen || peer_->views >= before + 3;
+    }));
+    if (peer_->views >= before + 3) break;
+    seen = std::count(events.begin(), events.end(), "map_committed:");
+    // Every acknowledgement is already obsolete when the owner receives it.
+    Append();
+    const auto acknowledged = peer_->acknowledgements.load();
+    peer_->hold_map_ack = false;
+    ASSERT_TRUE(Wait([&] {
+      return peer_->acknowledgements > acknowledged;
+    }));
+    peer_->hold_map_ack = true;
+  }
+  EXPECT_GE(peer_->views, before + 3);
+  peer_->hold_map_ack = false;
+}
+
+TEST_F(OnlineGaussianRenderTest,
+       EmptyActivationDoesNotBlockHistoricalRenderAfterPoseOnlyChange) {
+  Append();
+  Confirm();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetRenderStats().saved == 1; }));
+  Append(true, false);
+  ASSERT_TRUE(Wait([&] {
+    return mapper_->GetStats().skipped_no_image == 1;
+  }));
+  Correct();
+  ASSERT_TRUE(Wait([&] {
+    const auto render = mapper_->GetLatestRender();
+    return render && render->request.pose_version == 1;
+  }));
+  EXPECT_EQ(mapper_->GetLatestRender()->request.query_keyframe_id, 0u);
+  EXPECT_EQ(mapper_->GetStats().skipped_no_image, 1u);
+}
+
 TEST_F(OnlineGaussianRenderTest, RealWorkerRendersAssetsDuringHistoryRepair) {
   const char* socket = std::getenv("LIVO_REAL_GAUSSIAN_SOCKET");
   const char* output = std::getenv("LIVO_REAL_GAUSSIAN_OUTPUT");

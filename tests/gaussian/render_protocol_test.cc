@@ -1,9 +1,18 @@
 #include <gtest/gtest.h>
 
+#include <stdexcept>
+
 #include "gaussian/render_test_helpers.h"
 
 namespace livo_atlas {
 namespace {
+
+TEST(RenderProtocol, EarlierRetainedOwnerCameraIsRejected) {
+  auto request = test::RenderRequest();
+  request.query_keyframe_id = 4;
+  request.parent_from_body.translation.x() = 4;
+  EXPECT_THROW(EncodeGaussianRenderRequest(request), std::invalid_argument);
+}
 
 TEST(RenderProtocol, OwnedRequestPreservesLargeIdsAndAllCanonicalBodies) {
   const auto expected = test::RenderRequest();

@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import subprocess
 import sys
+import time
 import unittest
 
 from tools.run_baseline import exited_cleanly, make_trajectory_path
@@ -9,6 +10,21 @@ from tools import run_baseline, run_ros2_baseline
 
 
 class BaselineRunnerTest(unittest.TestCase):
+    def test_fixed_rate_boundary_excludes_a_live_publishers_teardown(self):
+        launch_before = time.monotonic()
+        publisher = subprocess.Popen([sys.executable, '-c',
+            'import time; time.sleep(.03); print(time.monotonic(), flush=True); time.sleep(.2)'],
+            stdout=subprocess.PIPE, text=True)
+        try:
+            last_publish_begin = float(publisher.stdout.readline())
+            cutoff = run_baseline.fixed_rate_input_cutoff(launch_before, 1_000_000_000, 1_010_000_000, 1.)
+            self.assertLess(cutoff, last_publish_begin)
+            self.assertLess(cutoff, time.monotonic())
+            self.assertIsNone(publisher.poll())
+        finally:
+            publisher.wait(timeout=5)
+            publisher.stdout.close()
+
     def test_gaussian_preview_requires_a_complete_pair(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -60,6 +76,26 @@ class BaselineRunnerTest(unittest.TestCase):
 
 
 class GlobalBaselineParserTest(unittest.TestCase):
+    def test_gaussian_paths_do_not_overlap_working_or_exported_dataset(self):
+        for module, node_output in ((run_baseline, 'node_output'),
+                                    (run_ros2_baseline, 'node-output')):
+            with tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                entry = (['--workspace', str(root / 'ws')] if module is run_baseline
+                         else ['--executable', str(root / 'node')])
+                flags = entry + ['--bag', str(root / 'bag'), '--output', str(root / 'output'),
+                                 '--gaussian-socket', str(root / 'worker.sock')]
+                for relative in ('keyframes', 'keyframes/previews', node_output,
+                                 node_output + '/keyframes', node_output + '/keyframes/previews'):
+                    with self.subTest(module=module.__name__, relative=relative):
+                        with self.assertRaises(SystemExit) as error:
+                            module.parse_arguments(flags + ['--gaussian-output', str(root / 'output' / relative)])
+                        self.assertEqual(error.exception.code, 2)
+                        self.assertFalse((root / 'output').exists())
+                sibling = root / 'output/previews'
+                self.assertEqual(module.parse_arguments(flags + ['--gaussian-output', str(sibling)]).gaussian_output,
+                                 sibling)
+
     def invoke(self, script, directory, *flags):
         package = Path(__file__).resolve().parents[1]
         command = [sys.executable, str(package / 'tools' / script),
@@ -169,6 +205,27 @@ class GlobalBaselineParserTest(unittest.TestCase):
 
 
 class GlobalBaselineOptionsTest(unittest.TestCase):
+    def test_omitted_legacy_flags_preserve_loaded_persistence_configuration(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                entry = (['--workspace', str(root / 'ws')] if module is run_baseline
+                         else ['--executable', str(root / 'node')])
+                flags = entry + ['--bag', str(root / 'bag'), '--output', str(root / 'output'),
+                    '--gaussian-socket', str(root / 's'), '--gaussian-output', str(root / 'g')]
+                configured = {'gaussian.persist_submaps': True,
+                              'gaussian.finalize_on_shutdown': True,
+                              'gaussian.finalize_timeout_ms': 120000}
+                parameters = dict(configured)
+                parameters.update(module.gaussian_parameters(module.parse_arguments(flags)))
+                self.assertEqual({key: parameters[key] for key in configured}, configured)
+                explicit = module.gaussian_parameters(module.parse_arguments(flags + [
+                    '--gaussian-persist-submaps', '--gaussian-finalize-on-shutdown',
+                    '--gaussian-finalize-timeout-ms', '12345']))
+                self.assertIs(explicit['gaussian.persist_submaps'], True)
+                self.assertIs(explicit['gaussian.finalize_on_shutdown'], True)
+                self.assertEqual(explicit['gaussian.finalize_timeout_ms'], 12345)
+
     def test_gaussian_arguments_enable_required_storage(self):
         options = run_baseline.parse_arguments(
             ['--workspace', '/unused/workspace', '--bag', '/unused/bag',

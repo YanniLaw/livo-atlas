@@ -172,10 +172,11 @@ def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_g
         config = tree.get("gaussian", {})
         configs.append(config if isinstance(config, dict) else {})
     if joint_render:
-        if (any(config.get('enabled') is not True or config.get('persist_submaps') is not True
+        if (any(config.get('enabled') is not True or config.get('persist_submaps') is not True or
+                config.get('finalize_on_shutdown') is not True
                 for config in configs) or configs[0].get('joint_render_enabled', False) is not False or
                 configs[1].get('joint_render_enabled') is not True):
-            differences['gaussian_configuration'] = 'Joint comparison requires persistent training on both sides'
+            differences['gaussian_configuration'] = 'Joint comparison requires persistent training and Finalize on both sides'
         ignored = {'socket_path', 'output_directory', 'joint_render_enabled',
                    'joint_render_interval_ms', 'joint_render_timeout_ms'}
         normalized = [{key: value for key, value in config.items() if key not in ignored}
