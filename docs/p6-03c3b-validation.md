@@ -2,7 +2,7 @@
 
 2026-11-18。按[设计](superpowers/specs/2026-11-18-p6-03c3b-snapshot-joint-rendering-design.md)
 和[实施计划](superpowers/plans/2026-11-18-p6-03c3b-snapshot-joint-rendering.md)执行。
-已完成一次独立审阅、问题修复及最终同源 8 例重跑；最后全量 gate 与执行记录归档正在关闭。
+已完成阶段验收：一次独立审阅与修复、最终同源 8 例、最后全量 gate 及执行记录归档均已通过。
 
 ## 交付与边界
 
@@ -108,11 +108,12 @@ reserved 24..26MiB，进程 RSS 791..834MiB；不包含驱动上下文等第三�
 保留一项诊断 Minor：极长非 BMP Unicode 错误消息经 JSON 转义后可能超过 4KiB，
 导致 `failure.json` 无法生成并遮蔽原异常文本；仍然非零退出且没有成功标记。
 
-`candidate/`、`final/` 分别保留两组结果和源码/输入清单；`review-*-red/green` 与实际文件名
-以阶段目录为准，具体包括 `review-red.log`、`review-i1-frame-red.log`、`review-i5-red.log`、
+`candidate/`、`final/` 分别保留两组结果和源码/输入清单。失败/修复证据包括 `review-red.log`、`review-i1-frame-red.log`、`review-i5-red.log`、
 `review-i[1-5]-green.log` 和 `review-fix-final-all.log`。
-最终全量 gate、原始审阅、决策/延期记录将归档到本阶段 `execution-review-record/`，
-逐文件字节和 SHA 核对后仅移走该计划 scratch；同级与旧阶段数据保留。
+最终 gate 再次通过 148/148、76/76 及 8/8 产物/来源核对。完整测试输出、原始审阅、
+决策/延期和任务记录共 12 个文件已归档到本阶段 `execution-review-record/`，逐文件字节及
+SHA256 核对完成；清单为 `execution-archive-sha256.json`，结果见 `archive.log`。
+仅将本计划 scratch 移到回收站，同级及旧阶段保留。当前分支仍为 `framework_completion`。
 
 执行决策及代价：沿用已确认设计和本会话授权，不增加逐项计划审批；输入固定且停止，
 没有并发事务隔离；最后 rename 是诊断完成标记，断电时可丢失报告，不能证明原 Finalize 退出；
