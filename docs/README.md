@@ -114,4 +114,4 @@ P6-02c2b 已完成有界在线调度、持久接纳、停止排空和共用 ROS 
 构建兼容性修复的采集结果位于 `validation/P0-build-fix-20261011/`。
 验证产物在包外，迁移电脑时需要单独复制；bag 和编译产物不进入源码仓库。
 
-48. [P6-03c3c2b 双ROS有版本预览](p6-03c3c2b-ros-preview.md)与[验证记录](p6-03c3c2b-validation.md)：同一main、共享转换、单槽CPU发布；官方短段/完整bag发布OFF/ON严格对照已通过，矩阵和最终审阅收尾中。
+48. [P6-03c3c2b 双ROS有版本预览](p6-03c3c2b-ros-preview.md)与[验证记录](p6-03c3c2b-validation.md)：同一main、共享转换、有界CPU发布已完成；74项核心、196项Python/CUDA、124项工具及Humble78项CTest通过；审阅11项必要修复、最终官方短段/完整bag发布OFF/ON对照和证据归档完成。

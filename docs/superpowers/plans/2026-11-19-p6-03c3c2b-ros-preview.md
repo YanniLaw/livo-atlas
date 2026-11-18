@@ -79,10 +79,10 @@ Phase owns run-core.sh/run-python.sh/run-all.sh and matrix/replay scripts, based
 
 **Files:** phase harness/evidence, docs/p6-03c3c2b-validation.md, docs index/plan, own ledger.
 
-- [ ] Pin source/bag/node/libs; SDK shared/static Gaussian OFF/ON; Noetic/Humble typed config, real late reader/paused clock/invalidations and optional disabled entry. Expected PASS; no GPU/vikit linkage in ordinary core/OFF.
+- [x] Pin source/bag/node/libs; SDK shared/static Gaussian OFF/ON; Noetic/Humble typed config, real late reader/paused clock/invalidations and optional disabled entry. Expected PASS; no GPU/vikit linkage in ordinary core/OFF.
 - [x] Actual Noetic short+full spatial rendering pairs with publish OFF/ON (both persistent+Finalize). Observe combo+mirror; strict frontend arrays/raw observations/existing topic digests exact, successful13 current/durable Finalize; at least one pre-input-cutoff READY matches owner and PNG, versions monotonic/nonready empty, slots≤1/1. Slow/throwing consumer and shutdown proofs from controlled native tests; don't promise impossible delivery after ROS shutdown. HumbleCPU/real transport claims only.
-- [ ] Whole-range fresh most-capable review from69c0e0e; classify by user effect, one Important/Critical RED/GREEN fix pass and full/matrix/relevant real retest, defer only Minor. No re-review. Full final gate PASS.
-- [ ] Archive exact ledger/raw review/all decisions/logs/SHA, verify retained map and old2681-file C3c2a manifest and bag unchanged; cleanup only own duplicates/container phase, target≤1GiB. Remove only this plan scratch after archive and preserve current branch.
+- [x] Whole-range fresh most-capable review from69c0e0e; classify by user effect, one Important/Critical RED/GREEN fix pass and full/matrix/relevant real retest, defer only Minor. No re-review. Full final gate PASS.
+- [x] Archive exact ledger/raw review/all decisions/logs/SHA, verify retained map and old2681-file C3c2a manifest and bag unchanged; cleanup only own duplicates/container phase, target≤1GiB. Remove only this plan scratch after archive and preserve current branch.
 
 ## Self-review
 
