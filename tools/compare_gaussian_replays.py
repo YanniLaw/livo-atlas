@@ -178,7 +178,7 @@ def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_g
                 configs[1].get('joint_render_enabled') is not True):
             differences['gaussian_configuration'] = 'Joint comparison requires persistent training and Finalize on both sides'
         ignored = {'socket_path', 'output_directory', 'joint_render_enabled',
-                   'joint_render_interval_ms', 'joint_render_timeout_ms'}
+                   'joint_render_interval_ms', 'joint_render_timeout_ms', 'joint_render_policy'}
         normalized = [{key: value for key, value in config.items() if key not in ignored}
                       for config in configs]
         if normalized[0] != normalized[1]:
@@ -291,6 +291,8 @@ def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_g
             except ImportError:
                 from joint_render_report import inspect_joint_renders
             joint_report = inspect_joint_renders(on, previews, min_joint_dual, min_joint_groups)
+            if joint_report['policy'] != configs[1].get('joint_render_policy', 'temporal'):
+                raise ValueError('Reported render policy differs from parameters.yaml')
         except (OSError, ValueError, TypeError, KeyError) as error:
             differences['joint_render'] = str(error)
         try:

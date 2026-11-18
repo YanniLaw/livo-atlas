@@ -11,7 +11,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent / '3dgs_probe'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools/3dgs_probe'))
-from render_fixtures import render_request_fixture, render_reply_fixture
+from render_fixtures import render_request_fixture, render_reply_fixture, spatial_request_fixture
 from tools.joint_render_report import inspect_joint_renders
 
 
@@ -69,6 +69,82 @@ class JointRenderReportTest(unittest.TestCase):
         self.assertEqual(report['dual_contributions_before_eof'], 1)
         self.assertEqual(report['pairs'], 1)
         self.assertEqual(report['events'][0]['job'], 9007199254740993)
+
+    def spatial(self):
+        request, _ = spatial_request_fixture()
+        old = self.data['as_of']
+        self.data['as_of'] = request
+        self.write()
+        path = self.root / 'mapping.log'
+        text = path.read_text().replace(source_identity(old), source_identity(request))
+        text = text.replace(' source_identity=',
+            ' policy=spatial selected_first=0 selected_last=2 candidate_count=1 candidate_pixels=48'
+            ' projection_uncertain=0 selection_seconds=0.001 source_identity=')
+        path.write_text(text)
+        self.summary['joint_render_policy'] = 'spatial'
+        (self.root / 'summary.json').write_text(json.dumps(self.summary))
+
+    def test_spatial_selection_and_nonadjacent_contribution_are_reported(self):
+        self.spatial()
+        report = inspect_joint_renders(self.root, self.previews, min_dual=1, min_groups=1)
+        self.assertEqual(report['policy'], 'spatial')
+        self.assertEqual(report['nonadjacent_selections_before_eof'], 1)
+        self.assertEqual(report['nonadjacent_contributions_before_eof'], 1)
+        selection = report['selections_before_eof'][0]
+        self.assertEqual(selection['selected_submap_ids'], [0, 2])
+        self.assertEqual(selection['candidate_pixels'], 48)
+        self.assertEqual(selection['candidate_count'], 1)
+        self.assertFalse(selection['projection_uncertain'])
+        self.assertAlmostEqual(selection['selection_seconds'], .001)
+
+    def test_spatial_owner_summary_cannot_replace_original_selection(self):
+        self.spatial()
+        path = self.root / 'mapping.log'
+        original = path.read_text()
+        for before, after in (('policy=spatial', 'policy=temporal'),
+                              ('selected_first=0', 'selected_first=1'),
+                              ('candidate_pixels=48', 'candidate_pixels=47'),
+                              ('candidate_count=1', 'candidate_count=2'),
+                              ('projection_uncertain=0', 'projection_uncertain=1'),
+                              ('selection_seconds=0.001', 'selection_seconds=0.01')):
+            path.write_text(original.replace(before, after))
+            with self.subTest(field=before), self.assertRaisesRegex(ValueError, 'policy|selection summary'):
+                inspect_joint_renders(self.root, self.previews)
+
+    def test_spatial_policy_must_match_run_configuration(self):
+        self.spatial()
+        self.summary['joint_render_policy'] = 'temporal'
+        (self.root / 'summary.json').write_text(json.dumps(self.summary))
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews)
+
+    def test_unretained_source_header_is_validated_before_counting_contributions(self):
+        self.spatial()
+        path = self.root / 'mapping.log'
+        event, stats = path.read_text().splitlines()
+        forged = copy.deepcopy(self.data['as_of'])
+        forged['job_id'] = '9007199254740994'
+        forged['selection']['candidate_count'] = 32
+        event2 = event.replace('job=9007199254740993', 'job=9007199254740994').replace(
+            source_identity(self.data['as_of']), source_identity(forged))
+        for field in ('submitted', 'accepted', 'dual_accepted'):
+            stats = stats.replace(field + '=1', field + '=2')
+        path.write_text('\n'.join((event, event2, stats)) + '\n')
+        with self.assertRaises(ValueError):
+            inspect_joint_renders(self.root, self.previews)
+
+    def test_unretained_owner_fields_must_match_their_source_header(self):
+        path = self.root / 'mapping.log'
+        event, stats = path.read_text().splitlines()
+        forged = copy.deepcopy(self.data['as_of'])
+        forged['job_id'] = '9007199254740994'
+        event2 = event.replace('job=9007199254740993', 'job=9007199254740994').replace(
+            source_identity(self.data['as_of']), source_identity(forged)).replace('owner=2', 'owner=99')
+        for field in ('submitted', 'accepted', 'dual_accepted'):
+            stats = stats.replace(field + '=1', field + '=2')
+        path.write_text('\n'.join((event, event2, stats)) + '\n')
+        with self.assertRaisesRegex(ValueError, 'source identity'):
+            inspect_joint_renders(self.root, self.previews)
 
     def test_player_lifetime_alone_is_not_input_publication_evidence(self):
         self.summary.pop('playback_input_cutoff_steady_seconds', None)

@@ -252,6 +252,9 @@ README and SDK/validation docs; associated tools tests.
 **Interfaces:**
 - CLI `--joint-render-policy {temporal,spatial}` defaults temporal; shared
   options emit the policy only consistently with validated joint rendering.
+- Python validate_render_header(header) validates the exact request keyset and
+  identity without requiring unavailable primary body arrays; decode and report
+  share it. The report checks every accepted header, including unretained jobs.
 - Report/summary distinguish policy, selected IDs, candidate area/count,
   uncertainty, selection time and nonadjacent count, while checking whole
   accepted-header identity and existing conservative input cutoff.

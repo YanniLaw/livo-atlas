@@ -42,7 +42,10 @@ void ReportJointRender(const livo_atlas::GaussianRender& r) {
       "map_sequence=%llu pose_version=%llu frame_count=%llu "
       "optimized_frame_count=%llu generation=%llu query=%llu owner=%llu "
       "blocks=%zu changed_pixels=%d accepted_at_steady_seconds=%.9f "
-      "latency_seconds=%.9f worker_seconds=%.9f source_identity=%s\n",
+      "latency_seconds=%.9f worker_seconds=%.9f policy=%s "
+      "selected_first=%llu selected_last=%llu candidate_count=%llu "
+      "candidate_pixels=%llu projection_uncertain=%d selection_seconds=%.9f "
+      "source_identity=%s\n",
       q.session_id.c_str(), static_cast<unsigned long long>(q.job_id),
       static_cast<unsigned long long>(q.map_sequence),
       static_cast<unsigned long long>(q.pose_version),
@@ -52,7 +55,15 @@ void ReportJointRender(const livo_atlas::GaussianRender& r) {
       static_cast<unsigned long long>(q.query_keyframe_id),
       static_cast<unsigned long long>(q.query_submap_id), q.blocks.size(),
       r.changed_pixels, r.accepted_at_steady_seconds, r.latency_seconds,
-      r.worker_seconds, identity.c_str());
+      r.worker_seconds,
+      q.policy == livo_atlas::GaussianRenderPolicy::kSpatial
+          ? "spatial" : "temporal",
+      static_cast<unsigned long long>(q.blocks.front().target.group.primary.id),
+      static_cast<unsigned long long>(q.blocks.back().target.group.primary.id),
+      static_cast<unsigned long long>(q.candidate_count),
+      static_cast<unsigned long long>(q.candidate_pixels),
+      static_cast<int>(q.projection_uncertain), q.selection_seconds,
+      identity.c_str());
   std::fflush(stdout);
 }
 

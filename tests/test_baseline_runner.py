@@ -162,6 +162,33 @@ class GlobalBaselineParserTest(unittest.TestCase):
                             module.parse_arguments(flags + [argument, value])
                 self.assertFalse((root / 'output').exists())
 
+    def test_render_policy_defaults_and_forwarding_match_both_runners(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                entry = (['--workspace', str(root / 'ws')] if module is run_baseline
+                         else ['--executable', str(root / 'node')])
+                flags = entry + ['--bag', str(root / 'bag'), '--output', str(root / 'output'),
+                    '--gaussian-socket', str(root / 's'), '--gaussian-output', str(root / 'g'),
+                    '--gaussian-persist-submaps', '--gaussian-joint-render']
+                default = module.parse_arguments(flags)
+                self.assertEqual(default.joint_render_policy, 'temporal')
+                for policy in ('temporal', 'spatial'):
+                    args = module.parse_arguments(flags + ['--joint-render-policy', policy])
+                    self.assertEqual(module.gaussian_parameters(args)['gaussian.joint_render_policy'], policy)
+                with self.assertRaises(SystemExit):
+                    module.parse_arguments(flags + ['--joint-render-policy', 'unknown'])
+                self.assertFalse((root / 'output').exists())
+
+    def test_spatial_policy_requires_joint_render_before_output_creation(self):
+        for script in ('run_baseline.py', 'run_ros2_baseline.py'):
+            with self.subTest(script=script), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                result = self.invoke(script, root, '--joint-render-policy', 'spatial')
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('requires --gaussian-joint-render', result.stderr)
+                self.assertFalse((root / 'output').exists())
+
     def test_gaussian_persistence_requires_worker_paths(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

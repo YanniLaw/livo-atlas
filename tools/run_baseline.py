@@ -604,6 +604,7 @@ def main():
             'playback_first_input_timestamp_ns': str(first_input_ns),
             'playback_last_input_timestamp_ns': str(last_input_ns),
             'joint_render_enabled': args.gaussian_joint_render,
+            'joint_render_policy': args.joint_render_policy,
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,
             'input_count_mismatches': mismatches,

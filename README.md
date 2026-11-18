@@ -122,3 +122,7 @@ rosbag play YOUR_DOWNLOADED.bag
 ## 5. License
 
 The source code of this package is released under the [**GPLv2**](http://www.gnu.org/licenses/) license. For commercial use, please contact me at <zhengcr@connect.hku.hk> and Prof. Fu Zhang at <fuzhang@hku.hk> to discuss an alternative license.
+
+空间 Gaussian 联合预览通过 `gaussian.joint_render_policy: spatial` 启用；
+回放工具对应 `--joint-render-policy spatial`，要求启用 Gaussian 持久化和联合渲染。
+默认仍为时间相邻策略，配置、资源边界与验证方式见 [在线 Gaussian](docs/online-gaussian.md)。

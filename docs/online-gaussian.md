@@ -293,16 +293,18 @@ status=succeeded 且 report_persisted=1 才返回成功；报告发布失败仍�
 严格比较工具会逐资产核验 SHA、数组及完整 canonical primary，再核对最终报告、节点日志
 和正常退出。单独查看一个可见 JSON 不能证明原进程完成了持久发布。
 
-## 在线联合渲染（C3c1）
+## 在线联合渲染（C3c1 / C3c2a）
 
 开启后，同一个 worker 在安全的串行边界读取已确认内容，生成独立文件预览。
 查询为所有已确认内容中最新的 retained 训练帧；选择其所属组及紧邻的前一逻辑组。
 若查询组尚待重建，则等待；邻组不可用时明确记录单块及原因。
-当前策略按时间相邻选择，空间可见性选择和 ROS 图像显示留在下一阶段。
+默认 `temporal` 按时间相邻选择；`spatial` 根据已确认的优化后范围和查询相机选择历史块。
+ROS 图像显示留在独立的 C3c2b 阶段。
 
 | 参数 | 默认值 | 开启时范围/依赖 |
 | --- | --- | --- |
 | `gaussian.joint_render_enabled` | `false` | 必须启用 Gaussian 和 `persist_submaps` |
+| `gaussian.joint_render_policy` | `temporal` | `temporal` / `spatial`；空间策略还要求开启联合渲染 |
 | `gaussian.joint_render_interval_ms` | `1000` | `100..60000` 毫秒 |
 | `gaussian.joint_render_timeout_ms` | `5000` | `1..60000` 毫秒 |
 
@@ -381,7 +383,13 @@ CUDA OOM 或预览写入失败会停用本会话联合预览，训练及持久�
 --gaussian-persist-submaps --gaussian-finalize-on-shutdown
 --gaussian-joint-render --gaussian-joint-render-interval-ms 1000
 --gaussian-joint-render-timeout-ms 5000
+--joint-render-policy spatial
 ```
+
+`--joint-render-policy` 默认 `temporal`，上例显式开启 `spatial`。两者使用同一主入口、
+owner、worker 和资源预算。报告将接纳日志的 policy、选中 ID、候选数、候选投影面积、
+不确定标记和 CPU 选择耗时与原始请求逐项核对，并统计输入截止前的非相邻选择及实际 RGB 贡献。
+候选面积是保守上界，不保证可见、无遮挡或更好的图像质量。
 
 `run_baseline.py` 接收 ROS1 bag，`run_ros2_baseline.py` 接收已转换的 rosbag2。
 Noetic记录启动播放器前的稳态时刻和实际选中输入的首末bag时间，以固定速率时间线给出

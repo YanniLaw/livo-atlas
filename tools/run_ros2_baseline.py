@@ -469,6 +469,7 @@ def main():
                    playback_input_cutoff_steady_seconds=confirmed_running_until,
                    playback_input_cutoff_source='source_publish_begin',
                    joint_render_enabled=args.gaussian_joint_render,
+                   joint_render_policy=args.joint_render_policy,
                    playback_wall_s=playback_wall_s, input_span_s=input_span_s,
                    requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,
                    image_queue_size=image_queue_size, observer_image_depth=observer_image_depth,

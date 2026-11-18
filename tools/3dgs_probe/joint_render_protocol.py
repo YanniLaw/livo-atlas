@@ -147,10 +147,15 @@ def _header(header):
     return primary_count
 
 
-def decode_render_request(header, body):
+def validate_render_header(header):
+    """Validate request identity without pretending its body arrays are available."""
     _keys(header, _root_fields(header))
     _require(header['type'] == 'joint_render', 'Expected render request')
-    count = _header(header)
+    return _header(header)
+
+
+def decode_render_request(header, body):
+    count = validate_render_header(header)
     _require(isinstance(body, bytes) and len(body) == 128 * (1 + count) and len(body) <= 131200,
              'Incorrect joint render body size')
     from submap_protocol import _primary_context, _same_pose

@@ -22,12 +22,16 @@ def add_gaussian_arguments(parser):
     parser.add_argument('--gaussian-finalize-timeout-ms', type=int, default=60000,
                         help='Final repair budget in milliseconds (1..600000)')
     parser.add_argument('--gaussian-joint-render', action='store_true',
-                        help='Render confirmed adjacent Gaussian blocks during playback')
+                        help='Render confirmed Gaussian blocks during playback')
+    parser.add_argument('--joint-render-policy', choices=('temporal', 'spatial'), default='temporal',
+                        help='Neighbor selection policy; spatial requires joint rendering')
     parser.add_argument('--gaussian-joint-render-interval-ms', type=int, default=1000)
     parser.add_argument('--gaussian-joint-render-timeout-ms', type=int, default=5000)
 
 
 def validate_gaussian_arguments(args, parser, working_dataset):
+    if args.joint_render_policy == 'spatial' and not args.gaussian_joint_render:
+        parser.error('--joint-render-policy spatial requires --gaussian-joint-render')
     if args.gaussian_joint_render and not args.gaussian_persist_submaps:
         parser.error('--gaussian-joint-render requires --gaussian-persist-submaps')
     if not 100 <= args.gaussian_joint_render_interval_ms <= 60000:
@@ -66,6 +70,7 @@ def gaussian_parameters(args):
         'gaussian.socket_path': str(args.gaussian_socket.resolve()),
         'gaussian.output_directory': str(args.gaussian_output.resolve()),
         'gaussian.joint_render_enabled': args.gaussian_joint_render,
+        'gaussian.joint_render_policy': args.joint_render_policy,
         'gaussian.joint_render_interval_ms': args.gaussian_joint_render_interval_ms,
         'gaussian.joint_render_timeout_ms': args.gaussian_joint_render_timeout_ms}
     if args.gaussian_persist_submaps:

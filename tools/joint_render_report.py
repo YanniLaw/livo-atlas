@@ -8,7 +8,7 @@ import sys
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / '3dgs_probe'))
-from joint_render_protocol import validate_render_message
+from joint_render_protocol import validate_render_header, validate_render_message
 
 
 def _require(condition, detail):
@@ -49,6 +49,7 @@ def _source_identity(event):
         raise ValueError('Invalid accepted source header') from error
     _require(isinstance(header, dict) and header.get('type') == 'joint_render',
              'Expected original accepted render request')
+    validate_render_header(header)
     return header
 
 
@@ -60,7 +61,7 @@ def _records(text, marker):
         fields = dict(re.findall(r'([a-z_]+)=([^\s]+)', line.split(marker, 1)[1]))
         converted = {}
         for key, value in fields.items():
-            if key in ('session', 'source_identity'):
+            if key in ('session', 'source_identity', 'policy'):
                 converted[key] = value
             elif key.endswith('_seconds'):
                 converted[key] = _finite(float(value))
@@ -69,6 +70,33 @@ def _records(text, marker):
                 converted[key] = int(value)
         result.append(converted)
     return result
+
+
+def _event_selection(event, policy):
+    header = _source_identity(event)
+    for source, logged in (('job_id', 'job'), ('generation', 'generation'),
+                           ('map_sequence', 'map_sequence'), ('pose_version', 'pose_version'),
+                           ('frame_count', 'frame_count'), ('optimized_frame_count', 'optimized_frame_count'),
+                           ('query_keyframe_id', 'query'), ('query_submap_id', 'owner')):
+        _require(event.get(logged) == int(header[source]), 'Owner differs from source identity')
+    _require(event.get('session') == header['session_id'] and event.get('blocks') == len(header['blocks']),
+             'Owner differs from source identity')
+    actual = header.get('policy', 'temporal')
+    _require(actual == policy and event.get('policy', actual) == actual,
+             'Owner render policy differs from source or run configuration')
+    ids = [int(block['target']['submap_id']) for block in header['blocks']]
+    selection = dict(candidate_count=0, candidate_pixels=0, projection_uncertain=0, selection_seconds=0.)
+    selection.update(header.get('selection', {}))
+    expected = dict(policy=actual, selected_first=ids[0], selected_last=ids[-1], **selection)
+    for key, value in expected.items():
+        # Old temporal logs have no spatial diagnostics. Spatial evidence must
+        # include them and agree with the complete original source header.
+        if policy == 'spatial' or key in event:
+            observed = event.get(key)
+            equal = (type(observed) in (int, float) and abs(observed - value) < 1e-7
+                     if key == 'selection_seconds' else observed == value)
+            _require(equal, 'Owner selection summary differs from accepted source')
+    return dict(job=event['job'], selected_submap_ids=ids, **selection)
 
 
 def _wire_metrics(value):
@@ -160,9 +188,11 @@ def inspect_joint_renders(run, previews, min_dual=0, min_groups=0):
              stats.get('peak_in_flight', 2) <= 1 and
              all(stats.get(key) == 0 for key in ('pending', 'in_flight', 'pending_storage')),
              'Failed, active or unbounded owner render session')
-    jobs = {}
+    policy = summary.get('joint_render_policy', 'temporal')
+    _require(policy in ('temporal', 'spatial'), 'Unknown run render policy')
+    jobs, selections = {}, {}
     for event in events:
-        _source_identity(event)
+        selections[event['job']] = _event_selection(event, policy)
         _require(event['job'] not in jobs and 0 < event['job'] < 2**64 and
                  1 <= event['blocks'] <= 2 and event['query'] < event['frame_count'] <= 512 and
                  event['changed_pixels'] >= 0, 'Invalid owner render event')
@@ -197,7 +227,16 @@ def inspect_joint_renders(run, previews, min_dual=0, min_groups=0):
                  'Stored render differs from owner acceptance')
         retained.append(dict(file=path.name, as_of=q,
                              accepted_at_steady_seconds=data['accepted_at_steady_seconds']))
-    return dict(pairs=len(files), accepted_before_eof=len(online),
+    selected = [selections[event['job']] for event in online]
+    nonadjacent = {value['job'] for value in selected if len(value['selected_submap_ids']) == 2 and
+                   value['selected_submap_ids'][0] + 1 < value['selected_submap_ids'][1]}
+    times = [value['selection_seconds'] for value in selected]
+    return dict(policy=policy, selections_before_eof=selected,
+        nonadjacent_selections_before_eof=len(nonadjacent),
+        nonadjacent_contributions_before_eof=sum(event['job'] in nonadjacent for event in dual),
+        selection_seconds=dict(samples=len(times), min=min(times), max=max(times),
+                               mean=sum(times) / len(times)),
+        pairs=len(files), accepted_before_eof=len(online),
         acceptance_cutoff_steady_seconds=cutoff, observed_eof_steady_seconds=eof,
         dual_contributions_before_eof=len(dual), query_groups_before_eof=groups,
         stats=stats, events=events, retained=retained)
