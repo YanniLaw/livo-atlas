@@ -8,10 +8,47 @@
 #include <gtest/gtest.h>
 #include <opencv2/core.hpp>
 
+#include "gaussian/render_metadata_protocol.h"
+#include "gaussian/render_metadata_test_helpers.h"
+#include "gaussian/render_test_helpers.h"
 #include "gaussian/wire_protocol.h"
 
 namespace livo_atlas {
 namespace {
+
+TEST(GaussianSubmapProtocolTest, SpatialMetadataOwnsCanonicalValues) {
+  const auto value = test::RenderMetadata({std::string(32, 'a'), 0, 1, 2},
+                                         {0, 2});
+  const auto text = gaussian_mapper_io::Json([&](auto& out) {
+    out << "render_metadata";
+    WriteGaussianRenderMetadata(out, value);
+  });
+  cv::FileStorage json(text, cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  const auto decoded = DecodeGaussianRenderMetadata(
+      json["render_metadata"], value.content, {0, 2});
+  EXPECT_EQ(decoded.content.content_job_id, 2u);
+  EXPECT_EQ(decoded.camera.keyframe_id, 2u);
+  EXPECT_EQ(decoded.camera.K(0, 2), 3.5);
+  EXPECT_EQ(decoded.extents[1].origin_keyframe_id, 2u);
+  EXPECT_EQ(decoded.extents[0].min.z(), 4);
+  auto wrong_content = value.content;
+  ++wrong_content.content_job_id;
+  EXPECT_THROW(DecodeGaussianRenderMetadata(json["render_metadata"],
+                   wrong_content, {0, 2}), std::invalid_argument);
+  EXPECT_THROW(DecodeGaussianRenderMetadata(json["render_metadata"],
+                   value.content, {0, 1}), std::invalid_argument);
+  const auto extra = gaussian_mapper_io::Json([&](auto& out) {
+    for (const auto& child : json["render_metadata"]) {
+      out << child.name();
+      test::CopyJson(out, child);
+    }
+    out << "unknown" << 1;
+  });
+  cv::FileStorage invalid(extra,
+                         cv::FileStorage::READ | cv::FileStorage::MEMORY);
+  EXPECT_THROW(DecodeGaussianRenderMetadata(invalid.root(), value.content,
+                                           {0, 2}), std::invalid_argument);
+}
 
 GaussianTarget Target(int count = 512) {
   GaussianTarget target;

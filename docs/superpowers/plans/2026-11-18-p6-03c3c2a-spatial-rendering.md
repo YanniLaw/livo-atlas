@@ -114,7 +114,9 @@ tests/io/gaussian_render_writer_test.cc, tests/test_joint_render_report.py.
 
 **Files:** gaussian_map/index, mapper Command/Reply, submap commands/protocol;
 new Python spatial_metadata, actor/online_worker/submap_protocol; associated
-map-index, wire, actor and installed consumer tests, public-header CMake.
+map-index, wire, actor and installed consumer tests, public-header CMake;
+new src/gaussian/render_metadata.cc and render_metadata_protocol.{h,cc}; new
+gaussian_render_policy.h and the defaulted core-options policy member.
 
 **Interfaces:**
 - `GaussianExtent {uint64_t origin_keyframe_id; Eigen::Vector3d min, max;
@@ -124,6 +126,9 @@ map-index, wire, actor and installed consumer tests, public-header CMake.
 - `GaussianRenderMetadata {GaussianContentId content;
   vector<GaussianExtent> extents; GaussianCamera camera;}`; append optional
   `render_metadata` to GaussianSubmapEntry and candidate Command.
+- Produce policy enum/header and OnlineGaussianOptions.joint_render_policy here
+  so opt-in capability negotiation has its final configuration from the start;
+  Tasks3/4 consume these instead of introducing a temporary enable flag.
 - `ValidateGaussianRenderMetadata(const GaussianRenderMetadata&,
   const GaussianContentId&, const vector<uint64_t>& frame_ids)` checks exact
   identity, finite ordered bounds, positive scale, <=10 origins exactly covering
@@ -133,6 +138,11 @@ map-index, wire, actor and installed consumer tests, public-header CMake.
 - Python `extract_metadata(state, content)` returns wire dict from existing
   CPU candidate arrays and latest retained view; `validate_metadata(metadata,
   content, frame_ids)` enforces the same semantics. No second full-state copy.
+- Add OnlineGaussianModel.capture_candidate_state(context), sharing the existing
+  capture body with capture_state(context). Spatial candidate capture is held in
+  pending and reused on accept; temporal capture timing remains unchanged.
+- Internal DecodeGaussianRenderMetadata(node, content, frame_ids) and
+  WriteGaussianRenderMetadata(out, metadata) provide the focused wire boundary.
 - Opt-in hello capabilities are exactly joint_render_v1 followed by
   joint_render_spatial_v1. Candidate alone appends render_metadata; accepted
   decision checks the same metadata before owner index insertion. Persisted

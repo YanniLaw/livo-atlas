@@ -180,13 +180,19 @@ class OnlineGaussianRenderTest : public testing::Test {
   }
 
   void RestartWithShortShutdown() {
+    options_.shutdown_timeout = 5ms;
+    options_.joint_render_timeout = 5s;
+    RestartMapper();
+  }
+
+  void RestartMapper(bool no_spatial = false, bool omit_metadata = false) {
     mapper_->Finish();
     mapper_.reset();
     peer_.reset();
     fs::remove_all(options_.output_directory);
-    options_.shutdown_timeout = 5ms;
-    options_.joint_render_timeout = 5s;
     peer_ = std::make_unique<SubmapPeer>(options_.socket_path);
+    peer_->no_spatial_capability = no_spatial;
+    peer_->omit_spatial_metadata = omit_metadata;
     mapper_ = std::make_unique<OnlineGaussianMapper>(
         *system_, CameraConfig{"Pinhole", 8, 6, 1, 4, 4, 3.5, 2.5, {}},
         options_);
@@ -202,6 +208,73 @@ class OnlineGaussianRenderTest : public testing::Test {
   std::uint64_t accepted_ = 0;
   bool rounded_camera_ = false;
 };
+
+TEST_F(OnlineGaussianRenderTest, SpatialMetadataWaitsForConfirmedDecision) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper();
+  peer_->hold_commit = true;
+  Append();
+  ASSERT_TRUE(Wait([&] { return peer_->decisions == 1; }));
+  EXPECT_FALSE(Entry(0).render_metadata);
+  peer_->hold_commit = false;
+  Confirm();
+  ASSERT_TRUE(Entry(0).render_metadata);
+  EXPECT_EQ(Entry(0).render_metadata->content, *Entry(0).content);
+  EXPECT_EQ(Entry(0).render_metadata->camera.keyframe_id, 0u);
+  Append();
+  Confirm();
+  const auto before = Entry(0).render_metadata;
+  Correct();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().rebinds >= 1; }));
+  EXPECT_EQ(Entry(0).render_metadata, before);
+}
+
+TEST_F(OnlineGaussianRenderTest, SpatialCapabilityCannotFallBackToTemporal) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper(true);
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (!mapper_->GetStats().failed &&
+         std::chrono::steady_clock::now() < deadline) {
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_NE(mapper_->GetStats().error.find("joint_render_spatial_v1"),
+            std::string::npos);
+}
+
+TEST_F(OnlineGaussianRenderTest, SpatialCandidateRequiresMetadata) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper(false, true);
+  Append();
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (!mapper_->GetStats().failed &&
+         std::chrono::steady_clock::now() < deadline) {
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_FALSE(Entry(0).content);
+  EXPECT_FALSE(Entry(0).render_metadata);
+}
+
+TEST_F(OnlineGaussianRenderTest, AlteredReuseMetadataFailsBeforeAccept) {
+  options_.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  RestartMapper();
+  Append();
+  Confirm();
+  const auto commits = peer_->commits.load();
+  peer_->alter_reuse_metadata = true;
+  Correct();
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (!mapper_->GetStats().failed &&
+         std::chrono::steady_clock::now() < deadline) {
+    mapper_->Poll();
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(mapper_->GetStats().failed, 1u);
+  EXPECT_EQ(peer_->commits, commits);
+}
 
 
 TEST_F(OnlineGaussianRenderTest, AcceptsCurrentOwnedResultThenInvalidates) {

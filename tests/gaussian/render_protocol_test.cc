@@ -3,9 +3,27 @@
 #include <stdexcept>
 
 #include "gaussian/render_test_helpers.h"
+#include "livo_atlas/core/online_gaussian_options.h"
 
 namespace livo_atlas {
 namespace {
+
+TEST(GaussianRenderPolicyTest, SpatialPolicyRequiresEveryRenderPrerequisite) {
+  OnlineGaussianOptions options;
+  options.joint_render_policy = GaussianRenderPolicy::kSpatial;
+  EXPECT_THROW(ValidateOnlineGaussianOptions(options), std::invalid_argument);
+  options.enabled = true;
+  options.socket_path = "/tmp/spatial-options.sock";
+  options.output_directory = "/tmp/spatial-options";
+  EXPECT_THROW(ValidateOnlineGaussianOptions(options), std::invalid_argument);
+  options.persist_submaps = true;
+  EXPECT_THROW(ValidateOnlineGaussianOptions(options), std::invalid_argument);
+  options.joint_render_enabled = true;
+  EXPECT_NO_THROW(ValidateOnlineGaussianOptions(options));
+  options = {};
+  options.joint_render_policy = static_cast<GaussianRenderPolicy>(2);
+  EXPECT_THROW(ValidateOnlineGaussianOptions(options), std::invalid_argument);
+}
 
 TEST(RenderProtocol, EarlierRetainedOwnerCameraIsRejected) {
   auto request = test::RenderRequest();

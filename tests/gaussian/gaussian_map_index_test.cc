@@ -1,11 +1,14 @@
 #include "livo_atlas/gaussian/gaussian_map_index.h"
 
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
+
+#include "gaussian/render_metadata_test_helpers.h"
 
 namespace livo_atlas {
 namespace {
@@ -66,6 +69,120 @@ GaussianAssetReference Asset(const GaussianContentId& content,
   result.gaussian_bytes = 1024;
   result.observation_bytes = 4096;
   return result;
+}
+
+TEST(GaussianMapIndexTest, MetadataFollowsConfirmedContentAndRigidReuse) {
+  GaussianMapIndex index(kSession);
+  Populate(index, 3);
+  const auto metadata = test::RenderMetadata({kSession, 0, 1, 1}, {0, 2});
+  EXPECT_FALSE(index.Snapshot().entries[0].render_metadata);
+  index.RecordConfirmed(index.MakeTarget(0, 1), GaussianOperation::kView,
+                        1, {0, 2}, 2, metadata);
+  ASSERT_EQ(index.Snapshot().entries[0].render_metadata, metadata);
+  ASSERT_TRUE(index.RecordCheckpoint(Asset(metadata.content)));
+  Observe(index, Poses(3, 1, true));
+  index.RecordConfirmed(index.MakeTarget(0, 2), GaussianOperation::kReuse,
+                        2, {0, 2}, 2, metadata);
+  EXPECT_EQ(index.Snapshot().entries[0].render_metadata, metadata);
+  auto altered = metadata;
+  altered.extents.front().max.x() = 1;
+  EXPECT_THROW(index.RecordConfirmed(index.MakeTarget(0, 3),
+                   GaussianOperation::kReuse, 3, {0, 2}, 2, altered),
+               std::invalid_argument);
+  EXPECT_EQ(index.Snapshot().entries[0].render_metadata, metadata);
+  index.RecordResidentReleased();
+  EXPECT_EQ(index.Snapshot().entries[0].render_metadata, metadata);
+}
+
+TEST(GaussianMapIndexTest, InvalidMetadataCannotPartiallyConfirmNewContent) {
+  GaussianMapIndex index(kSession);
+  Populate(index, 3);
+  const auto original = test::RenderMetadata({kSession, 0, 1, 1}, {0, 2});
+  index.RecordConfirmed(index.MakeTarget(0, 1), GaussianOperation::kView,
+                        1, {0, 2}, 2, original);
+  const auto sequence = index.Snapshot().map_sequence;
+  for (int mode = 0; mode < 7; ++mode) {
+    auto value = test::RenderMetadata({kSession, 0, 2, 2}, {0, 2});
+    if (mode == 0) value.content.content_job_id = 3;
+    if (mode == 1) value.camera.keyframe_id = 0;
+    if (mode == 2) value.extents.front().max_scale = 0;
+    if (mode == 3) value.extents.front().min.x() = 1;
+    if (mode == 4) value.camera.K(0, 0) = -1;
+    if (mode == 5) value.camera.camera_from_body.rotation(0, 0) += 2e-6;
+    if (mode == 6) value.extents.pop_back();
+    EXPECT_THROW(index.RecordConfirmed(index.MakeTarget(0, 2),
+                     GaussianOperation::kView, 2, {0, 2}, 2, value),
+                 std::invalid_argument) << mode;
+    EXPECT_EQ(index.Snapshot().map_sequence, sequence);
+    EXPECT_EQ(index.Snapshot().entries[0].render_metadata, original);
+    EXPECT_EQ(index.Snapshot().entries[0].content->content_job_id, 1u);
+  }
+}
+
+TEST(GaussianMapIndexTest, RebuildReplacesMetadataWithoutRewritingOldAsset) {
+  GaussianMapIndex index(kSession);
+  Populate(index, 3);
+  const auto old = test::RenderMetadata({kSession, 0, 1, 1}, {0, 2});
+  index.RecordConfirmed(index.MakeTarget(0, 1), GaussianOperation::kView,
+                        1, {0, 2}, 2, old);
+  ASSERT_TRUE(index.RecordCheckpoint(Asset(old.content)));
+  auto changed = Poses(3, 1);
+  changed.poses[1].map_from_body.translation.y() += .5;
+  Observe(index, changed);
+  EXPECT_EQ(index.Snapshot().entries[0].render_metadata, old);
+  const auto fresh = test::RenderMetadata({kSession, 0, 2, 2}, {0, 2});
+  index.RecordConfirmed(index.MakeTarget(0, 2), GaussianOperation::kRebuild,
+                        2, {0, 2}, 2, fresh);
+  const auto entry = index.Snapshot().entries[0];
+  EXPECT_EQ(entry.render_metadata, fresh);
+  EXPECT_EQ(entry.asset->content, old.content);
+  EXPECT_TRUE(entry.dirty);
+}
+
+TEST(GaussianMapIndexTest, ThirdResidentKeepsEarlierConfirmedMetadata) {
+  GaussianMapIndex index(kSession);
+  for (int i = 0; i < 3; ++i) {
+    std::vector<OnlineSubmap> groups;
+    if (i) groups.push_back(Group(i - 1, i - 1, 1, true));
+    groups.push_back(Group(i, i, 1));
+    Observe(index, Poses(i + 1), groups);
+    const auto metadata = test::RenderMetadata(
+        {kSession, static_cast<std::uint64_t>(i),
+         static_cast<std::uint64_t>(i + 1),
+         static_cast<std::uint64_t>(i + 1)},
+        {static_cast<std::uint64_t>(i)});
+    index.RecordConfirmed(index.MakeTarget(i, i + 1),
+                          GaussianOperation::kView, i + 1,
+                          {static_cast<std::uint64_t>(i)}, 1, metadata);
+    ASSERT_TRUE(index.RecordCheckpoint(Asset(metadata.content, i + 1)));
+  }
+  const auto map = index.Snapshot();
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_TRUE(map.entries[i].render_metadata);
+    EXPECT_EQ(map.entries[i].render_metadata->camera.keyframe_id,
+              static_cast<std::uint64_t>(i));
+    EXPECT_EQ(map.entries[i].resident, i == 2);
+  }
+}
+
+TEST(GaussianMapIndexTest, MetadataRejectsNonfiniteAndOverBudgetValues) {
+  const auto valid = test::RenderMetadata({kSession, 0, 1, 1}, {0, 1});
+  for (int mode = 0; mode < 7; ++mode) {
+    auto value = valid;
+    if (mode == 0) value.extents[0].max.x() =
+        std::numeric_limits<double>::infinity();
+    if (mode == 1) value.extents[0].max_scale =
+        std::numeric_limits<double>::quiet_NaN();
+    if (mode == 2) value.camera.width = 1000001;
+    if (mode == 3) value.camera.K(0, 1) = 1;
+    if (mode == 4) value.extents.resize(11);
+    if (mode == 5) value.camera.calibration_id = 1;
+    if (mode == 6) value.content.session_id = "bad";
+    EXPECT_THROW(ValidateGaussianRenderMetadata(value, valid.content, {0, 1}),
+                 std::invalid_argument) << mode;
+  }
+  EXPECT_THROW(ValidateGaussianRenderMetadata(valid, valid.content, {}),
+               std::invalid_argument);
 }
 
 TEST(GaussianMapIndexTest,

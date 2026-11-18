@@ -5,6 +5,8 @@ livo_atlas_library(online_gaussian src/gaussian/wire_protocol.cc
   src/gaussian/submap_scheduler.cc src/gaussian/submap_commands.cc
   src/gaussian/render_protocol.cc src/gaussian/render_scheduler.cc
   src/gaussian/render_validation.cc
+  src/gaussian/render_metadata.cc
+  src/gaussian/render_metadata_protocol.cc
   src/gaussian/finalization.cc src/gaussian/gaussian_render.cc)
 target_include_directories(livo_atlas_online_gaussian PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_online_gaussian PUBLIC livo_atlas_core

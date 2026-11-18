@@ -1,4 +1,5 @@
 import json
+import copy
 import os
 import socket
 import struct
@@ -16,6 +17,33 @@ from submap_fixtures import (SESSION, candidate_fixture, control_fixture, target
 
 
 class SubmapProtocolTest(unittest.TestCase):
+    def test_candidate_metadata_has_exact_content_query_and_preview(self):
+        from spatial_metadata import extract_metadata
+        from state_fixtures import make_state
+        content = dict(session_id=SESSION, submap_id='0', source_generation='1', content_job_id='1')
+        header = dict(candidate_fixture(), job_id='3', generation='2', capture_time=101.01,
+                      render_metadata=extract_metadata(make_state(), content))
+        self.echo(header, bytes(3 * 48))
+        for edit in (lambda d: d['render_metadata']['content'].update(submap_id='1'),
+                     lambda d: d['render_metadata']['camera'].update(keyframe_id='0'),
+                     lambda d: d['render_metadata']['camera'].update(width=9),
+                     lambda d: d['render_metadata']['camera'].update(capture_time=100.01)):
+            changed = copy.deepcopy(header)
+            edit(changed)
+            with self.subTest(edit=edit), self.assertRaises(ValueError):
+                encode_message(changed, bytes(3 * 48))
+
+    def test_spatial_capability_requires_joint_render_capability(self):
+        header = dict(schema=2, type='hello', session_id=SESSION,
+                      state_directory='/tmp/spatial-session/states',
+                      capabilities=['joint_render_v1', 'joint_render_spatial_v1'])
+        self.echo(header)
+        for capabilities in (['joint_render_spatial_v1'],
+                             ['joint_render_spatial_v1', 'joint_render_v1'],
+                             ['joint_render_v1', 'joint_render_v1']):
+            with self.subTest(capabilities=capabilities), self.assertRaises(ValueError):
+                encode_message(dict(header, capabilities=capabilities), b'')
+
     def echo(self, header, body=b""):
         local, remote = socket.socketpair()
         with local, remote:

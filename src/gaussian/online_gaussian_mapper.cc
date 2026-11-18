@@ -617,12 +617,17 @@ void OnlineGaussianMapper::Run() noexcept {
     }
     if (fd < 0)
       throw std::runtime_error("Gaussian worker connection timed out");
+    const bool spatial =
+        options_.joint_render_policy == GaussianRenderPolicy::kSpatial;
     WriteGaussianMessage(
         fd,
         {Json([&](auto& out) {
            Base(out, "hello", session_id_, options_.persist_submaps ? 2 : 1);
-           if (options_.joint_render_enabled)
-             out << "capabilities" << "[" << "joint_render_v1" << "]";
+           if (options_.joint_render_enabled) {
+             out << "capabilities" << "[" << "joint_render_v1";
+             if (spatial) out << "joint_render_spatial_v1";
+             out << "]";
+           }
            if (options_.persist_submaps)
              out << "state_directory"
                  << (fs::canonical(options_.output_directory) / "states")
@@ -638,10 +643,15 @@ void OnlineGaussianMapper::Run() noexcept {
       throw std::runtime_error("Gaussian worker protocol mode mismatch");
     if (options_.joint_render_enabled &&
         (!greeting["capabilities"].isSeq() ||
-         greeting["capabilities"].size() != 1 ||
+         greeting["capabilities"].size() < 1 ||
          static_cast<std::string>(greeting["capabilities"][0]) !=
              "joint_render_v1"))
       throw std::runtime_error("Worker lacks joint_render_v1 capability");
+    if (options_.joint_render_enabled &&
+        greeting["capabilities"].size() != (spatial ? 2u : 1u))
+      throw std::runtime_error(spatial
+          ? "Worker lacks joint_render_spatial_v1 capability"
+          : "Unexpected Gaussian render capability");
     post({ReplyKind::kConnected});
 
     while (!stopping_) {

@@ -11,8 +11,9 @@
 #include <string>
 #include <utility>
 
-#include "mapping/pose_math.h"
+#include "gaussian/render_metadata_protocol.h"
 #include "gaussian/render_protocol.h"
+#include "mapping/pose_math.h"
 
 namespace livo_atlas {
 namespace {
@@ -291,8 +292,12 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
   if (root["capabilities"].type() != cv::FileNode::NONE) {
     const auto capabilities = root["capabilities"];
     Require((kind == "hello" || kind == "hello_ok") &&
-                capabilities.isSeq() && capabilities.size() == 1 &&
-                static_cast<std::string>(capabilities[0]) == "joint_render_v1",
+                capabilities.isSeq() &&
+                (capabilities.size() == 1 || capabilities.size() == 2) &&
+                static_cast<std::string>(capabilities[0]) == "joint_render_v1"
+                && (capabilities.size() == 1 ||
+                    static_cast<std::string>(capabilities[1]) ==
+                        "joint_render_spatial_v1"),
             "Invalid render capabilities");
   }
   Require(Hex(String(root, "session_id"), 32), "Invalid session ID");
@@ -380,7 +385,7 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
                      "nonzero_gradient", "parameter_updated", "capture_time"});
     Keys(root, required,
          {"gpu_peak_allocated_bytes", "gpu_peak_reserved_bytes",
-          "worker_peak_rss_bytes"});
+          "worker_peak_rss_bytes", "render_metadata"});
     (void)Id(root, "submap_id");
     const auto count = Frames(root);
     const auto frontier = Id(root, "frame_count");
@@ -411,6 +416,25 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
           "worker_peak_rss_bytes"})
       if (root[name].type() != cv::FileNode::NONE) (void)Id(root, name);
     Require(body.size() == 3 * Pixels(root), "Incorrect candidate image size");
+    if (!root["render_metadata"].empty()) {
+      const auto node = root["render_metadata"];
+      std::vector<std::uint64_t> frames;
+      for (const auto& frame : root["frame_ids"])
+        frames.push_back(UnsignedNode(frame));
+      const bool reuse = operation == "reuse";
+      const GaussianContentId content{
+          String(root, "session_id"), Id(root, "submap_id"),
+          Id(reuse ? node["content"] : root,
+             reuse ? "source_generation" : "generation"),
+          Id(reuse ? node["content"] : root,
+             reuse ? "content_job_id" : "job_id")};
+      const auto metadata = DecodeGaussianRenderMetadata(node, content, frames);
+      Require(metadata.camera.width == static_cast<int>(root["width"]) &&
+                  metadata.camera.height == static_cast<int>(root["height"])
+                  && metadata.camera.capture_time ==
+                      Number(root["capture_time"]),
+              "Spatial query differs from candidate preview");
+    }
     return;
   } else if (kind == "decision" || kind == "commit_ok" ||
              kind == "discard_ok") {

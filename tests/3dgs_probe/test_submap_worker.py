@@ -153,6 +153,60 @@ class SubmapWorkerTest(unittest.TestCase):
         for name, value in expected.items():
             np.testing.assert_array_equal(self.actor.model.parameters[name].detach().cpu().numpy(), value)
 
+    def enable_spatial(self):
+        self.actor.model.reset(0)
+        self.directory.rmdir()
+        self.actor = GaussianSubmapWorker(SESSION, self.directory, OnlineGaussianModel(self.device),
+            METADATA, joint_render_enabled=True, spatial_render_enabled=True)
+
+    def test_spatial_metadata_waits_for_accept_and_reuses_one_candidate_capture(self):
+        self.enable_spatial()
+        self.activate()
+        candidate, _ = self.view(0, accept=False)
+        self.assertIsNone(self.actor.confirmed_metadata)
+        self.assertEqual(candidate['render_metadata']['camera']['keyframe_id'], '0')
+        self.decide(candidate, False)
+        self.assertIsNone(self.actor.confirmed_metadata)
+        self.assertIsNone(self.actor.pending)
+        candidate, _ = self.view(0, accept=False)
+        captured = self.actor.pending['state']
+        self.assertTrue(self.actor.model.candidate_pending)
+        self.decide(candidate)
+        self.assertIs(self.actor.confirmed_state, captured)
+        self.assertEqual(self.actor.confirmed_metadata, candidate['render_metadata'])
+        self.assertEqual(self.actor.confirmed_metadata['content']['content_job_id'], candidate['job_id'])
+
+    def test_spatial_metadata_follows_reuse_rebuild_checkpoint_and_prune(self):
+        self.enable_spatial()
+        self.activate()
+        self.view(0)
+        self.view(1)
+        before = copy.deepcopy(self.actor.confirmed_metadata)
+        asset = self.checkpoint()
+        self.assertEqual(self.actor.assets[int(asset['asset_id'])]['render_metadata'], before)
+        self.assertNotIn('render_metadata', read_state(self.directory / asset['asset_id']).metadata)
+        candidate, _ = self.activate(action='reuse', version=1)
+        self.assertEqual(candidate['render_metadata'], before)
+        self.decide(candidate, False)
+        self.assertEqual(self.actor.confirmed_metadata, before)
+        candidate, _ = self.activate(action='reuse', version=1)
+        self.decide(candidate)
+        self.assertEqual(self.actor.confirmed_metadata, before)
+        poses = np.frombuffer(self.target_body, dtype='<f8').copy().reshape(2, 4, 4)
+        poses[1, 1, 3] = .5
+        candidate, _ = self.activate(action='rebuild', version=2, poses=poses)
+        self.assertEqual(self.actor.confirmed_metadata, before)
+        self.assertEqual(candidate['render_metadata']['content']['source_generation'], candidate['generation'])
+        self.decide(candidate)
+        self.assertNotEqual(self.actor.confirmed_metadata['content'], before['content'])
+        replacement = self.checkpoint()
+        self.prune(asset)
+        self.assertNotIn(int(asset['asset_id']), self.actor.assets)
+        self.assertEqual(self.actor.assets[int(replacement['asset_id'])]['render_metadata'],
+                         self.actor.confirmed_metadata)
+        self.activate(submap=1, first=2, count=1, version=2)
+        self.assertIsNone(self.actor.confirmed_metadata)
+
     def test_rejected_view_restores_prior_confirmed_parameters(self):
         self.activate()
         self.view(0)
@@ -370,6 +424,12 @@ class SubmapWorkerTest(unittest.TestCase):
         self.assertTrue((self.directory / old["asset_id"]).is_dir())
 
     def test_schema_two_server_confirms_real_gpu_training(self):
+        self.server_roundtrip()
+
+    def test_spatial_server_negotiates_and_transports_candidate_metadata(self):
+        self.server_roundtrip(['joint_render_v1', 'joint_render_spatial_v1'])
+
+    def server_roundtrip(self, capabilities=None):
         parent = self.root / "server"
         parent.mkdir()
         client, server = socket.socketpair()
@@ -382,12 +442,19 @@ class SubmapWorkerTest(unittest.TestCase):
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
         try:
-            write_message(client, {"schema": 2, "type": "hello", "session_id": SESSION,
-                                   "state_directory": str(parent / "states")}, b"", 5)
+            greeting = {"schema": 2, "type": "hello", "session_id": SESSION,
+                        "state_directory": str(parent / "states")}
+            if capabilities is not None:
+                greeting['capabilities'] = capabilities
+            write_message(client, greeting, b"", 5)
             hello, _ = read_message(client, 10)
             self.assertEqual(hello["type"], "hello_ok", hello)
             self.assertEqual(hello["schema"], 2)
             self.assertEqual(hello["mode"], "persistent_submaps")
+            if capabilities is None:
+                self.assertNotIn('capabilities', hello)
+            else:
+                self.assertEqual(hello['capabilities'], capabilities)
             header, body = target_fixture(count=1)
             write_message(client, header, body, 5)
             self.assertEqual(read_message(client, 5)[0]["type"], "activated")
@@ -396,6 +463,14 @@ class SubmapWorkerTest(unittest.TestCase):
             candidate, _ = read_message(client, 10)
             self.assertEqual(candidate["type"], "candidate")
             self.assertEqual(candidate["nonzero_gradient"], 1)
+            if capabilities is None:
+                self.assertNotIn('render_metadata', candidate)
+            else:
+                metadata = candidate['render_metadata']
+                self.assertEqual(metadata['camera']['keyframe_id'], '0')
+                self.assertEqual(metadata['camera']['K'][2], 3.5)
+                self.assertEqual(metadata['content'], dict(session_id=SESSION, submap_id='0',
+                    source_generation='1', content_job_id='2'))
             decision = control_fixture("decision", job=2, submap=0, operation="view", action="accept")
             write_message(client, decision, b"", 5)
             self.assertEqual(read_message(client, 5)[0]["type"], "commit_ok")

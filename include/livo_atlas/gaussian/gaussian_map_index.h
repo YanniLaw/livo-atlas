@@ -25,6 +25,11 @@ class GaussianMapIndex {
                        GaussianOperation operation, std::uint64_t job_id,
                        const std::vector<std::uint64_t>& frame_ids,
                        int gaussian_count);
+  void RecordConfirmed(
+      const GaussianTarget& target, GaussianOperation operation,
+      std::uint64_t job_id, const std::vector<std::uint64_t>& frame_ids,
+      int gaussian_count,
+      const std::optional<GaussianRenderMetadata>& render_metadata);
   bool RecordCheckpoint(const GaussianAssetReference& asset);
   // Empty activation releases the previous durable CPU/GPU confirmation.
   void RecordResidentReleased();

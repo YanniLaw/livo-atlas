@@ -4,6 +4,8 @@
 #include <chrono>
 #include <filesystem>
 
+#include "livo_atlas/gaussian/gaussian_render_policy.h"
+
 namespace livo_atlas {
 
 struct OnlineGaussianOptions {
@@ -21,6 +23,7 @@ struct OnlineGaussianOptions {
   bool joint_render_enabled = false;
   std::chrono::milliseconds joint_render_interval{1000};
   std::chrono::milliseconds joint_render_timeout{5000};
+  GaussianRenderPolicy joint_render_policy = GaussianRenderPolicy::kTemporal;
 };
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options);

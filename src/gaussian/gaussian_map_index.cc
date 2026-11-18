@@ -234,6 +234,15 @@ void GaussianMapIndex::RecordConfirmed(
     const GaussianTarget& target, GaussianOperation operation,
     std::uint64_t job_id, const std::vector<std::uint64_t>& frame_ids,
     int gaussian_count) {
+  RecordConfirmed(target, operation, job_id, frame_ids, gaussian_count,
+                  std::nullopt);
+}
+
+void GaussianMapIndex::RecordConfirmed(
+    const GaussianTarget& target, GaussianOperation operation,
+    std::uint64_t job_id, const std::vector<std::uint64_t>& frame_ids,
+    int gaussian_count,
+    const std::optional<GaussianRenderMetadata>& render_metadata) {
   ValidateGaussianTarget(target);
   const auto id = target.group.primary.id;
   if (target.session_id != session_id_ || !poses_ || id >= entries_.size() ||
@@ -252,6 +261,19 @@ void GaussianMapIndex::RecordConfirmed(
       !CanTrain(id))
     throw std::invalid_argument("Invalid Gaussian confirmation or coverage");
   auto& entry = entries_[id];
+  if (render_metadata) {
+    if (operation == GaussianOperation::kReuse && !entry.content)
+      throw std::invalid_argument("Spatial reuse has no confirmed content");
+    const auto content = operation == GaussianOperation::kReuse
+        ? *entry.content
+        : GaussianContentId{session_id_, id, target.generation, job_id};
+    ValidateGaussianRenderMetadata(*render_metadata, content, frame_ids);
+    if (gaussian_count < static_cast<int>(frame_ids.size()))
+      throw std::invalid_argument("Spatial origins exceed Gaussian count");
+    if (operation == GaussianOperation::kReuse && entry.render_metadata &&
+        render_metadata != entry.render_metadata)
+      throw std::invalid_argument("Gaussian reuse changed spatial metadata");
+  }
   if (operation == GaussianOperation::kReuse) {
     if (!entry.content || frame_ids != entry.frame_ids ||
         gaussian_count != entry.gaussian_count ||
@@ -271,9 +293,12 @@ void GaussianMapIndex::RecordConfirmed(
     entry.content_target = target;
     entry.frame_ids = frame_ids;
     entry.gaussian_count = gaussian_count;
+    entry.render_metadata = render_metadata;
   } else {
     throw std::invalid_argument("Unknown Gaussian operation");
   }
+  if (operation == GaussianOperation::kReuse && render_metadata)
+    entry.render_metadata = render_metadata;
   for (auto& item : entries_) item.resident = false;
   entry.resident = true;
   entry.binding_job_id = job_id;

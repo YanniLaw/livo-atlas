@@ -4,8 +4,9 @@
 #include <stdexcept>
 
 #include "gaussian/mapper_io.h"
-#include "gaussian/submap_protocol.h"
+#include "gaussian/render_metadata_protocol.h"
 #include "gaussian/render_protocol.h"
+#include "gaussian/submap_protocol.h"
 #include "livo_atlas/io/gaussian_map_writer.h"
 #include "livo_atlas/io/reconstruction_view.h"
 #include "mapping/pose_math.h"
@@ -240,6 +241,22 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
                  preview->height != view->image_bgr.rows))
       throw std::runtime_error("Gaussian candidate image dimensions mismatch");
     preview->capture_time = static_cast<double>(json["capture_time"]);
+    const bool spatial =
+        options_.joint_render_policy == GaussianRenderPolicy::kSpatial;
+    if (spatial != !json["render_metadata"].empty())
+      throw std::runtime_error("Gaussian candidate spatial metadata mismatch");
+    if (spatial) {
+      const auto content = command.operation == GaussianOperation::kReuse
+          ? *command.content
+          : GaussianContentId{session_id_, command.target.group.primary.id,
+                              command.target.generation, command.job_id};
+      const auto metadata = DecodeGaussianRenderMetadata(
+          json["render_metadata"], content, preview->frame_ids);
+      if (command.operation == GaussianOperation::kReuse &&
+          command.render_metadata && *command.render_metadata != metadata)
+        throw std::runtime_error("Gaussian reuse changed spatial metadata");
+      reply.command.render_metadata = metadata;
+    }
     preview->steps = static_cast<int>(json["steps"]);
     preview->gaussian_count = static_cast<int>(json["gaussian_count"]);
     if (command.operation == GaussianOperation::kReuse &&

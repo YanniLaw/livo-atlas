@@ -309,6 +309,8 @@ void OnlineGaussianMapper::DispatchSubmaps() {
             : GaussianOperation::kReuse;
     command.frame_ids = entry.frame_ids;
     command.gaussian_count = entry.gaussian_count;
+    if (options_.joint_render_policy == GaussianRenderPolicy::kSpatial)
+      command.render_metadata = entry.render_metadata;
     if (entry.content && !entry.resident) {
       if (!entry.asset || entry.asset->content != *entry.content)
         throw std::runtime_error(
@@ -381,7 +383,8 @@ void OnlineGaussianMapper::HandleSubmapReply(Reply reply) {
       if (command.accept) {
         map_index_.RecordConfirmed(command.target, command.operation,
                                    command.job_id, candidate_->frame_ids,
-                                   candidate_->gaussian_count);
+                                   candidate_->gaussian_count,
+                                   command.render_metadata);
         remote_target_ = command.target;
         if (command.asset) ++stats_.loads;
         if (command.operation == GaussianOperation::kReuse) ++stats_.rebinds;

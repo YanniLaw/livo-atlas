@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <Eigen/Core>
+
 #include "livo_atlas/mapping/online_submap.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
 
@@ -23,6 +25,40 @@ struct GaussianContentId {
 
 bool operator==(const GaussianContentId& left, const GaussianContentId& right);
 bool operator!=(const GaussianContentId& left, const GaussianContentId& right);
+
+// Bounds are local optimized Gaussian means, grouped by their retained origin.
+struct GaussianExtent {
+  std::uint64_t origin_keyframe_id = 0;
+  Eigen::Vector3d min = Eigen::Vector3d::Zero();
+  Eigen::Vector3d max = Eigen::Vector3d::Zero();
+  double max_scale = 0;
+};
+
+struct GaussianCamera {
+  std::uint64_t keyframe_id = 0;
+  std::uint64_t calibration_id = 0;
+  int width = 0;
+  int height = 0;
+  // Original integer pixel centers; gsplat conversion adds 0.5 exactly once.
+  Eigen::Matrix3d K = Eigen::Matrix3d::Identity();
+  RigidTransform camera_from_body;
+  double capture_time = 0;
+};
+
+struct GaussianRenderMetadata {
+  GaussianContentId content;
+  std::vector<GaussianExtent> extents;
+  GaussianCamera camera;
+};
+
+bool operator==(const GaussianRenderMetadata& a,
+                const GaussianRenderMetadata& b);
+bool operator!=(const GaussianRenderMetadata& a,
+                const GaussianRenderMetadata& b);
+
+void ValidateGaussianRenderMetadata(
+    const GaussianRenderMetadata& metadata, const GaussianContentId& content,
+    const std::vector<std::uint64_t>& frame_ids);
 
 // Primary body poses are local to the first primary body, never the LiDAR.
 // Generation authorizes an operation; it is not inferred from stored content.
@@ -67,6 +103,9 @@ struct GaussianSubmapEntry {
   int asset_gaussian_count = 0;
   bool asset_current = false;
   std::uint64_t last_repair_attempt = 0;
+  // Present only after an explicitly negotiated spatial candidate is accepted.
+  // Asset/map schemas remain independent of this in-memory description.
+  std::optional<GaussianRenderMetadata> render_metadata;
 };
 
 struct GaussianMapSnapshot {

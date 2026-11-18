@@ -19,6 +19,14 @@ bool ContainsPath(const fs::path& parent, const fs::path& path) {
 }  // namespace
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options) {
+  if (options.joint_render_policy != GaussianRenderPolicy::kTemporal &&
+      options.joint_render_policy != GaussianRenderPolicy::kSpatial)
+    throw std::invalid_argument("Unknown Gaussian joint render policy");
+  if (options.joint_render_policy == GaussianRenderPolicy::kSpatial &&
+      (!options.enabled || !options.persist_submaps ||
+       !options.joint_render_enabled))
+    throw std::invalid_argument(
+        "Spatial rendering requires Gaussian persistence and joint rendering");
   if (options.persist_submaps && !options.enabled)
     throw std::invalid_argument(
         "Gaussian persistence requires gaussian.enabled");

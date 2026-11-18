@@ -74,8 +74,16 @@ class OnlineGaussianModel:
 
     def capture_state(self, context):
         """Copy a confirmed working set using independently supplied source poses."""
-        if self.parameters is None or self.candidate_pending or not self.views:
-            raise ValueError("Only a nonempty confirmed model can be captured")
+        return self._capture_state(context, pending=False)
+
+    def capture_candidate_state(self, context):
+        """Own one tentative CPU copy without accepting or changing the model."""
+        return self._capture_state(context, pending=True)
+
+    def _capture_state(self, context, *, pending):
+        if self.parameters is None or self.candidate_pending != pending or not self.views:
+            kind = 'pending' if pending else 'confirmed'
+            raise ValueError('Only a nonempty ' + kind + ' model can be captured')
         generated = {"schema", "kind", "representation", "optimizer", "software"}
         if not isinstance(context, dict) or generated & context.keys():
             raise ValueError("Capture context cannot override generated metadata")

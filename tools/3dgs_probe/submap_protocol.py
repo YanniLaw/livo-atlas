@@ -94,7 +94,9 @@ def validate_message(header, body):
         from joint_render_protocol import validate_render_message
         return validate_render_message(header, body)
     if 'capabilities' in header:
-        if header.get('type') not in ('hello', 'hello_ok') or header['capabilities'] != ['joint_render_v1']:
+        if (header.get('type') not in ('hello', 'hello_ok') or
+                header['capabilities'] not in (['joint_render_v1'],
+                    ['joint_render_v1', 'joint_render_spatial_v1'])):
             raise ValueError('Invalid requested render capabilities')
     session = header.get("session_id")
     if not isinstance(session, str) or not _SESSION.fullmatch(session):
@@ -171,7 +173,8 @@ def validate_message(header, body):
         _fields(header, base | {"submap_id", "operation", "membership_revision", "frame_count",
                                 "optimized_frame_count", "frame_ids", "width", "height", "steps",
                                 "gaussian_count", "supervised_depth_pixels", "rgb_l1", "depth_l1_m",
-                                "nonzero_gradient", "parameter_updated", "capture_time"}, _MEMORY_FIELDS)
+                                "nonzero_gradient", "parameter_updated", "capture_time"},
+                _MEMORY_FIELDS | {'render_metadata'})
         _unsigned(header["submap_id"], "submap ID")
         frames = _frame_ids(header)
         frontier = _unsigned(header["frame_count"], "frame count")
@@ -196,6 +199,19 @@ def validate_message(header, body):
             _unsigned(header[name], name)
         if len(body) != 3 * _dimensions(header)[2]:
             raise ValueError("Incorrect candidate image size")
+        if 'render_metadata' in header:
+            from spatial_metadata import validate_metadata
+            metadata = header['render_metadata']
+            source = metadata.get('content') if isinstance(metadata, dict) else None
+            if not isinstance(source, dict):
+                raise ValueError('Missing spatial candidate content')
+            expected = dict(session_id=session, submap_id=header['submap_id'],
+                source_generation=source.get('source_generation') if operation == 'reuse' else header['generation'],
+                content_job_id=source.get('content_job_id') if operation == 'reuse' else header['job_id'])
+            validate_metadata(metadata, expected, frames)
+            camera = metadata['camera']
+            if any(camera[key] != header[key] for key in ('width', 'height')) or camera['capture_time'] != header['capture_time']:
+                raise ValueError('Spatial query differs from candidate preview')
         return
     elif kind in ("decision", "commit_ok", "discard_ok"):
         required = base | {"submap_id", "operation"}

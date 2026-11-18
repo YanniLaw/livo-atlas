@@ -134,6 +134,7 @@ class OnlineGaussianMapper {
     int gaussian_count = 0;
     std::optional<GaussianRenderRequest> render_request;
     std::shared_ptr<const GaussianRender> render;
+    std::optional<GaussianRenderMetadata> render_metadata;
   };
 
   enum class ReplyKind {

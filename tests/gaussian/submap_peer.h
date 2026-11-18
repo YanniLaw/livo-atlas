@@ -18,6 +18,8 @@
 
 #include "gaussian/wire_protocol.h"
 #include "gaussian/render_test_helpers.h"
+#include "gaussian/render_metadata_protocol.h"
+#include "gaussian/render_metadata_test_helpers.h"
 
 namespace livo_atlas {
 namespace test {
@@ -66,6 +68,8 @@ class SubmapPeer {
       corrupt_checkpoint{false}, wrong_stop{false}, ineffective_training{false};
   std::atomic<bool> hold_render{false}, oom_render{false},
       no_render_capability{false};
+  std::atomic<bool> no_spatial_capability{false}, omit_spatial_metadata{false};
+  std::atomic<bool> alter_reuse_metadata{false};
   std::atomic<int> renders{0};
   std::atomic<std::uint64_t> render_job{0};
   std::atomic<int> views{0}, checkpoints{0}, acknowledgements{0}, prunes{0},
@@ -88,6 +92,7 @@ class SubmapPeer {
       fs::path states;
       std::vector<std::string> confirmed, proposed;
       std::string source_generation, content_job;
+      bool spatial = false;
       for (;;) {
         const auto message = ReadGaussianMessage(client_, 30s);
         cv::FileStorage input(message.header_json,
@@ -113,8 +118,13 @@ class SubmapPeer {
               (input["submap_id"].empty() ? "" : Text(input["submap_id"])));
         }
         if (kind == "hello") {
-          if (!input["capabilities"].empty() && !no_render_capability)
-            out << "capabilities" << "[" << "joint_render_v1" << "]";
+          spatial = input["capabilities"].size() == 2 &&
+                    !no_spatial_capability;
+          if (!input["capabilities"].empty() && !no_render_capability) {
+            out << "capabilities" << "[" << "joint_render_v1";
+            if (spatial) out << "joint_render_spatial_v1";
+            out << "]";
+          }
           states = Text(input["state_directory"]);
           fs::create_directory(states);
           out << "type"
@@ -197,7 +207,24 @@ class SubmapPeer {
                 << (action == "reuse" || ineffective_training ? 0 : 1)
                 << "parameter_updated"
                 << (action == "reuse" || ineffective_training ? 0 : 1)
-                << "capture_time" << 100.;
+                << "capture_time"
+                << (spatial ? 100. + std::stoull(proposed.back()) : 100.);
+            if (spatial && !omit_spatial_metadata) {
+              std::vector<std::uint64_t> frames;
+              for (const auto& id : proposed)
+                frames.push_back(std::stoull(id));
+              const GaussianContentId content{
+                  session, std::stoull(Text(input["submap_id"])),
+                  std::stoull(action == "reuse" ? pending_source_
+                                               : Text(input["generation"])),
+                  std::stoull(action == "reuse" ? pending_content_
+                                               : Text(input["job_id"]))};
+              out << "render_metadata";
+              auto metadata = RenderMetadata(content, frames);
+              if (action == "reuse" && alter_reuse_metadata)
+                metadata.extents.front().max.x() = 1;
+              WriteGaussianRenderMetadata(out, metadata);
+            }
             WriteGaussianMessage(
                 client_,
                 {out.releaseAndGetString(),

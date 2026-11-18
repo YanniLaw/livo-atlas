@@ -67,10 +67,20 @@ def _headers(model, target, refresh_cameras=False):
     model.generation = int(target["generation"])
 
 
+def _capture_context(model, target):
+    context = copy.deepcopy(target)
+    context['source_cameras'] = [dict(keyframe_id=str(view['keyframe_id']),
+        camera_from_body=view['camera_from_body'].ravel().tolist()) for view in model.views]
+    return context
+
+
 class GaussianSubmapWorker:
     """One serialized session; owner decisions are separate from durable references."""
 
-    def __init__(self, session_id, state_directory, model, software, *, joint_render_enabled=False):
+    def __init__(self, session_id, state_directory, model, software, *, joint_render_enabled=False,
+                 spatial_render_enabled=False):
+        if spatial_render_enabled and not joint_render_enabled:
+            raise ValueError('Spatial rendering requires joint_render_v1')
         path = Path(state_directory)
         if path.name != "states" or not path.is_absolute() or os.path.lexists(path):
             raise ValueError("Expected a new absolute states directory")
@@ -86,7 +96,9 @@ class GaussianSubmapWorker:
         self.model = model
         self.software = dict(software)
         self.joint_render_enabled = joint_render_enabled
+        self.spatial_render_enabled = spatial_render_enabled
         self.confirmed_state = None
+        self.confirmed_metadata = None
         self.confirmed_binding = None
         self.content = None
         self.current_target = None
@@ -166,6 +178,19 @@ class GaussianSubmapWorker:
 
     def _candidate(self, request, target, operation, preview, metrics):
         result = self._reply("candidate", request, operation=operation)
+        if self.spatial_render_enabled:
+            from spatial_metadata import extract_metadata
+            if operation == 'reuse':
+                state = self.pending['state']
+                content = dict(session_id=self.session_id, **self.pending['content'])
+            else:
+                state = self.model.capture_candidate_state(_capture_context(self.model, target))
+                self.pending['state'] = state
+                content = dict(session_id=self.session_id, submap_id=request['submap_id'],
+                               source_generation=request['generation'], content_job_id=request['job_id'])
+            metadata = extract_metadata(state, content)
+            self.pending['render_metadata'] = metadata
+            result['render_metadata'] = copy.deepcopy(metadata)
         result.update({name: target[name] for name in
                        ("membership_revision", "frame_count", "optimized_frame_count")})
         result.update({name: metrics[name] for name in
@@ -195,6 +220,7 @@ class GaussianSubmapWorker:
             self.model.reset(int(target["generation"]))
             self.current_target = target
             self.confirmed_state = self.confirmed_binding = self.content = None
+            self.confirmed_metadata = None
             self.checkpoint_id = None
             return self._reply("activated", request), b""
         state, content, checkpoint = self._source(request)
@@ -273,15 +299,14 @@ class GaussianSubmapWorker:
                 self.checkpoint_id = pending["checkpoint_id"]
             else:
                 self.model.decide(True)
-                context = copy.deepcopy(pending["target"])
-                context["source_cameras"] = [{"keyframe_id": str(view["keyframe_id"]),
-                                               "camera_from_body": view["camera_from_body"].ravel().tolist()}
-                                              for view in self.model.views]
-                state = self.model.capture_state(context)
+                state = (pending['state'] if self.spatial_render_enabled else
+                         self.model.capture_state(_capture_context(self.model, pending['target'])))
                 self.confirmed_state = state
                 self.content = {"submap_id": request["submap_id"], "source_generation": request["generation"],
                                 "content_job_id": request["job_id"]}
                 self.checkpoint_id = None
+            if self.spatial_render_enabled:
+                self.confirmed_metadata = pending['render_metadata']
             self.confirmed_binding = copy.deepcopy(pending["target"])
             self._known_submaps.add(request["submap_id"])
             result = self._reply("commit_ok", request, **{name: self.content[name] for name in
@@ -318,7 +343,11 @@ class GaussianSubmapWorker:
                        "observation_bytes": str((path / "observations.npz").stat().st_size),
                        "frame_ids": [str(view["keyframe_id"]) for view in verified.views],
                        "gaussian_count": int(verified.origin_ids.size)}
-        self.assets[asset_id] = description
+        self.assets[asset_id] = dict(description)
+        if self.spatial_render_enabled:
+            # This cache follows the existing checkpoint/prune lifetime. The
+            # persisted state schema and checkpoint reply stay unchanged.
+            self.assets[asset_id]['render_metadata'] = copy.deepcopy(self.confirmed_metadata)
         self.checkpoint_id = asset_id
         self.pending_checkpoint = asset_id
         return self._reply("checkpoint_ok", request, **description), b""
