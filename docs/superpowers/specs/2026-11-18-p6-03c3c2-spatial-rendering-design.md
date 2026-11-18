@@ -1,7 +1,7 @@
 # P6-03c3c2：空间候选选块与 ROS 预览推进设计
 
 2026-11-18，基于 `c4e28c6`（产品代码 `b6c3b4f`）。
-状态：设计提案，尚未编码；正式编码前按用户要求通知切换模型。
+状态：用户在模型切换交接通知后回复“继续”，现进入C3c1a/C3c2a实施。
 
 用户已确定先最终快照联合渲染、再接在线，要求核心独立于ROS、两端共用main、
 Google C++17、无Pimpl、适当注释、函数之间空行，以及简洁的实现。
@@ -247,7 +247,8 @@ ROS图像时刻和光学坐标约定依据
 [Image.msg](https://github.com/ros/common_msgs/blob/noetic-devel/sensor_msgs/msg/Image.msg)
 与[CameraInfo.msg](https://github.com/ros/common_msgs/blob/noetic-devel/sensor_msgs/msg/CameraInfo.msg)。
 
-尚待用户审阅的是：本稿阶段顺序与空间候选方案。正式编码前模型切换通知仍保留。
+用户已在正式编码前的模型切换交接后回复“继续”；按本稿阶段顺序实施前两步。
+实施计划见 `../plans/2026-11-18-p6-03c3c2a-spatial-rendering.md`。
 2026-11-18，一次fresh、只读builder check返回“nothing important left”。
 检查读取设计与必要源码，没有构建、GPU、bag或再次委派。原始回答SHA256：
 `73acaa7fed393a4d119f0c47d9eed132f9341921e4d22140b3b1cf53f2eb181b`。
