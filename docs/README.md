@@ -115,3 +115,7 @@ P6-02c2b 已完成有界在线调度、持久接纳、停止排空和共用 ROS 
 验证产物在包外，迁移电脑时需要单独复制；bag 和编译产物不进入源码仓库。
 
 48. [P6-03c3c2b 双ROS有版本预览](p6-03c3c2b-ros-preview.md)与[验证记录](p6-03c3c2b-validation.md)：同一main、共享转换、有界CPU发布已完成；74项核心、196项Python/CUDA、124项工具及Humble78项CTest通过；审阅11项必要修复、最终官方短段/完整bag发布OFF/ON对照和证据归档完成。
+
+    后续补验覆盖全部空间 READY 的相机字段和镜像诊断，125 项工具测试通过。[接收证据补验](p6-03c3c2b-validation.md#接收证据补验2026-11-19)
+
+49. P6-03c4a 先在固定最终位姿上建立留出视角画质基线。Retail_Street 的 147 个训练视角与 25 个留出视角已通过输入预检查。[设计](superpowers/specs/2026-11-19-p6-03c4a-held-out-rendering-design.md) · [实施计划](superpowers/plans/2026-11-19-p6-03c4a-held-out-rendering.md)
