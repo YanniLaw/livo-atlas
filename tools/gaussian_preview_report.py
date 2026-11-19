@@ -185,12 +185,16 @@ def _same_source(value, header, map_frame):
         _require(value[key] == selection.get(key, 0), 'Received selection differs from owner')
 
 
+def _camera_metadata(value, camera, source):
+    image = value['image']
+    _require(value['capture_time'] == camera['capture_time'] and value['k'] == camera['K'] and
+             value['calibration_id'] == int(camera['calibration_id']) and
+             image['width'] == camera['width'] and image['height'] == camera['height'],
+             'Received camera differs from ' + source)
+
+
 def _camera(value, metadata):
-    _require(value['capture_time'] == metadata['capture_time'] and value['k'] == metadata['K'] and
-             value['calibration_id'] == int(metadata['calibration_id']) and
-             value['changed_pixels'] == metadata['changed_pixels'] and
-             value['image']['width'] == metadata['width'] and
-             value['image']['height'] == metadata['height'], 'Received camera differs from PNG metadata')
+    _camera_metadata(value, metadata, 'PNG metadata')
     matrix = metadata['camera_from_parent']
     expected_t = [-sum(matrix[4 * j + i] * matrix[4 * j + 3] for j in range(3)) for i in range(3)]
     x, y, z, w = value['parent_from_camera']['quaternion_xyzw']
@@ -246,7 +250,7 @@ def inspect_gaussian_publication(run, previews):
     displayed = None
     displayed_order = -1
     withdrawn = set()
-    ready, png_matches = 0, 0
+    ready, png_matches, spatial_camera_matches = 0, 0, 0
     ready_images = set()
     for value in samples:
         _validate(value)
@@ -277,6 +281,10 @@ def inspect_gaussian_publication(run, previews):
         event, header = accepted[key]
         _same_source(value, header, observed['map_frame'])
         _require(value['changed_pixels'] == event['changed_pixels'], 'Contribution differs from owner')
+        if value['policy'] == 'spatial':
+            camera = header['blocks'][-1]['render_metadata']['camera']
+            _camera_metadata(value, camera, 'accepted spatial request')
+            spatial_camera_matches += 1
         received = value['received_at_steady_seconds']
         _require(type(received) in (int, float) and math.isfinite(received) and received >= 0,
                  'Invalid actual receiver time')
@@ -293,10 +301,12 @@ def inspect_gaussian_publication(run, previews):
     for image in mirrors:
         _image(image)
         mirror_matches += int(_image_signature(image) in ready_images)
-    _require(ready >= 1 and png_matches >= 1 and mirror_matches > 0,
-             'Missing actual READY/PNG/mirror reception before input cutoff')
+    _require(ready >= 1 and png_matches >= 1,
+             'Missing actual READY or matching PNG before input cutoff')
+    _require(mirror_matches > 0, 'No received image mirror matches a READY image')
     return dict(enabled=True, received=len(samples), producer_id=producer, session_id=session,
         ready_before_input_cutoff=ready, png_matches_before_input_cutoff=png_matches,
+        spatial_camera_matches=spatial_camera_matches,
         mirror_matches=mirror_matches, terminal_state_received=terminal,
         native_calls_completed=stats['published'], unavailable_attempts=stats['unavailable'],
         peak_pending=stats['peak_pending'], peak_in_flight=stats['peak_in_flight'])

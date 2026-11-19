@@ -74,4 +74,6 @@ python3 tools/compare_gaussian_replays.py --off OFF_RUN --on ON_RUN \
 成对比较要求两侧持久联合渲染和 Finalize 都开，只改变发布开关；保持既有前端数组、
 原始文件、话题语义、最终地图和输入截止时刻检查，并要求至少一份截止前实际收到的
 READY 与 owner 接纳身份及保留 PNG 的相机/RGB 对应。旧验证不能补写接收记录冒充新证据。
+`spatial_camera_matches` 统计全部空间 READY 的采集时间、标定 ID、K 和尺寸与原请求的
+匹配数。保留 PNG 的记录还核对相机位姿和 RGB。`mirror_matches` 为全部接收时段的内容匹配数。
 实际验证结果见[本阶段验证记录](p6-03c3c2b-validation.md)。

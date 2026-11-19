@@ -177,7 +177,7 @@ class GaussianPublicationEvidenceTest(unittest.TestCase):
     def test_shape_is_part_of_the_mirror_content_match(self):
         self.observed['image_samples'][0].update(width=6, height=8, step=18)
         self.write()
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, 'No received image mirror matches a READY image'):
             inspect_gaussian_publication(self.root, self.previews)
 
     def test_enabled_reception_requires_both_topics_but_not_ready(self):
@@ -237,6 +237,37 @@ class GaussianPublicationEvidenceTest(unittest.TestCase):
     def test_same_capture_time_with_a_different_job_remains_a_new_version(self):
         self.AddSecondOwnerJob()
         self.assertEqual(inspect_gaussian_publication(self.root, self.previews)['ready_before_input_cutoff'], 2)
+
+    def test_unretained_spatial_camera_must_match_accepted_request(self):
+        self.fixture.spatial()
+        ready, cleared = self.observed['samples']
+        ready.update(policy='spatial', candidate_count=1, candidate_pixels=48)
+        ready['sources'][0].update(submap_id=0, binding_generation=1,
+                                  source_generation=1, content_job_id=10,
+                                  asset_id=1, frame_ids=[0, 1])
+        cleared['policy'] = 'spatial'
+        self.AddSecondOwnerJob()
+        valid = self.observed['samples'][-1]
+        report = inspect_gaussian_publication(self.root, self.previews)
+        self.assertEqual(report['spatial_camera_matches'], 2)
+        self.assertEqual(report['png_matches_before_input_cutoff'], 1)
+
+        for field in ('K', 'capture time', 'calibration', 'dimensions'):
+            forged = copy.deepcopy(valid)
+            if field == 'K':
+                forged['k'][2] = 4.
+            elif field == 'capture time':
+                forged.update(capture_time=100.02, stamp_ns=100020000000)
+                forged['image']['stamp_ns'] = forged['stamp_ns']
+            elif field == 'calibration':
+                forged['calibration_id'] = 1
+            else:
+                forged['image'].update(width=6, height=8, step=18)
+            self.observed['samples'][-1] = forged
+            self.write()
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ValueError, 'accepted spatial request'):
+                    inspect_gaussian_publication(self.root, self.previews)
 
 
 if __name__ == '__main__':
