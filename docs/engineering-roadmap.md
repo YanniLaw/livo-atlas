@@ -70,16 +70,16 @@ bag 和 CPU 亲和性。性能对照为两侧分配同一组至少两个可用�
 | 功能 | 编译期 | 运行期 |
 | --- | --- | --- |
 | GTSAM 位姿图与几何回环 | 探测 `GTSAM 4.2` 兼容包及 PCL 的 `registration`、`kdtree`。保留 SDK 按能力构建的选项 | `loop_closure.enabled` 控制当前在线 GTSAM 和回环路径。二者当前一起启动 |
-| 在线 Gaussian | 在支持的目标平台编译 C++ socket 桥接，现有实现限 Linux | `gaussian.enabled` 控制连接和建图，Python worker 在运行时检查 CUDA 等依赖 |
+| 在线 Gaussian | 默认 `AUTO`，按目标系统选择。Linux 编入 C++ socket 桥接，另提供显式 `ON` 和 `OFF` | `gaussian.enabled` 控制连接和建图，Python worker 在运行时检查 CUDA 等依赖 |
 | OpenMP | 工具链探测 C++ OpenMP，按目标链接 `OpenMP::OpenMP_CXX` | 用 `frontend.openmp_threads` 指定并行区预算，1 表示串行 |
 
 现有 `loop_closure.enabled`、`gaussian.enabled` 已可控制相应运行功能。当前在线位姿图求解
 由回环后端发起。若以后有独立的外部约束或纯位姿图运行模式，再给它独立的 YAML 开关和行为。
-[当前 YAML 解析](../src/core/livo_config.cc) · [节点准入](../src/app/livo_main.cc) ·
-[构建入口](../CMakeLists.txt) · [Gaussian 桥接目标](../cmake/online_gaussian.cmake)
+[当前 YAML 解析](../src/core/livo_config.cc) · [Gaussian 节点装配](../src/app/online_gaussian.cc) ·
+[Gaussian 构建选项](../cmake/online_gaussian_option.cmake)
 
 建议 `LIVO_ATLAS_USE_OPENMP` 支持 `AUTO`、`ON`、`OFF`。`AUTO` 以目标工具链实际探测结果为
-准，`ON` 要求依赖可用，`OFF` 显式关闭。三项 `WITH_*` 可使用相同档位，全功能机器用 `AUTO`
+准，`ON` 要求依赖可用，`OFF` 显式关闭。GTSAM 和回环的编译选项也可使用相同档位，全功能机器用 `AUTO`
 探测，最小 SDK 和需要可复现的构建可显式选择。已解析的布尔能力应同时供目标、测试和安装
 依赖使用，涵盖普通 SDK、Catkin 和 Ament。ROS 版本由构建目标选择。
 

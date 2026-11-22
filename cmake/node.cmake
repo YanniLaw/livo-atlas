@@ -1,12 +1,12 @@
-add_executable(fastlivo_mapping src/app/livo_main.cc)
+add_executable(fastlivo_mapping src/app/livo_main.cc src/app/online_gaussian.cc)
 target_compile_definitions(fastlivo_mapping PRIVATE
-  LIVO_ATLAS_ROS_VERSION=${LIVO_ATLAS_ROS_VERSION})
+  LIVO_ATLAS_ROS_VERSION=${LIVO_ATLAS_ROS_VERSION}
+  LIVO_ATLAS_ONLINE_GAUSSIAN=$<BOOL:${livo_atlas_build_online_gaussian}>)
 if(LIVO_ATLAS_WITH_GTSAM AND LIVO_ATLAS_WITH_LOOP_CLOSURE)
   target_compile_definitions(fastlivo_mapping PRIVATE LIVO_ATLAS_ONLINE_BACKEND=1)
   target_link_libraries(fastlivo_mapping PRIVATE livo_atlas::online_backend)
 endif()
-if(LIVO_ATLAS_WITH_ONLINE_GAUSSIAN)
-  target_compile_definitions(fastlivo_mapping PRIVATE LIVO_ATLAS_ONLINE_GAUSSIAN=1)
+if(livo_atlas_build_online_gaussian)
   target_link_libraries(fastlivo_mapping PRIVATE livo_atlas::online_gaussian)
 endif()
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")

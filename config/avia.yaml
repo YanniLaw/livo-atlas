@@ -89,8 +89,9 @@ image_save:
   img_save_en: false
   interval: 1
 
-# Optional online joint previews; requires Gaussian persistence when enabled.
 gaussian:
+  enabled: false
+  # Joint previews require Gaussian persistence.
   joint_render_enabled: false
   joint_render_interval_ms: 1000
   joint_render_timeout_ms: 5000

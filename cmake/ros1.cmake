@@ -11,7 +11,7 @@ endif()
 # Keep dependents before dependencies for static linking as well.
 set(livo_atlas_optional_libraries)
 set(livo_atlas_optional_extras catkin_logging.cmake)
-if(LIVO_ATLAS_WITH_ONLINE_GAUSSIAN)
+if(livo_atlas_build_online_gaussian)
   list(APPEND livo_atlas_optional_libraries livo_atlas_online_gaussian)
 endif()
 if(LIVO_ATLAS_WITH_GTSAM AND LIVO_ATLAS_WITH_LOOP_CLOSURE)
@@ -45,7 +45,7 @@ target_link_libraries(livo_atlas_ros1_conversions PUBLIC livo_atlas::core
 add_library(livo_atlas_ros1_node src/ros1/livo_node.cc src/ros1/node_options.cc
   src/ros1/livo_publisher.cc src/ros1/keyframe_trajectory_publisher.cc
   src/ros1/geometry_map_publisher.cc)
-if(LIVO_ATLAS_WITH_ONLINE_GAUSSIAN)
+if(livo_atlas_build_online_gaussian)
   target_sources(livo_atlas_ros1_node PRIVATE src/ros1/gaussian_render_publisher.cc)
   target_link_libraries(livo_atlas_ros1_node PUBLIC livo_atlas_online_gaussian)
 endif()

@@ -14,6 +14,8 @@ C++17 库。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Hu
 - 兼容 `sophus/se3.h` 的旧版 Sophus（原工程所用的非模板版本）。通过
   `Sophus_DIR` 或 `CMAKE_PREFIX_PATH` 指定实际安装配置；不硬编码库名。
 - OpenMP 可选。`LIVO_ATLAS_USE_OPENMP=OFF` 同时关闭编译选项和并行宏。
+- `LIVO_ATLAS_WITH_ONLINE_GAUSSIAN=AUTO` 在 Linux 目标构建中提供 C++ 桥接库。
+  用 `OFF` 裁剪该库。ROS 启动时通过 `gaussian.enabled` 选择是否使用。
 - GTest 仅测试需要。`BUILD_TESTING=OFF` 构建独立库、数据集检查工具及离线导出工具。
 
 算法目标使用编译器默认指令集，不加 native ISA 或 fast-math。使用单任务编译，
