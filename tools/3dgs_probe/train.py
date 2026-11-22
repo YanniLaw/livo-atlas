@@ -19,6 +19,9 @@ from bundle import load_bundle
 from rasterizer import render, to_gsplat_camera
 
 
+_ALPHA_THRESHOLD = 0.05
+
+
 def _training_ids(views):
     ids = sorted(view["keyframe_id"] for view in views if view["split"] == "train")
     if not ids or len(ids) != len(set(ids)):
@@ -34,25 +37,55 @@ def training_schedule(views, steps):
     return [ids[step % len(ids)] for step in range(steps)]
 
 
-def initialize_gaussians(train_views, max_per_view):
+def _depth_candidates(view):
+    return (np.asarray(view["image_mask"], dtype=bool) &
+            np.asarray(view["depth_mask"], dtype=bool))
+
+
+def _reserved_seed_count(candidates, uncovered, limit):
+    if candidates > limit and 0 < uncovered < candidates:
+        return min(limit // 2, uncovered)
+    return 0
+
+
+def _evenly_spaced(pixels, count):
+    return pixels[np.arange(count, dtype=np.int64) * pixels.size // count]
+
+
+def _seed_pixels(mask, limit, uncovered_mask):
+    valid = np.flatnonzero(mask)
+    count = min(valid.size, limit)
+    if uncovered_mask is not None:
+        uncovered = np.asarray(uncovered_mask)
+        if uncovered.dtype != np.dtype(bool) or uncovered.ndim != 2 or uncovered.shape != mask.shape:
+            raise ValueError("uncovered_mask must be boolean and match the training image")
+        holes = valid[uncovered.ravel()[valid]]
+        quota = _reserved_seed_count(valid.size, holes.size, limit)
+        if quota:
+            reserved = _evenly_spaced(holes, quota)
+            remaining = np.setdiff1d(valid, reserved, assume_unique=True)
+            return np.sort(np.concatenate((reserved, _evenly_spaced(remaining, count - quota))))
+    return _evenly_spaced(valid, count) if count else valid
+
+
+def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None):
     """Backproject a deterministic subset of training depths into the parent frame."""
     if type(max_per_view) is not int or max_per_view <= 0:
         raise ValueError("max_per_view must be a positive integer")
     order = _training_ids(train_views)
+    if uncovered_mask is not None and len(order) != 1:
+        raise ValueError("uncovered_mask requires exactly one training view")
     by_id = {view["keyframe_id"]: view for view in train_views
              if view["split"] == "train"}
     means, colors = [], []
     for keyframe_id in order:
         view = by_id[keyframe_id]
-        mask = np.asarray(view["image_mask"], dtype=bool) & np.asarray(
-            view["depth_mask"], dtype=bool
-        )
-        rows, cols = np.nonzero(mask)
-        count = min(rows.size, max_per_view)
+        mask = _depth_candidates(view)
+        pixels = _seed_pixels(mask, max_per_view, uncovered_mask)
+        count = pixels.size
         if count == 0:
             continue
-        indices = np.arange(count, dtype=np.int64) * rows.size // count
-        rows, cols = rows[indices], cols[indices]
+        rows, cols = np.divmod(pixels, mask.shape[1])
         depths = view["depth_m"][rows, cols].astype(np.float64)
         intrinsic = view["K"]
         camera_points = np.column_stack((
@@ -113,7 +146,7 @@ def masked_losses(rgb, depth, alpha, view):
     if not image_mask.any().item():
         raise ValueError("Image has no valid pixels")
     image_loss = torch.abs(rgb[image_mask] - target[image_mask]).mean()
-    selected = image_mask & depth_mask & (alpha.detach() >= 0.05)
+    selected = image_mask & depth_mask & (alpha.detach() >= _ALPHA_THRESHOLD)
     count = int(selected.sum().item())
     depth_loss = (torch.abs(depth[selected] - observed_depth[selected]).mean()
                   if count else depth.new_zeros(()))
@@ -156,7 +189,7 @@ def _evaluate(parameters, views, output, stage, first_render):
             image_loss, depth_loss, depth_count = masked_losses(rgb, depth, alpha, view)
             image_mask = view["image_mask"]
             image_count = int(image_mask.sum().item())
-            coverage = (alpha[image_mask] >= 0.05).sum().item() / image_count
+            coverage = (alpha[image_mask] >= _ALPHA_THRESHOLD).sum().item() / image_count
             mse = (rgb[image_mask] - view["rgb"][image_mask]).square().mean().item()
             if not all(math.isfinite(value) for value in (
                     image_loss.item(), depth_loss.item(), coverage, mse)):

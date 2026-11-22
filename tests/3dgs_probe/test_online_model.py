@@ -7,7 +7,7 @@ from unittest import mock
 import numpy as np
 import torch
 
-from online_model import OnlineGaussianModel, checked_cuda_device
+from online_model import OnlineGaussianModel, _render_view, checked_cuda_device
 from online_protocol import decode_view
 
 
@@ -102,6 +102,79 @@ class OnlineGaussianModelTest(unittest.TestCase):
             self.assertEqual(int((origins == frame_id).sum()), 1000)
         for state in model.optimizer.state.values():
             self.assertEqual(state["step"].item(), 20)
+
+    def test_coverage_skips_render_for_empty_model_or_adequate_budget(self):
+        model = OnlineGaussianModel(self.device)
+        model.reset(1)
+        with mock.patch("online_model._MAX_PER_VIEW", 4):
+            for view, count in ((make_view(0, dense=True), 48), (make_view(1), 1)):
+                with mock.patch("online_model._render_view", wraps=_render_view) as render:
+                    _, metrics = model.train_candidate(view, seed_policy="coverage")
+                self.assertEqual(render.call_count, 21)
+                self.assertEqual(metrics["seed_selection"], {
+                    "prepass_seconds": None, "depth_candidates": count,
+                    "uncovered_candidates": None, "reserved_uncovered": 0,
+                })
+                model.decide(True)
+
+    def test_coverage_prepass_uses_retained_origins_without_mutating_model(self):
+        model = OnlineGaussianModel(self.device)
+        model.reset(1)
+        for frame_id in range(10):
+            _, metrics = model.train_candidate(make_view(frame_id))
+            self.assertNotIn("seed_selection", metrics)
+            model.decide(True)
+        view = make_view(10, dense=True)
+        with self.assertRaisesRegex(ValueError, "seed policy"):
+            model.train_candidate(view, seed_policy="other")
+        parameters = model.parameters
+        optimizer = model.optimizer
+        origins = model.origin_ids.clone()
+        prior = {name: tensor.detach().clone() for name, tensor in parameters.items()}
+        keep = origins != 0
+
+        with mock.patch("online_model._render_view") as render:
+            with self.assertRaisesRegex(ValueError, "training view"):
+                model.train_candidate(dict(view, split="validation"), seed_policy="coverage")
+            render.assert_not_called()
+
+        def prepass(render_parameters, render_view):
+            self.assertIs(render_view, view)
+            self.assertFalse(torch.is_grad_enabled())
+            for name, value in render_parameters.items():
+                torch.testing.assert_close(value, prior[name][keep])
+            alpha = torch.ones((6, 8), device=self.device)
+            alpha[0, :3] = torch.tensor([0., .049, .05], device=self.device)
+            return None, alpha, None
+
+        with mock.patch("online_model._MAX_PER_VIEW", 4):
+            with mock.patch("online_model._render_view", side_effect=RuntimeError("prepass failed")):
+                with self.assertRaisesRegex(RuntimeError, "prepass failed"):
+                    model.train_candidate(view, seed_policy="coverage")
+            self.assertEqual(model.frame_ids, list(range(10)))
+            self.assertFalse(model.candidate_pending)
+            self.assertIs(model.parameters, parameters)
+            self.assertIs(model.optimizer, optimizer)
+            torch.testing.assert_close(model.origin_ids, origins)
+            for name, value in model.parameters.items():
+                torch.testing.assert_close(value, prior[name])
+
+            def render(parameters, observation):
+                if observation is view:
+                    return prepass(parameters, observation)
+                return _render_view(parameters, observation)
+
+            with mock.patch("online_model._render_view", side_effect=render) as mocked:
+                _, metrics = model.train_candidate(view, seed_policy="coverage")
+            self.assertEqual(mocked.call_count, 22)
+        selection = metrics["seed_selection"]
+        self.assertGreaterEqual(selection["prepass_seconds"], 0)
+        self.assertEqual(selection["depth_candidates"], 48)
+        self.assertEqual(selection["uncovered_candidates"], 2)
+        self.assertEqual(selection["reserved_uncovered"], 2)
+        self.assertEqual(model.frame_ids, list(range(1, 11)))
+        self.assertEqual(model.origin_ids.tolist(), list(range(1, 10)) + [10] * 4)
+        model.decide(True)
 
     def test_no_depth_black_white_and_discard_clear_everything(self):
         model = OnlineGaussianModel(self.device)

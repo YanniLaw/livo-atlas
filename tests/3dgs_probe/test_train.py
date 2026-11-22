@@ -68,6 +68,46 @@ class InitializationTest(unittest.TestCase):
         self.assertEqual(small["means"].shape, (1201, 3))
         np.testing.assert_array_equal(small["colors"][:, 0], view["rgb"][0, :, 0])
 
+    def test_coverage_reserves_seeds_and_backprojects_in_row_major_order(self):
+        view = make_view(0, "train", width=4, height=3)
+        valid = [0, 1, 2, 3, 4, 6, 7, 10, 11]
+        view["depth_mask"].flat[valid + [5]] = True
+        view["image_mask"].flat[5] = False
+        view["depth_m"].flat[valid + [5]] = 4
+        view["rgb"][:, :, 0] = np.arange(12).reshape(3, 4) / 12
+        uncovered = np.zeros((3, 4), dtype=bool)
+        uniform = initialize_gaussians([view], 4)
+        np.testing.assert_array_equal(uniform["colors"][:, 0],
+                                      view["rgb"][:, :, 0].flat[[0, 2, 4, 7]])
+        all_seeds = initialize_gaussians([view], len(valid))
+        for holes, selected in (([5, 6, 7, 11], [0, 3, 6, 7]),
+                                ([5, 6], [0, 2, 6, 7])):
+            with self.subTest(holes=holes):
+                uncovered[:] = False
+                uncovered.flat[holes] = True
+                result = initialize_gaussians([view], 4, uncovered_mask=uncovered)
+                for name in uniform:
+                    np.testing.assert_array_equal(
+                        result[name], all_seeds[name][[valid.index(i) for i in selected]]
+                    )
+        for limit, holes in ((4, []), (4, range(12)), (9, [6]), (1, [6])):
+            with self.subTest(limit=limit, holes=holes):
+                uncovered[:] = False
+                uncovered.flat[list(holes)] = True
+                result = initialize_gaussians([view], limit, uncovered_mask=uncovered)
+                for name, value in initialize_gaussians([view], limit).items():
+                    np.testing.assert_array_equal(result[name], value)
+
+    def test_coverage_requires_a_boolean_mask_for_one_training_view(self):
+        view = make_view(0, "train")
+        other = make_view(1, "train")
+        mask = np.zeros_like(view["depth_mask"])
+        for views, bad_mask in (([view, other], mask), ([view], mask.T),
+                                ([view], mask.astype(np.uint8))):
+            with self.subTest(length=len(views), shape=bad_mask.shape, dtype=bad_mask.dtype):
+                with self.assertRaisesRegex(ValueError, "uncovered_mask"):
+                    initialize_gaussians(views, 10, uncovered_mask=bad_mask)
+
     def test_black_and_white_parameters_are_finite(self):
         view = make_view(0, "train", width=2, height=1)
         view["depth_mask"][:] = True

@@ -5,13 +5,14 @@ import importlib
 import importlib.metadata
 import math
 import sys
+import time
 
 import numpy as np
 import torch
 
 from gaussian_state import GaussianState, _metadata, _pose, _unsigned, validate_state
-from train import (_render_view, create_parameters, initialize_gaussians,
-                   masked_losses)
+from train import (_ALPHA_THRESHOLD, _depth_candidates, _render_view, _reserved_seed_count,
+                   create_parameters, initialize_gaussians, masked_losses)
 
 _MAX_VIEWS = 10
 _MAX_PER_VIEW = 1000
@@ -200,7 +201,33 @@ class OnlineGaussianModel:
             {"params": [self.parameters["opacity_logits"]], "lr": 1e-2},
         ])
 
-    def train_candidate(self, view):
+    def _coverage_prepass(self, view):
+        candidates = _depth_candidates(view)
+        count = int(candidates.sum())
+        evidence = dict(prepass_seconds=None, depth_candidates=count,
+                        uncovered_candidates=None, reserved_uncovered=0)
+        if self.parameters is None or count <= _MAX_PER_VIEW:
+            return None, evidence
+
+        started = time.perf_counter()
+        with torch.no_grad():
+            parameters = self.parameters
+            if len(self.views) == _MAX_VIEWS:
+                # Measure coverage from the Gaussians that will survive insertion.
+                keep = self.origin_ids != self.views[0]["keyframe_id"]
+                parameters = {name: value[keep] for name, value in parameters.items()}
+            _, alpha, _ = _render_view(parameters, view)
+            alpha = alpha.cpu().numpy()
+        evidence["prepass_seconds"] = time.perf_counter() - started
+        if alpha.shape != candidates.shape or not np.isfinite(alpha).all():
+            raise RuntimeError("Coverage prepass produced invalid alpha")
+        uncovered = candidates & (alpha < _ALPHA_THRESHOLD)
+        holes = int(uncovered.sum())
+        evidence.update(uncovered_candidates=holes,
+                        reserved_uncovered=_reserved_seed_count(count, holes, _MAX_PER_VIEW))
+        return uncovered, evidence
+
+    def train_candidate(self, view, *, seed_policy="uniform"):
         if self.generation is None or self.candidate_pending:
             raise RuntimeError("Model must be reset and have no pending candidate")
         frame_id = view.get("keyframe_id")
@@ -208,8 +235,15 @@ class OnlineGaussianModel:
                 (self.views and frame_id <= self.frame_ids[-1]) or
                 view.get("generation") != str(self.generation)):
             raise ValueError("View identity or generation is invalid")
+        if seed_policy not in ("uniform", "coverage"):
+            raise ValueError("Unknown Gaussian seed policy")
+        uncovered, selection = None, None
+        if seed_policy == "coverage":
+            if view["split"] != "train":
+                raise ValueError("Coverage prepass requires a training view")
+            uncovered, selection = self._coverage_prepass(view)
         # Initialization validates that depth exists before the model mutates.
-        initial = initialize_gaussians([view], _MAX_PER_VIEW)
+        initial = initialize_gaussians([view], _MAX_PER_VIEW, uncovered_mask=uncovered)
         try:
             self._append(view, initial)
             before = {name: value.detach().clone()
@@ -262,6 +296,8 @@ class OnlineGaussianModel:
                 "nonzero_gradient": nonzero_gradient,
                 "parameter_updated": updated,
             }
+            if selection is not None:
+                metrics["seed_selection"] = selection
             if (not math.isfinite(metrics["rgb_l1"]) or
                     not math.isfinite(metrics["depth_l1_m"])):
                 raise RuntimeError("Evaluation metric is nonfinite")
