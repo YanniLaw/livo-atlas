@@ -192,7 +192,10 @@ def main():
     del before
     if start is None or not expected:
         raise ValueError('Bag has no selected input')
-    parameters = load_config(args.config)
+    default_configs = Path(__file__).resolve().parents[1] / 'config'
+    parameters = load_config(default_configs / 'backend.yaml')
+    parameters.update(load_config(default_configs / 'gaussian.yaml'))
+    parameters.update(load_config(args.config))
     parameters.update(load_config(args.camera))
     parameters.update(gaussian_parameters(args))
     parameters.update({'use_sim_time': True, 'qos.reliability': 'reliable',
@@ -223,6 +226,9 @@ def main():
                            'pcd_save.interval': -1, 'image_save.img_save_en': True})
     keyframes_enabled = parameters.get('keyframes.enabled', False)
     loop_enabled = parameters.get('loop_closure.enabled', False)
+    gaussian_finalize_timeout_ms = parameters.get('gaussian.finalize_timeout_ms', 60000)
+    shutdown_timeout = (gaussian_finalize_timeout_ms / 1000 + 90
+                        if parameters.get('gaussian.finalize_on_shutdown', False) else 40)
     config = output / 'parameters.yaml'
     config.write_text(yaml.safe_dump({'laserMapping': {'ros__parameters': parameters}}))
     child_env = os.environ.copy()
@@ -429,8 +435,7 @@ def main():
                 if process.poll() is not None:
                     raise RuntimeError('Node exited while draining inputs')
             process.send_signal(signal.SIGINT)
-            process.wait(timeout=(args.gaussian_finalize_timeout_ms / 1000 + 90
-                                  if args.gaussian_finalize_on_shutdown else 40))
+            process.wait(timeout=shutdown_timeout)
             # Drain the final already-published output samples.
             settle = time.monotonic() + .2
             while time.monotonic() < settle:
@@ -506,8 +511,8 @@ def main():
                    playback_confirmed_running_until_steady_seconds=confirmed_running_until,
                    playback_input_cutoff_steady_seconds=confirmed_running_until,
                    playback_input_cutoff_source='source_publish_begin',
-                   joint_render_enabled=args.gaussian_joint_render,
-                   joint_render_policy=args.joint_render_policy,
+                   joint_render_enabled=parameters.get('gaussian.joint_render_enabled', False),
+                   joint_render_policy=parameters.get('gaussian.joint_render_policy', 'temporal'),
                    playback_wall_s=playback_wall_s, input_span_s=input_span_s,
                    requested_cpu_affinity=args.cpu_affinity, mapping_cpu_affinity=mapping_affinity,
                    image_queue_size=image_queue_size, observer_image_depth=observer_image_depth,

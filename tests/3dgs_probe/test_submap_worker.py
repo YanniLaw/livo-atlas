@@ -49,11 +49,11 @@ class SubmapWorkerTest(unittest.TestCase):
         self.start_actor(self.root)
         self.addCleanup(self.release)
 
-    def start_actor(self, parent, **options):
+    def start_actor(self, parent, *, model=None, **options):
         self.directory = parent / "states"
-        self.actor = GaussianSubmapWorker(
-            SESSION, self.directory, OnlineGaussianModel(self.device), METADATA, **options,
-        )
+        if model is None:
+            model = OnlineGaussianModel(self.device)
+        self.actor = GaussianSubmapWorker(SESSION, self.directory, model, METADATA, **options)
         self.next_job = 1
         self.next_asset = 1
         self.map_sequence = 0
@@ -211,6 +211,23 @@ class SubmapWorkerTest(unittest.TestCase):
                          self.actor.confirmed_metadata)
         self.activate(submap=1, first=2, count=1, version=2)
         self.assertIsNone(self.actor.confirmed_metadata)
+
+    def test_training_options_survive_activation_and_rollback(self):
+        from worker_config import LearningRates, WorkerOptions
+
+        parent = self.root / "custom-options"
+        parent.mkdir()
+        options = WorkerOptions(depth_loss_weight=0.125, learning_rates=LearningRates(means=0.0007))
+        self.start_actor(parent, model=OnlineGaussianModel(self.device, options=options))
+        self.activate()
+        self.assertIs(self.actor.model.options, options)
+        self.view(0)
+        self.assertEqual(self.actor.model.optimizer.param_groups[0]["lr"], 0.0007)
+        candidate, _ = self.view(1, accept=False)
+        self.decide(candidate, False)
+        self.assertIs(self.actor.model.options, options)
+        self.view(1)
+        self.assertEqual(self.actor.model.optimizer.param_groups[0]["lr"], 0.0007)
 
     def test_rejected_view_restores_prior_confirmed_parameters(self):
         self.activate()
@@ -386,10 +403,10 @@ class SubmapWorkerTest(unittest.TestCase):
         original = OnlineGaussianModel.from_state.__func__
         released = []
 
-        def restore(cls, state, device):
+        def restore(cls, state, device, *, options):
             gc.collect()
             released.append(all(value() is None for value in old_parameters))
-            return original(cls, state, device)
+            return original(cls, state, device, options=options)
 
         with mock.patch.object(OnlineGaussianModel, "from_state", new=classmethod(restore)):
             candidate, _ = self.activate(count=1, action="reuse", asset=a)

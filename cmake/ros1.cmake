@@ -9,8 +9,8 @@ if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
 endif()
 # External catkin projects receive library files, not the original targets.
 # Keep dependents before dependencies for static linking as well.
-set(livo_atlas_libraries livo_atlas_online_backend livo_atlas_loop_backend
-  livo_atlas_loop_closure livo_atlas_backend livo_atlas_core livo_atlas_frontend
+set(livo_atlas_libraries livo_atlas_core livo_atlas_loop_backend
+  livo_atlas_loop_closure livo_atlas_backend livo_atlas_frontend
   livo_atlas_colorizer livo_atlas_io livo_atlas_geometry livo_atlas_keyframes
   livo_atlas_vio livo_atlas_lio livo_atlas_imu livo_atlas_synchronization
   livo_atlas_preprocess livo_atlas_camera livo_atlas_calibration)

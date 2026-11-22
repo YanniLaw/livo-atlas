@@ -1,5 +1,9 @@
 #ifndef LIVO_ATLAS_CORE_SYSTEM_OPTIONS_H_
 #define LIVO_ATLAS_CORE_SYSTEM_OPTIONS_H_
+
+#include <optional>
+
+#include "livo_atlas/backend/loop_admission.h"
 #include "livo_atlas/frontend/frontend_options.h"
 #include "livo_atlas/io/livo_exporter.h"
 #include "livo_atlas/mapping/cloud_colorizer.h"
@@ -39,6 +43,7 @@ struct SystemOptions {
   double exposure_time = 0;
   double imu_time_offset = 0;
   TimestampRange imu_time_range;
+  std::optional<LoopAdmissionOptions> loop_closure;
 };
 
 // Validates configuration and fills derived output mode/calibration without

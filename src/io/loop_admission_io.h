@@ -7,7 +7,6 @@
 #include <opencv2/core/persistence.hpp>
 
 #include "livo_atlas/backend/loop_admission.h"
-#include "livo_atlas/mapping/geometry_mapper.h"
 
 namespace livo_atlas {
 class OnlineSubmapStore;
@@ -15,8 +14,7 @@ class OnlineSubmapStore;
 namespace loop_admission_io {
 LoopAdmissionOptions ReadOptions(const cv::FileNode& node,
                                  bool with_geometry = false);
-void WriteOptions(cv::FileStorage& yaml, LoopAdmissionOptions options,
-                  const GeometryOptions& geometry);
+void WriteOptions(cv::FileStorage& yaml, LoopAdmissionOptions options);
 void WriteMembership(cv::FileStorage& yaml, const char* name,
                      const OnlineSubmap& group);
 void WriteQuery(cv::FileStorage& yaml, const LoopSubmapInfo& source,

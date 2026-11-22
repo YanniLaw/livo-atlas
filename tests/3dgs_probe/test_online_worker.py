@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import socket
 import subprocess
@@ -11,7 +13,7 @@ from unittest import mock
 import numpy as np
 
 from online_protocol import read_message, write_message
-from online_worker import serve, serve_connection
+from online_worker import main, serve, serve_connection
 from test_online_protocol import view_fixture
 from submap_fixtures import control_fixture, view_v2_fixture
 
@@ -194,6 +196,61 @@ class OnlineWorkerTest(unittest.TestCase):
 
 
 class OnlineWorkerStartupTest(unittest.TestCase):
+    def test_yaml_sets_worker_options_and_legacy_flags_override_yaml(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "gaussian.yaml"
+            config.write_text("""
+gaussian:
+  enabled: true
+  socket_path: /tmp/yaml.sock
+  transfer_timeout_ms: 1250
+  worker:
+    seed_policy: coverage
+    device: cuda:2
+    min_free_gpu_memory_mib: 2048
+    gpu_memory_fraction: 0.25
+    depth_loss_weight: 0.125
+    learning_rates:
+      means: 0.0007
+""", encoding="utf-8")
+            command = ["online_worker", "--config", str(config)]
+            with mock.patch("sys.argv", command):
+                with mock.patch("online_worker.serve", return_value=True) as serve_worker:
+                    self.assertEqual(main(), 0)
+            self.assertEqual(serve_worker.call_args.args, ("/tmp/yaml.sock",))
+            options = serve_worker.call_args.kwargs["options"]
+            self.assertEqual(serve_worker.call_args.kwargs["seed_policy"], "coverage")
+            self.assertEqual(serve_worker.call_args.kwargs["transfer_timeout"], 1.25)
+            self.assertEqual(options.device, "cuda:2")
+            self.assertEqual(options.min_free_gpu_memory_mib, 2048)
+            self.assertEqual(options.gpu_memory_fraction, 0.25)
+            self.assertEqual(options.depth_loss_weight, 0.125)
+            self.assertEqual(options.learning_rates.means, 0.0007)
+            self.assertEqual(options.learning_rates.log_scales, 0.002)
+
+            command += ["--socket", "/tmp/cli.sock", "--seed-policy", "uniform"]
+            with mock.patch("sys.argv", command):
+                with mock.patch("online_worker.serve", return_value=True) as serve_worker:
+                    self.assertEqual(main(), 0)
+            self.assertEqual(serve_worker.call_args.args, ("/tmp/cli.sock",))
+            self.assertEqual(serve_worker.call_args.kwargs["seed_policy"], "uniform")
+
+    def test_invalid_yaml_options_fail_before_opening_socket(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "gaussian.yaml"
+            for option, setting in (("device", "cpu"), ("gpu_memory_fraction", "true"),
+                                    ("depth_loss_weight", ".nan")):
+                with self.subTest(option=option):
+                    config.write_text(f"gaussian:\n  socket_path: /tmp/test.sock\n"
+                                      f"  worker:\n    {option}: {setting}\n", encoding="utf-8")
+                    command = ["online_worker", "--config", str(config)]
+                    stderr = io.StringIO()
+                    with mock.patch("sys.argv", command), contextlib.redirect_stderr(stderr):
+                        with mock.patch("online_worker.serve") as serve_worker:
+                            self.assertEqual(main(), 1)
+                    self.assertIn(f"gaussian.worker.{option}", stderr.getvalue())
+                    serve_worker.assert_not_called()
+
     def test_invalid_seed_policy_does_not_create_socket(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "worker.sock"

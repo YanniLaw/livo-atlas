@@ -283,6 +283,10 @@ def main():
                 raise TimeoutError('ROS master did not start')
             time.sleep(0.1)
 
+        for name in ('backend.yaml', 'gaussian.yaml'):
+            defaults = package / 'config' / name
+            if defaults.is_file():
+                run(['rosparam', 'load', str(defaults)])
         run(['rosparam', 'load', str(package / 'config/avia.yaml')])
         run(['rosparam', 'load', str(package / 'config/camera_pinhole.yaml'), '/laserMapping'])
         run(['rosparam', 'set', '/use_sim_time', 'true'])
@@ -336,6 +340,15 @@ def main():
         submaps = parameters.get('submaps', {})
         loop_enabled = parameters.get('loop_closure', {}).get('enabled', False)
         pose_graph = parameters.get('pose_graph', {})
+        # Use the merged YAML and CLI settings for observations and shutdown.
+        gaussian = parameters.get('gaussian', {})
+        gaussian_directory = gaussian.get('output_directory')
+        args.gaussian_output = (Path(gaussian_directory) if gaussian_directory and
+                                gaussian.get('enabled', False) else None)
+        args.gaussian_finalize_on_shutdown = gaussian.get('finalize_on_shutdown', False)
+        args.gaussian_finalize_timeout_ms = gaussian.get('finalize_timeout_ms', 60000)
+        args.gaussian_joint_render = gaussian.get('joint_render_enabled', False)
+        args.joint_render_policy = gaussian.get('joint_render_policy', 'temporal')
 
         try:
             from .output_digest import cloud_digest, image_digest

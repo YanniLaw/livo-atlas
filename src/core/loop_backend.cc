@@ -297,19 +297,22 @@ void LoopBackend::Poll() {
 void LoopBackend::Finish() {
   if (failure_) Fail(failure_);
   if (finished_) return;
-  try {
-    system_.SealInput();
-    for (;;) {
-      Poll();
-      if (worker_.idle() && !pending_) break;
-      worker_.Wait();
-    }
-    worker_.Stop();
-    system_.Finish();
-    store_.Finish(stats_);
-    finished_ = true;
-  } catch (...) {
-    Fail(std::current_exception());
-  }
+  system_.FinishSession(this);
 }
+
+void LoopBackend::Drain() {
+  system_.SealInput();
+  for (;;) {
+    Poll();
+    if (worker_.idle() && !pending_) break;
+    worker_.Wait();
+  }
+  worker_.Stop();
+}
+
+void LoopBackend::FinishJournal() {
+  store_.Finish(stats_);
+  finished_ = true;
+}
+
 }  // namespace livo_atlas

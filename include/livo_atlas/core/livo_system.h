@@ -10,6 +10,7 @@
 #include <optional>
 
 #include "livo_atlas/common/filter_state.h"
+#include "livo_atlas/core/loop_backend.h"
 #include "livo_atlas/core/online_submap_update.h"
 #include "livo_atlas/core/system_options.h"
 #include "livo_atlas/frontend/frontend.h"
@@ -32,7 +33,6 @@ namespace livo_atlas {
 class KeyframeStore;
 class OnlineSubmapManager;
 class SubmapStore;
-class LoopBackend;
 class LoopBackendTestPeer;
 
 struct PropagationResult {
@@ -50,8 +50,8 @@ struct StartupBufferStats {
   std::uint64_t rejected_imu = 0;
 };
 
-// All calls belong to one executor. Views
-// passed to the callback must be consumed before the next ProcessNext call.
+// Callers serialize access to the system. Consume callback views before the
+// next ProcessNext call.
 class LivoSystem {
  public:
   using ResultCallback = std::function<void(
@@ -65,6 +65,7 @@ class LivoSystem {
   // committed publication failure, without materializing the full trajectory.
   MapCorrection GetMapCorrection() const;
   KeyframeReadView GetKeyframeReadView() const;
+  std::optional<LoopSessionStats> GetLoopStats() const;
   void ApplyPoseUpdate(const PoseUpdate& update);
   GeometrySubmap GetGeometrySubmap(std::uint64_t id);
   GeometryCacheStats GetGeometryStats() const;
@@ -98,7 +99,9 @@ class LivoSystem {
   void ClaimLoopPoseUpdates();
   void ApplyLoopPoseUpdate(const PoseUpdate& update);
   void FailLoopBackend(std::exception_ptr error) noexcept;
+  void FinishSession(LoopBackend* backend);
   void CheckInputOpen() const;
+  SyncStatus ProcessMeasurement(const ResultCallback& callback);
   bool EnqueueImu(Imu measurement);
   void FlushStartupImu();
   void AppendSubmap(const Submap& submap);
@@ -133,6 +136,8 @@ class LivoSystem {
   bool new_imu_ = false, state_updated_ = false, have_estimate_ = false;
   FilterState latest_state_, propagated_;
   double latest_time_ = 0, last_from_end_ = 0;
+  // Join background work before destroying the stores it reads.
+  std::optional<LoopBackend> loop_backend_;
 };
 
 }  // namespace livo_atlas

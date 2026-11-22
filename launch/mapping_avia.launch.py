@@ -29,8 +29,9 @@ def load_parameters(path):
 
 
 def launch_node(context):
-    parameters = load_parameters(LaunchConfiguration('config').perform(context))
-    parameters.update(load_parameters(LaunchConfiguration('camera').perform(context)))
+    parameters = {}
+    for name in ('backend_config', 'gaussian_config', 'config', 'camera'):
+        parameters.update(load_parameters(LaunchConfiguration(name).perform(context)))
     parameters['qos.reliability'] = LaunchConfiguration('reliability').perform(context)
     parameters['use_sim_time'] = LaunchConfiguration('use_sim_time').perform(context).lower() == 'true'
     directory = LaunchConfiguration('output_directory').perform(context)
@@ -43,6 +44,8 @@ def launch_node(context):
 def generate_launch_description():
     share = Path(get_package_share_directory('livo_atlas'))
     return LaunchDescription([
+        DeclareLaunchArgument('backend_config', default_value=str(share / 'config/backend.yaml')),
+        DeclareLaunchArgument('gaussian_config', default_value=str(share / 'config/gaussian.yaml')),
         DeclareLaunchArgument('config', default_value=str(share / 'config/avia.yaml')),
         DeclareLaunchArgument('camera', default_value=str(share / 'config/camera_pinhole.yaml')),
         DeclareLaunchArgument('use_sim_time', default_value='false', choices=['true', 'false']),

@@ -38,6 +38,10 @@ void OnlineSubmapManager::CheckRunning() const {
   if (finished_) throw std::logic_error("Online mapping has finished");
 }
 
+void OnlineSubmapManager::SetLoopBackend(LoopBackend& backend) {
+  loop_backend_ = &backend;
+}
+
 void OnlineSubmapManager::SetCallback(
     LivoSystem::OnlineSubmapCallback callback) {
   if (callback) {
@@ -77,7 +81,7 @@ MapCorrection OnlineSubmapManager::GetMapCorrection() const {
 }
 
 void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {
-  if (!callback_ && !geometry_) return;
+  if (!loop_backend_ && !callback_ && !geometry_) return;
   const auto start = std::chrono::steady_clock::now();
   update.poses = GetPoseSnapshot();
   if (geometry_) {
@@ -95,6 +99,7 @@ void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {
             << " geometry_snapshot_seconds=" << stats.last_snapshot_seconds;
     LOG(INFO) << message.str();
   }
+  if (loop_backend_) loop_backend_->Observe(update);
   if (callback_) callback_(update);
 }
 

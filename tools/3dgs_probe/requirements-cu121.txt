@@ -25,6 +25,7 @@ nvidia-nvtx-cu12==12.1.105
 packaging==26.3
 pillow==10.4.0
 Pygments==2.21.0
+PyYAML==6.0.2
 rich==15.0.0
 sympy==1.14.0
 torch==2.3.0+cu121

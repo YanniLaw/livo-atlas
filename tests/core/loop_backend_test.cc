@@ -206,6 +206,35 @@ TEST_F(LoopBackendTest, TrueProposalCommitsBeforeFinalFinish) {
       << testing::PrintToString(report.issues);
 }
 
+TEST_F(LoopBackendTest, SystemOwnsBackendWithOrWithoutAnObserver) {
+  auto options = options_;
+  options.exporter.directory /= "managed";
+  options.loop_closure = loop_test::NearbyOptions();
+  LivoSystem system(options);
+  ASSERT_TRUE(system.GetLoopStats());
+  EXPECT_THROW(system.ApplyPoseUpdate({}), std::logic_error);
+  int keyframes = 0;
+  system.SetOnlineSubmapCallback([&](const auto& update) {
+    if (update.keyframe) ++keyframes;
+  });
+  for (std::uint64_t id = 0; id < 4; ++id) {
+    LoopBackendTestPeer::Append(system, loop_test::DenseFrame(id, cloud_));
+  }
+  EXPECT_EQ(keyframes, 4);
+  EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+  EXPECT_GT(system.GetLoopStats()->submitted, 0u);
+  system.SetOnlineSubmapCallback({});
+  system.Finish();
+  system.Finish();
+  EXPECT_TRUE(system.IsFinished());
+  const auto stats = system.GetLoopStats();
+  EXPECT_GE(stats->accepted, 1u);
+  EXPECT_EQ(system.GetPoseSnapshot()->version, stats->accepted);
+  const auto report = InspectLoopDataset(options.exporter.directory / "keyframes");
+  EXPECT_EQ(report.status, LoopRecoveryStatus::kConsistent)
+      << testing::PrintToString(report.issues);
+}
+
 TEST_F(LoopBackendTest, LateBackendFailureInvalidatesCompletion) {
   system_->Finish();
   ASSERT_TRUE(system_->IsFinished());

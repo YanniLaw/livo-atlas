@@ -98,7 +98,7 @@ TEST_F(GlobalOutputOptionsTest, DisabledPreservesLegacyConfiguration) {
   EXPECT_FALSE(config.global_output.enabled);
   EXPECT_FALSE(config.system.keyframes.enabled);
   EXPECT_FALSE(config.system.submaps.enabled);
-  EXPECT_FALSE(config.loop_closure_enabled);
+  EXPECT_FALSE(config.system.loop_closure);
   EXPECT_FALSE(fs::exists(directory_));
 }
 
@@ -141,20 +141,72 @@ TEST_F(GlobalOutputOptionsTest, GaussianPreviewRequiresJointAndSafeFrame) {
 
 TEST_F(GlobalOutputOptionsTest, LoopDetectionAndPoseGraphReadStartupParameters) {
   GlobalParameters parameters(directory_);
-  EXPECT_FALSE(LoadLivoConfig(parameters).pose_graph_enabled);
+  EXPECT_FALSE(LoadLivoConfig(parameters).system.loop_closure);
   parameters.EnableOnlineStorage();
   parameters.booleans_["loop_closure.enabled"] = true;
-  EXPECT_TRUE(LoadLivoConfig(parameters).pose_graph_enabled);
+  const auto optimized = LoadLivoConfig(parameters);
+  ASSERT_TRUE(optimized.system.loop_closure);
+  EXPECT_TRUE(optimized.system.loop_closure->pose_graph_enabled);
 
   parameters.booleans_["pose_graph.enabled"] = false;
   const auto detection = LoadLivoConfig(parameters);
-  EXPECT_TRUE(detection.loop_closure_enabled);
-  EXPECT_FALSE(detection.pose_graph_enabled);
+  ASSERT_TRUE(detection.system.loop_closure);
+  EXPECT_FALSE(detection.system.loop_closure->pose_graph_enabled);
 
   parameters.booleans_["loop_closure.enabled"] = false;
   parameters.booleans_["pose_graph.enabled"] = true;
   EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
   EXPECT_FALSE(fs::exists(directory_));
+}
+
+TEST_F(GlobalOutputOptionsTest, InlineBackendAndTransportConfiguration) {
+  GlobalParameters parameters(directory_);
+  parameters.EnableOnlineStorage();
+  parameters.booleans_["loop_closure.enabled"] = true;
+  parameters.integers_["ros.executor_threads"] = 3;
+  parameters.integers_["loop_closure.search.min_submap_gap"] = 4;
+  parameters.numbers_["loop_closure.registration.voxel_size_m"] = 0.3;
+  parameters.numbers_["loop_closure.geometry.voxel_size_m"] = 0.25;
+  parameters.integers_["loop_closure.admission.max_loops"] = 7;
+  parameters.integers_["pose_graph.max_iterations"] = 12;
+  parameters.booleans_["gaussian.enabled"] = true;
+  parameters.strings_["gaussian.socket_path"] = "/tmp/test-worker.sock";
+  parameters.strings_["gaussian.output_directory"] = "/tmp/test-worker-output";
+  parameters.integers_["gaussian.connect_timeout_ms"] = 4500;
+  parameters.integers_["gaussian.transfer_timeout_ms"] = 3200;
+  parameters.integers_["gaussian.job_timeout_ms"] = 4900;
+
+  const auto config = LoadLivoConfig(parameters);
+  ASSERT_TRUE(config.system.loop_closure);
+  EXPECT_EQ(config.executor_threads, 3);
+  EXPECT_EQ(config.system.loop_closure->search.min_submap_gap, 4u);
+  EXPECT_DOUBLE_EQ(config.system.loop_closure->registration.voxel_size_m, 0.3);
+  EXPECT_DOUBLE_EQ(config.system.loop_closure->geometry.voxel_size, 0.25);
+  EXPECT_EQ(config.system.loop_closure->max_loops, 7u);
+  EXPECT_EQ(config.system.loop_closure->graph.max_iterations, 12);
+  EXPECT_EQ(config.gaussian.connect_timeout.count(), 4500);
+  EXPECT_EQ(config.gaussian.transfer_timeout.count(), 3200);
+  EXPECT_EQ(config.gaussian.job_timeout.count(), 4900);
+  parameters.integers_["ros.executor_threads"] = 1;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
+TEST_F(GlobalOutputOptionsTest, ReadsLegacyLoopFileBeforeOpeningOutputs) {
+  GlobalParameters parameters(directory_ / "output");
+  parameters.EnableOnlineStorage();
+  parameters.booleans_["loop_closure.enabled"] = true;
+  parameters.numbers_["loop_closure.search.search_radius_m"] = 12.0;
+  const auto file = directory_ / "legacy-loop.yaml";
+  fs::create_directories(directory_);
+  std::ofstream(file) << "%YAML:1.0\n---\nsearch:\n   search_radius_m: 9.0\n";
+  parameters.strings_["loop_closure.options_file"] = file.string();
+
+  const auto config = LoadLivoConfig(parameters);
+  ASSERT_TRUE(config.system.loop_closure);
+  EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m, 9.0);
+  EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);
+  EXPECT_FALSE(fs::exists(directory_ / "output"));
 }
 
 TEST_F(GlobalOutputOptionsTest, GaussianJointRenderDependenciesAndRanges) {
@@ -335,7 +387,7 @@ TEST_F(GlobalOutputOptionsTest,
   EXPECT_TRUE(config.global_output.trajectory.enabled);
   EXPECT_DOUBLE_EQ(config.global_output.trajectory.max_frequency_hz, 2);
   EXPECT_EQ(config.global_output.trajectory.max_keyframes, 100);
-  EXPECT_FALSE(config.loop_closure_enabled);
+  EXPECT_FALSE(config.system.loop_closure);
   EXPECT_FALSE(config.system.geometry.enabled);
   EXPECT_FALSE(fs::exists(directory_));
   for (double rate : {0.0, -1.0, 10.1, std::numeric_limits<double>::infinity(),
@@ -385,7 +437,7 @@ TEST_F(GlobalOutputOptionsTest, ReadsGlobalSchemaBeforeOutputIo) {
   EXPECT_TRUE(config.system.keyframes.enabled);
   EXPECT_EQ(config.system.submap_mode, SubmapMode::kOnline);
   EXPECT_EQ(config.system.submaps.max_keyframes, 128);
-  EXPECT_FALSE(config.loop_closure_enabled);
+  EXPECT_FALSE(config.system.loop_closure);
   EXPECT_FALSE(config.system.geometry.enabled);
   EXPECT_FALSE(fs::exists(directory_));
 }

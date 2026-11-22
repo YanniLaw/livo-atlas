@@ -74,6 +74,10 @@ LivoSystem::LivoSystem(SystemOptions options)
   preprocess_.Configure(pre.features, pre.lidar_type, pre.blind,
                         pre.point_filter);
   preprocess_.N_SCANS = pre.scan_lines;
+  if (options_.loop_closure) {
+    loop_backend_.emplace(*this, *options_.loop_closure);
+    Online().SetLoopBackend(*loop_backend_);
+  }
 }
 
 void LivoSystem::CheckInputOpen() const {
@@ -181,6 +185,12 @@ StartupBufferStats LivoSystem::GetStartupBufferStats() const noexcept {
 }
 
 SyncStatus LivoSystem::ProcessNext(const ResultCallback& callback) {
+  const auto status = ProcessMeasurement(callback);
+  if (loop_backend_) loop_backend_->Poll();
+  return status;
+}
+
+SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
   CheckInputOpen();
   const auto status = synchronizer_.TrySynchronize(&buffers_, &measurements_);
   if (status != SyncStatus::kReady) return status;
@@ -246,16 +256,24 @@ void LivoSystem::SealInput() {
 }
 
 void LivoSystem::Finish() {
-  if (submap_error_) std::rethrow_exception(submap_error_);
-  if (online_) online_->RethrowFailure();
+  if (IsFinished()) return;
+  FinishSession(loop_backend_ ? &*loop_backend_ : nullptr);
+}
+
+void LivoSystem::FinishSession(LoopBackend* backend) {
   try {
-    // Keep the existing writer error priority for callers using only Finish.
+    if (submap_error_) std::rethrow_exception(submap_error_);
+    if (online_) online_->RethrowFailure();
+    if (backend) backend->Drain();
     writer_.Finish();
     SealInput();
     if (online_) online_->Finish();
+    if (backend) backend->FinishJournal();
     finished_ = true;
   } catch (...) {
-    submap_error_ = std::current_exception();
+    const auto error = std::current_exception();
+    if (backend) backend->Fail(error);
+    submap_error_ = error;
     throw;
   }
 }
@@ -361,6 +379,11 @@ KeyframeReadView LivoSystem::GetKeyframeReadView() const {
   if (!keyframe_store_)
     throw std::logic_error("Keyframe storage is not enabled");
   return keyframe_store_->CaptureReadView();
+}
+
+std::optional<LoopSessionStats> LivoSystem::GetLoopStats() const {
+  if (!loop_backend_) return std::nullopt;
+  return loop_backend_->GetStats();
 }
 
 }  // namespace livo_atlas

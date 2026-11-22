@@ -46,8 +46,7 @@ void ProposeLoopDataset(const fs::path& dataset, const fs::path& output,
   LoopAdmissionInput input;
   std::size_t queries = 0, proposals = 0, frame_count = 0, submap_count = 0;
   std::map<std::string, std::size_t> counts;
-  GeometryOptions geometry;
-  geometry.enabled = true;
+  const auto& geometry = options.geometry;
   const auto summary = [&](bool complete) {
     // Keep the previous incomplete summary if the final write cannot finish.
     const auto pending = output / ".summary.pending.yml";
@@ -60,7 +59,7 @@ void ProposeLoopDataset(const fs::path& dataset, const fs::path& output,
            << std::to_string(queries) << "proposal_count"
            << std::to_string(proposals) << "pose_version"
            << std::to_string(input.poses.version);
-      loop_admission_io::WriteOptions(yaml, options, geometry);
+      loop_admission_io::WriteOptions(yaml, options);
       yaml << "statuses"
            << "{";
       for (const auto& count : counts)
@@ -108,7 +107,7 @@ void ProposeLoopDataset(const fs::path& dataset, const fs::path& output,
     const LoopGeometryReader reader = [&](auto id, const auto& poses) {
       // Every trial first reads current geometry, then preview geometry. Reset
       // on a view change so rejected previews cannot poison the next query.
-      // A single three-submap cache is alive at a time.
+      // A single geometry cache is alive at a time.
       if (!view || view->version != poses.version) {
         mapper.reset();
         view = std::make_shared<const PoseSnapshot>(poses);

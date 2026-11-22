@@ -20,6 +20,17 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
                                 options.online_submaps);
   if (options.submaps.enabled && !options.keyframes.enabled)
     throw std::invalid_argument("submaps.enabled requires keyframes.enabled");
+  if (options.loop_closure) {
+    if (!options.keyframes.enabled || !options.submaps.enabled ||
+        options.submap_mode != SubmapMode::kOnline ||
+        options.submaps.max_keyframes >
+            static_cast<int>(kMaxGeometryKeyframes)) {
+      throw std::invalid_argument(
+          "loop_closure.enabled requires keyframes and online submaps with at "
+          "most 64 members");
+    }
+    ValidateLoopAdmissionOptions(*options.loop_closure);
+  }
   if (options.geometry.enabled) {
     ValidateGeometryOptions(options.geometry);
     if (!options.keyframes.enabled || !options.submaps.enabled ||

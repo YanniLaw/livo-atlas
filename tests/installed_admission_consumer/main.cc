@@ -6,18 +6,18 @@
 #include <stdexcept>
 #include <vector>
 
+#include "livo_atlas/backend/loop_admission.h"
+#include "livo_atlas/backend/loop_closure.h"
+#include "livo_atlas/backend/pose_graph.h"
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/global_output_options.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/core/trajectory_output.h"
+#include "livo_atlas/io/loop_closure_store.h"
 #include "livo_atlas/mapping/geometry_map_builder.h"
 #include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
-#include "livo_atlas/backend/pose_graph.h"
-#include "livo_atlas/backend/loop_closure.h"
-#include "livo_atlas/backend/loop_admission.h"
-#include "livo_atlas/core/loop_backend.h"
 
 namespace livo_atlas {
 
@@ -100,6 +100,7 @@ int RunInstalledAdmissionConsumer() {
       options.exporter.directory = directory;
       options.keyframes.enabled = options.submaps.enabled = true;
       options.submap_mode = SubmapMode::kOnline;
+      options.loop_closure.emplace();
       LivoSystem system(options);
       const auto correction = system.GetMapCorrection();
       if (correction.pose_version != 0 || correction.frame_count != 0 ||
@@ -107,7 +108,6 @@ int RunInstalledAdmissionConsumer() {
           !ApplyMapCorrection(correction, published)
                .translation.isApprox(published.translation))
         throw std::runtime_error("Installed map correction is not identity");
-      LoopBackend backend(system);
       // Read these values only after Finish has joined their sole writer.
       std::vector<TrajectorySnapshot> received;
       TrajectoryOutputOptions trajectory_options;
@@ -122,11 +122,12 @@ int RunInstalledAdmissionConsumer() {
           system, geometry_options, options.geometry,
           [&](const auto& item) { maps.push_back(item); });
       system.SetOnlineSubmapCallback([&](const auto& update) {
-        backend.Observe(update);
         trajectory.Observe(update);
         geometry.Observe(update);
       });
-      backend.Finish();
+      system.Finish();
+      if (!system.GetLoopStats())
+        throw std::runtime_error("Installed system did not configure its backend");
       const auto report = InspectLoopDataset(directory / "keyframes");
       if (report.status != LoopRecoveryStatus::kConsistent)
         throw std::runtime_error(

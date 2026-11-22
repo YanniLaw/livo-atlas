@@ -239,18 +239,21 @@ TEST_F(Ros1ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
 }
 
 TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
-  EXPECT_FALSE(ReadNodeOptions(*node_).livo.loop_closure_enabled);
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.system.loop_closure);
   node_->setParam("loop_closure/options_file", "/nonexistent/ignored-loop.yml");
   EXPECT_NO_THROW(ReadNodeOptions(*node_));
+  node_->deleteParam("loop_closure/options_file");
   node_->setParam("loop_closure/enabled", true);
   EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
   node_->setParam("keyframes/enabled", true);
   node_->setParam("submaps/enabled", true);
   node_->setParam("submaps/mode", "online");
   node_->setParam("submaps/max_keyframes", 64);
+  node_->setParam("loop_closure/search/search_radius_m", 12.5);
   const auto config = ReadNodeOptions(*node_).livo;
-  EXPECT_TRUE(config.loop_closure_enabled);
-  EXPECT_EQ(config.loop_closure_options_file, "/nonexistent/ignored-loop.yml");
+  ASSERT_TRUE(config.system.loop_closure);
+  EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);
+  EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m, 12.5);
   EXPECT_FALSE(config.system.geometry.enabled);
   node_->setParam("submaps/max_keyframes", 65);
   EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
@@ -438,7 +441,7 @@ TEST_F(Ros1ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
   EXPECT_TRUE(config.global_output.enabled);
   EXPECT_FALSE(config.global_output.publish_tf);
   EXPECT_EQ(config.global_output.map_frame, "atlas/map_2");
-  EXPECT_FALSE(config.loop_closure_enabled);
+  EXPECT_FALSE(config.system.loop_closure);
   EXPECT_FALSE(config.system.geometry.enabled);
   for (const auto* key :
        {"global_output/enabled", "global_output/publish_tf"}) {

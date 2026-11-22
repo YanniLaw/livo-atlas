@@ -7,15 +7,18 @@
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/livo_system.h"
-#include "livo_atlas/core/loop_backend.h"
 #include "livo_atlas/core/trajectory_output.h"
 #include "online_gaussian.h"
 #if LIVO_ATLAS_ROS_VERSION == 1
+#include <ros/spinner.h>
+
 #include "livo_atlas/ros1/geometry_map_publisher.h"
 #include "livo_atlas/ros1/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros1/livo_node.h"
 namespace ros_integration = livo_atlas::ros1;
 #elif LIVO_ATLAS_ROS_VERSION == 2
+#include <rclcpp/executors/multi_threaded_executor.hpp>
+
 #include "livo_atlas/ros2/geometry_map_publisher.h"
 #include "livo_atlas/ros2/keyframe_trajectory_publisher.h"
 #include "livo_atlas/ros2/livo_node.h"
@@ -38,21 +41,9 @@ int main(int argc, char** argv) {
     auto node = std::make_shared<rclcpp::Node>("laserMapping");
 #endif
     const auto parameters = ros_integration::ReadNodeOptions(*node);
-    livo_atlas::LoopAdmissionOptions loop_options;
-    if (parameters.livo.loop_closure_enabled &&
-        !parameters.livo.loop_closure_options_file.empty())
-      loop_options = livo_atlas::ReadLoopAdmissionOptions(
-          parameters.livo.loop_closure_options_file);
-    loop_options.pose_graph_enabled = parameters.livo.pose_graph_enabled;
     livo_atlas::app::OnlineGaussian::ValidateConfig(parameters.livo);
     livo_atlas::LivoSystem system(parameters.livo.system);
     std::function<void()> after_process;
-    // Declaration order keeps callback sources before backend before system
-    // during destruction, including exceptional shutdown.
-    std::unique_ptr<livo_atlas::LoopBackend> backend;
-    if (parameters.livo.loop_closure_enabled) {
-      backend = std::make_unique<livo_atlas::LoopBackend>(system, loop_options);
-    }
     livo_atlas::app::OnlineGaussian gaussian(*node, system, parameters.livo);
     // The worker joins before its captured publisher handles are destroyed.
     std::unique_ptr<ros_integration::KeyframeTrajectoryPublisher>
@@ -81,18 +72,13 @@ int main(int argc, char** argv) {
             publisher->Publish(snapshot);
           });
     }
-    const bool has_background_work =
-        parameters.livo.loop_closure_enabled || trajectory || geometry ||
-        parameters.livo.gaussian.enabled;
-    if (has_background_work) {
+    if (trajectory || geometry || parameters.livo.gaussian.enabled) {
       system.SetOnlineSubmapCallback([&](const auto& update) {
-        if (backend) backend->Observe(update);
         if (trajectory) trajectory->Observe(update);
         if (geometry) geometry->Observe(update);
         gaussian.Observe(update);
       });
       after_process = [&] {
-        if (backend) backend->Poll();
         if (trajectory) trajectory->Poll();
         if (geometry) geometry->Poll();
         gaussian.Poll();
@@ -104,29 +90,27 @@ int main(int argc, char** argv) {
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(after_process));
 #if LIVO_ATLAS_ROS_VERSION == 1
-    ros::Rate rate(5000);
-    ros::WallRate backend_rate(5000);
+    ros::AsyncSpinner spinner(parameters.livo.executor_threads);
+    spinner.start();
+    ros::WallRate rate(5000);
     while (ros::ok()) {
-      ros::spinOnce();
       if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
-        // A paused simulation clock must not prevent taking worker results.
-        if (has_background_work) {
-          backend_rate.sleep();
-        } else {
-          rate.sleep();
-        }
+        rate.sleep();
       }
     }
+    spinner.stop();
 #else
-    rclcpp::executors::SingleThreadedExecutor executor;
+    rclcpp::executors::MultiThreadedExecutor executor(
+        rclcpp::ExecutorOptions(), parameters.livo.executor_threads);
     executor.add_node(node);
     executor.spin();
 #endif
+    ros_node.RethrowCallbackFailure();
     // Withdraw preview output before terminal backend work can block.
     gaussian.FinishPublication();
-    if (backend) {
-      backend->Finish();
-      const auto s = backend->GetStats();
+    system.Finish();
+    if (const auto stats = system.GetLoopStats()) {
+      const auto& s = *stats;
       LOG(INFO) << "livo_atlas loops: frames=" << s.frame_count
                 << " pose_version=" << s.pose_version
                 << " submitted=" << s.submitted << " completed=" << s.completed
@@ -135,11 +119,9 @@ int main(int argc, char** argv) {
                 << " resource_limited=" << s.resource_limited
                 << " peak_work_payloads=" << s.peak_work_payloads
                 << " peak_pending=" << s.peak_pending;
-      if (!parameters.livo.pose_graph_enabled) {
+      if (!parameters.livo.system.loop_closure->pose_graph_enabled) {
         LOG(INFO) << "livo_atlas loop detection: detected=" << s.detected;
       }
-    } else {
-      system.Finish();
     }
     if (!gaussian.Finish(parameters.livo.gaussian)) result = 1;
     if (trajectory) {

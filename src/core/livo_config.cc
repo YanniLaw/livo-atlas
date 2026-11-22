@@ -6,6 +6,9 @@
 #include <stdexcept>
 #include <utility>
 
+#include "core/loop_backend_options.h"
+#include "livo_atlas/io/loop_closure_store.h"
+
 namespace livo_atlas {
 namespace {
 std::string DefaultDirectory() {
@@ -34,15 +37,24 @@ RigidTransform Transform(ParameterReader& reader, const std::string& rotation,
 
 LivoConfig LoadLivoConfig(ParameterReader& reader) {
   LivoConfig config;
-  config.loop_closure_enabled = reader.Boolean("loop_closure.enabled", false);
-  config.pose_graph_enabled =
-      reader.Boolean("pose_graph.enabled", config.loop_closure_enabled);
-  if (config.pose_graph_enabled && !config.loop_closure_enabled) {
+  config.executor_threads =
+      reader.Integer("ros.executor_threads", config.executor_threads);
+  if (config.executor_threads < 2) {
+    throw std::invalid_argument("ros.executor_threads must be at least 2");
+  }
+  const bool loop_enabled = reader.Boolean("loop_closure.enabled", false);
+  const bool graph_enabled = reader.Boolean("pose_graph.enabled", loop_enabled);
+  if (graph_enabled && !loop_enabled) {
     throw std::invalid_argument(
         "pose_graph.enabled requires loop_closure.enabled");
   }
-  config.loop_closure_options_file =
-      reader.String("loop_closure.options_file", "");
+  if (loop_enabled) {
+    const auto legacy_file = reader.String("loop_closure.options_file", "");
+    config.system.loop_closure = legacy_file.empty()
+                                     ? ReadOnlineLoopOptions(reader)
+                                     : ReadLoopAdmissionOptions(legacy_file);
+    config.system.loop_closure->pose_graph_enabled = graph_enabled;
+  }
   auto& gaussian = config.gaussian;
   gaussian.enabled = reader.Boolean("gaussian.enabled", false);
   gaussian.persist_submaps = reader.Boolean("gaussian.persist_submaps", false);
@@ -84,6 +96,12 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   if (gaussian.enabled) {
     gaussian.socket_path = reader.String("gaussian.socket_path", "");
     gaussian.output_directory = reader.String("gaussian.output_directory", "");
+    gaussian.connect_timeout = std::chrono::milliseconds(reader.Integer(
+        "gaussian.connect_timeout_ms", gaussian.connect_timeout.count()));
+    gaussian.transfer_timeout = std::chrono::milliseconds(reader.Integer(
+        "gaussian.transfer_timeout_ms", gaussian.transfer_timeout.count()));
+    gaussian.job_timeout = std::chrono::milliseconds(
+        reader.Integer("gaussian.job_timeout_ms", gaussian.job_timeout.count()));
     gaussian.shutdown_timeout = std::chrono::milliseconds(
         reader.Integer("gaussian.shutdown_timeout_ms", 3000));
     gaussian.finalize_timeout = std::chrono::milliseconds(
@@ -338,13 +356,6 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
     throw std::invalid_argument(reader.Name("common.img_topic") +
                                 " must not be empty");
   config.system = PrepareSystemOptions(std::move(config.system));
-  if (config.loop_closure_enabled &&
-      (!options.keyframes.enabled || !options.submaps.enabled ||
-       options.submap_mode != SubmapMode::kOnline ||
-       options.submaps.max_keyframes > static_cast<int>(kMaxGeometryKeyframes)))
-    throw std::invalid_argument(
-        "loop_closure.enabled requires keyframes and online submaps with at "
-        "most 64 members");
   if (global.enabled &&
       (!options.keyframes.enabled || !options.submaps.enabled ||
        options.submap_mode != SubmapMode::kOnline))

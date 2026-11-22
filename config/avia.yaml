@@ -88,16 +88,3 @@ pcd_save:
 image_save:
   img_save_en: false
   interval: 1
-
-loop_closure:
-  enabled: false
-
-pose_graph:
-  enabled: false
-
-gaussian:
-  enabled: false
-  # Joint previews require Gaussian persistence.
-  joint_render_enabled: false
-  joint_render_interval_ms: 1000
-  joint_render_timeout_ms: 5000

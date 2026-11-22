@@ -137,9 +137,13 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
            std::chrono::steady_clock::now().time_since_epoch().count()));
   for (int variant = 0; variant < 4; ++variant) {
     auto params = test::Parameters(directory.string());
-    params.emplace_back("loop_closure.options_file",
-                        "/nonexistent/ignored-loop.yml");
-    if (variant) params.emplace_back("loop_closure.enabled", true);
+    if (variant) {
+      params.emplace_back("loop_closure.enabled", true);
+      params.emplace_back("loop_closure.search.search_radius_m", 12.5);
+    } else {
+      params.emplace_back("loop_closure.options_file",
+                          "/nonexistent/ignored-loop.yml");
+    }
     if (variant >= 2) {
       params.emplace_back("keyframes.enabled", true);
       params.emplace_back("submaps.enabled", true);
@@ -152,9 +156,11 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
       EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
     } else {
       const auto config = ReadNodeOptions(node).livo;
-      EXPECT_EQ(config.loop_closure_enabled, variant == 2);
-      EXPECT_EQ(config.loop_closure_options_file,
-                "/nonexistent/ignored-loop.yml");
+      EXPECT_EQ(config.system.loop_closure.has_value(), variant == 2);
+      if (config.system.loop_closure) {
+        EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);
+        EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m, 12.5);
+      }
       EXPECT_FALSE(config.system.geometry.enabled);
     }
     EXPECT_FALSE(std::filesystem::exists(directory));
@@ -371,7 +377,7 @@ TEST(Ros2ParametersTest, GlobalSchemaAndStorageAreValidatedBeforeOutput) {
     EXPECT_TRUE(config.global_output.enabled);
     EXPECT_FALSE(config.global_output.publish_tf);
     EXPECT_EQ(config.global_output.map_frame, "atlas/map_2");
-    EXPECT_FALSE(config.loop_closure_enabled);
+    EXPECT_FALSE(config.system.loop_closure);
     EXPECT_FALSE(config.system.geometry.enabled);
   }
   for (const auto& invalid :

@@ -10,6 +10,7 @@
 
 #include "livo_atlas/backend/loop_closure.h"
 #include "livo_atlas/backend/pose_graph.h"
+#include "livo_atlas/mapping/geometry_submap.h"
 
 namespace livo_atlas {
 
@@ -27,7 +28,10 @@ struct LoopAdmissionInput {
 };
 
 struct LoopAdmissionOptions {
-  LoopAdmissionOptions() { graph.loop_huber_delta = 1.345; }
+  LoopAdmissionOptions() {
+    graph.loop_huber_delta = 1.345;
+    geometry.enabled = true;
+  }
 
   LoopSearchOptions search;
   LoopRegistrationOptions registration;
@@ -44,6 +48,7 @@ struct LoopAdmissionOptions {
   std::size_t max_keyframes = 5000;
   std::size_t max_loops = 200;
   bool pose_graph_enabled = true;
+  GeometryOptions geometry;
 };
 
 enum class LoopAdmissionStatus {

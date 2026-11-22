@@ -13,13 +13,15 @@ import sys
 
 import torch
 
-from online_model import OnlineGaussianModel, SEED_POLICIES, checked_cuda_device
+from online_model import OnlineGaussianModel
 from online_protocol import decode_view, read_message, write_message
+from worker_config import (DEFAULT_CONFIG, DEFAULT_SEED_POLICY, DEFAULT_TRANSFER_TIMEOUT_MS,
+                           DEFAULT_WORKER_OPTIONS, SEED_POLICIES, load_worker_config)
 
 
-def create_model():
-    device = checked_cuda_device()
-    model = OnlineGaussianModel(device)
+def create_model(options=DEFAULT_WORKER_OPTIONS):
+    model = OnlineGaussianModel(options.device, options=options)
+    device = model.device
     free, total = torch.cuda.mem_get_info(device)
     return model, {
         "python": sys.version.split()[0],
@@ -50,7 +52,8 @@ def _read_when_ready(sock, transfer_timeout):
 
 
 def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout,
-                   joint_render_enabled=False, spatial_render_enabled=False, *, seed_policy="uniform"):
+                   joint_render_enabled=False, spatial_render_enabled=False, *,
+                   seed_policy=DEFAULT_SEED_POLICY):
     from gaussian_state import CommitUncertainError
     from submap_worker import GaussianCapacityError, GaussianSubmapWorker
 
@@ -98,7 +101,9 @@ def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout,
     return False
 
 
-def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0, *, seed_policy="uniform"):
+def serve_connection(sock, model_factory=create_model,
+                     transfer_timeout=DEFAULT_TRANSFER_TIMEOUT_MS / 1000, *,
+                     seed_policy=DEFAULT_SEED_POLICY):
     """Handle one session; any protocol or model failure closes the session."""
     session = None
     schema = 1
@@ -208,8 +213,8 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0, *, 
             if "nonzero_gradient" in metrics:
                 candidate["nonzero_gradient"] = int(metrics["nonzero_gradient"])
                 candidate["parameter_updated"] = int(metrics["parameter_updated"])
-                candidate["gpu_peak_allocated_bytes"] = str(torch.cuda.max_memory_allocated())
-                candidate["gpu_peak_reserved_bytes"] = str(torch.cuda.max_memory_reserved())
+                candidate["gpu_peak_allocated_bytes"] = str(torch.cuda.max_memory_allocated(model.device))
+                candidate["gpu_peak_reserved_bytes"] = str(torch.cuda.max_memory_reserved(model.device))
                 # Linux reports ru_maxrss in KiB.
                 candidate["worker_peak_rss_bytes"] = str(
                     resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024)
@@ -233,7 +238,8 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0, *, 
     return False
 
 
-def serve(socket_path, *, seed_policy="uniform"):
+def serve(socket_path, *, seed_policy=DEFAULT_SEED_POLICY,
+          transfer_timeout=DEFAULT_TRANSFER_TIMEOUT_MS / 1000, options=DEFAULT_WORKER_OPTIONS):
     if seed_policy not in SEED_POLICIES:
         raise ValueError("Unknown Gaussian seed policy")
     path = Path(socket_path).absolute()
@@ -253,7 +259,8 @@ def serve(socket_path, *, seed_policy="uniform"):
             listener.listen(1)
             connection, _ = listener.accept()
             with connection:
-                return serve_connection(connection, seed_policy=seed_policy)
+                return serve_connection(connection, lambda: create_model(options), transfer_timeout,
+                                        seed_policy=seed_policy)
         finally:
             try:
                 current = path.lstat()
@@ -266,12 +273,20 @@ def serve(socket_path, *, seed_policy="uniform"):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--socket", required=True, help="New socket in a private directory")
-    parser.add_argument("--seed-policy", choices=SEED_POLICIES, default="uniform",
-                        help="Seed placement for this worker (coverage requires persistent submaps)")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG,
+                        help="Gaussian YAML file, defaults to config/gaussian.yaml")
+    parser.add_argument("--socket", help="Override gaussian.socket_path with a new private socket")
+    parser.add_argument("--seed-policy", choices=SEED_POLICIES,
+                        help="Override gaussian.worker.seed_policy (coverage requires persistence)")
     args = parser.parse_args()
     try:
-        return 0 if serve(args.socket, seed_policy=args.seed_policy) else 1
+        config = load_worker_config(args.config)
+        socket_path = config.socket_path if args.socket is None else args.socket
+        if not socket_path:
+            raise ValueError("Set gaussian.socket_path in the config or provide --socket")
+        return 0 if serve(socket_path, seed_policy=args.seed_policy or config.seed_policy,
+                          transfer_timeout=config.transfer_timeout_ms / 1000,
+                          options=config.options) else 1
     except (OSError, ValueError) as error:
         print("Gaussian worker failed:", error, file=sys.stderr)
         return 1

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -68,6 +69,40 @@ TEST(Ros2NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
   EXPECT_EQ(calls, 1);
   EXPECT_THROW(adapter.ProcessNext(), int);
   EXPECT_EQ(calls, 2);
+  system.Finish();
+}
+
+TEST(Ros2NodeTest, ProcessingCallbackShutsDownItsContextOnFailure) {
+  auto context = std::make_shared<rclcpp::Context>();
+  rclcpp::InitOptions init_options;
+  init_options.auto_initialize_logging(false);
+  context->init(0, nullptr, init_options);
+  rclcpp::Node node("processing_failure",
+                    rclcpp::NodeOptions().context(context));
+  NodeOptions parameters;
+  parameters.livo.system = test::Options(FrontendMode::kLidarOnly);
+  LivoSystem system(parameters.livo.system);
+  int calls = 0;
+  LivoNode adapter(node, parameters, system, [&] {
+    ++calls;
+    throw std::runtime_error("processing callback failed");
+  });
+  rclcpp::ExecutorOptions executor_options;
+  executor_options.context = context;
+  rclcpp::executors::SingleThreadedExecutor executor(executor_options);
+  executor.add_node(node.get_node_base_interface());
+
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  EXPECT_NO_THROW({
+    while (context->is_valid() && std::chrono::steady_clock::now() < deadline) {
+      executor.spin_once(std::chrono::milliseconds(20));
+    }
+  });
+  EXPECT_EQ(calls, 1);
+  EXPECT_FALSE(context->is_valid());
+  EXPECT_TRUE(rclcpp::ok());
+  EXPECT_THROW(adapter.RethrowCallbackFailure(), std::runtime_error);
   system.Finish();
 }
 

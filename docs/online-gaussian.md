@@ -15,9 +15,9 @@
 ## 环境与构建
 
 先按[核心构建](core-build.md)准备编译依赖，再按[离线 Gaussian 实验](p6-03b-gpu-probe.md)
-创建独立 Python/CUDA 环境并预编译 `gsplat.csrc`。worker 启动时要求 CUDA 可用、至少 4 GiB
-空闲显存，并将 PyTorch 的进程分配比例限制为显存总量的 40%；缺少预编译扩展时不会自动
-触发 JIT 编译。该限制不能约束驱动、其他进程或所有非 PyTorch 分配。
+创建独立 Python/CUDA 环境并预编译 `gsplat.csrc`。现有环境需补装 pip 清单中的 PyYAML。
+worker 默认使用 `cuda:0`，要求至少 4 GiB 空闲显存，并将 PyTorch 的进程分配比例限制为显存总量的
+40%。该限制适用于 PyTorch 分配。worker 检查 CUDA 和预编译扩展后才会接受训练。
 
 以下示例假设当前目录是工作空间根目录，运行数据放在包外。按实际电脑替换路径。
 自定义 GTSAM 安装可通过 `GTSAM_DIR` 指定。ROS 参数见[在线回环设置](online-loop-backend.md)。
@@ -47,49 +47,70 @@ Linux 目标包含 C++ 桥接层。节点每次启动读取 `gaussian.enabled`�
 
 ## 启动 worker
 
-先在单独终端启动一个 worker；它只接收一个会话。socket 的父目录必须由当前用户拥有且
+在单独终端启动 worker，它只接收一个会话。socket 的父目录必须由当前用户拥有且
 只对该用户开放，socket 路径不得已存在。下面的预览目录也必须不存在，且不得包含关键帧
-数据集或位于其中；其父目录必须已经存在。Linux Unix socket 的绝对路径最多 107 字节，
+数据集或位于其中。预览目录的父目录必须已经存在。Linux Unix socket 的绝对路径最多 107 字节，
 路径太长时可把运行目录放在较短的位置。
+
+worker 默认读取仓库的 `config/gaussian.yaml`，`--config` 可选择其他文件。节点与 worker 共用
+`gaussian.socket_path` 和每条消息的 `gaussian.transfer_timeout_ms`。请使用绝对 socket 路径，以便两个进程从不同目录启动时仍找到同一个 socket。`gaussian.worker` 下可设置
+`seed_policy`、设备、显存预算、深度损失权重及 Adam 学习率。`device` 使用
+`CUDA_VISIBLE_DEVICES` 映射后的设备编号。`coverage` 需要启用持久子地图。
+`--socket` 和 `--seed-policy` 可覆盖对应的 YAML 值。
+
+以下示例从仓库默认配置生成本次运行的 YAML。
 
 ```bash
 export LIVO_REPO="$PWD/src/livo-atlas"
 export LIVO_PYTHON=/path/to/3dgs-env/bin/python
 export LIVO_RUN=/path/to/new-run-directory
 mkdir -m 700 "$LIVO_RUN"
+export LIVO_BACKEND_CONFIG="$LIVO_RUN/backend.yaml"
+export LIVO_GAUSSIAN_CONFIG="$LIVO_RUN/gaussian.yaml"
+export LIVO_DATASET_OUTPUT="$LIVO_RUN/node-output"
 export LIVO_GAUSSIAN_SOCKET="$LIVO_RUN/worker.sock"
 export LIVO_GAUSSIAN_OUTPUT="$LIVO_RUN/gaussian"
 
-env -u PYTHONPATH PYTHONNOUSERSITE=1 CUDA_VISIBLE_DEVICES=0 \
+"$LIVO_PYTHON" - <<'PY'
+import os
+from pathlib import Path
+import yaml
+
+config = Path(os.environ['LIVO_REPO']) / 'config'
+backend = yaml.safe_load((config / 'backend.yaml').read_text())
+backend['keyframes']['enabled'] = True
+backend['submaps'].update(enabled=True, mode='online')
+backend['output'] = {'directory': os.environ['LIVO_DATASET_OUTPUT']}
+Path(os.environ['LIVO_BACKEND_CONFIG']).write_text(yaml.safe_dump(backend))
+
+gaussian = yaml.safe_load((config / 'gaussian.yaml').read_text())
+gaussian['gaussian'].update(
+    enabled=True,
+    persist_submaps=True,
+    shutdown_timeout_ms=30000,
+    socket_path=os.environ['LIVO_GAUSSIAN_SOCKET'],
+    output_directory=os.environ['LIVO_GAUSSIAN_OUTPUT'],
+)
+Path(os.environ['LIVO_GAUSSIAN_CONFIG']).write_text(yaml.safe_dump(gaussian))
+PY
+
+env -u PYTHONPATH PYTHONNOUSERSITE=1 \
   OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   "$LIVO_PYTHON" "$LIVO_REPO/tools/3dgs_probe/online_worker.py" \
-  --socket "$LIVO_GAUSSIAN_SOCKET"
+  --config "$LIVO_GAUSSIAN_CONFIG"
 ```
 
-将上述三个路径也设置到节点终端。正常停止节点会结束 worker；socket、GPU、协议或 worker
+将上述两个配置文件路径也设置到节点终端。正常停止节点会结束 worker；socket、GPU、协议或 worker
 错误会使 Gaussian 停止并关闭连接，前端继续运行。当前没有自动重连；要重新运行请启动新 worker，
 并选择新的预览目录。worker 的错误与节点最终的 `livo_atlas gaussian:` 统计应一起检查。
 
 ## ROS1 Noetic
 
-在已启动的 ROS master 上、启动节点之前设置参数。下面以仓库提供的 Avia 标定为例；更换
-设备时应使用其实际标定。`LIVO_DATASET_OUTPUT` 为关键帧及其他节点输出所在位置，须与预览
-目录分开。
+使用仓库提供的 Avia 标定启动。更换设备时使用对应的传感器参数和实际标定。
 
 ```bash
-export LIVO_DATASET_OUTPUT="$LIVO_RUN/node-output"
-rosparam load "$LIVO_REPO/config/avia.yaml"
-rosparam load "$LIVO_REPO/config/camera_pinhole.yaml" /laserMapping
-rosparam set /output/directory "$LIVO_DATASET_OUTPUT"
-rosparam set /keyframes/enabled true
-rosparam set /submaps/enabled true
-rosparam set /submaps/mode online
-rosparam set /gaussian/enabled true
-rosparam set /gaussian/persist_submaps true
-rosparam set /gaussian/shutdown_timeout_ms 30000
-rosparam set /gaussian/socket_path "$LIVO_GAUSSIAN_SOCKET"
-rosparam set /gaussian/output_directory "$LIVO_GAUSSIAN_OUTPUT"
-rosrun livo_atlas fastlivo_mapping
+roslaunch livo_atlas mapping_avia.launch rviz:=false \
+  backend_config:="$LIVO_BACKEND_CONFIG" gaussian_config:="$LIVO_GAUSSIAN_CONFIG"
 ```
 
 使用 bag 时，在启动节点前设置 `/use_sim_time`，再在另一个终端使用 `rosbag play --clock`。
@@ -98,48 +119,19 @@ rosrun livo_atlas fastlivo_mapping
 
 ## ROS2 Humble
 
-节点参数必须在启动前提供。以下从现有两份标定文件生成一个 ROS2 参数文件；Python 需要
-PyYAML。命令在工作空间根目录运行，使用与 worker 相同的路径变量。
-
 ```bash
-export LIVO_DATASET_OUTPUT="$LIVO_RUN/node-output"
-python3 - <<'PY'
-import os
-from pathlib import Path
-import sys
-import yaml
-
-repo = Path(os.environ['LIVO_REPO'])
-sys.path.insert(0, str(repo / 'tools'))
-from run_ros2_baseline import load_config
-
-parameters = load_config(repo / 'config/avia.yaml')
-parameters.update(load_config(repo / 'config/camera_pinhole.yaml'))
-parameters.update({
-    'output.directory': os.environ['LIVO_DATASET_OUTPUT'],
-    'keyframes.enabled': True,
-    'submaps.enabled': True,
-    'submaps.mode': 'online',
-    'gaussian.enabled': True,
-    'gaussian.persist_submaps': True,
-    'gaussian.shutdown_timeout_ms': 30000,
-    'gaussian.socket_path': os.environ['LIVO_GAUSSIAN_SOCKET'],
-    'gaussian.output_directory': os.environ['LIVO_GAUSSIAN_OUTPUT'],
-})
-Path(os.environ['LIVO_RUN'], 'params.yaml').write_text(
-    yaml.safe_dump({'laserMapping': {'ros__parameters': parameters}}))
-PY
-ros2 run livo_atlas fastlivo_mapping --ros-args --params-file "$LIVO_RUN/params.yaml"
+ros2 launch livo_atlas mapping_avia.launch.py \
+  backend_config:="$LIVO_BACKEND_CONFIG" gaussian_config:="$LIVO_GAUSSIAN_CONFIG"
 ```
 
-对仿真时间输入，在生成参数时加入 `'use_sim_time': True`；ROS2 的处理定时器使用墙钟。
+对仿真时间输入，添加 `use_sim_time:=true`。ROS2 的处理定时器使用墙钟。
 两端的可选回环、全局轨迹和几何输出仍按各自已有参数启用，无需增加第二个节点入口。
 
 ## 使用 ROS1 bag 做成对检查
 
 `tools/run_baseline.py` 要求一个与开发目录分开的、已构建的 catkin 源码副本，避免节点运行
-产物进入开发源码。下面假定该副本已启用 Gaussian、GTSAM 和回环构建选项，且包根目录是
-当前目录；bag 和各输出路径按实际机器修改。比较工具使用 NumPy、PyYAML 和 Pillow。
+产物进入开发源码。下面使用 Linux 常规构建，当前目录为包根目录。
+bag 和各输出路径按实际机器修改。比较工具使用 NumPy、PyYAML 和 Pillow。
 
 ```bash
 export LIVO_WS_COPY=/path/to/isolated-catkin-workspace
@@ -176,8 +168,9 @@ python3 tools/compare_gaussian_replays.py --off "$LIVO_CHECK/off" \
 ## 模式、目录和停止
 
 `gaussian.persist_submaps` 是严格 boolean，默认 `false`，必须与 `gaussian.enabled=true`
-一起使用。`gaussian.shutdown_timeout_ms` 是正整数，默认 3000；上述持久化示例和 runner
-显式设置 30000。省略 `--gaussian-persist-submaps` 就沿用 C1；节点切换参数后需启动新会话。
+一起使用。`gaussian.shutdown_timeout_ms` 是正整数，默认 3000。上述持久化示例和 runner
+显式设置 30000。回放工具读取 YAML 中的模式，`--gaussian-persist-submaps` 可开启持久模式。
+模式在会话建立前确定。
 
 | 行为 | C1 默认模式 | C2b 持久模式 |
 | --- | --- | --- |
@@ -226,6 +219,7 @@ CPU 确认快照在候选原地修改期间保持，跨块拒绝恢复原驻留�
   missing/resource_limit，已有块继续维护。
 - 一个 GPU 模型、一个稳定 CPU 确认；跨块决策期间最多额外一个有界 CPU 加载状态。
   单块最多 10 视图、每视图 1M 像素和 100,000 输入云点、每来源 1,000 个高斯、总 10,000 个。
+  保留视图数及高斯数量上限由 IPC 和资产格式约定。
 - map.json ≤512 KiB；每资产清单/参数/观测分别 ≤512 KiB/1 MiB/192 MiB。
   最多 32 个引用资产和 1 个替换中资产，逻辑文件总量 ≤33×193.5 MiB，写入前保留至少
   1 GiB 加一个最大资产空间。实际 RSS、文件系统块数和第三方 GPU 分配另行测量。
@@ -251,16 +245,9 @@ CPU 确认快照在候选原地修改期间保持，跨块拒绝恢复原驻留�
 共用 main 先完成回环后端和 `LivoSystem`，再修复已有确认内容、保存最后一个驻留模型、
 提交目录及停止 worker。整个步骤使用 steady clock，不依赖 ROS 时钟继续前进。
 
-ROS1 在节点启动前增加：
-
-```bash
-rosparam set /gaussian/finalize_on_shutdown true
-rosparam set /gaussian/finalize_timeout_ms 60000
-```
-
-ROS2 参数文件使用 `gaussian.finalize_on_shutdown: true` 和
-`gaussian.finalize_timeout_ms: 60000`。两种接入都要求真正的 bool 和整数，修复预算范围
-为 1..600000 ms。正式持久运行仍建议显式设置原有 `gaussian.shutdown_timeout_ms: 30000`。
+在本次运行的 `gaussian.yaml` 中设置 `gaussian.finalize_on_shutdown` 为 `true`，并指定
+整数 `gaussian.finalize_timeout_ms`，默认 60000，范围为 1..600000 ms。正式持久运行仍建议
+设置 `gaussian.shutdown_timeout_ms` 为 30000。
 
 SDK 使用 `GaussianFinalizationResult OnlineGaussianMapper::Finalize(milliseconds) noexcept`。
 调用者先成功完成自己的 backend/system，`LivoSystem::IsFinished()` 才能放行；
@@ -312,22 +299,15 @@ status=succeeded 且 report_persisted=1 才返回成功；报告发布失败仍�
 | `gaussian.joint_render_interval_ms` | `1000` | `100..60000` 毫秒 |
 | `gaussian.joint_render_timeout_ms` | `5000` | `1..60000` 毫秒 |
 
-ROS1 在节点启动前补充：
-
-```bash
-rosparam set /gaussian/joint_render_enabled true
-rosparam set /gaussian/joint_render_interval_ms 1000
-rosparam set /gaussian/joint_render_timeout_ms 5000
-```
-
-ROS2 在 `laserMapping.ros__parameters` 下使用同名点分参数：
+两端 launch 读取同一份 `gaussian.yaml`。在现有 `gaussian` 段设置以下值。
 
 ```yaml
-gaussian.enabled: true
-gaussian.persist_submaps: true
-gaussian.joint_render_enabled: true
-gaussian.joint_render_interval_ms: 1000
-gaussian.joint_render_timeout_ms: 5000
+gaussian:
+  enabled: true
+  persist_submaps: true
+  joint_render_enabled: true
+  joint_render_interval_ms: 1000
+  joint_render_timeout_ms: 5000
 ```
 
 两个回放工具在创建输出前同时检查工作关键帧目录和最终导出目录；预览目录须与它们互不包含。
@@ -452,9 +432,8 @@ env -u PYTHONPATH PYTHONNOUSERSITE=1 CUDA_VISIBLE_DEVICES=0 \
   --output /path/to/new-render
 ```
 
-使用[已固定的 GPU 环境](p6-03b-gpu-probe.md)，另需 PyYAML（本机验证为 6.0.2）；
-原 GPU pip 清单不包含 PyYAML，可在对应独立环境中安装 `PyYAML==6.0.2`。
-本机验证复用已有隔离前缀，没有升级环境。无需启动 ROS，也无需加载训练模型或优化器。
+使用[已固定的 GPU 环境](p6-03b-gpu-probe.md)，其 pip 清单包含 PyYAML 6.0.2。
+本机验证复用已有隔离前缀。工具直接读取已保存的地图和观测。
 CUDA0 至少有 4 GiB 可用，沿用 PyTorch 40% 分配比例及预编译 gsplat 1.5.3。
 
 输入必须在整个调用中保持不变。工具完整检查目录、最终报告、分组、原始/优化位姿和

@@ -12,6 +12,7 @@ class OnlineSubmapManager {
                       KeyframeStore& keyframes, int max_keyframes,
                       OnlineSubmapOptions options, GeometryOptions geometry);
   void AppendCommittedKeyframe(std::shared_ptr<const Keyframe> keyframe);
+  void SetLoopBackend(LoopBackend& backend);
   void SetCallback(LivoSystem::OnlineSubmapCallback callback);
   std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
   MapCorrection GetMapCorrection() const;
@@ -30,6 +31,7 @@ class OnlineSubmapManager {
   std::unique_ptr<GeometryMapper> geometry_;
   std::vector<RigidTransform> raw_poses_;
   PoseSnapshot frozen_;
+  LoopBackend* loop_backend_ = nullptr;
   LivoSystem::OnlineSubmapCallback callback_;
   std::exception_ptr failure_;
   bool input_sealed_ = false;

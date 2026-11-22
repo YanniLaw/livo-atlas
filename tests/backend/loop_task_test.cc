@@ -147,6 +147,12 @@ TEST_F(LoopTaskTest, KeepsGraphBudgetAheadOfCloudReads) {
             LoopAdmissionStatus::kResourceLimit);
 }
 
+TEST_F(LoopTaskTest, EnforcesConfiguredGeometryCloudLimit) {
+  auto options = loop_test::NearbyOptions();
+  options.geometry.max_points_per_keyframe = 1;
+  EXPECT_THROW(RunLoopTask(Task(), options), std::runtime_error);
+}
+
 TEST_F(LoopTaskTest, RejectsDifferentTaskAndReadFrontiers) {
   auto task = Task();
   task.input.poses.frame_count = 3;

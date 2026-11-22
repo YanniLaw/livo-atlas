@@ -30,6 +30,7 @@ class LoopBackend {
   LoopSessionStats GetStats() const { return stats_; }
 
  private:
+  friend class LivoSystem;
   friend class LoopBackendTestPeer;
   LoopBackend(LivoSystem& system, LoopAdmissionOptions options,
               LoopTaskRunner runner);
@@ -41,6 +42,8 @@ class LoopBackend {
   void StopDispatch();
   void FlushEvents();
   void Complete(LoopTaskResult result);
+  void Drain();
+  void FinishJournal();
   [[noreturn]] void Fail(std::exception_ptr error);
 
   struct Coalesced {

@@ -13,22 +13,26 @@ import torch
 from gaussian_state import GaussianState, _metadata, _pose, _unsigned, validate_state
 from train import (_ALPHA_THRESHOLD, _depth_candidates, _render_view, _reserved_seed_count,
                    create_parameters, initialize_gaussians, masked_losses)
+from worker_config import DEFAULT_SEED_POLICY, DEFAULT_WORKER_OPTIONS, SEED_POLICIES
 
-SEED_POLICIES = ("uniform", "coverage")
 _MAX_VIEWS = 10
 _MAX_PER_VIEW = 1000
 _MAX_FRAMES = 512
 
 
-def checked_cuda_device():
+def checked_cuda_device(options=DEFAULT_WORKER_OPTIONS):
     """Require an available GPU and a prebuilt gsplat extension."""
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required")
-    device = torch.device("cuda:0")
+    device = torch.device(options.device)
+    if (device.type != "cuda" or device.index is None or str(device) != options.device or
+            device.index >= torch.cuda.device_count()):
+        raise RuntimeError(f"CUDA device {options.device} is not available")
     free, _ = torch.cuda.mem_get_info(device)
-    if free < 4 * 2**30:
-        raise RuntimeError("At least 4 GiB of free GPU memory is required")
-    torch.cuda.set_per_process_memory_fraction(0.4, device)
+    if free < options.min_free_gpu_memory_mib * 2**20:
+        required_gib = options.min_free_gpu_memory_mib / 1024
+        raise RuntimeError(f"At least {required_gib:g} GiB of free GPU memory is required")
+    torch.cuda.set_per_process_memory_fraction(options.gpu_memory_fraction, device)
     try:
         importlib.import_module("gsplat.csrc")
     except (ImportError, OSError) as error:
@@ -49,10 +53,12 @@ def _gpu_view(view, device):
 class OnlineGaussianModel:
     """One fixed-size model; an unaccepted candidate is never reused."""
 
-    def __init__(self, device):
-        if torch.device(device) != checked_cuda_device():
+    def __init__(self, device, *, options=DEFAULT_WORKER_OPTIONS):
+        selected_device = checked_cuda_device(options)
+        if torch.device(device) != selected_device:
             raise ValueError("The model must use the selected CUDA device")
-        self.device = torch.device(device)
+        self.device = selected_device
+        self.options = options
         self.generation = None
         self.views = []
         self.parameters = None
@@ -141,10 +147,10 @@ class OnlineGaussianModel:
         return state
 
     @classmethod
-    def from_state(cls, state, device):
+    def from_state(cls, state, device, *, options=DEFAULT_WORKER_OPTIONS):
         """Restore raw parameters into a new model, leaving Adam uninitialized."""
         validate_state(state)
-        model = cls(device)
+        model = cls(device, options=options)
         metadata = state.metadata
         model.generation = int(metadata["generation"])
         model.parameters = {}
@@ -195,11 +201,12 @@ class OnlineGaussianModel:
             self.parameters = combined
             self.origin_ids = torch.cat((self.origin_ids[keep], next_origins))
         self.views.append(_gpu_view(view, self.device))
+        rates = self.options.learning_rates
         self.optimizer = torch.optim.Adam([
-            {"params": [self.parameters["means"]], "lr": 5e-4},
-            {"params": [self.parameters["log_scales"]], "lr": 2e-3},
-            {"params": [self.parameters["color_logits"]], "lr": 1e-2},
-            {"params": [self.parameters["opacity_logits"]], "lr": 1e-2},
+            {"params": [self.parameters["means"]], "lr": rates.means},
+            {"params": [self.parameters["log_scales"]], "lr": rates.log_scales},
+            {"params": [self.parameters["color_logits"]], "lr": rates.color_logits},
+            {"params": [self.parameters["opacity_logits"]], "lr": rates.opacity_logits},
         ])
 
     def _coverage_prepass(self, view):
@@ -228,7 +235,7 @@ class OnlineGaussianModel:
                         reserved_uncovered=_reserved_seed_count(count, holes, _MAX_PER_VIEW))
         return uncovered, evidence
 
-    def train_candidate(self, view, *, seed_policy="uniform"):
+    def train_candidate(self, view, *, seed_policy=DEFAULT_SEED_POLICY):
         if self.generation is None or self.candidate_pending:
             raise RuntimeError("Model must be reset and have no pending candidate")
         frame_id = view.get("keyframe_id")
@@ -262,7 +269,7 @@ class OnlineGaussianModel:
                 image_loss, depth_loss, depth_count = masked_losses(
                     rgb, depth, alpha, by_id[selected_id]
                 )
-                loss = image_loss + 0.05 * depth_loss
+                loss = image_loss + self.options.depth_loss_weight * depth_loss
                 if not torch.isfinite(loss).item():
                     raise RuntimeError("Training loss is nonfinite")
                 loss.backward()

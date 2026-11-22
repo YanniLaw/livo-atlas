@@ -110,28 +110,6 @@ std::vector<std::uint64_t> Records(const fs::path& directory) {
   return ids;
 }
 
-void CheckGeometryOptions(const cv::FileNode& node) {
-  loop_options::ValidateKeys(
-      node, {"enabled", "voxel_size_m", "min_points_per_voxel", "max_plane_rms",
-             "max_plane_ratio", "max_voxels_per_submap",
-             "max_points_per_keyframe", "max_resident_submaps"});
-  GeometryOptions options;
-  Require(
-      meta::Integer(node["enabled"]) == 1 &&
-          meta::Number(node["voxel_size_m"]) == options.voxel_size &&
-          meta::Integer(node["min_points_per_voxel"]) ==
-              options.min_points_per_voxel &&
-          meta::Number(node["max_plane_rms"]) == options.max_plane_rms &&
-          meta::Number(node["max_plane_ratio"]) == options.max_plane_ratio &&
-          meta::Integer(node["max_voxels_per_submap"]) ==
-              options.max_voxels_per_submap &&
-          meta::Integer(node["max_points_per_keyframe"]) ==
-              options.max_points_per_keyframe &&
-          meta::Integer(node["max_resident_submaps"]) ==
-              options.max_resident_submaps,
-      "Loop worker geometry differs from the fixed policy");
-}
-
 AcceptedLoop CheckPrepared(const cv::FileStorage& yaml, std::uint64_t version,
                            const KeyframeReadView& frames,
                            const OnlineSubmapStore& store,
@@ -339,9 +317,7 @@ LoopClosureStore::LoopClosureStore(const KeyframeReadView& frames,
     if (!pose_graph_enabled_) yaml << "pose_graph_enabled" << 0;
     yaml << "options"
          << "{";
-    GeometryOptions geometry;
-    geometry.enabled = true;
-    io::WriteOptions(yaml, options, geometry);
+    io::WriteOptions(yaml, options);
     yaml << "}";
   });
   WriteSummary({}, false);
@@ -533,7 +509,6 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
                     SourceMetadata(dataset),
             "Loop session coordinate or calibration source changed");
     const auto options = io::ReadOptions(session["options"], true);
-    CheckGeometryOptions(session["options"]["geometry"]);
     KeyframeStore frames(dataset);
     const auto view = frames.CaptureReadView();
     OnlineSubmapStore store(dataset / "online_submaps", frames);

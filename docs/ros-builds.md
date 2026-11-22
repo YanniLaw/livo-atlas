@@ -14,15 +14,19 @@ Ubuntu22.04/Humble。跨系统需要重新编译。
 [统一入口组织方式](https://github.com/rpng/open_vins/blob/master/ov_msckf/src/run_subscribe_msckf.cpp)
 选择 ROS 初始化、适配器和执行器。`cmake/node.cmake` 创建一次节点目标，
 仅给它定义 `LIVO_ATLAS_ROS_VERSION=1|2`；普通算法库没有这个宏。共同路径创建一次
-LivoSystem，再将引用注入所选的 LivoNode，正常退出时共同 Finish/报告输入。
-Noetic保留 spinOnce/5000Hz空闲等待，Humble保留单线程executor/1ms处理定时器。
+LivoSystem，再将引用注入所选的 LivoNode。系统管理前端与回环后端，正常退出时统一 `Finish()`。
+Noetic 使用 `AsyncSpinner` 接收消息，主线程推进系统。Humble 使用 `MultiThreadedExecutor` 和独立传感器回调组。消息转换可并行，估计、传播和位姿提交串行执行。
+两端默认使用 4 个执行器线程，可在 [backend.yaml](../config/backend.yaml) 中设置 `ros.executor_threads`。
 `src/ros1` / `src/ros2` 保存各自的接入实现；源码与头文件的职责目录和 include 迁移表见
 [源码组织](core-build.md#源码组织与-include-迁移)。
 
-两个ROS目录均为 `livo_node`、`node_options`、`measurement_conversions`、
+两个 ROS 目录的主要接入文件为 `livo_node`、`node_options`、`measurement_conversions`、
 `livo_publisher` 四对源/头。两端算法流程相同，API差异仍留在各自适配器：Noetic的
 NodeHandle、XmlRpc、ImageTransport与无符号时间范围，Humble的rclcpp、DDS QoS和有符号时间范围。
 设计和实际验证见 [命名整理记录](p4-naming-validation.md)。
+
+两端 launch 加载 `config/backend.yaml` 和 `config/gaussian.yaml`，再加载传感器及标定配置。
+使用 `backend_config` 或 `gaussian_config` launch 参数可以指定另一份 YAML。
 
 ## 依赖
 

@@ -170,6 +170,29 @@ TEST_F(DetectionOnlyLoopClosureStoreTest, CanCompleteWithZeroDetections) {
   EXPECT_EQ(report.committed_version, 0u);
 }
 
+class CustomGeometryLoopClosureStoreTest : public LoopClosureStoreTest {
+ protected:
+  LoopAdmissionOptions SessionOptions() const override {
+    auto options = LoopClosureStoreTest::SessionOptions();
+    options.geometry.max_resident_submaps = 2;
+    return options;
+  }
+};
+
+TEST_F(CustomGeometryLoopClosureStoreTest, ValidatesRecordedWorkerGeometry) {
+  LoopSessionStats stats;
+  stats.frame_count = 4;
+  journal_->Finish(stats);
+  const auto session = root_ / "loop_closure/session.yml";
+  const auto valid = InspectLoopDataset(root_);
+  EXPECT_EQ(valid.status, LoopRecoveryStatus::kConsistent)
+      << testing::PrintToString(valid.issues);
+
+  Replace(session, "max_resident_submaps: 2", "max_resident_submaps: 1");
+  EXPECT_EQ(InspectLoopDataset(root_).status,
+            LoopRecoveryStatus::kInconsistent);
+}
+
 TEST_F(DetectionOnlyLoopClosureStoreTest, RejectsPreparedPoseUpdates) {
   const auto result = Result();
   ASSERT_TRUE(result.admission->proposal);

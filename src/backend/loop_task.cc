@@ -42,8 +42,7 @@ LoopAdmissionResult RunLoopTask(const LoopTask& task,
                                 const LoopAdmissionOptions& options) {
   ValidateLoopAdmissionOptions(options);
   ValidateTask(task);
-  GeometryOptions geometry;
-  geometry.enabled = true;
+  const auto& geometry = options.geometry;
   std::unique_ptr<GeometryMapper> mapper;
   std::shared_ptr<const PoseSnapshot> view;
   const LoopGeometryReader reader = [&](auto id, const auto& poses) {

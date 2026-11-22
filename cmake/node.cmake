@@ -2,7 +2,7 @@ add_executable(fastlivo_mapping src/app/livo_main.cc src/app/online_gaussian.cc)
 target_compile_definitions(fastlivo_mapping PRIVATE
   LIVO_ATLAS_ROS_VERSION=${LIVO_ATLAS_ROS_VERSION}
   LIVO_ATLAS_ONLINE_GAUSSIAN=$<TARGET_EXISTS:livo_atlas_online_gaussian>)
-target_link_libraries(fastlivo_mapping PRIVATE livo_atlas::online_backend
+target_link_libraries(fastlivo_mapping PRIVATE livo_atlas::core
   $<TARGET_NAME_IF_EXISTS:livo_atlas::online_gaussian>)
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
   target_link_libraries(fastlivo_mapping PRIVATE livo_atlas_ros1_node)

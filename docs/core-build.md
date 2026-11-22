@@ -174,5 +174,5 @@ visual_point 归 mapping，Frame/Feature 归视觉前端；目录不强制对应
 终止错误也阻止位姿提交和非空回调注册；最后成功的位姿快照仍可读取。
 三种普通构建、双ROS和完整bag结果见[P6-01记录](p6-01-validation.md)。
 
-SDK 导出 `livo_atlas::loop_backend` 及 `livo_atlas::online_backend`。
+`livo_atlas::core` 包含 `LivoSystem` 管理的在线后端。`livo_atlas::online_backend` 仍是可用的 SDK 链接目标。
 离线接口见[回环准入说明](loop-admission.md)，在线所有权、配置和停止后检查见[在线回环说明](online-loop-backend.md)。

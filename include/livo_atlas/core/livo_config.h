@@ -19,12 +19,10 @@ struct LivoConfig {
   int image_queue_size = 1;
   double image_time_offset = 0;
   double lidar_time_offset = 0;
-  bool loop_closure_enabled = false;
-  std::string loop_closure_options_file;
   GlobalOutputOptions global_output;
   OnlineGaussianOptions gaussian;
   GaussianRenderOutputOptions gaussian_output;
-  bool pose_graph_enabled = false;
+  int executor_threads = 4;
 };
 
 // Reads the shared schema and validates it without opening output files.

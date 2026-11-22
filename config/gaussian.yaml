@@ -1,0 +1,33 @@
+gaussian:
+  enabled: false
+  persist_submaps: false
+  # Use one absolute path for the ROS node and Python worker.
+  socket_path: ""
+  output_directory: ""
+  connect_timeout_ms: 10000
+  transfer_timeout_ms: 5000
+  job_timeout_ms: 30000
+  shutdown_timeout_ms: 3000
+  finalize_on_shutdown: false
+  finalize_timeout_ms: 60000
+
+  # Joint rendering requires persistent submaps.
+  joint_render_enabled: false
+  joint_render_policy: temporal
+  joint_render_interval_ms: 1000
+  joint_render_timeout_ms: 5000
+  publish_preview: false
+  preview_frame_id: gaussian_camera_optical
+
+  # Python worker settings. Device indices are relative to CUDA_VISIBLE_DEVICES.
+  worker:
+    seed_policy: uniform  # coverage requires persistent submaps
+    device: cuda:0
+    min_free_gpu_memory_mib: 4096
+    gpu_memory_fraction: 0.4
+    depth_loss_weight: 0.05
+    learning_rates:
+      means: 0.0005
+      log_scales: 0.002
+      color_logits: 0.01
+      opacity_logits: 0.01

@@ -5,7 +5,9 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 
+#include "backend/loop_option_fields.h"
 #include "io/dataset_metadata.h"
 #include "io/loop_diagnostics.h"
 #include "io/loop_options.h"
@@ -17,34 +19,11 @@ namespace fs = std::filesystem;
 namespace loop_admission_io {
 using dataset_metadata::Decimal;
 using dataset_metadata::WriteTransform;
+using loop_option_fields::AdmissionFields;
+using loop_option_fields::GeometryFields;
+using loop_option_fields::GraphFields;
 
-template <typename Visit>
-void GraphFields(PoseGraphOptions& o, Visit visit) {
-  visit("prior_rotation_sigma_rad", o.prior_rotation_sigma_rad);
-  visit("prior_translation_sigma_m", o.prior_translation_sigma_m);
-  visit("odometry_rotation_sigma_rad", o.odometry_rotation_sigma_rad);
-  visit("odometry_translation_sigma_m", o.odometry_translation_sigma_m);
-  visit("max_iterations", o.max_iterations);
-  visit("loop_huber_delta", o.loop_huber_delta);
-}
-
-template <typename Visit>
-void AdmissionFields(LoopAdmissionOptions& o, Visit visit) {
-  visit("loop_translation_sigma_m", o.loop_translation_sigma_m);
-  visit("loop_rotation_sigma_rad", o.loop_rotation_sigma_rad);
-  visit("max_hypothesis_translation_m", o.max_hypothesis_translation_m);
-  visit("max_hypothesis_rotation_deg", o.max_hypothesis_rotation_deg);
-  visit("correlated_submap_gap", o.correlated_submap_gap);
-  visit("max_factor_residual", o.max_factor_residual);
-  visit("max_accepted_residual_increase", o.max_accepted_residual_increase);
-  visit("max_pose_correction_m", o.max_pose_correction_m);
-  visit("max_pose_correction_deg", o.max_pose_correction_deg);
-  visit("max_keyframes", o.max_keyframes);
-  visit("max_loops", o.max_loops);
-}
-
-void WriteOptions(cv::FileStorage& yaml, LoopAdmissionOptions options,
-                  const GeometryOptions& geometry) {
+void WriteOptions(cv::FileStorage& yaml, LoopAdmissionOptions options) {
   loop_options::Write(yaml, options.search, options.registration);
   const auto write = [&](const char* name, auto value) {
     loop_options::WriteField(yaml, name, value);
@@ -59,14 +38,14 @@ void WriteOptions(cv::FileStorage& yaml, LoopAdmissionOptions options,
   yaml << "}"
        << "geometry"
        << "{"
-       << "enabled" << static_cast<int>(geometry.enabled) << "voxel_size_m"
-       << Decimal(geometry.voxel_size) << "min_points_per_voxel"
-       << geometry.min_points_per_voxel << "max_plane_rms"
-       << Decimal(geometry.max_plane_rms) << "max_plane_ratio"
-       << Decimal(geometry.max_plane_ratio) << "max_voxels_per_submap"
-       << geometry.max_voxels_per_submap << "max_points_per_keyframe"
-       << geometry.max_points_per_keyframe << "max_resident_submaps"
-       << geometry.max_resident_submaps << "}";
+       << "enabled" << static_cast<int>(options.geometry.enabled);
+  GeometryFields(options.geometry, [&](const char* name, auto value) {
+    if constexpr (std::is_integral_v<decltype(value)>)
+      yaml << name << value;
+    else
+      yaml << name << Decimal(value);
+  });
+  yaml << "}";
 }
 
 void WriteMembership(cv::FileStorage& yaml, const char* name,
@@ -227,6 +206,25 @@ LoopAdmissionOptions ReadLoopAdmissionOptions(const fs::path& path) {
 }
 
 namespace loop_admission_io {
+namespace {
+
+void ReadGeometryOptions(const cv::FileNode& node, GeometryOptions& geometry) {
+  std::set<std::string> keys{"enabled"};
+  GeometryFields(geometry, [&](const char* name, auto&) { keys.insert(name); });
+  loop_options::ValidateKeys(node, keys);
+  if (dataset_metadata::Integer(node["enabled"]) != 1)
+    throw std::invalid_argument("Loop geometry must be enabled");
+  GeometryFields(geometry, [&](const char* name, auto& value) {
+    using Value = std::decay_t<decltype(value)>;
+    if constexpr (std::is_integral_v<Value>)
+      value = dataset_metadata::Integer(node[name]);
+    else
+      value = dataset_metadata::Number(node[name]);
+  });
+}
+
+}  // namespace
+
 LoopAdmissionOptions ReadOptions(const cv::FileNode& yaml, bool with_geometry) {
   auto keys =
       std::set<std::string>{"search", "registration", "graph", "admission"};
@@ -242,6 +240,7 @@ LoopAdmissionOptions ReadOptions(const cv::FileNode& yaml, bool with_geometry) {
   loop_options::ReadFields(
       yaml["admission"], options,
       [](auto& o, auto visit) { AdmissionFields(o, visit); }, with_geometry);
+  if (with_geometry) ReadGeometryOptions(yaml["geometry"], options.geometry);
   ValidateLoopAdmissionOptions(options);
   return options;
 }

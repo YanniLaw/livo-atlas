@@ -2,7 +2,11 @@
 <!-- Launch file for Livox AVIA LiDAR -->
 
 	<arg name="rviz" default="true" />
+	<arg name="backend_config" default="$(find livo_atlas)/config/backend.yaml" />
+	<arg name="gaussian_config" default="$(find livo_atlas)/config/gaussian.yaml" />
 
+	<rosparam command="load" file="$(arg backend_config)" />
+	<rosparam command="load" file="$(arg gaussian_config)" />
 	<rosparam command="load" file="$(find livo_atlas)/config/avia.yaml" />
 
 	<node pkg="livo_atlas" type="fastlivo_mapping" name="laserMapping" output="screen">

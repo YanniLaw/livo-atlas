@@ -275,7 +275,8 @@ def _infer(blocks: list[tuple], K: np.ndarray, width: int, height: int,
     from rasterizer import render, to_gsplat_camera
 
     device = torch.device(device)
-    _require(device == torch.device('cuda:0'), 'Rendering requires the selected CUDA0 device')
+    _require(device.type == 'cuda' and device.index is not None,
+             'Rendering requires an explicit CUDA device')
     intrinsic, view = to_gsplat_camera(K, np.eye(4))
     torch.cuda.synchronize(device)
     if standalone:
@@ -307,7 +308,8 @@ def _infer(blocks: list[tuple], K: np.ndarray, width: int, height: int,
         values = None
         tensors.clear()
         if standalone:
-            torch.cuda.empty_cache()
+            with torch.cuda.device(device):
+                torch.cuda.empty_cache()
 
 
 _ALPHA_THRESHOLD = .05

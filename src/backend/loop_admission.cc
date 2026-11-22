@@ -203,6 +203,9 @@ bool CheckGeometry(const AcceptedLoop& loop, bool new_constraint,
 void ValidateLoopAdmissionOptions(const LoopAdmissionOptions& o) {
   ValidateLoopSearchOptions(o.search);
   ValidateLoopRegistrationOptions(o.registration);
+  ValidateGeometryOptions(o.geometry);
+  if (!o.geometry.enabled)
+    throw std::invalid_argument("Loop geometry must be enabled");
   (void)PoseGraph(o.graph);
   if (o.search.max_candidates > 5 || !Positive(o.graph.loop_huber_delta) ||
       !Sigma(o.loop_translation_sigma_m) || !Sigma(o.loop_rotation_sigma_rad) ||

@@ -13,10 +13,11 @@ import numpy as np
 import torch
 
 from gaussian_state import read_state, write_state
-from online_model import OnlineGaussianModel, SEED_POLICIES
+from online_model import OnlineGaussianModel
 from online_protocol import _validate_message, decode_target, decode_view
 from submap_protocol import _same_pose
 from train import _render_view, masked_losses
+from worker_config import DEFAULT_SEED_POLICY, SEED_POLICIES
 
 
 _MAX_ASSET_BYTES = (512 * 1024) + (1024 * 1024) + (192 * 1024 * 1024)
@@ -78,7 +79,7 @@ class GaussianSubmapWorker:
     """One serialized session; owner decisions are separate from durable references."""
 
     def __init__(self, session_id, state_directory, model, software, *, joint_render_enabled=False,
-                 spatial_render_enabled=False, seed_policy="uniform"):
+                 spatial_render_enabled=False, seed_policy=DEFAULT_SEED_POLICY):
         if seed_policy not in SEED_POLICIES:
             raise ValueError("Unknown Gaussian seed policy")
         if spatial_render_enabled and not joint_render_enabled:
@@ -95,6 +96,7 @@ class GaussianSubmapWorker:
         self.session_id = session_id
         self.directory = path
         self.device = model.device
+        self._model_options = model.options
         self.model = model
         self.software = dict(software)
         self.joint_render_enabled = joint_render_enabled
@@ -141,11 +143,12 @@ class GaussianSubmapWorker:
     def _restore_confirmation(self):
         self._release_model()
         if self.confirmed_state is None:
-            self.model = OnlineGaussianModel(self.device)
+            self.model = OnlineGaussianModel(self.device, options=self._model_options)
             if self.current_target is not None:
                 self.model.reset(int(self.current_target["generation"]))
         else:
-            self.model = OnlineGaussianModel.from_state(self.confirmed_state, self.device)
+            self.model = OnlineGaussianModel.from_state(self.confirmed_state, self.device,
+                                                       options=self._model_options)
             self.current_target = copy.deepcopy(self.confirmed_binding)
             _headers(self.model, self.current_target)
 
@@ -201,8 +204,8 @@ class GaussianSubmapWorker:
         result.update(frame_ids=[str(key) for key in self.model.frame_ids], width=preview.shape[1],
                       height=preview.shape[0], capture_time=float(self.model.views[-1]["image_timestamp"]),
                       nonzero_gradient=int(metrics["nonzero_gradient"]), parameter_updated=int(metrics["parameter_updated"]),
-                      gpu_peak_allocated_bytes=str(torch.cuda.max_memory_allocated()),
-                      gpu_peak_reserved_bytes=str(torch.cuda.max_memory_reserved()),
+                      gpu_peak_allocated_bytes=str(torch.cuda.max_memory_allocated(self.device)),
+                      gpu_peak_reserved_bytes=str(torch.cuda.max_memory_reserved(self.device)),
                       worker_peak_rss_bytes=str(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024))
         return result, preview.tobytes()
 
@@ -219,7 +222,7 @@ class GaussianSubmapWorker:
             if not self._durable():
                 raise ValueError("Previous confirmation lacks a durable map reference")
             self._release_model()
-            self.model = OnlineGaussianModel(self.device)
+            self.model = OnlineGaussianModel(self.device, options=self._model_options)
             self.model.reset(int(target["generation"]))
             self.current_target = target
             self.confirmed_state = self.confirmed_binding = self.content = None
@@ -242,7 +245,8 @@ class GaussianSubmapWorker:
         if action == "reuse":
             if not same:
                 self._release_model()
-                self.model = OnlineGaussianModel.from_state(state, self.device)
+                self.model = OnlineGaussianModel.from_state(state, self.device,
+                                                           options=self._model_options)
             _headers(self.model, target)
             with torch.no_grad():
                 view = self.model.views[-1]
@@ -254,7 +258,7 @@ class GaussianSubmapWorker:
                        "depth_l1_m": depth_loss.item(), "nonzero_gradient": False, "parameter_updated": False}
         else:
             self._release_model()
-            self.model = OnlineGaussianModel(self.device)
+            self.model = OnlineGaussianModel(self.device, options=self._model_options)
             self.model.reset(int(target["generation"]))
             poses = _body_poses(target)
             totals = {"supervised_depth_pixels": 0, "nonzero_gradient": False, "parameter_updated": False}
