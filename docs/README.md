@@ -122,4 +122,4 @@ P6-02c2b 已完成有界在线调度、持久接纳、停止排空和共用 ROS 
 
 50. P6-03c4b 完成同种子预算的覆盖优先采样对照。Retail_Street 的 23 个双块留出视角汇总 PSNR 增加 0.657 dB，覆盖率增加 3.065 个百分点，共同深度 L1 增加 7.8 mm，满足在线试验筛选线。[验证与复现](p6-03c4b-validation.md) · [设计与实测依据](superpowers/specs/2026-11-22-p6-03c4b-coverage-guided-seeding-design.md) · [实施计划](superpowers/plans/2026-11-22-p6-03c4b-coverage-guided-seeding.md)
 
-51. P6-03c4c 已形成覆盖优先在线试验方案，并完成 Noetic 的 10 秒均匀采样预检。下一步接入 worker 启动参数，再完成 Retail_Street 短段与完整 bag 的双策略对照。[设计与预检](superpowers/specs/2026-11-22-p6-03c4c-online-seeding-design.md) · [实施计划](superpowers/plans/2026-11-22-p6-03c4c-online-seeding.md)
+51. P6-03c4c 已接入 worker 的 `--seed-policy`。Retail_Street 的 Noetic 短段与完整双策略对照均通过。完整回放两侧的 13 块子地图全部持久化，162 个配对暖机视角的训练耗时差中位数为 +1.18 ms。[验证与复现](p6-03c4c-validation.md) · [设计与预检](superpowers/specs/2026-11-22-p6-03c4c-online-seeding-design.md) · [实施计划](superpowers/plans/2026-11-22-p6-03c4c-online-seeding.md)
