@@ -61,16 +61,16 @@
 首组没有 joint 图。`report.json` 包含 split SHA256、位姿与环境、各组实际训练 ID/监督计划/来源、
 每个留出 ID 的查询相机、参与块、指标以及 `near_group_start` / `interior` 汇总和资源。
 
-- [ ] 写测试。`test_held_out_observation_never_trains` 用小型真实 CUDA 夹具和带留出的序列，检查
+- [x] 写测试。`test_held_out_observation_never_trains` 用小型真实 CUDA 夹具和带留出的序列，检查
   实际 `training_frame_ids` 与来源无留出 ID。渲染留出后模型参数保持一致，改变留出 RGB 只改变评分。
   `test_first_group_and_missing_depth_are_reported` 核对首组缺邻居、无覆盖深度为 null，
   以及渲染异常时没有成功报告。
-- [ ] 在固定 CUDA 环境运行定向测试，先观察缺失行为。用局部系训练全部训练帧、记录实际 ID，
+- [x] 在固定 CUDA 环境运行定向测试，先观察缺失行为。用局部系训练全部训练帧、记录实际 ID，
   在退出模型生命周期后用 `infer_blocks` 和 `image_metrics` 计算结果。汇总同一查询的两种方案，
   按像素数汇总 MSE 和覆盖率。逐组临时 bundle，最后核验来源，再发布 `report.json`。
-- [ ] 用 `LIVO_REQUIRE_GPU=1` 运行上述定向测试和现有 `tests/3dgs_probe` 套件，核对未跳过 GPU 用例。
+- [x] 用 `LIVO_REQUIRE_GPU=1` 运行上述定向测试和现有 `tests/3dgs_probe` 套件，核对未跳过 GPU 用例。
   测试需要已有准备器、fixture、wire peer 和 projection probe，保持现有测试环境变量。
-- [ ] 在本机用下列路径运行完整基线。预期 13 组、147 次训练确认、25 个留出评分及 23 个成对结果。
+- [x] 在本机用下列路径运行完整基线。预期 13 组、147 次训练确认、25 个留出评分及 23 个成对结果。
   报告或日志须能追溯每次训练和来源，检查首组仅有两个单块结果、输入哈希未改变与实际 GPU 指标。
 
 ```bash
@@ -86,6 +86,6 @@ export PYTHONNOUSERSITE=1 CUDA_VISIBLE_DEVICES=0
 其他电脑可指向同一份封口数据和已核对的独立 GPU 环境。先创建 `LIVO_PHASE`，输出子目录须不存在。
 需要 YAML、Pillow、NumPy、PyTorch 和已编译的 gsplat，环境以 [P6-03b](../../p6-03b-validation.md) 为准。
 
-- [ ] 核对划分隔离、最终相机、数字与样例图；记录实际单块/双块变化及资源。保存源提交、输入 SHA、
+- [x] 核对划分隔离、最终相机、数字与样例图；记录实际单块/双块变化及资源。保存源提交、输入 SHA、
   `split.json`、运行日志与结果。用同一划分复跑若干样例，报告 GPU 数值波动。
-- [ ] 进行阶段审阅，处理影响留出隔离或评分的缺陷。发布复现说明和验收记录。
+- [x] 进行阶段审阅，处理影响留出隔离或评分的缺陷。发布复现说明和验收记录。
