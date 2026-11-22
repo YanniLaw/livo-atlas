@@ -7,6 +7,7 @@
 #include <string>
 #include <system_error>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/colmap_exporter.h"
 
 namespace {
@@ -20,9 +21,10 @@ bool ParseUnsigned(const char* argument, std::uint64_t* value) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   if (argc < 3 || argc > 5) {
-    std::cerr << "Usage: livo_atlas_export_colmap DATASET_DIRECTORY "
-                 "OUTPUT_DIRECTORY [POSE_VERSION] [MAX_POINTS_PER_IMAGE]\n";
+    LOG(ERROR) << "Usage: livo_atlas_export_colmap DATASET_DIRECTORY "
+                 "OUTPUT_DIRECTORY [POSE_VERSION] [MAX_POINTS_PER_IMAGE]";
     return 2;
   }
   livo_atlas::ColmapExportOptions options;
@@ -30,8 +32,8 @@ int main(int argc, char** argv) {
   if ((argc >= 4 && !ParseUnsigned(argv[3], &options.pose_version)) ||
       (argc == 5 && !ParseUnsigned(argv[4], &limit)) || limit == 0 ||
       limit >= UINT32_MAX) {
-    std::cerr << "Expected canonical unsigned arguments; the point limit must "
-                 "be in [1, UINT32_MAX)\n";
+    LOG(ERROR) << "Expected canonical unsigned arguments and a point limit "
+                  "in [1, UINT32_MAX)";
     return 2;
   }
   options.max_points_per_image = static_cast<std::uint32_t>(limit);
@@ -43,7 +45,7 @@ int main(int argc, char** argv) {
               << ",\"pose_version\":" << options.pose_version << "}\n";
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
 }

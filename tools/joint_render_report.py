@@ -7,6 +7,11 @@ import sys
 
 from PIL import Image
 
+try:
+    from .mapping_log import read_mapping_log
+except ImportError:
+    from mapping_log import read_mapping_log
+
 sys.path.insert(0, str(Path(__file__).resolve().parent / '3dgs_probe'))
 from joint_render_protocol import validate_render_header, validate_render_message
 
@@ -70,6 +75,30 @@ def _records(text, marker):
                 converted[key] = int(value)
         result.append(converted)
     return result
+
+
+def _accepted_events(text):
+    events = _records(text, 'livo_atlas gaussian joint accepted:')
+    chunks = {}
+    for chunk in _records(text, 'livo_atlas gaussian joint source:'):
+        _require({'job', 'offset', 'source_identity'} <= chunk.keys(),
+                 'Invalid source identity fragment')
+        chunks.setdefault(chunk['job'], []).append(chunk)
+    for event in events:
+        expected_size = event.pop('source_identity_size', None)
+        if expected_size is None:
+            continue  # Older logs carried the entire source identity inline.
+        fragments = [event.get('source_identity', '')]
+        size = len(fragments[0])
+        for chunk in chunks.pop(event['job'], ()):
+            _require(chunk['offset'] == size, 'Missing or unordered source identity fragment')
+            fragment = chunk['source_identity']
+            fragments.append(fragment)
+            size += len(fragment)
+        _require(size == expected_size, 'Truncated source identity')
+        event['source_identity'] = ''.join(fragments)
+    _require(not chunks, 'Source identity fragments lack a matching accepted event')
+    return events
 
 
 def _event_selection(event, policy):
@@ -180,11 +209,8 @@ def inspect_joint_renders(run, previews, min_dual=0, min_groups=0):
         bound = fixed_rate_input_cutoff(start, int(stamps[0]), int(stamps[1]), summary['playback_rate'])
         _require(abs(bound - cutoff) < 1e-7, 'Input publication lower bound differs')
     _require(0 <= start <= cutoff <= eof and start < eof, 'Missing or inconsistent input EOF interval')
-    log = run / 'mapping.log'
-    if not log.is_file():
-        log = run / 'node.log'
-    text = log.read_text(errors='replace')
-    events = _records(text, 'livo_atlas gaussian joint accepted:')
+    text = read_mapping_log(run)
+    events = _accepted_events(text)
     counters = _records(text, 'livo_atlas gaussian joint:')
     _require(len(counters) == 1 and bool(events), 'Missing owner render acceptance evidence')
     stats = counters[0]

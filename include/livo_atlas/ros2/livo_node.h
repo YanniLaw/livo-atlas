@@ -8,7 +8,6 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <string>
 
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/ros2/livo_publisher.h"
@@ -27,10 +26,7 @@ class LivoNode {
   void ReportInputs();
 
  private:
-  void Warn(const std::string& error);
-
   std::uint64_t lidar_count_ = 0, imu_count_ = 0, image_count_ = 0;
-  rclcpp::Node& node_;
   NodeOptions parameters_;
   LivoSystem& system_;
   std::function<void()> after_process_;

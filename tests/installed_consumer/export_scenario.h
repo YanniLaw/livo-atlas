@@ -4,11 +4,11 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <opencv2/core/persistence.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <string>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/colmap_exporter.h"
 #include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/io/reconstruction_view.h"
@@ -108,10 +108,10 @@ inline bool RunColmapScenario() {
             frame.odom_from_body.translation)
       return false;
     fs::remove_all(root);
-    std::cout << "Installed COLMAP export: raw and optimized data passed\n";
+    LOG(INFO) << "Installed COLMAP export: raw and optimized data passed";
     return true;
   } catch (const std::exception& error) {
-    std::cerr << root << ": " << error.what() << '\n';
+    LOG(ERROR) << root << ": " << error.what();
     return false;
   }
 }

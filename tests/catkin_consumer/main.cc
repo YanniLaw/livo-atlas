@@ -1,9 +1,9 @@
-#include <iostream>
-
 #include "livo_atlas/camera/camera_config.h"
+#include "livo_atlas/common/logging.h"
 #include "scenario.h"
 
-int main() {
+int main(int, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   livo_atlas::CameraConfig camera{
       "Pinhole", 32, 24, 1, 10, 10, 16, 12, {}};
   if (!livo_atlas::ValidateCameraConfig(camera).empty()) return 1;
@@ -14,5 +14,5 @@ int main() {
                     livo_atlas::FrontendMode::kLidarInertialVisual}) {
     if (!livo_atlas::test_data::RunFrontendScenario(mode)) return 3;
   }
-  std::cout << "Separate catkin consumer: validation and LO/LIO/VIO passed\n";
+  LOG(INFO) << "Separate catkin consumer passed LO/LIO/VIO and validation";
 }

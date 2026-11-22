@@ -11,6 +11,7 @@ find_package(PCL REQUIRED COMPONENTS common)
 find_package(OpenCV REQUIRED COMPONENTS core)
 find_package(OpenMP REQUIRED)
 find_package(GTest REQUIRED)
+find_package(glog CONFIG REQUIRED)
 enable_testing()
 
 get_filename_component(PACKAGE_INCLUDE_DIR "../../include" ABSOLUTE)
@@ -21,7 +22,7 @@ target_link_libraries(sensor_preprocess PUBLIC Eigen3::Eigen
   ${PCL_COMMON_LIBRARIES} OpenMP::OpenMP_CXX)
 add_executable(sensor_preprocess_test preprocess_test.cc ../test_main.cc)
 target_link_libraries(sensor_preprocess_test PRIVATE
-  sensor_preprocess GTest::GTest)
+  sensor_preprocess GTest::GTest glog::glog)
 add_test(NAME sensor_preprocess_test COMMAND sensor_preprocess_test)
 
 set(HEADER_CHECK_SOURCES)

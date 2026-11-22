@@ -5,11 +5,13 @@
 #include <limits>
 #include <locale>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/keyframe_store.h"
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   if (argc != 2) {
-    std::cerr << "Usage: livo_atlas_inspect_keyframes DATASET_DIRECTORY\n";
+    LOG(ERROR) << "Usage: livo_atlas_inspect_keyframes DATASET_DIRECTORY";
     return 2;
   }
   try {
@@ -34,7 +36,7 @@ int main(int argc, char** argv) {
               << ",\"last_timestamp\":" << last << "}\n";
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
 }

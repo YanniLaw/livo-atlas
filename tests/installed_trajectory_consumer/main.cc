@@ -10,11 +10,13 @@ using Message = livo_atlas::msg::KeyframeTrajectory;
 #endif
 
 #include <cstdint>
-#include <iostream>
 #include <string>
 #include <vector>
 
-int main() {
+#include "livo_atlas/common/logging.h"
+
+int main(int, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   Message message;
   message.producer_id.assign(32, 'b');
   message.revision = (std::uint64_t{1} << 40) + 3;
@@ -49,7 +51,7 @@ int main() {
       restored.keyframes[0].timestamp != 123.125 ||
       restored.keyframes[0].pose.position.x != 7)
     return 1;
-  std::cout << "Installed trajectory message round trip: " << bytes
-            << " bytes\n";
+  LOG(INFO) << "Installed trajectory message round trip: " << bytes
+            << " bytes";
   return 0;
 }

@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -27,11 +26,12 @@
 #include <opencv2/core/persistence.hpp>
 
 #include "core/fixtures.h"
-#include "gaussian/wire_protocol.h"
-#include "livo_atlas/core/livo_system.h"
 #if LIVO_ATLAS_TEST_WITH_BACKEND
 #include "core/loop_backend_fixtures.h"
 #endif
+#include "gaussian/wire_protocol.h"
+#include "livo_atlas/common/logging.h"
+#include "livo_atlas/core/livo_system.h"
 
 namespace livo_atlas {
 namespace {
@@ -757,12 +757,11 @@ TEST_F(OnlineGaussianMapperTest, RealPythonWorkerConfirmsAndResetsGpuModel) {
   EXPECT_EQ(preview->steps, 20);
   EXPECT_TRUE(preview->nonzero_gradient);
   EXPECT_TRUE(preview->parameter_updated);
-  std::cout << "Real GPU preview: depth_samples="
+  LOG(INFO) << "Real GPU preview: depth_samples="
             << preview->supervised_depth_pixels << " rgb_l1=" << preview->rgb_l1
             << " depth_l1_m=" << preview->depth_l1_m
             << " gpu_peak_bytes=" << preview->gpu_peak_allocated_bytes
-            << " worker_peak_rss_bytes=" << preview->worker_peak_rss_bytes
-            << '\n';
+            << " worker_peak_rss_bytes=" << preview->worker_peak_rss_bytes;
   mapper_->Finish();
 }
 

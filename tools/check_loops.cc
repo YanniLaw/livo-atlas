@@ -1,14 +1,15 @@
 #include <exception>
 #include <filesystem>
-#include <iostream>
 #include <stdexcept>
 
 #include "io/dataset_metadata.h"
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/loop_closure_store.h"
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   if (argc != 3) {
-    std::cerr << "Usage: livo_atlas_check_loops DATASET OUTPUT\n";
+    LOG(ERROR) << "Usage: livo_atlas_check_loops DATASET OUTPUT";
     return 2;
   }
   namespace fs = std::filesystem;
@@ -45,16 +46,15 @@ int main(int argc, char** argv) {
           for (const auto& issue : report.issues) yaml << issue;
           yaml << "]";
         });
-    std::cout << name << ": committed version " << report.committed_version
-              << '\n';
+    LOG(INFO) << name << ": committed version " << report.committed_version;
     return status == livo_atlas::LoopRecoveryStatus::kConsistent   ? 0
            : status == livo_atlas::LoopRecoveryStatus::kIncomplete ? 3
                                                                    : 1;
   } catch (const std::exception& error) {
-    std::cerr << "Loop inspection failed: " << error.what() << '\n';
+    LOG(ERROR) << "Loop inspection failed: " << error.what();
     return 1;
   } catch (...) {
-    std::cerr << "Loop inspection failed: unknown exception\n";
+    LOG(ERROR) << "Loop inspection failed: unknown exception";
     return 1;
   }
 }

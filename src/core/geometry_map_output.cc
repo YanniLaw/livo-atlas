@@ -2,12 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <limits>
 #include <random>
 #include <stdexcept>
 #include <utility>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/livo_system.h"
 #include "mapping/geometry_map_sampling.h"
 #include "mapping/geometry_validation.h"
@@ -375,8 +375,7 @@ void GeometryMapOutput::RecordFailure(const std::string& error) {
   failed_ = true;
   ++stats_.failed;
   stats_.error = error.substr(0, 1024);
-  std::fprintf(stderr, "livo_atlas geometry map output: %s\n",
-               stats_.error.c_str());
+  LOG(ERROR) << "livo_atlas geometry map output: " << stats_.error;
 }
 
 void GeometryMapOutput::Run() {

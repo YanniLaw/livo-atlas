@@ -2,11 +2,11 @@
 
 #include <chrono>
 #include <cstdint>
-#include <cstdio>
 #include <exception>
 #include <optional>
 #include <utility>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/ros2/livo_publisher.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
@@ -24,8 +24,7 @@ rclcpp::QoS SensorQos(const NodeOptions& parameters, int depth) {
 
 LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
                    LivoSystem& system, std::function<void()> after_process)
-    : node_(node),
-      parameters_(parameters),
+    : parameters_(parameters),
       system_(system),
       after_process_(std::move(after_process)),
       publisher_(node, parameters_.livo.system.exporter.mode,
@@ -42,7 +41,7 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
           if (error.empty()) {
             system_.AddLidar(scan);
           } else {
-            Warn(error);
+            LOG(WARNING) << error;
           }
         });
   } else {
@@ -58,7 +57,7 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
           if (error.empty()) {
             system_.AddLidar(scan);
           } else {
-            Warn(error);
+            LOG(WARNING) << error;
           }
         });
   }
@@ -69,7 +68,7 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
         try {
           system_.AddImu(ConvertImu(*message));
         } catch (const std::exception& error) {
-          Warn(error.what());
+          LOG(WARNING) << error.what();
         }
       });
   image_ = node.create_subscription<sensor_msgs::msg::Image>(
@@ -83,7 +82,7 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
         if (error.empty()) {
           system_.AddImage(std::move(image));
         } else {
-          Warn(error);
+          LOG(WARNING) << error;
         }
       });
   processing_ = node.create_wall_timer(std::chrono::milliseconds(1), [this] {
@@ -95,7 +94,7 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
     if (result)
       publisher_.PublishImuPropagation(result->state, result->timestamp);
   });
-  RCLCPP_INFO(node.get_logger(), "livo_atlas frontend ready");
+  LOG(INFO) << "livo_atlas frontend ready";
 }
 
 SyncStatus LivoNode::ProcessNext() {
@@ -106,22 +105,15 @@ SyncStatus LivoNode::ProcessNext() {
             result.kind != UpdateKind::kVisual)
           correction = system_.GetMapCorrection();
         publisher_.Publish(result, colored_cloud, correction);
-        const char* stage = result.kind == UpdateKind::kVisual
-                                ? "VIO Time"
-                                : "LIO Mapping Time";
-        std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
+        ros_detail::LogUpdateTime(result.kind, elapsed);
       });
   if (after_process_) after_process_();
   return status;
 }
 
 void LivoNode::ReportInputs() {
-  ros_detail::PrintInputDiagnostics(lidar_count_, imu_count_, image_count_,
-                                    system_.GetStartupBufferStats());
-}
-
-void LivoNode::Warn(const std::string& error) {
-  RCLCPP_WARN(node_.get_logger(), "%s", error.c_str());
+  ros_detail::LogInputDiagnostics(lidar_count_, imu_count_, image_count_,
+                                  system_.GetStartupBufferStats());
 }
 
 LivoNode::~LivoNode() = default;

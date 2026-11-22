@@ -8,15 +8,17 @@
 #include <string>
 #include <system_error>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/online_submap_store.h"
 #include "livo_atlas/io/submap_store.h"
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   const bool online = argc >= 3 && std::string(argv[2]) == "--online";
   const int version_argument = online ? 3 : 2;
   if (argc < 2 || argc > version_argument + 1) {
-    std::cerr << "Usage: livo_atlas_inspect_submaps DATASET_DIRECTORY "
-                 "[--online] [POSE_VERSION]\n";
+    LOG(ERROR) << "Usage: livo_atlas_inspect_submaps DATASET_DIRECTORY "
+                 "[--online] [POSE_VERSION]";
     return 2;
   }
   std::uint64_t version = 0;
@@ -26,7 +28,7 @@ int main(int argc, char** argv) {
         std::from_chars(text.data(), text.data() + text.size(), version);
     if (parsed.ec != std::errc() || parsed.ptr != text.data() + text.size() ||
         text != std::to_string(version)) {
-      std::cerr << "Expected a canonical unsigned pose version\n";
+      LOG(ERROR) << "Expected a canonical unsigned pose version";
       return 2;
     }
   }
@@ -73,7 +75,7 @@ int main(int argc, char** argv) {
               << "}\n";
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
 }

@@ -6,7 +6,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <string>
 
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/ros1/livo_publisher.h"
@@ -25,8 +24,6 @@ class LivoNode {
   void ReportInputs();
 
  private:
-  void Warn(const std::string& error);
-
   NodeOptions parameters_;
   LivoSystem& system_;
   std::function<void()> after_process_;

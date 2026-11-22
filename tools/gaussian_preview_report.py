@@ -210,16 +210,17 @@ def inspect_gaussian_publication(run, previews):
     # Offline-only evidence dependencies; recording in either ROS runner needs
     # neither Torch nor the worker package on its Python import path.
     try:
-        from .joint_render_report import inspect_joint_renders, _records, _source_identity, _pair
+        from .joint_render_report import (inspect_joint_renders, _accepted_events,
+                                          _records, _source_identity, _pair)
+        from .mapping_log import read_mapping_log
     except ImportError:
-        from joint_render_report import inspect_joint_renders, _records, _source_identity, _pair
+        from joint_render_report import (inspect_joint_renders, _accepted_events,
+                                         _records, _source_identity, _pair)
+        from mapping_log import read_mapping_log
     from PIL import Image
     run, previews = Path(run), Path(previews)
     observed = json.loads((run / 'gaussian-publication.json').read_text())
-    log_path = run / 'mapping.log'
-    if not log_path.is_file():
-        log_path = run / 'node.log'
-    log = log_path.read_text(errors='replace')
+    log = read_mapping_log(run)
     facts = _records(log, 'livo_atlas gaussian publication:')
     samples, mirrors = observed['samples'], observed['image_samples']
     _require(not observed['errors'], 'Gaussian receiver reported errors')
@@ -236,7 +237,7 @@ def inspect_gaussian_publication(run, previews):
     inspect_joint_renders(run, previews)
     summary = json.loads((run / 'summary.json').read_text())
     cutoff, start = summary['playback_input_cutoff_steady_seconds'], summary['playback_started_steady_seconds']
-    events = _records(log, 'livo_atlas gaussian joint accepted:')
+    events = _accepted_events(log)
     accepted = {(event['session'], event['job']): (event, _source_identity(event)) for event in events}
     acceptance_order = {(event['session'], event['job']): i for i, event in enumerate(events)}
     retained = {}

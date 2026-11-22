@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstring>
 #include <functional>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -15,6 +14,8 @@
 #include <sensor_msgs/PointCloud2.h>
 
 #include "geometry_map_fixture.h"
+
+#include "livo_atlas/common/logging.h"
 
 namespace livo_atlas {
 namespace {
@@ -158,7 +159,7 @@ TEST(GeometryMapPublisherTest, SerializesOneHundredThousandPointsWithinBudget) {
   EXPECT_EQ(received.cloud.width, 100000u);
   const auto bytes = ros::serialization::serializationLength(received);
   EXPECT_LE(bytes, 4096u + 128u * 2u + 16u * 100000u);
-  std::cout << "geometry serialized bytes=" << bytes << '\n';
+  LOG(INFO) << "geometry serialized bytes=" << bytes;
 }
 
 }  // namespace

@@ -39,9 +39,9 @@ TEST(Ros2NodeTest, ReportsStartupBufferOverflow) {
   for (int i = 0; i < 9; ++i)
     ASSERT_TRUE(session.AddImage({100 + i * .03, image}));
   session.Finish();
-  testing::internal::CaptureStdout();
+  testing::internal::CaptureStderr();
   adapter.ReportInputs();
-  const auto output = testing::internal::GetCapturedStdout();
+  const auto output = testing::internal::GetCapturedStderr();
   EXPECT_NE(output.find("lidar=0 imu=0 image=0"), std::string::npos);
   EXPECT_NE(output.find("imu_buffered=2001 image_buffered=9"),
             std::string::npos);
@@ -145,10 +145,10 @@ TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {
   EXPECT_EQ(poses, 3);
   EXPECT_EQ(clouds, 3);
   EXPECT_EQ(transforms, 3);
-  testing::internal::CaptureStdout();
+  testing::internal::CaptureStderr();
   session.Finish();
   mapper.ReportInputs();
-  const auto output = testing::internal::GetCapturedStdout();
+  const auto output = testing::internal::GetCapturedStderr();
   EXPECT_NE(output.find("lidar=3 imu=0 image=0"), std::string::npos);
 }
 }  // namespace livo_atlas::ros2

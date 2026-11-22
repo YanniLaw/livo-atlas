@@ -2,12 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <limits>
 #include <random>
 #include <stdexcept>
 #include <utility>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/livo_system.h"
 
 namespace livo_atlas {
@@ -199,8 +199,7 @@ void TrajectoryOutput::RecordFailure(const std::string& error) {
   failed_ = true;
   ++stats_.failed;
   stats_.error = error.substr(0, 1024);
-  std::fprintf(stderr, "livo_atlas trajectory output: %s\n",
-               stats_.error.c_str());
+  LOG(ERROR) << "livo_atlas trajectory output: " << stats_.error;
 }
 
 void TrajectoryOutput::Run() {

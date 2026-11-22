@@ -9,10 +9,12 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common io filters)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d imgcodecs)
 find_package(GTest REQUIRED)
+find_package(glog CONFIG REQUIRED)
 enable_testing()
 
 get_filename_component(PACKAGE_INCLUDE_DIR "../../include" ABSOLUTE)
 add_library(livo_exporter STATIC ../../src/io/livo_exporter.cc
+  ../../src/io/image_writer.cc
   ../../src/camera/camera.cc ../../src/camera/camera_config.cc
   ../../src/camera/camera_factory.cc ../../src/camera/pinhole_camera.cc
   ../../src/camera/equidistant_camera.cc ../../src/image/image_ops.cc)
@@ -21,7 +23,8 @@ target_include_directories(livo_exporter PUBLIC
 target_link_libraries(livo_exporter PUBLIC Eigen3::Eigen
   ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 add_executable(livo_exporter_test livo_exporter_test.cc ../test_main.cc)
-target_link_libraries(livo_exporter_test PRIVATE livo_exporter GTest::GTest)
+target_link_libraries(livo_exporter_test PRIVATE livo_exporter GTest::GTest
+  glog::glog)
 add_test(NAME livo_exporter_test COMMAND livo_exporter_test)
 
 foreach(HEADER frontend/diagnostics frontend/frontend_result

@@ -3,11 +3,15 @@
 
 #include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
-#include <thread>
 
 #include "livo_atlas/backend/loop_task.h"
+
+namespace livo_atlas::cartographer::common {
+class ThreadPool;
+}  // namespace livo_atlas::cartographer::common
 
 namespace livo_atlas {
 
@@ -30,17 +34,15 @@ class LoopWorker {
   void Stop();
 
  private:
-  std::optional<LoopTask> NextTask();
-  void Run();
+  void Run(LoopTask task);
 
   LoopTaskRunner runner_;
   mutable std::mutex mutex_;
   std::condition_variable condition_;
-  std::optional<LoopTask> task_;
   std::optional<LoopTaskResult> result_;
   bool busy_ = false;
   bool stopping_ = false;
-  std::thread thread_;
+  std::unique_ptr<cartographer::common::ThreadPool> thread_pool_;
 };
 
 }  // namespace livo_atlas

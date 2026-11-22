@@ -1,13 +1,15 @@
 #include <cstdint>
-#include <cstdio>
 #include <exception>
 #include <functional>
 #include <iomanip>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/core/trajectory_output.h"
@@ -44,34 +46,40 @@ namespace {
 void ReportJointRender(const livo_atlas::GaussianRender& r) {
   const auto& q = r.request;
   const auto identity = livo_atlas::GaussianRenderSourceIdentity(q);
-  std::printf(
-      "livo_atlas gaussian joint accepted: session=%s job=%llu "
-      "map_sequence=%llu pose_version=%llu frame_count=%llu "
-      "optimized_frame_count=%llu generation=%llu query=%llu owner=%llu "
-      "blocks=%zu changed_pixels=%d accepted_at_steady_seconds=%.9f "
-      "latency_seconds=%.9f worker_seconds=%.9f policy=%s "
-      "selected_first=%llu selected_last=%llu candidate_count=%llu "
-      "candidate_pixels=%llu projection_uncertain=%d selection_seconds=%.9f "
-      "source_identity=%s\n",
-      q.session_id.c_str(), static_cast<unsigned long long>(q.job_id),
-      static_cast<unsigned long long>(q.map_sequence),
-      static_cast<unsigned long long>(q.pose_version),
-      static_cast<unsigned long long>(q.frame_count),
-      static_cast<unsigned long long>(q.optimized_frame_count),
-      static_cast<unsigned long long>(q.generation),
-      static_cast<unsigned long long>(q.query_keyframe_id),
-      static_cast<unsigned long long>(q.query_submap_id), q.blocks.size(),
-      r.changed_pixels, r.accepted_at_steady_seconds, r.latency_seconds,
-      r.worker_seconds,
-      q.policy == livo_atlas::GaussianRenderPolicy::kSpatial ? "spatial"
-                                                             : "temporal",
-      static_cast<unsigned long long>(q.blocks.front().target.group.primary.id),
-      static_cast<unsigned long long>(q.blocks.back().target.group.primary.id),
-      static_cast<unsigned long long>(q.candidate_count),
-      static_cast<unsigned long long>(q.candidate_pixels),
-      static_cast<int>(q.projection_uncertain), q.selection_seconds,
-      identity.c_str());
-  std::fflush(stdout);
+  const std::string_view source_identity(identity);
+  // Keep each fragment below glog's per-message limit.
+  constexpr std::size_t kIdentityChunkSize = 16 * 1024;
+  LOG(INFO) << std::fixed << std::setprecision(9)
+            << "livo_atlas gaussian joint accepted: session=" << q.session_id
+            << " job=" << q.job_id << " map_sequence=" << q.map_sequence
+            << " pose_version=" << q.pose_version
+            << " frame_count=" << q.frame_count
+            << " optimized_frame_count=" << q.optimized_frame_count
+            << " generation=" << q.generation
+            << " query=" << q.query_keyframe_id
+            << " owner=" << q.query_submap_id << " blocks=" << q.blocks.size()
+            << " changed_pixels=" << r.changed_pixels
+            << " accepted_at_steady_seconds=" << r.accepted_at_steady_seconds
+            << " latency_seconds=" << r.latency_seconds
+            << " worker_seconds=" << r.worker_seconds << " policy="
+            << (q.policy == livo_atlas::GaussianRenderPolicy::kSpatial
+                    ? "spatial"
+                    : "temporal")
+            << " selected_first=" << q.blocks.front().target.group.primary.id
+            << " selected_last=" << q.blocks.back().target.group.primary.id
+            << " candidate_count=" << q.candidate_count
+            << " candidate_pixels=" << q.candidate_pixels
+            << " projection_uncertain=" << q.projection_uncertain
+            << " selection_seconds=" << q.selection_seconds
+            << " source_identity_size=" << source_identity.size()
+            << " source_identity="
+            << source_identity.substr(0, kIdentityChunkSize);
+  for (std::size_t offset = kIdentityChunkSize; offset < source_identity.size();
+       offset += kIdentityChunkSize) {
+    LOG(INFO) << "livo_atlas gaussian joint source: job=" << q.job_id
+              << " offset=" << offset << " source_identity="
+              << source_identity.substr(offset, kIdentityChunkSize);
+  }
 }
 
 void PollGaussian(livo_atlas::OnlineGaussianMapper& mapper,
@@ -80,14 +88,11 @@ void PollGaussian(livo_atlas::OnlineGaussianMapper& mapper,
   mapper.Poll();
   const auto stats = mapper.GetRenderStats();
   if (stats.wait_changes != *reported_wait) {
-    std::printf(
-        "livo_atlas gaussian joint waiting: reason=%s map_sequence=%llu "
-        "changes=%llu\n",
-        stats.wait_reason.c_str(),
-        static_cast<unsigned long long>(stats.wait_map_sequence),
-        static_cast<unsigned long long>(stats.wait_changes));
+    LOG(INFO) << "livo_atlas gaussian joint waiting: reason="
+              << stats.wait_reason
+              << " map_sequence=" << stats.wait_map_sequence
+              << " changes=" << stats.wait_changes;
     *reported_wait = stats.wait_changes;
-    std::fflush(stdout);
   }
   const auto render = mapper.GetLatestRender();
   if (render && render->request.job_id != *reported_job) {
@@ -142,18 +147,19 @@ void ReportFinalization(const livo_atlas::GaussianFinalizationResult& r) {
        << " repair_seconds=" << r.repair_seconds
        << " shutdown_seconds=" << r.shutdown_seconds
        << " total_seconds=" << r.total_seconds;
-  std::printf("%s\n", line.str().c_str());
+  LOG(INFO) << line.str();
   // Diagnostics are separate from the machine-readable identity/counter row.
-  if (!r.reason.empty() || !r.report_error.empty())
-    std::fprintf(stderr,
-                 "Gaussian finalization reason: %.1024s; report: %.1024s\n",
-                 r.reason.c_str(), r.report_error.c_str());
+  if (!r.reason.empty() || !r.report_error.empty()) {
+    LOG(WARNING) << "Gaussian finalization reason: " << r.reason.substr(0, 1024)
+                 << "; report: " << r.report_error.substr(0, 1024);
+  }
 }
 
 }  // namespace
 #endif
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
 #if LIVO_ATLAS_ROS_VERSION == 1
   ros::init(argc, argv, "laserMapping");
   auto node = std::make_shared<ros::NodeHandle>();
@@ -310,47 +316,34 @@ int main(int argc, char** argv) {
     if (gaussian_publication) {
       gaussian_publication->Finish();
       const auto s = gaussian_publication->GetStats();
-      std::printf(
-          "livo_atlas gaussian publication: observed=%llu submitted=%llu "
-          "coalesced=%llu published=%llu unavailable=%llu failed=%llu "
-          "pending=%llu in_flight=%llu peak_pending=%llu peak_in_flight=%llu "
-          "last_revision=%llu max_worker_seconds=%.9f finished=%d\n",
-          static_cast<unsigned long long>(s.observed),
-          static_cast<unsigned long long>(s.submitted),
-          static_cast<unsigned long long>(s.coalesced),
-          static_cast<unsigned long long>(s.published),
-          static_cast<unsigned long long>(s.unavailable),
-          static_cast<unsigned long long>(s.failed),
-          static_cast<unsigned long long>(s.pending),
-          static_cast<unsigned long long>(s.in_flight),
-          static_cast<unsigned long long>(s.peak_pending),
-          static_cast<unsigned long long>(s.peak_in_flight),
-          static_cast<unsigned long long>(s.last_revision),
-          s.max_worker_seconds, static_cast<int>(s.finished));
-      std::fflush(stdout);
-      if (!s.error.empty())
-        std::fprintf(stderr, "Gaussian publication: %.64s\n", s.error.c_str());
+      LOG(INFO) << std::fixed << std::setprecision(9)
+                << "livo_atlas gaussian publication: observed=" << s.observed
+                << " submitted=" << s.submitted << " coalesced=" << s.coalesced
+                << " published=" << s.published
+                << " unavailable=" << s.unavailable << " failed=" << s.failed
+                << " pending=" << s.pending << " in_flight=" << s.in_flight
+                << " peak_pending=" << s.peak_pending
+                << " peak_in_flight=" << s.peak_in_flight
+                << " last_revision=" << s.last_revision
+                << " max_worker_seconds=" << s.max_worker_seconds
+                << " finished=" << s.finished;
+      if (!s.error.empty()) {
+        LOG(WARNING) << "Gaussian publication: " << s.error.substr(0, 64);
+      }
     }
 #endif
 #if LIVO_ATLAS_ONLINE_BACKEND
     if (backend) {
       backend->Finish();
       const auto s = backend->GetStats();
-      std::printf(
-          "livo_atlas loops: frames=%llu pose_version=%llu submitted=%llu "
-          "completed=%llu rejected=%llu accepted=%llu stale=%llu skipped=%llu "
-          "resource_limited=%llu peak_work_payloads=%llu peak_pending=%llu\n",
-          static_cast<unsigned long long>(s.frame_count),
-          static_cast<unsigned long long>(s.pose_version),
-          static_cast<unsigned long long>(s.submitted),
-          static_cast<unsigned long long>(s.completed),
-          static_cast<unsigned long long>(s.rejected),
-          static_cast<unsigned long long>(s.accepted),
-          static_cast<unsigned long long>(s.stale),
-          static_cast<unsigned long long>(s.skipped),
-          static_cast<unsigned long long>(s.resource_limited),
-          static_cast<unsigned long long>(s.peak_work_payloads),
-          static_cast<unsigned long long>(s.peak_pending));
+      LOG(INFO) << "livo_atlas loops: frames=" << s.frame_count
+                << " pose_version=" << s.pose_version
+                << " submitted=" << s.submitted << " completed=" << s.completed
+                << " rejected=" << s.rejected << " accepted=" << s.accepted
+                << " stale=" << s.stale << " skipped=" << s.skipped
+                << " resource_limited=" << s.resource_limited
+                << " peak_work_payloads=" << s.peak_work_payloads
+                << " peak_pending=" << s.peak_pending;
     } else
 #endif
     {
@@ -371,95 +364,64 @@ int main(int argc, char** argv) {
       }
       if (parameters.livo.gaussian.joint_render_enabled) {
         const auto r = gaussian->GetRenderStats();
-        std::printf(
-            "livo_atlas gaussian joint: submitted=%llu accepted=%llu "
-            "dual_accepted=%llu stale=%llu coalesced=%llu skipped=%llu "
-            "failed=%llu saved=%llu peak_pending=%llu peak_in_flight=%llu "
-            "pending=%llu in_flight=%llu pending_storage=%llu "
-            "disabled=%d max_latency_seconds=%.9f "
-            "total_latency_seconds=%.9f\n",
-            static_cast<unsigned long long>(r.submitted),
-            static_cast<unsigned long long>(r.accepted),
-            static_cast<unsigned long long>(r.dual_accepted),
-            static_cast<unsigned long long>(r.stale),
-            static_cast<unsigned long long>(r.coalesced),
-            static_cast<unsigned long long>(r.skipped),
-            static_cast<unsigned long long>(r.failed),
-            static_cast<unsigned long long>(r.saved),
-            static_cast<unsigned long long>(r.peak_pending),
-            static_cast<unsigned long long>(r.peak_in_flight),
-            static_cast<unsigned long long>(r.pending),
-            static_cast<unsigned long long>(r.in_flight),
-            static_cast<unsigned long long>(r.pending_storage),
-            static_cast<int>(r.disabled), r.max_latency_seconds,
-            r.total_latency_seconds);
-        std::fflush(stdout);
-        if (!r.error.empty())
-          std::fprintf(stderr, "Joint render: %.4096s\n", r.error.c_str());
+        LOG(INFO) << std::fixed << std::setprecision(9)
+                  << "livo_atlas gaussian joint: submitted=" << r.submitted
+                  << " accepted=" << r.accepted
+                  << " dual_accepted=" << r.dual_accepted
+                  << " stale=" << r.stale
+                  << " coalesced=" << r.coalesced << " skipped=" << r.skipped
+                  << " failed=" << r.failed << " saved=" << r.saved
+                  << " peak_pending=" << r.peak_pending
+                  << " peak_in_flight=" << r.peak_in_flight
+                  << " pending=" << r.pending << " in_flight=" << r.in_flight
+                  << " pending_storage=" << r.pending_storage
+                  << " disabled=" << r.disabled
+                  << " max_latency_seconds=" << r.max_latency_seconds
+                  << " total_latency_seconds=" << r.total_latency_seconds;
+        if (!r.error.empty()) {
+          LOG(WARNING) << "Joint render: " << r.error.substr(0, 4096);
+        }
       }
       const auto s = gaussian->GetStats();
-      std::printf(
-          "livo_atlas gaussian: observed=%llu submitted=%llu coalesced=%llu "
-          "no_image=%llu no_depth=%llu resource_limited=%llu completed=%llu "
-          "accepted=%llu stale=%llu resets=%llu failed=%llu pose_version=%llu "
-          "generation=%llu peak_pending=%llu peak_in_flight=%llu "
-          "max_observe_seconds=%.9g max_poll_seconds=%.9g "
-          "last_latency_seconds=%.9g max_latency_seconds=%.9g "
-          "mean_latency_seconds=%.9g\n",
-          static_cast<unsigned long long>(s.observed),
-          static_cast<unsigned long long>(s.submitted),
-          static_cast<unsigned long long>(s.coalesced),
-          static_cast<unsigned long long>(s.skipped_no_image),
-          static_cast<unsigned long long>(s.skipped_no_depth),
-          static_cast<unsigned long long>(s.resource_limited),
-          static_cast<unsigned long long>(s.completed),
-          static_cast<unsigned long long>(s.accepted),
-          static_cast<unsigned long long>(s.stale),
-          static_cast<unsigned long long>(s.resets),
-          static_cast<unsigned long long>(s.failed),
-          static_cast<unsigned long long>(s.pose_version),
-          static_cast<unsigned long long>(s.generation),
-          static_cast<unsigned long long>(s.peak_pending),
-          static_cast<unsigned long long>(s.peak_in_flight),
-          s.max_observe_seconds, s.max_poll_seconds, s.last_latency_seconds,
-          s.max_latency_seconds,
-          s.accepted ? s.total_latency_seconds / s.accepted : 0.0);
-      std::printf(
-          "livo_atlas gaussian latency buckets: le_0p1=%llu "
-          "gt_0p1_le_0p25=%llu gt_0p25_le_0p5=%llu gt_0p5_le_1=%llu "
-          "gt_1_le_2=%llu gt_2_le_5=%llu gt_5_le_10=%llu gt_10=%llu\n",
-          static_cast<unsigned long long>(s.latency_buckets[0]),
-          static_cast<unsigned long long>(s.latency_buckets[1]),
-          static_cast<unsigned long long>(s.latency_buckets[2]),
-          static_cast<unsigned long long>(s.latency_buckets[3]),
-          static_cast<unsigned long long>(s.latency_buckets[4]),
-          static_cast<unsigned long long>(s.latency_buckets[5]),
-          static_cast<unsigned long long>(s.latency_buckets[6]),
-          static_cast<unsigned long long>(s.latency_buckets[7]));
+      LOG(INFO) << std::setprecision(9)
+                << "livo_atlas gaussian: observed=" << s.observed
+                << " submitted=" << s.submitted << " coalesced=" << s.coalesced
+                << " no_image=" << s.skipped_no_image
+                << " no_depth=" << s.skipped_no_depth
+                << " resource_limited=" << s.resource_limited
+                << " completed=" << s.completed << " accepted=" << s.accepted
+                << " stale=" << s.stale << " resets=" << s.resets
+                << " failed=" << s.failed << " pose_version=" << s.pose_version
+                << " generation=" << s.generation
+                << " peak_pending=" << s.peak_pending
+                << " peak_in_flight=" << s.peak_in_flight
+                << " max_observe_seconds=" << s.max_observe_seconds
+                << " max_poll_seconds=" << s.max_poll_seconds
+                << " last_latency_seconds=" << s.last_latency_seconds
+                << " max_latency_seconds=" << s.max_latency_seconds
+                << " mean_latency_seconds="
+                << (s.accepted ? s.total_latency_seconds / s.accepted : 0.0);
+      LOG(INFO) << "livo_atlas gaussian latency buckets: le_0p1="
+                << s.latency_buckets[0]
+                << " gt_0p1_le_0p25=" << s.latency_buckets[1]
+                << " gt_0p25_le_0p5=" << s.latency_buckets[2]
+                << " gt_0p5_le_1=" << s.latency_buckets[3]
+                << " gt_1_le_2=" << s.latency_buckets[4]
+                << " gt_2_le_5=" << s.latency_buckets[5]
+                << " gt_5_le_10=" << s.latency_buckets[6]
+                << " gt_10=" << s.latency_buckets[7];
       if (parameters.livo.gaussian.persist_submaps) {
-        std::printf(
-            "livo_atlas gaussian submaps: checkpoints=%llu loads=%llu "
-            "rebinds=%llu "
-            "rebuilds=%llu prunes=%llu map_sequence=%llu indexed=%llu "
-            "missing=%llu "
-            "needs_rebuild=%llu dirty=%llu asset_bytes=%llu incomplete=%d "
-            "effective_training=%llu\n",
-            static_cast<unsigned long long>(s.checkpoints),
-            static_cast<unsigned long long>(s.loads),
-            static_cast<unsigned long long>(s.rebinds),
-            static_cast<unsigned long long>(s.rebuilds),
-            static_cast<unsigned long long>(s.prunes),
-            static_cast<unsigned long long>(s.map_sequence),
-            static_cast<unsigned long long>(s.indexed),
-            static_cast<unsigned long long>(s.missing),
-            static_cast<unsigned long long>(s.needs_rebuild),
-            static_cast<unsigned long long>(s.dirty),
-            static_cast<unsigned long long>(s.asset_bytes),
-            static_cast<int>(s.incomplete_shutdown),
-            static_cast<unsigned long long>(s.effective_training));
+        LOG(INFO) << "livo_atlas gaussian submaps: checkpoints="
+                  << s.checkpoints
+                  << " loads=" << s.loads << " rebinds=" << s.rebinds
+                  << " rebuilds=" << s.rebuilds << " prunes=" << s.prunes
+                  << " map_sequence=" << s.map_sequence
+                  << " indexed=" << s.indexed << " missing=" << s.missing
+                  << " needs_rebuild=" << s.needs_rebuild
+                  << " dirty=" << s.dirty << " asset_bytes=" << s.asset_bytes
+                  << " incomplete=" << s.incomplete_shutdown
+                  << " effective_training=" << s.effective_training;
       }
-      // Keep merged stdout/stderr logs parseable on an incomplete shutdown.
-      std::fflush(stdout);
       if (s.incomplete_shutdown) {
         // Keep the last confirmed identities available in the node log even
         // when the latest asynchronous catalogue could not be committed.
@@ -468,105 +430,81 @@ int main(int argc, char** argv) {
           for (const auto& entry : map->entries) {
             if (!entry.content) continue;
             const auto& content = *entry.content;
-            std::fprintf(
-                stderr,
-                "livo_atlas gaussian confirmation: session=%s submap=%llu "
-                "source_generation=%llu content_job_id=%llu "
-                "binding_job_id=%llu "
-                "asset_id=%llu volatile=%d catalog_pending=%d\n",
-                content.session_id.c_str(),
-                static_cast<unsigned long long>(content.submap_id),
-                static_cast<unsigned long long>(content.source_generation),
-                static_cast<unsigned long long>(content.content_job_id),
-                static_cast<unsigned long long>(entry.binding_job_id),
-                static_cast<unsigned long long>(
-                    entry.asset ? entry.asset->asset_id : 0),
-                static_cast<int>(entry.dirty),
-                static_cast<int>(map->map_sequence > s.map_sequence));
+            LOG(WARNING) << "livo_atlas gaussian confirmation: session="
+                         << content.session_id
+                         << " submap=" << content.submap_id
+                         << " source_generation=" << content.source_generation
+                         << " content_job_id=" << content.content_job_id
+                         << " binding_job_id=" << entry.binding_job_id
+                         << " asset_id="
+                         << (entry.asset ? entry.asset->asset_id : 0)
+                         << " volatile=" << entry.dirty
+                         << " catalog_pending="
+                         << (map->map_sequence > s.map_sequence);
           }
         }
       }
-      if (!s.error.empty())
-        std::fprintf(stderr, "livo_atlas gaussian: %s\n", s.error.c_str());
+      if (!s.error.empty()) {
+        LOG(WARNING) << "livo_atlas gaussian: " << s.error;
+      }
     }
 #endif
     if (trajectory) {
       trajectory->Finish();
       const auto s = trajectory->GetStats();
       // Delivery means the SDK consumer returned, including after ROS stopped.
-      std::printf(
-          "livo_atlas trajectory: observed=%llu submitted=%llu coalesced=%llu "
-          "delivered=%llu resource_limited=%llu failed=%llu revision=%llu "
-          "pose_version=%llu frames=%llu peak_work_payloads=%llu "
-          "peak_pending=%llu "
-          "timestamp_reads=%llu max_observe_seconds=%.9g max_poll_seconds=%.9g "
-          "max_worker_seconds=%.9g last_latency_seconds=%.9g\n",
-          static_cast<unsigned long long>(s.observed),
-          static_cast<unsigned long long>(s.submitted),
-          static_cast<unsigned long long>(s.coalesced),
-          static_cast<unsigned long long>(s.delivered),
-          static_cast<unsigned long long>(s.resource_limited),
-          static_cast<unsigned long long>(s.failed),
-          static_cast<unsigned long long>(s.last_revision),
-          static_cast<unsigned long long>(s.last_pose_version),
-          static_cast<unsigned long long>(s.last_frame_count),
-          static_cast<unsigned long long>(s.peak_work_payloads),
-          static_cast<unsigned long long>(s.peak_pending),
-          static_cast<unsigned long long>(s.timestamp_reads),
-          s.max_observe_seconds, s.max_poll_seconds, s.max_worker_seconds,
-          s.last_latency_seconds);
+      LOG(INFO) << std::setprecision(9)
+                << "livo_atlas trajectory: observed=" << s.observed
+                << " submitted=" << s.submitted << " coalesced=" << s.coalesced
+                << " delivered=" << s.delivered
+                << " resource_limited=" << s.resource_limited
+                << " failed=" << s.failed << " revision=" << s.last_revision
+                << " pose_version=" << s.last_pose_version
+                << " frames=" << s.last_frame_count
+                << " peak_work_payloads=" << s.peak_work_payloads
+                << " peak_pending=" << s.peak_pending
+                << " timestamp_reads=" << s.timestamp_reads
+                << " max_observe_seconds=" << s.max_observe_seconds
+                << " max_poll_seconds=" << s.max_poll_seconds
+                << " max_worker_seconds=" << s.max_worker_seconds
+                << " last_latency_seconds=" << s.last_latency_seconds;
     }
     if (geometry) {
       geometry->Finish();
       const auto s = geometry->GetStats();
       // Delivery means the consumer returned; ROS may already be shut down.
-      std::printf(
-          "livo_atlas geometry map: observed=%llu submitted=%llu "
-          "coalesced=%llu delivered=%llu resource_limited=%llu failed=%llu "
-          "revision=%llu pose_version=%llu frames=%llu optimized_frames=%llu "
-          "submaps=%llu source_voxels=%llu points=%llu peak_work_payloads=%llu "
-          "peak_pending=%llu cache_hits=%llu cache_evictions=%llu "
-          "cache_invalidations=%llu peak_cached_points=%llu full_builds=%llu "
-          "cloud_reads=%llu timestamp_reads=%llu max_observe_seconds=%.9g "
-          "max_poll_seconds=%.9g max_worker_seconds=%.9g "
-          "last_latency_seconds=%.9g\n",
-          static_cast<unsigned long long>(s.observed),
-          static_cast<unsigned long long>(s.submitted),
-          static_cast<unsigned long long>(s.coalesced),
-          static_cast<unsigned long long>(s.delivered),
-          static_cast<unsigned long long>(s.resource_limited),
-          static_cast<unsigned long long>(s.failed),
-          static_cast<unsigned long long>(s.last_revision),
-          static_cast<unsigned long long>(s.last_pose_version),
-          static_cast<unsigned long long>(s.last_frame_count),
-          static_cast<unsigned long long>(s.last_optimized_frame_count),
-          static_cast<unsigned long long>(s.last_submap_count),
-          static_cast<unsigned long long>(s.last_source_voxel_count),
-          static_cast<unsigned long long>(s.last_point_count),
-          static_cast<unsigned long long>(s.peak_work_payloads),
-          static_cast<unsigned long long>(s.peak_pending),
-          static_cast<unsigned long long>(s.geometry.cache_hits),
-          static_cast<unsigned long long>(s.geometry.cache_evictions),
-          static_cast<unsigned long long>(s.geometry.cache_invalidations),
-          static_cast<unsigned long long>(s.geometry.peak_cached_points),
-          static_cast<unsigned long long>(s.geometry.geometry.full_builds),
-          static_cast<unsigned long long>(s.geometry.geometry.cloud_reads),
-          static_cast<unsigned long long>(s.timestamp_reads),
-          s.max_observe_seconds, s.max_poll_seconds, s.max_worker_seconds,
-          s.last_latency_seconds);
+      LOG(INFO) << std::setprecision(9)
+                << "livo_atlas geometry map: observed=" << s.observed
+                << " submitted=" << s.submitted << " coalesced=" << s.coalesced
+                << " delivered=" << s.delivered
+                << " resource_limited=" << s.resource_limited
+                << " failed=" << s.failed << " revision=" << s.last_revision
+                << " pose_version=" << s.last_pose_version
+                << " frames=" << s.last_frame_count
+                << " optimized_frames=" << s.last_optimized_frame_count
+                << " submaps=" << s.last_submap_count
+                << " source_voxels=" << s.last_source_voxel_count
+                << " points=" << s.last_point_count
+                << " peak_work_payloads=" << s.peak_work_payloads
+                << " peak_pending=" << s.peak_pending
+                << " cache_hits=" << s.geometry.cache_hits
+                << " cache_evictions=" << s.geometry.cache_evictions
+                << " cache_invalidations=" << s.geometry.cache_invalidations
+                << " peak_cached_points=" << s.geometry.peak_cached_points
+                << " full_builds=" << s.geometry.geometry.full_builds
+                << " cloud_reads=" << s.geometry.geometry.cloud_reads
+                << " timestamp_reads=" << s.timestamp_reads
+                << " max_observe_seconds=" << s.max_observe_seconds
+                << " max_poll_seconds=" << s.max_poll_seconds
+                << " max_worker_seconds=" << s.max_worker_seconds
+                << " last_latency_seconds=" << s.last_latency_seconds;
     }
     ros_node.ReportInputs();
   } catch (const std::exception& error) {
-#if LIVO_ATLAS_ROS_VERSION == 1
-    ROS_FATAL_STREAM(
-        "LIVO initialization or processing failed: " << error.what());
-#else
-    std::fprintf(stderr, "livo_atlas: %s\n", error.what());
-#endif
+    LOG(ERROR) << "LIVO initialization or processing failed: " << error.what();
     result = 1;
   } catch (...) {
-    std::fprintf(
-        stderr, "livo_atlas: unknown initialization or processing exception\n");
+    LOG(ERROR) << "LIVO initialization or processing failed: unknown exception";
     result = 1;
   }
 #if LIVO_ATLAS_ROS_VERSION == 2

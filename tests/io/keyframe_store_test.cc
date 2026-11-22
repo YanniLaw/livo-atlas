@@ -15,7 +15,6 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <iterator>
 #include <limits>
 #include <opencv2/imgcodecs.hpp>
@@ -24,6 +23,7 @@
 #include <string>
 #include <utility>
 
+#include "livo_atlas/common/logging.h"
 #include "mapping/keyframe_fixtures.h"
 
 namespace livo_atlas {
@@ -548,7 +548,7 @@ TEST_F(KeyframeStoreTest, RejectsAmbiguousPcdHeadersWithBoundedMemory) {
           try {
             writer.Read(0);
           } catch (const std::exception& error) {
-            std::cerr << error.what();
+            LOG(ERROR) << error.what();
             std::_Exit(0);
           }
           std::_Exit(1);

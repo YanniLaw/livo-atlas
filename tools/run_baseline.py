@@ -27,13 +27,16 @@ import xmlrpc.client
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
+    from tools.mapping_log import glog_severity
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
+    from mapping_log import glog_severity
 
 
 def exited_cleanly(returncode, log, gdb_enabled):
-    if returncode != 0:
+    if returncode != 0 or any(glog_severity(line) == 'F'
+                              for line in log.splitlines()):
         return False
     if not gdb_enabled:
         return True
@@ -190,7 +193,7 @@ def main():
     # Capture the actual snapshot inputs, even when the development checkout has
     # uncommitted edits or changes again while the replay is running.
     source_files = [package / name for name in ['CMakeLists.txt', 'package.xml']]
-    for directory in ['src', 'include', 'config']:
+    for directory in ['src', 'include', 'config', 'cmake', 'third_party']:
         source_files.extend(p for p in (package / directory).rglob('*') if p.is_file())
     source = {'snapshot_workspace': str(workspace),
               'file_sha256': {str(p.relative_to(package)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -202,6 +205,9 @@ def main():
         'ROS_IP': '127.0.0.1',
         'ROS_LOG_DIR': str(output / 'ros_logs'),
         'ROS_HOME': str(output / 'ros_home'),
+        'GLOG_minloglevel': '0',
+        'GLOG_log_prefix': '1',
+        'GLOG_logtostdout': '0',
         'ROS_PACKAGE_PATH': str(workspace / 'src') + ':/opt/ros/noetic/share',
         'CMAKE_PREFIX_PATH': str(workspace / 'devel') + ':/opt/ros/noetic',
         'LD_LIBRARY_PATH': str(workspace / 'devel/lib') + ':' + env.get('LD_LIBRARY_PATH', ''),
@@ -612,7 +618,9 @@ def main():
             match = re.search(r'\|\s*Current Total Time\s*\|\s*([0-9.eE+-]+)', line)
             if match and stage:
                 timings[stage].append(float(match.group(1)))
-        errors = [line for line in log.splitlines() if '[ERROR]' in line or 'Assertion' in line]
+        errors = [line for line in log.splitlines()
+                  if '[ERROR]' in line or 'Assertion' in line
+                  or glog_severity(line) in ('E', 'F')]
         errors.extend('Geometry map record: ' + error for error in geometry_observation['errors'])
         errors.extend('Gaussian record: ' + error for error in gaussian_observation['errors'])
         summary = {

@@ -74,6 +74,21 @@ class BaselineRunnerTest(unittest.TestCase):
             self.assertEqual(stdout.count('VIO Time'), 1)
             self.assertFalse(run_ros2_baseline.exited_cleanly(0, stdout + stderr))
 
+    def test_ros2_glog_records_are_read_from_stderr(self):
+        from tools.mapping_log import read_mapping_log
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'node.log').write_text('LIO Mapping Time\n')
+            (root / 'node-stderr.log').write_text(
+                'I1122 12:00:00.123456  1234 livo_node.cc:110] VIO Time\n'
+                'F1122 12:00:01.000000  1234 livo_main.cc:88] failed\n'
+            )
+            log = read_mapping_log(root)
+            self.assertEqual(log.count('LIO Mapping Time'), 1)
+            self.assertEqual(log.count('VIO Time'), 1)
+            self.assertFalse(run_ros2_baseline.exited_cleanly(0, log))
+
 
 class GlobalBaselineParserTest(unittest.TestCase):
     def test_gaussian_paths_do_not_overlap_working_or_exported_dataset(self):

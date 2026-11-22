@@ -12,6 +12,8 @@
 #include "gaussian/render_publisher_test_helpers.h"
 #include "livo_atlas/gaussian/gaussian_render_output.h"
 
+#include "livo_atlas/common/logging.h"
+
 namespace livo_atlas {
 namespace {
 using Message = GaussianRenderFrame;
@@ -173,6 +175,7 @@ TEST(GaussianRenderPublisherTest, LiveContextReceivesJoinedStoppedFrame) {
 }  // namespace livo_atlas
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   ros::init(argc, argv, "gaussian_render_publisher_test");
   ros::Time::setNow(ros::Time(0));  // Deliberately paused simulation clock.
   testing::InitGoogleTest(&argc, argv);

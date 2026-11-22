@@ -10,6 +10,7 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common)
 find_package(OpenCV REQUIRED COMPONENTS core)
 find_package(GTest REQUIRED)
+find_package(glog CONFIG REQUIRED)
 enable_testing()
 
 get_filename_component(PACKAGE_INCLUDE_DIR "../../include" ABSOLUTE)
@@ -19,7 +20,8 @@ target_include_directories(synchronization PUBLIC
 target_link_libraries(synchronization PUBLIC Eigen3::Eigen
   ${PCL_COMMON_LIBRARIES} ${OpenCV_LIBRARIES})
 add_executable(synchronizer_test synchronizer_test.cc ../test_main.cc)
-target_link_libraries(synchronizer_test PRIVATE synchronization GTest::GTest)
+target_link_libraries(synchronizer_test PRIVATE synchronization GTest::GTest
+  glog::glog)
 add_test(NAME synchronizer_test COMMAND synchronizer_test)
 
 set(HEADER_CHECK_SOURCES)

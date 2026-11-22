@@ -7,13 +7,14 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <thread>
 #include <vector>
 
 #include "trajectory_fixture.h"
+
+#include "livo_atlas/common/logging.h"
 
 namespace livo_atlas::ros2 {
 namespace {
@@ -183,7 +184,7 @@ TEST(KeyframeTrajectoryPublisherTest,
   serialization.serialize_message(&received, &serialized);
   EXPECT_GT(serialized.size(), 1440000u);
   EXPECT_LT(serialized.size(), 2u * 1024 * 1024);
-  std::cout << "trajectory serialized bytes=" << serialized.size() << '\n';
+  LOG(INFO) << "trajectory serialized bytes=" << serialized.size();
 }
 
 }  // namespace

@@ -3,12 +3,12 @@
 #include <chrono>
 #include <exception>
 #include <iomanip>
-#include <iostream>
 #include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
 
+#include "livo_atlas/common/logging.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -93,7 +93,7 @@ void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {
             << " geometry_cloud_read_seconds=" << stats.last_cloud_read_seconds
             << " geometry_full_build_seconds=" << stats.last_full_build_seconds
             << " geometry_snapshot_seconds=" << stats.last_snapshot_seconds;
-    std::cout << message.str() << std::endl;
+    LOG(INFO) << message.str();
   }
   if (callback_) callback_(update);
 }

@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstring>
 #include <functional>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <thread>
@@ -15,6 +14,8 @@
 #include <rclcpp/serialization.hpp>
 
 #include "geometry_map_fixture.h"
+
+#include "livo_atlas/common/logging.h"
 
 namespace livo_atlas::ros2 {
 namespace {
@@ -187,7 +188,7 @@ TEST(GeometryMapPublisherTest, SerializesOneHundredThousandPointsWithinBudget) {
   rclcpp::SerializedMessage serialized;
   serialization.serialize_message(&received, &serialized);
   EXPECT_LE(serialized.size(), 4096u + 128u * 2u + 16u * 100000u);
-  std::cout << "geometry serialized bytes=" << serialized.size() << '\n';
+  LOG(INFO) << "geometry serialized bytes=" << serialized.size();
 }
 
 }  // namespace

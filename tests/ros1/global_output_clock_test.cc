@@ -10,6 +10,8 @@
 #include "ros1/global_output_test_support.h"
 #include "trajectory_fixture.h"
 
+#include "livo_atlas/common/logging.h"
+
 namespace livo_atlas::ros1::test_support {
 namespace {
 
@@ -176,6 +178,7 @@ TEST_F(GlobalClockTest, NodePollContinuesDuringZeroAndPausedTime) {
 }  // namespace livo_atlas::ros1::test_support
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   ros::init(argc, argv, "global_output_clock_test");
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

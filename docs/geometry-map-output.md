@@ -130,5 +130,6 @@ python3 tools/run_ros2_baseline.py --bag /数据/Retail_Street.ros2 \
 
 工具将消息元数据、来源和 XYZI 保存到 `geometry-map.json`。这是验证用途的完整记录，
 长时间运行或高点数会占用较多观察进程内存和磁盘；它不是在线地图数据库。
-Humble 工具分别保存节点的 `node.log` 和 `node-stderr.log`，以防异步诊断插入计时标签；
-两份日志都参与致命错误检查。最终精确结果仍可从权威观测和位姿使用既有离线导出重建。
+Humble 工具分别保存节点的 `node.log` 和 `node-stderr.log`，glog 的计时和诊断记录默认在
+`node-stderr.log`。工具读取两份日志来汇总计时并检查退出状态。
+最终精确结果仍可从权威观测和位姿使用既有离线导出重建。

@@ -7,11 +7,13 @@
 
 #include "gaussian/projection_envelope.h"
 #include "gaussian/render_metadata_protocol.h"
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/gaussian/gaussian_projection.h"
 
 // Test-only process boundary for the CUDA comparison. It runs the production
 // envelope and exposes its rectangles without enlarging the public SDK DTO.
-int main() {
+int main(int, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   try {
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -42,7 +44,7 @@ int main() {
       std::cout << "]}\n";
     }
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
   return 0;

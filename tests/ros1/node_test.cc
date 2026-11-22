@@ -19,6 +19,8 @@
 #include "livo_atlas/ros1/measurement_conversions.h"
 #include "ros1/global_output_test_support.h"
 
+#include "livo_atlas/common/logging.h"
+
 namespace livo_atlas::ros1 {
 namespace {
 
@@ -144,10 +146,10 @@ void VerifyRollbackPipeline(int lidar_type) {
     EXPECT_TRUE(std::isfinite(p.pose.pose.position.x));
   EXPECT_EQ(adapter.ProcessNext(), SyncStatus::kWaiting);
   session.Finish();
-  testing::internal::CaptureStdout();
+  testing::internal::CaptureStderr();
   adapter.ReportInputs();
   EXPECT_NE(
-      testing::internal::GetCapturedStdout().find("lidar=5 imu=0 image=0"),
+      testing::internal::GetCapturedStderr().find("lidar=5 imu=0 image=0"),
       std::string::npos);
 }
 
@@ -168,9 +170,9 @@ TEST(Ros1NodeTest, ReportsStartupBufferOverflow) {
   for (int i = 0; i < 9; ++i)
     ASSERT_TRUE(session.AddImage({100 + i * .03, image}));
   session.Finish();
-  testing::internal::CaptureStdout();
+  testing::internal::CaptureStderr();
   adapter.ReportInputs();
-  const auto output = testing::internal::GetCapturedStdout();
+  const auto output = testing::internal::GetCapturedStderr();
   EXPECT_NE(output.find("lidar=0 imu=0 image=0"), std::string::npos);
   EXPECT_NE(output.find("imu_buffered=2001 image_buffered=9"),
             std::string::npos);
@@ -341,6 +343,7 @@ TEST_F(GlobalNodeTest, FinalDrainDoesNotInventPublication) {
 }  // namespace livo_atlas::ros1::test_support
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   ros::init(argc, argv, "lidar_callback_test");
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

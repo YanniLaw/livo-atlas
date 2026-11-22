@@ -70,6 +70,26 @@ class JointRenderReportTest(unittest.TestCase):
         self.assertEqual(report['pairs'], 1)
         self.assertEqual(report['events'][0]['job'], 9007199254740993)
 
+    def test_source_identity_is_reassembled_from_glog_records(self):
+        log = self.root / 'mapping.log'
+        event, stats = log.read_text().splitlines()
+        identity = source_identity(self.data['as_of'])
+        event = event.replace(' source_identity=' + identity,
+                              f' source_identity_size={len(identity)}'
+                              f' source_identity={identity[:256]}')
+        parts = [
+            f'livo_atlas gaussian joint source: job=9007199254740993 '
+            f'offset={offset} source_identity={identity[offset:end]}'
+            for offset, end in ((256, 512), (512, len(identity)))
+        ]
+        log.write_text('\n'.join((event, *parts, stats)) + '\n')
+        report = inspect_joint_renders(self.root, self.previews)
+        self.assertEqual(report['pairs'], 1)
+
+        log.write_text('\n'.join((event, parts[0], stats)) + '\n')
+        with self.assertRaisesRegex(ValueError, 'source identity'):
+            inspect_joint_renders(self.root, self.previews)
+
     def spatial(self):
         request, _ = spatial_request_fixture()
         old = self.data['as_of']

@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 #include <limits>
 #include <locale>
 #include <map>
@@ -20,6 +19,7 @@
 
 #include <opencv2/imgcodecs.hpp>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/io/reconstruction_view.h"
 
@@ -67,6 +67,7 @@ std::size_t ParseLimit(const std::string& text) {
 }
 
 Options ParseOptions(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   if (argc != 15) {
     throw std::invalid_argument(
         "Expected --dataset, --output, --train-ids, --validation-ids, "
@@ -267,7 +268,7 @@ int main(int argc, char** argv) {
   try {
     Prepare(ParseOptions(argc, argv));
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
   return 0;

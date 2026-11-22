@@ -10,7 +10,7 @@ endif()
 # External catkin projects receive library files, not the original targets.
 # Keep dependents before dependencies for static linking as well.
 set(livo_atlas_optional_libraries)
-set(livo_atlas_optional_extras)
+set(livo_atlas_optional_extras catkin_logging.cmake)
 if(LIVO_ATLAS_WITH_ONLINE_GAUSSIAN)
   list(APPEND livo_atlas_optional_libraries livo_atlas_online_gaussian)
 endif()

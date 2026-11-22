@@ -151,9 +151,6 @@ void LidarPreprocessor::ProcessPoints(
                                      ? pl_full[i].curvature
                                      : 0.0;
         else {
-          // if(fabs(pl_full[i].curvature - pl_full[i - 1].curvature) > 1.0)
-          // ROS_ERROR("time jump: %f", fabs(pl_full[i].curvature - pl_full[i -
-          // 1].curvature));
           pl_full[i].curvature =
               std::fabs(pl_full[i].curvature - pl_full[i - 1].curvature) < 1.0
                   ? pl_full[i].curvature

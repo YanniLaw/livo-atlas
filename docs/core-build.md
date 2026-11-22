@@ -9,6 +9,8 @@ C++17 库。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Hu
 
 - CMake 3.16、C++17 编译器、Eigen3、PCL 的 common/filters/io。
 - OpenCV 的 core/imgproc/calib3d/imgcodecs。
+- Google glog。在 Ubuntu 使用 `libgoogle-glog-dev`，自定义安装可通过
+  `glog_DIR` 或 `CMAKE_PREFIX_PATH` 提供 CMake 配置。
 - 兼容 `sophus/se3.h` 的旧版 Sophus（原工程所用的非模板版本）。通过
   `Sophus_DIR` 或 `CMAKE_PREFIX_PATH` 指定实际安装配置；不硬编码库名。
 - OpenMP 可选。`LIVO_ATLAS_USE_OPENMP=OFF` 同时关闭编译选项和并行宏。
@@ -37,6 +39,10 @@ cmake --install build-core
 `-DLIVO_ATLAS_USE_OPENMP=OFF`。构建入口不会在 mode 0 查找 catkin 或 vikit。
 SDK 安装前缀可以在同一平台移动；系统依赖仍需可用，旧 Sophus 的非标准库目录
 会由配置记录为运行搜索路径。跨平台应在目标平台重新编译和验证。
+
+节点和 C++ 工具在入口初始化 glog，默认将日志发往 stderr。向 stdout 输出 JSON 的工具保留原有格式。
+独立 SDK 应用可以在 `main` 中调用 `livo_atlas::InitializeLogging(argv[0])`。
+[日志入口](../include/livo_atlas/common/logging.h)
 
 外部工程使用：
 

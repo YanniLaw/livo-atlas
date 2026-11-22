@@ -1,6 +1,5 @@
 #include <cstddef>
 #include <cstdint>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -15,7 +14,10 @@ using Message = livo_atlas::GeometryMap;
 using Message = livo_atlas::msg::GeometryMap;
 #endif
 
-int main() {
+#include "livo_atlas/common/logging.h"
+
+int main(int, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   Message message;
   message.producer_id.assign(32, 'b');
   message.revision = (std::uint64_t{1} << 40) + 3;
@@ -62,6 +64,6 @@ int main() {
       restored.cloud.data.size() != 16 || restored.cloud.data[2] != 0x80 ||
       restored.cloud.data[3] != 0x3f)
     return 1;
-  std::cout << "Installed geometry message round trip: " << bytes << " bytes\n";
+  LOG(INFO) << "Installed geometry message round trip: " << bytes << " bytes";
   return 0;
 }

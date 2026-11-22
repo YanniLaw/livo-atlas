@@ -1,5 +1,4 @@
 #include <exception>
-#include <iostream>
 #include <string>
 
 #include "export_scenario.h"
@@ -8,7 +7,10 @@
 #include "scenario.h"
 #include "system_scenario.h"
 
+#include "livo_atlas/common/logging.h"
+
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   if (argc != 1) {
     if (argc != 3 || (std::string(argv[1]) != "--online-fixtures" &&
                       std::string(argv[1]) != "--geometry-fixtures"))
@@ -16,7 +18,7 @@ int main(int argc, char** argv) {
     try {
       livo_atlas::test_data::WriteOnlineFixtures(argv[2]);
     } catch (const std::exception& error) {
-      std::cerr << error.what() << '\n';
+      LOG(ERROR) << error.what();
       return 1;
     }
     return 0;
@@ -32,10 +34,10 @@ int main(int argc, char** argv) {
   try {
     livo_atlas::test_data::RunGeometryScenario();
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
-  std::cout
+  LOG(INFO)
       << "Installed core: repeated LO, LIO, tracked VIO and online submaps "
-         "and geometry submaps passed\n";
+         "and geometry submaps passed";
 }

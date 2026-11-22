@@ -8,12 +8,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Eigen3 REQUIRED)
 find_package(GTest REQUIRED)
+find_package(glog CONFIG REQUIRED)
 enable_testing()
 
 get_filename_component(PACKAGE_INCLUDE_DIR "../../include" ABSOLUTE)
 add_executable(core_math_state_test math_test.cc filter_state_test.cc ../test_main.cc)
 target_include_directories(core_math_state_test PRIVATE "${PACKAGE_INCLUDE_DIR}")
-target_link_libraries(core_math_state_test PRIVATE Eigen3::Eigen GTest::GTest)
+target_link_libraries(core_math_state_test PRIVATE Eigen3::Eigen GTest::GTest
+  glog::glog)
 add_test(NAME core_math_state_test COMMAND core_math_state_test)
 
 add_library(livo_atlas_calibration STATIC
@@ -22,7 +24,7 @@ target_include_directories(livo_atlas_calibration PUBLIC "${PACKAGE_INCLUDE_DIR}
 target_link_libraries(livo_atlas_calibration PUBLIC Eigen3::Eigen)
 add_executable(calibration_test calibration_test.cc ../test_main.cc)
 target_link_libraries(calibration_test PRIVATE
-  livo_atlas_calibration GTest::GTest)
+  livo_atlas_calibration GTest::GTest glog::glog)
 add_test(NAME calibration_test COMMAND calibration_test)
 
 set(HEADER_CHECK_SOURCES)

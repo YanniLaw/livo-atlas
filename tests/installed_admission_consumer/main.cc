@@ -2,11 +2,11 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <vector>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/global_output_options.h"
 #include "livo_atlas/core/livo_system.h"
@@ -168,11 +168,14 @@ int RunInstalledAdmissionConsumer() {
     std::filesystem::remove_all(directory);
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
 }
 
 }  // namespace livo_atlas
 
-int main() { return livo_atlas::RunInstalledAdmissionConsumer(); }
+int main(int, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
+  return livo_atlas::RunInstalledAdmissionConsumer();
+}

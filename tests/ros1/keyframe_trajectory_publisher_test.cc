@@ -8,12 +8,13 @@
 
 #include <cmath>
 #include <functional>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <vector>
 
 #include "trajectory_fixture.h"
+
+#include "livo_atlas/common/logging.h"
 
 namespace livo_atlas {
 namespace {
@@ -150,7 +151,7 @@ TEST(KeyframeTrajectoryPublisherTest,
   const auto serialized = ros::serialization::serializeMessage(received);
   EXPECT_GT(serialized.num_bytes, 1440000u);
   EXPECT_LT(serialized.num_bytes, 2u * 1024 * 1024);
-  std::cout << "trajectory serialized bytes=" << serialized.num_bytes << '\n';
+  LOG(INFO) << "trajectory serialized bytes=" << serialized.num_bytes;
 }
 
 }  // namespace

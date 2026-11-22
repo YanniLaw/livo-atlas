@@ -3,6 +3,8 @@
 P6-02c2b 将已有 [C2a 准入计算](loop-admission.md)接入在线封存事件。
 默认关闭；开启后，一个 worker 计算提案，系统所有者检查来源、保存 prepared，再通过原有系统接口发布位姿。
 ROS1 Noetic 与 ROS2 Humble 使用同一个 `src/app/livo_main.cc`。
+worker 通过 Cartographer 2.0.0 的单线程 `ThreadPool` 调度回环任务，位姿提交由系统所有者执行。
+[线程池来源](../third_party/cartographer/README.md)
 它仍使用批量 GTSAM LM 试算，当前不包含 iSAM2、全局描述子、全局 TF 发布或 Gaussian 训练。
 
 ## 构建与开启

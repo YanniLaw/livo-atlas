@@ -1,19 +1,20 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
-#include <iostream>
 #include <string>
 
 #include <opencv2/core.hpp>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/keyframe_store.h"
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   const bool nonidentity =
       argc == 3 && std::string(argv[2]) == "--nonidentity-body";
   if (argc != 2 && !nonidentity) {
-    std::cerr
-        << "Expected a new dataset directory and optional --nonidentity-body\n";
+    LOG(ERROR)
+        << "Expected a new dataset directory and optional --nonidentity-body";
     return 2;
   }
   try {
@@ -54,7 +55,7 @@ int main(int argc, char** argv) {
       store.Append(frame);
     }
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
   return 0;

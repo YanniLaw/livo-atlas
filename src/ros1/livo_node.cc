@@ -3,11 +3,11 @@
 #include <image_transport/image_transport.h>
 
 #include <cstdint>
-#include <cstdio>
 #include <exception>
 #include <optional>
 #include <utility>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/ros1/livo_publisher.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
 #include "ros/input_diagnostics.h"
@@ -35,7 +35,7 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
           if (error.empty()) {
             system_.AddLidar(scan);
           } else {
-            Warn(error);
+            LOG(WARNING) << error;
           }
         });
   } else {
@@ -50,7 +50,7 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
           if (error.empty()) {
             system_.AddLidar(scan);
           } else {
-            Warn(error);
+            LOG(WARNING) << error;
           }
         });
   }
@@ -61,7 +61,7 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
         try {
           system_.AddImu(ConvertImu(*message));
         } catch (const std::exception& error) {
-          Warn(error.what());
+          LOG(WARNING) << error.what();
         }
       });
   image_ = node.subscribe<sensor_msgs::Image>(
@@ -74,7 +74,7 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
         if (error.empty()) {
           system_.AddImage(std::move(image));
         } else {
-          Warn(error);
+          LOG(WARNING) << error;
         }
       });
   propagation_ =
@@ -86,7 +86,7 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
           publisher_.PublishImuPropagation(result->state, stamp);
         }
       });
-  ROS_INFO("livo_atlas frontend ready");
+  LOG(INFO) << "livo_atlas frontend ready";
 }
 
 SyncStatus LivoNode::ProcessNext() {
@@ -97,21 +97,16 @@ SyncStatus LivoNode::ProcessNext() {
             result.kind != UpdateKind::kVisual)
           correction = system_.GetMapCorrection();
         publisher_.Publish(result, colored_cloud, correction);
-        const char* stage = result.kind == UpdateKind::kVisual
-                                ? "VIO Time"
-                                : "LIO Mapping Time";
-        std::printf("%s\n| Current Total Time | %.6f |\n", stage, elapsed);
+        ros_detail::LogUpdateTime(result.kind, elapsed);
       });
   if (after_process_) after_process_();
   return status;
 }
 
 void LivoNode::ReportInputs() {
-  ros_detail::PrintInputDiagnostics(lidar_count_, imu_count_, image_count_,
-                                    system_.GetStartupBufferStats());
+  ros_detail::LogInputDiagnostics(lidar_count_, imu_count_, image_count_,
+                                  system_.GetStartupBufferStats());
 }
-
-void LivoNode::Warn(const std::string& error) { ROS_WARN_STREAM(error); }
 
 LivoNode::~LivoNode() = default;
 

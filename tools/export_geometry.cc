@@ -1,21 +1,21 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
-#include <iostream>
 #include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/io/geometry_exporter.h"
 
 namespace {
 
 void Usage() {
-  std::cerr
+  LOG(INFO)
       << "Usage: livo_atlas_export_geometry DATASET_DIRECTORY OUTPUT_DIRECTORY "
-         "[--pose-version V] [--voxel-size M]\n";
+         "[--pose-version V] [--voxel-size M]";
 }
 
 std::uint64_t ParseVersion(const std::string& text) {
@@ -42,6 +42,7 @@ double ParseSize(const std::string& text) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  livo_atlas::InitializeLogging(argv[0]);
   if (argc == 2 && std::string(argv[1]) == "--help") {
     Usage();
     return 0;
@@ -69,7 +70,7 @@ int main(int argc, char** argv) {
     }
     livo_atlas::ValidateGeometryOptions(options);
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     Usage();
     return 2;
   }
@@ -77,7 +78,7 @@ int main(int argc, char** argv) {
     livo_atlas::ExportGeometry(argv[1], argv[2], version, options);
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    LOG(ERROR) << error.what();
     return 1;
   }
 }

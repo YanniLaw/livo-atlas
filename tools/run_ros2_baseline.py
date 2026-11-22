@@ -17,20 +17,18 @@ import time
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
+    from tools.mapping_log import glog_severity, read_mapping_log, read_node_logs
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
+    from mapping_log import glog_severity, read_mapping_log, read_node_logs
 
 
 def exited_cleanly(returncode, log):
-    return returncode == 0 and not any(text in log for text in (
-        'terminate called', 'Segmentation fault', 'AddressSanitizer', '[FATAL]'))
-
-
-def read_node_logs(output):
-    """Keep estimator stage counts separate from asynchronous ROS diagnostics."""
-    return ((output / 'node.log').read_text(errors='replace'),
-            (output / 'node-stderr.log').read_text(errors='replace'))
+    return (returncode == 0
+            and not any(text in log for text in (
+                'terminate called', 'Segmentation fault', 'AddressSanitizer', '[FATAL]'))
+            and not any(glog_severity(line) == 'F' for line in log.splitlines()))
 
 
 def count_mismatches(expected, observed):
@@ -224,6 +222,7 @@ def main():
     else:
         child_env['OMP_THREAD_LIMIT'] = '1'
     child_env.update(ROS_HOME=str(output / 'ros-home'), ROS_LOG_DIR=str(output / 'ros-logs'))
+    child_env.update(GLOG_minloglevel='0', GLOG_log_prefix='1', GLOG_logtostdout='0')
     rclpy.init(args=[])
     observer = rclpy.create_node('livo_baseline_observer')
     received, outputs = Counter(), Counter()
@@ -437,7 +436,7 @@ def main():
                 process.wait()
         observer.destroy_node()
         rclpy.shutdown()
-    node_log, node_stderr = read_node_logs(output)
+    node_log = read_mapping_log(output)
     try:
         from .geometry_diagnostics import summarize_geometry_timings
     except ImportError:
@@ -464,7 +463,7 @@ def main():
     trajectory_valid = (poses.shape[1] == 8 and len(poses) > 0 and
                         bool((np.diff(poses[:, 0]) > 0).all()) and
                         bool(np.allclose(np.linalg.norm(poses[:, 4:8], axis=1), 1, atol=1e-5)))
-    clean = exited_cleanly(process.returncode, node_log + '\n' + node_stderr)
+    clean = exited_cleanly(process.returncode, node_log)
     lio = node_log.count('LIO Mapping Time')
     vio = node_log.count('VIO Time')
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)

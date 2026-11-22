@@ -1,6 +1,6 @@
 # 后续优化与工程改造建议
 
-当前基准为 `2318335`。C4c 已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
+C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
 以下记录待推进项和工程改造建议。[C4c 验证](p6-03c4c-validation.md)
 
 ## 后续 3DGS 优化
@@ -28,28 +28,24 @@ Humble 用 `SingleThreadedExecutor` 处理订阅与处理定时器。前端状�
 [共用主入口](../src/app/livo_main.cc) · [Humble 节点](../src/ros2/livo_node.cc) ·
 [回环所有权与停止](online-loop-backend.md#sdk-所有权与停止)
 
-回环已有单后台线程。它读取已封存几何、逐个验证候选，再用私有 GTSAM 图试算。
+回环使用 Cartographer 2.0.0 的 `ThreadPool` 和 `Task`。原有就绪队列和任务依赖由 C++17
+标准库同步。每个 `LoopWorker` 使用池内一个线程，读取已封存几何、逐个验证候选，再用私有
+GTSAM 图试算。计算在队列与结果交接的临界区之外运行。
 `LoopBackend::Poll()` 在系统所有者线程校验提案前沿和位姿版本，按当前持久事务顺序接纳位姿。
+[Cartographer 来源与许可](../third_party/cartographer/README.md) ·
+[回环 worker](../src/backend/loop_worker.cc) · [提案接纳](../src/core/loop_backend.cc)
+
+线程池和日志迁移后，Noetic 完整回放的轨迹、前端数值输出和原始关键帧与 C4c 均匀采样侧一致。
+13 次回环查询均完成，接纳 2 次，位姿版本为 2，13 个高斯子地图完成封口。工作区记录位于
+`validation/cartographer-thread-pool-20261122/full-verified-comparison.json`。
+
 C4c 的 Retail_Street 完整均匀侧有 13 次查询，其中 4 次的候选数大于 1。第 12 项任务的
-5 个候选验证耗时合计约 809 ms，GTSAM 求解约 6.8 ms。这是候选诊断中的实测，池的收益还要按
-端到端延迟、前端负载和内存复测。原始记录位于工作区的
+5 个候选验证耗时合计约 809 ms，GTSAM 求解约 6.8 ms。候选并行的收益需要按端到端延迟、
+前端负载和内存复测。原始记录位于工作区的
 `validation/P6-03c4c-20261122/full-uniform/keyframes/loop_closure/queries/12.yml`。
-[候选验证与优化](../src/backend/loop_admission.cc) · [提案接纳](../src/core/loop_backend.cc)
+[候选验证与优化](../src/backend/loop_admission.cc)
 
-Cartographer 用带依赖的任务和后台线程池计算约束，并按工作队列处理位姿图。它用 Abseil 的
-互斥锁同步任务状态和队列，任务计算在队列锁释放后执行。适合本项目借鉴的是并行计算与串行
-提交的职责分工。[Cartographer ThreadPool](https://github.com/cartographer-project/cartographer/blob/master/cartographer/common/thread_pool.cc) ·
-[Task 状态](https://github.com/cartographer-project/cartographer/blob/master/cartographer/common/task.cc) ·
-[PoseGraph2D 工作队列](https://github.com/cartographer-project/cartographer/blob/master/cartographer/mapping/internal/2d/pose_graph_2d.cc#L487)
-
-源码复用有许可证约束。当前 `LICENSE` 和 README 声明 GPLv2，`package.xml` 写的是 BSD。
-Cartographer 线程池源码采用 Apache-2.0，Apache 软件基金会的兼容性说明指出 Apache-2.0 与
-GPLv2 不兼容。按现有 GPLv2 声明交付时，建议独立实现小型 C++17 有界线程池。许可证元数据
-可在核实本包与上游各文件的许可授予后统一。[本仓库许可证](../LICENSE) ·
-[包元数据](../package.xml) · [Cartographer 许可证](https://github.com/cartographer-project/cartographer/blob/master/LICENSE) ·
-[ASF 兼容性说明](https://www.apache.org/licenses/GPL-compatibility.html)
-
-### 建议的首期线程池边界
+### 后续候选并行
 
 1. `LoopWorker` 从同一版本快照读取候选，独占现有可变几何缓存。向线程池交付带所有权的只读
    几何对象，每批的活跃对象和任务数受预算约束。
@@ -60,8 +56,8 @@ GPLv2 不兼容。按现有 GPLv2 声明交付时，建议独立实现小型 C++
 4. 单所有者持有的串行状态无需跨线程锁。任务队列和完成通知使用短临界区和条件变量，具体计算
    在锁外。若实测表明队列同步成为瓶颈，再评估具备明确单生产者、单消费者契约的方案。
 
-首期只并行候选几何验证。建议运行参数 `loop_closure.worker_threads` 缺省为 1，此时直接走
-串行验证。功能回归沿用现有 bag 和 CPU 亲和性。性能对照为两侧分配同一组至少两个可用逻辑 CPU，
+拟议运行参数 `loop_closure.worker_threads` 缺省为 1，此时走串行验证。功能回归沿用现有
+bag 和 CPU 亲和性。性能对照为两侧分配同一组至少两个可用逻辑 CPU，
 固定前端 OpenMP 预算，对比 1 与 2 个候选验证线程的回环耗时、前端 P95、实际并发、过期结果
 和 RSS。核对候选排序、接纳 ID、位姿版本、旧任务丢弃和停止排空。
 
@@ -123,5 +119,5 @@ Gaussian socket 和输出目录。[在线回环参数](online-loop-backend.md#�
 - 给回环分阶段计时，单列几何读取、候选验证、GTSAM 试算和 `Poll()` 中的持久提交。利用实际
   数据判断下一处开销，对照前端回调尾延迟及后台高水位。
 
-建议先收敛编译能力和运行参数，再单独落地有界候选验证池。两步各用现有 SDK 消费者、双 ROS
-启动检查和 Retail_Street 回放验证。正式编码前先完成该阶段设计和模型切换通知。
+建议先收敛编译能力和运行参数，再验证有界的候选并行。两步各用现有 SDK 消费者、双 ROS
+启动检查和 Retail_Street 回放验证。

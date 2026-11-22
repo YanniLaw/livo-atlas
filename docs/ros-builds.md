@@ -26,9 +26,13 @@ NodeHandle、XmlRpc、ImageTransport与无符号时间范围，Humble的rclcpp�
 
 ## 依赖
 
-核心需要 Eigen3、PCL、OpenCV 和兼容旧非模板 API 的 Sophus。继续沿用原工程兼容版
+核心需要 Eigen3、PCL、OpenCV、glog 和兼容旧非模板 API 的 Sophus。Ubuntu 的 glog
+开发包为 `libgoogle-glog-dev`。继续沿用原工程兼容版
 Sophus，通过 `Sophus_DIR` 指定其配置目录；不能直接用只提供模板 API 的新版替换。
 Noetic/Humble 的实际依赖版本与验证范围见阶段报告。
+
+应用日志统一使用 glog，默认输出到 stderr。Noetic 回放工具将日志收进 `mapping.log`。
+Humble 回放工具将 stderr 保存到 `node-stderr.log`，并与 `node.log` 一起读取统计记录。
 
 Humble 接入需要 rclcpp、sensor_msgs、nav_msgs、geometry_msgs、visualization_msgs、
 tf2_ros、cv_bridge、pcl_conversions，以及官方
