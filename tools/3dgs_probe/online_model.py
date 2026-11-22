@@ -14,6 +14,7 @@ from gaussian_state import GaussianState, _metadata, _pose, _unsigned, validate_
 from train import (_ALPHA_THRESHOLD, _depth_candidates, _render_view, _reserved_seed_count,
                    create_parameters, initialize_gaussians, masked_losses)
 
+SEED_POLICIES = ("uniform", "coverage")
 _MAX_VIEWS = 10
 _MAX_PER_VIEW = 1000
 _MAX_FRAMES = 512
@@ -235,7 +236,7 @@ class OnlineGaussianModel:
                 (self.views and frame_id <= self.frame_ids[-1]) or
                 view.get("generation") != str(self.generation)):
             raise ValueError("View identity or generation is invalid")
-        if seed_policy not in ("uniform", "coverage"):
+        if seed_policy not in SEED_POLICIES:
             raise ValueError("Unknown Gaussian seed policy")
         uncovered, selection = None, None
         if seed_policy == "coverage":

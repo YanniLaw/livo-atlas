@@ -194,6 +194,27 @@ class OnlineWorkerTest(unittest.TestCase):
 
 
 class OnlineWorkerStartupTest(unittest.TestCase):
+    def test_invalid_seed_policy_does_not_create_socket(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "worker.sock"
+            result = subprocess.run(
+                [sys.executable, "-m", "online_worker", "--socket", str(path),
+                 "--seed-policy", "other"], capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("invalid choice", result.stderr)
+            self.assertFalse(path.exists())
+
+    def test_schema_one_rejects_coverage_before_initializing_model(self):
+        model_factory = mock.Mock(side_effect=AssertionError("Model initialization is too early"))
+        client, server = socket.socketpair()
+        with client, server:
+            write_message(client, {"schema": 1, "type": "hello", "session_id": SESSION}, b"", 1)
+            self.assertFalse(serve_connection(server, model_factory, 1, seed_policy="coverage"))
+            reply, _ = read_message(client, 1)
+        self.assertEqual(reply["code"], "protocol_error")
+        model_factory.assert_not_called()
+
     def test_hidden_gpu_fails_without_falling_back_to_cpu(self):
         client, server = socket.socketpair()
         with client, server:

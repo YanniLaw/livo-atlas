@@ -46,9 +46,14 @@ class SubmapWorkerTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="livo-submap-worker-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.directory = self.root / "states"
-        self.actor = GaussianSubmapWorker(SESSION, self.directory, OnlineGaussianModel(self.device), METADATA)
+        self.start_actor(self.root)
         self.addCleanup(self.release)
+
+    def start_actor(self, parent, **options):
+        self.directory = parent / "states"
+        self.actor = GaussianSubmapWorker(
+            SESSION, self.directory, OnlineGaussianModel(self.device), METADATA, **options,
+        )
         self.next_job = 1
         self.next_asset = 1
         self.map_sequence = 0
@@ -335,6 +340,46 @@ class SubmapWorkerTest(unittest.TestCase):
         self.assert_parameters(expected)
         self.assertEqual(self.actor.confirmed_binding["pose_version"], "0")
 
+    def test_seed_policy_follows_view_rebuild_and_restored_model(self):
+        original = OnlineGaussianModel.train_candidate
+        calls = []
+
+        def train(model, view, *, seed_policy="uniform"):
+            calls.append((view["keyframe_id"], seed_policy))
+            return original(model, view, seed_policy=seed_policy)
+
+        for policy in ("uniform", "coverage"):
+            with self.subTest(policy=policy), mock.patch.object(OnlineGaussianModel, "train_candidate", train):
+                self.release()
+                parent = self.root / policy
+                parent.mkdir()
+                options = {"seed_policy": policy} if policy == "coverage" else {}
+                self.start_actor(parent, **options)
+                calls.clear()
+                self.activate(count=3)
+                self.view(0)
+                self.view(1)
+                self.checkpoint()
+
+                reused, _ = self.activate(count=3, action="reuse", version=1)
+                self.assertEqual(reused["steps"], 0)
+                self.decide(reused)
+                expected = self.actor.confirmed_state.parameters
+                self.assertEqual(calls, [(0, policy), (1, policy)])
+
+                poses = np.frombuffer(self.target_body, dtype="<f8").copy().reshape(3, 4, 4)
+                poses[1, 1, 3] = 0.5
+                rebuilt, _ = self.activate(count=3, action="rebuild", version=2, poses=poses)
+                self.assertEqual(rebuilt["steps"], 40)
+                self.decide(rebuilt, accept=False)
+                self.assert_parameters(expected)
+
+                reused, _ = self.activate(count=3, action="reuse", version=2)
+                self.assertEqual(reused["steps"], 0)
+                self.decide(reused)
+                self.view(2)
+                self.assertEqual(calls, [(key, policy) for key in (0, 1, 0, 1, 2)])
+
     def test_release_precedes_gpu_load(self):
         a, _ = self.two_stored_blocks()
         old_parameters = [weakref.ref(value) for value in self.actor.model.parameters.values()]
@@ -426,10 +471,22 @@ class SubmapWorkerTest(unittest.TestCase):
     def test_schema_two_server_confirms_real_gpu_training(self):
         self.server_roundtrip()
 
+    def test_schema_two_server_applies_configured_seed_policy(self):
+        original = OnlineGaussianModel.train_candidate
+        policies = []
+
+        def train(model, view, *, seed_policy="uniform"):
+            policies.append(seed_policy)
+            return original(model, view, seed_policy=seed_policy)
+
+        with mock.patch.object(OnlineGaussianModel, "train_candidate", train):
+            self.server_roundtrip(seed_policy="coverage")
+        self.assertEqual(policies, ["coverage"])
+
     def test_spatial_server_negotiates_and_transports_candidate_metadata(self):
         self.server_roundtrip(['joint_render_v1', 'joint_render_spatial_v1'])
 
-    def server_roundtrip(self, capabilities=None):
+    def server_roundtrip(self, capabilities=None, **connection_options):
         parent = self.root / "server"
         parent.mkdir()
         client, server = socket.socketpair()
@@ -437,7 +494,9 @@ class SubmapWorkerTest(unittest.TestCase):
 
         def run():
             with server:
-                results.append(serve_connection(server, lambda: (OnlineGaussianModel(self.device), METADATA), 5))
+                results.append(serve_connection(
+                    server, lambda: (OnlineGaussianModel(self.device), METADATA), 5, **connection_options,
+                ))
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
@@ -463,6 +522,7 @@ class SubmapWorkerTest(unittest.TestCase):
             candidate, _ = read_message(client, 10)
             self.assertEqual(candidate["type"], "candidate")
             self.assertEqual(candidate["nonzero_gradient"], 1)
+            self.assertNotIn("seed_selection", candidate)
             if capabilities is None:
                 self.assertNotIn('render_metadata', candidate)
             else:
@@ -481,6 +541,76 @@ class SubmapWorkerTest(unittest.TestCase):
             thread.join(10)
         self.assertFalse(thread.is_alive())
         self.assertEqual(results, [True])
+
+    def test_coverage_prepass_failure_preserves_durable_reference(self):
+        parent = self.root / "failure"
+        parent.mkdir()
+        client, server = socket.socketpair()
+        results = []
+        actors = []
+
+        def create_actor(*args, **kwargs):
+            actor = GaussianSubmapWorker(*args, **kwargs)
+            actors.append(actor)
+            return actor
+
+        def run():
+            with server, mock.patch("submap_worker.GaussianSubmapWorker", side_effect=create_actor):
+                results.append(serve_connection(
+                    server, lambda: (OnlineGaussianModel(self.device), METADATA), 5, seed_policy="coverage",
+                ))
+
+        def exchange(header, body=b""):
+            write_message(client, header, body, 5)
+            return read_message(client, 10)[0]
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        try:
+            greeting = {"schema": 2, "type": "hello", "session_id": SESSION,
+                        "state_directory": str(parent / "states")}
+            self.assertEqual(exchange(greeting)["type"], "hello_ok")
+            self.assertEqual(exchange(*target_fixture())["type"], "activated")
+            self.assertEqual(exchange(*view_v2_fixture(job=2))["type"], "candidate")
+            self.assertEqual(exchange(control_fixture("decision", job=2, submap=0,
+                                                      operation="view", action="accept"))["type"], "commit_ok")
+            saved = exchange(control_fixture("checkpoint", job=3, submap=0, asset_id="1",
+                                             source_generation="1", content_job_id="2"))
+            self.assertEqual(saved["type"], "checkpoint_ok")
+            self.assertEqual(exchange(control_fixture("map_committed", job=4, map_sequence="1",
+                                                      asset_ids=["1"]))["type"], "map_committed_ok")
+            asset = parent / "states" / "1"
+            before = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in asset.iterdir()}
+
+            header, body = view_v2_fixture(frame=1, job=5)
+            body = bytearray(body)
+            pixels = header["width"] * header["height"]
+            body[4 * pixels] = 1
+            body[5 * pixels:5 * pixels + 4] = np.array([4.0], dtype="<f4").tobytes()
+            with (mock.patch("online_model._MAX_PER_VIEW", 1),
+                  mock.patch("online_model._render_view", side_effect=RuntimeError("coverage prepass failed")) as render):
+                reply = exchange(header, bytes(body))
+            render.assert_called_once()
+            self.assertEqual(reply["code"], "worker_error")
+            self.assertEqual(reply["job_id"], "5")
+            self.assertIn("coverage prepass failed", reply["message"])
+        finally:
+            client.close()
+            thread.join(10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(results, [False])
+        actor, = actors
+        self.assertTrue(actor.failed)
+        self.assertIsNone(actor.pending)
+        self.assertEqual(actor.references, {1})
+        self.assertEqual(actor.map_sequence, 1)
+        self.assertEqual(actor.content["content_job_id"], "2")
+        self.assertEqual(actor.model.frame_ids, [0])
+        self.assertEqual(list((parent / "states").iterdir()), [asset])
+        after = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in asset.iterdir()}
+        self.assertEqual(after, before)
+        self.assertEqual(read_state(asset).origin_ids.tolist(), [0])
 
 
 if __name__ == "__main__":

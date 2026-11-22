@@ -13,7 +13,7 @@ import sys
 
 import torch
 
-from online_model import OnlineGaussianModel, checked_cuda_device
+from online_model import OnlineGaussianModel, SEED_POLICIES, checked_cuda_device
 from online_protocol import decode_view, read_message, write_message
 
 
@@ -50,7 +50,7 @@ def _read_when_ready(sock, transfer_timeout):
 
 
 def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout,
-                   joint_render_enabled=False, spatial_render_enabled=False):
+                   joint_render_enabled=False, spatial_render_enabled=False, *, seed_policy="uniform"):
     from gaussian_state import CommitUncertainError
     from submap_worker import GaussianCapacityError, GaussianSubmapWorker
 
@@ -59,7 +59,8 @@ def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout,
     try:
         actor = GaussianSubmapWorker(session, Path(directory), model, metadata,
                                      joint_render_enabled=joint_render_enabled,
-                                     spatial_render_enabled=spatial_render_enabled)
+                                     spatial_render_enabled=spatial_render_enabled,
+                                     seed_policy=seed_policy)
         capabilities = dict(capabilities=["joint_render_v1"]) if joint_render_enabled else {}
         if spatial_render_enabled:
             capabilities['capabilities'].append('joint_render_spatial_v1')
@@ -97,7 +98,7 @@ def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout,
     return False
 
 
-def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
+def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0, *, seed_policy="uniform"):
     """Handle one session; any protocol or model failure closes the session."""
     session = None
     schema = 1
@@ -107,6 +108,10 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
             raise ValueError("Expected hello")
         session = hello["session_id"]
         schema = hello["schema"]
+        if seed_policy not in SEED_POLICIES:
+            raise ValueError("Unknown Gaussian seed policy")
+        if schema == 1 and seed_policy == "coverage":
+            raise ValueError("Coverage seeding requires persistent submaps (schema 2)")
         try:
             model, metadata = model_factory()
         except Exception as error:
@@ -119,7 +124,8 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
         if schema == 2:
             return _serve_submaps(sock, session, hello["state_directory"], model, metadata,
                                   transfer_timeout, bool(hello.get("capabilities")),
-                                  'joint_render_spatial_v1' in hello.get('capabilities', []))
+                                  'joint_render_spatial_v1' in hello.get('capabilities', []),
+                                  seed_policy=seed_policy)
         write_message(sock, dict(_base("hello_ok", session), **metadata), b"",
                       transfer_timeout)
         current = None
@@ -227,7 +233,9 @@ def serve_connection(sock, model_factory=create_model, transfer_timeout=5.0):
     return False
 
 
-def serve(socket_path):
+def serve(socket_path, *, seed_policy="uniform"):
+    if seed_policy not in SEED_POLICIES:
+        raise ValueError("Unknown Gaussian seed policy")
     path = Path(socket_path).absolute()
     parent = path.parent.stat()
     if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or
@@ -245,7 +253,7 @@ def serve(socket_path):
             listener.listen(1)
             connection, _ = listener.accept()
             with connection:
-                return serve_connection(connection)
+                return serve_connection(connection, seed_policy=seed_policy)
         finally:
             try:
                 current = path.lstat()
@@ -259,9 +267,11 @@ def serve(socket_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--socket", required=True, help="New socket in a private directory")
+    parser.add_argument("--seed-policy", choices=SEED_POLICIES, default="uniform",
+                        help="Seed placement for this worker (coverage requires persistent submaps)")
     args = parser.parse_args()
     try:
-        return 0 if serve(args.socket) else 1
+        return 0 if serve(args.socket, seed_policy=args.seed_policy) else 1
     except (OSError, ValueError) as error:
         print("Gaussian worker failed:", error, file=sys.stderr)
         return 1

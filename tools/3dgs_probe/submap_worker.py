@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from gaussian_state import read_state, write_state
-from online_model import OnlineGaussianModel
+from online_model import OnlineGaussianModel, SEED_POLICIES
 from online_protocol import _validate_message, decode_target, decode_view
 from submap_protocol import _same_pose
 from train import _render_view, masked_losses
@@ -78,7 +78,9 @@ class GaussianSubmapWorker:
     """One serialized session; owner decisions are separate from durable references."""
 
     def __init__(self, session_id, state_directory, model, software, *, joint_render_enabled=False,
-                 spatial_render_enabled=False):
+                 spatial_render_enabled=False, seed_policy="uniform"):
+        if seed_policy not in SEED_POLICIES:
+            raise ValueError("Unknown Gaussian seed policy")
         if spatial_render_enabled and not joint_render_enabled:
             raise ValueError('Spatial rendering requires joint_render_v1')
         path = Path(state_directory)
@@ -97,6 +99,7 @@ class GaussianSubmapWorker:
         self.software = dict(software)
         self.joint_render_enabled = joint_render_enabled
         self.spatial_render_enabled = spatial_render_enabled
+        self._seed_policy = seed_policy
         self.confirmed_state = None
         self.confirmed_metadata = None
         self.confirmed_binding = None
@@ -262,7 +265,7 @@ class GaussianSubmapWorker:
                 camera = saved["camera_from_body"] @ np.linalg.inv(poses[saved["keyframe_id"]])
                 view["camera_from_parent"] = camera
                 view["camera_from_submap"] = camera.ravel().tolist()
-                preview, metrics = self.model.train_candidate(view)
+                preview, metrics = self.model.train_candidate(view, seed_policy=self._seed_policy)
                 totals["supervised_depth_pixels"] += metrics["supervised_depth_pixels"]
                 totals["nonzero_gradient"] |= metrics["nonzero_gradient"]
                 totals["parameter_updated"] |= metrics["parameter_updated"]
@@ -281,7 +284,7 @@ class GaussianSubmapWorker:
         if self.confirmed_state is not None and not _compatible(self.confirmed_state, target):
             raise ValueError("A changed primary member requires activation/rebuild first")
         _headers(self.model, target, refresh_cameras=True)
-        preview, metrics = self.model.train_candidate(decode_view(request, body))
+        preview, metrics = self.model.train_candidate(decode_view(request, body), seed_policy=self._seed_policy)
         self.pending = {"request": dict(request), "target": target, "operation": "view"}
         self.current_target = target
         return self._candidate(request, target, "view", preview, metrics)
