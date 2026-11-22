@@ -119,3 +119,5 @@ P6-02c2b 已完成有界在线调度、持久接纳、停止排空和共用 ROS 
     后续补验覆盖全部空间 READY 的相机字段和镜像诊断，125 项工具测试通过。[接收证据补验](p6-03c3c2b-validation.md#接收证据补验2026-11-19)
 
 49. P6-03c4a 已建立固定最终位姿下的留出视角画质基线。Retail_Street 的 25 个留出视角完成评估，23 个配对视角的汇总 PSNR 从 8.98 升至 10.95 dB。两项审阅问题修复后完成重复实测。[验证与复现](p6-03c4a-validation.md) · [设计](superpowers/specs/2026-11-19-p6-03c4a-held-out-rendering-design.md) · [实施计划](superpowers/plans/2026-11-19-p6-03c4a-held-out-rendering.md)
+
+50. P6-03c4b 已完成原模型的覆盖补测。下一步用相同种子预算对照覆盖优先采样，并以共同 LiDAR 像素比较深度误差。[设计与实测依据](superpowers/specs/2026-11-22-p6-03c4b-coverage-guided-seeding-design.md) · [实施计划](superpowers/plans/2026-11-22-p6-03c4b-coverage-guided-seeding.md)
