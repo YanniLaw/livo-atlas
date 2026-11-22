@@ -20,6 +20,8 @@ from render_gaussian_map import _exclusive_write, _json_bytes
 _FRONTIER_FIELDS = ('session_id', 'pose_version', 'frame_count', 'optimized_frame_count',
                     'parent_frame', 'map_sequence')
 _TRAINING_FIELDS = ('keyframe_id', 'frame_ids', 'training_frame_ids', 'steps', 'gaussian_count')
+_SEED_FIELDS = ('depth_candidates', 'prepass_seconds', 'uncovered_candidates', 'reserved_uncovered')
+_SEED_LIMIT = 1000
 _MODES = ('single', 'joint')
 _RUNS = ('baseline', 'candidate')
 
@@ -57,11 +59,32 @@ def _by_keyframe(rows, frame_count, label):
     return result
 
 
+def _check_seed_selection(operation, policy, has_history, seeds):
+    message = f"Invalid seed selection for {policy} keyframe {operation['keyframe_id']}"
+    if policy == 'uniform':
+        _require('seed_selection' not in operation, message)
+        return
+
+    selection = operation.get('seed_selection')
+    _require(isinstance(selection, dict) and all(field in selection for field in _SEED_FIELDS), message)
+    candidates, seconds, holes, quota = (selection[field] for field in _SEED_FIELDS)
+    _require(type(candidates) is int and 1 <= candidates <= _MAX_PIXELS and
+             seeds == min(candidates, _SEED_LIMIT) and type(quota) is int, message)
+    if has_history and candidates > _SEED_LIMIT:
+        _require(type(seconds) in (int, float) and math.isfinite(seconds) and seconds >= 0 and
+                 type(holes) is int and 0 <= holes <= candidates, message)
+        expected = min(_SEED_LIMIT // 2, holes) if holes < candidates else 0
+        _require(quota == expected, message)
+    else:
+        _require(seconds is None and holes is None and quota == 0, message)
+
+
 def _check_training(groups, baseline, candidate):
-    _require(len(groups) == len(baseline) == len(candidate) and len(groups) > 0,
+    old_groups, new_groups = baseline['submaps'], candidate['submaps']
+    _require(len(groups) == len(old_groups) == len(new_groups) and len(groups) > 0,
              'Submaps differ from the training split')
     counts = {}
-    for group, old, new in zip(groups, baseline, candidate):
+    for group, old, new in zip(groups, old_groups, new_groups):
         keys = group['train_ids']
         submap_id = group['submap_id']
         _require(type(submap_id) is int and submap_id >= 0 and submap_id not in counts and
@@ -81,8 +104,10 @@ def _check_training(groups, baseline, candidate):
                      f'Keyframe {key} has a different training schedule or Gaussian count')
             older_count = sum(previous_counts[frame] for frame in retained[:-1])
             seed_count = a['gaussian_count'] - older_count
-            _require(type(seed_count) is int and 1 <= seed_count <= 1000,
+            _require(type(seed_count) is int and 1 <= seed_count <= _SEED_LIMIT,
                      f'Keyframe {key} exceeds the Gaussian training budget')
+            _check_seed_selection(a, baseline['seed_policy'], index > 0, seed_count)
+            _check_seed_selection(b, candidate['seed_policy'], index > 0, seed_count)
             previous_counts[key] = seed_count
         retained = keys[-10:]
         origins = {str(key): previous_counts[key] for key in retained}
@@ -154,9 +179,18 @@ def _quality(render, samples, mode, pixels, counts):
              f'Invalid {mode} image metrics')
     _require(render['gaussian_counts'] == counts and render['gaussian_count'] == sum(counts.values()),
              f'Invalid {mode} Gaussian counts')
-    used = int(samples[f'{mode}_covered'].sum())
+    valid_depth = samples[f'{mode}_covered']
+    used = int(valid_depth.sum())
     _require(metrics['depth_pixels_available'] == len(samples) <= image and
              metrics['depth_pixels_used'] == used <= covered, f'Invalid {mode} depth counts')
+    reported = metrics['depth_l1_m']
+    message = f'{mode} depth L1 differs from the sparse record'
+    if used:
+        error = samples[f'{mode}_z_m'][valid_depth].astype(np.float64) - samples['observed_z_m'][valid_depth]
+        _require(type(reported) in (int, float) and
+                 math.isclose(reported, float(np.abs(error).mean()), rel_tol=1e-12, abs_tol=1e-12), message)
+    else:
+        _require(reported is None, message)
     return dict(image_pixels=image, covered_pixels=covered, rgb_mse=mse,
                 rgb_psnr_db=-10 * math.log10(mse) if mse else None, alpha_coverage=covered / image)
 
@@ -256,7 +290,7 @@ def _resources(report, digest):
     groups = report['submaps']
     renders = {mode: [row[mode] for row in report['views'] if row[mode] is not None] for mode in _MODES}
     operations = [row for group in groups for row in group['training']]
-    seeds = [row['seed_selection'] for row in operations if 'seed_selection' in row]
+    seeds = [row['seed_selection'] for row in operations] if report['seed_policy'] == 'coverage' else []
     prepass = _timing([row['prepass_seconds'] for row in seeds if row['prepass_seconds'] is not None])
     peaks = groups + renders['single'] + renders['joint']
     return dict(report_sha256=digest, seed_policy=report['seed_policy'], environment=report['environment'],
@@ -275,7 +309,7 @@ def compare(baseline, candidate, output):
     new, _, new_hash = _read_run(roots[1])
     _require(old['split_sha256'] == new['split_sha256'], 'Frozen split SHA256 differs')
     plan = _query_plan(split)
-    counts = _check_training(split['groups'], old['submaps'], new['submaps'])
+    counts = _check_training(split['groups'], old, new)
     left, right = (_by_keyframe(report['views'], split['frame_count'], 'query ID') for report in (old, new))
     _require(left.keys() == right.keys() == plan.keys(), 'Query IDs differ from the frozen split')
     views = [_compare_query(left[key], right[key], roots, view_plan, counts) for key, view_plan in plan.items()]

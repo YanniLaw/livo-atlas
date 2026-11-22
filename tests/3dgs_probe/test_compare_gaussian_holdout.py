@@ -43,12 +43,15 @@ def evaluation(root, policy):
             others = train_ids[:i] or [key]
             operation = dict(keyframe_id=key, frame_ids=train_ids[:i + 1], steps=20,
                              training_frame_ids=[key] * 10 + [others[j % len(others)] for j in range(10)],
-                             gaussian_count=4 * (i + 1))
+                             gaussian_count=1000 * (i + 1))
             if policy == 'coverage':
-                operation['seed_selection'] = dict(prepass_seconds=None, depth_candidates=4,
-                                                   uncovered_candidates=None, reserved_uncovered=0)
+                prepass = i > 0 and i != 2
+                operation['seed_selection'] = dict(prepass_seconds=.001 if prepass else None,
+                                                   depth_candidates=1000 if i == 2 else 1200,
+                                                   uncovered_candidates=700 if prepass else None,
+                                                   reserved_uncovered=500 if prepass else 0)
             training.append(operation)
-        origins = {str(key): 4 for key in train_ids}
+        origins = {str(key): 1000 for key in train_ids}
         submaps.append(dict(submap_id=group_id, anchor_id=group['anchor_id'],
                            parent_from_submap=np.eye(4).tolist(), retained_frame_ids=train_ids,
                            gaussian_origins=origins, training=training, training_seconds=1.,
@@ -159,6 +162,50 @@ class HoldoutComparisonTest(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, message):
                 compare(self.baseline, self.candidate, self.output)
             self.assertFalse(self.output.exists())
+
+    def test_reported_depth_l1_must_agree_with_hashed_predictions(self):
+        view = self.report['views'][1]
+        path = self.candidate / view['depth_samples']
+        samples = np.load(path, allow_pickle=False)
+        samples['joint_z_m'][samples['joint_covered']] += 1000.
+        write_samples(self.candidate, view, samples)
+        write_json(self.candidate / 'report.json', self.report)
+        with self.assertRaisesRegex(ValueError, 'depth L1'):
+            compare(self.baseline, self.candidate, self.output)
+        self.assertFalse(self.output.exists())
+
+        samples['joint_covered'][:] = False
+        samples['joint_z_m'][:] = 0.
+        view['joint']['metrics']['depth_pixels_used'] = 0
+        write_samples(self.candidate, view, samples)
+        write_json(self.candidate / 'report.json', self.report)
+        with self.assertRaisesRegex(ValueError, 'depth L1'):
+            compare(self.baseline, self.candidate, self.output)
+        self.assertFalse(self.output.exists())
+        view['joint']['metrics']['depth_l1_m'] = None
+        write_json(self.candidate / 'report.json', self.report)
+        result = compare(self.baseline, self.candidate, self.output)
+        self.assertIsNone(result['views'][1]['joint']['depth']['common']['candidate_l1_m'])
+
+    def test_coverage_requires_a_valid_selection_record_for_each_update(self):
+        for case, edit in (
+            ('no record', lambda steps: steps[0].pop('seed_selection')),
+            ('no timing field', lambda steps: steps[0]['seed_selection'].pop('prepass_seconds')),
+            ('first frame prepass', lambda steps: steps[0]['seed_selection'].update(prepass_seconds=.001)),
+            ('budget mismatch', lambda steps: steps[1]['seed_selection'].update(depth_candidates=999)),
+            ('missing prepass', lambda steps: steps[1]['seed_selection'].update(prepass_seconds=None)),
+            ('too many holes', lambda steps: steps[1]['seed_selection'].update(uncovered_candidates=1201)),
+            ('wrong quota', lambda steps: steps[1]['seed_selection'].update(reserved_uncovered=499)),
+            ('unused quota claimed', lambda steps: steps[2]['seed_selection'].update(reserved_uncovered=1)),
+        ):
+            document = copy.deepcopy(self.report)
+            edit(document['submaps'][1]['training'])
+            write_json(self.candidate / 'report.json', document)
+            output = self.root / f'{case.replace(" ", "-")}.json'
+            with self.subTest(case=case):
+                with self.assertRaisesRegex(ValueError, 'seed selection'):
+                    compare(self.baseline, self.candidate, output)
+                self.assertFalse(output.exists())
 
     def test_comparison_must_create_a_new_file(self):
         self.output.write_text('previous')
