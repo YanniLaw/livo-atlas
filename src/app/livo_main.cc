@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     const auto parameters = ros_integration::ReadNodeOptions(*node);
     livo_atlas::app::OnlineGaussian::ValidateConfig(parameters.livo);
     livo_atlas::LivoSystem system(parameters.livo.system);
-    std::function<void()> after_process;
+    std::function<void()> poll_background_outputs;
     livo_atlas::app::OnlineGaussian gaussian(*node, system, parameters.livo);
     // The worker joins before its captured publisher handles are destroyed.
     std::unique_ptr<ros_integration::KeyframeTrajectoryPublisher>
@@ -78,7 +78,8 @@ int main(int argc, char** argv) {
         if (geometry) geometry->Observe(update);
         gaussian.Observe(update);
       });
-      after_process = [&] {
+      // Outputs can have pending work while sensor synchronization is waiting.
+      poll_background_outputs = [&] {
         if (trajectory) trajectory->Poll();
         if (geometry) geometry->Poll();
         gaussian.Poll();
@@ -88,7 +89,7 @@ int main(int argc, char** argv) {
     if (geometry) geometry->Poll();
     gaussian.Poll();
     ros_integration::LivoNode ros_node(*node, parameters, system,
-                                       std::move(after_process));
+                                       std::move(poll_background_outputs));
 #if LIVO_ATLAS_ROS_VERSION == 1
     ros::AsyncSpinner spinner(parameters.livo.executor_threads);
     spinner.start();

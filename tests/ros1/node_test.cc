@@ -203,7 +203,8 @@ TEST(Ros1NodeTest, PublishesFromTheInjectedSystem) {
   session.Finish();
 }
 
-TEST(Ros1NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
+TEST(Ros1NodeTest,
+     PollsBackgroundOutputsWhileWaitingAndPropagatesErrors) {
   ros::NodeHandle node;
   const auto parameters = Options(kLivox);
   LivoSystem system(parameters.livo.system);

@@ -23,7 +23,8 @@ class LivoNode {
  public:
   // Stop the executor before using system directly.
   LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
-           LivoSystem& system, std::function<void()> after_process = {});
+           LivoSystem& system,
+           std::function<void()> poll_background_outputs = {});
   ~LivoNode();
   LivoNode(const LivoNode&) = delete;
   LivoNode& operator=(const LivoNode&) = delete;
@@ -37,10 +38,10 @@ class LivoNode {
 
   NodeOptions parameters_;
   LivoSystem& system_;
-  std::function<void()> after_process_;
+  std::function<void()> poll_background_outputs_;
   LivoPublisher publisher_;
   rclcpp::Context::SharedPtr context_;
-  // Serialize access to system_ and its processing hook across ROS callbacks.
+  // Serialize system access and background output polling across callbacks.
   std::mutex system_mutex_;
   std::exception_ptr callback_failure_;
   std::atomic<std::uint64_t> lidar_count_{0};

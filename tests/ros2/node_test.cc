@@ -50,14 +50,15 @@ TEST(Ros2NodeTest, ReportsStartupBufferOverflow) {
             std::string::npos);
 }
 
-TEST(Ros2NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
+TEST(Ros2NodeTest,
+     PollsBackgroundOutputsWhileWaitingAndPropagatesErrors) {
   auto params = test::Parameters(
       (std::filesystem::temp_directory_path() /
-       ("c2b-hook-" +
+       ("output-poll-" +
         std::to_string(
             std::chrono::steady_clock::now().time_since_epoch().count())))
           .string());
-  rclcpp::Node node("c2b_hook",
+  rclcpp::Node node("output_poll",
                     rclcpp::NodeOptions().parameter_overrides(params));
   const auto config = ReadNodeOptions(node);
   LivoSystem system(config.livo.system);
@@ -72,12 +73,12 @@ TEST(Ros2NodeTest, ProcessHookRunsWhileWaitingAndPropagatesErrors) {
   system.Finish();
 }
 
-TEST(Ros2NodeTest, ProcessingCallbackShutsDownItsContextOnFailure) {
+TEST(Ros2NodeTest, BackgroundOutputFailureShutsDownItsContext) {
   auto context = std::make_shared<rclcpp::Context>();
   rclcpp::InitOptions init_options;
   init_options.auto_initialize_logging(false);
   context->init(0, nullptr, init_options);
-  rclcpp::Node node("processing_failure",
+  rclcpp::Node node("output_poll_failure",
                     rclcpp::NodeOptions().context(context));
   NodeOptions parameters;
   parameters.livo.system = test::Options(FrontendMode::kLidarOnly);
@@ -85,7 +86,7 @@ TEST(Ros2NodeTest, ProcessingCallbackShutsDownItsContextOnFailure) {
   int calls = 0;
   LivoNode adapter(node, parameters, system, [&] {
     ++calls;
-    throw std::runtime_error("processing callback failed");
+    throw std::runtime_error("background output polling failed");
   });
   rclcpp::ExecutorOptions executor_options;
   executor_options.context = context;

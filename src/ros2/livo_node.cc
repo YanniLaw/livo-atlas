@@ -47,10 +47,11 @@ void LivoNode::RunCallback(Callback callback) {
 }
 
 LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
-                   LivoSystem& system, std::function<void()> after_process)
+                   LivoSystem& system,
+                   std::function<void()> poll_background_outputs)
     : parameters_(parameters),
       system_(system),
-      after_process_(std::move(after_process)),
+      poll_background_outputs_(std::move(poll_background_outputs)),
       publisher_(node, parameters_.livo.system.exporter.mode,
                  parameters_.livo.image_queue_size,
                  parameters_.livo.global_output),
@@ -179,7 +180,7 @@ SyncStatus LivoNode::ProcessNext() {
         publisher_.Publish(result, colored_cloud, correction);
         ros_detail::LogUpdateTime(result.kind, elapsed);
       });
-  if (after_process_) after_process_();
+  if (poll_background_outputs_) poll_background_outputs_();
   return status;
 }
 
