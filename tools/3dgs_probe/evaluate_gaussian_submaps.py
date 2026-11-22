@@ -17,7 +17,7 @@ from bundle import load_bundle
 from gaussian_map import (_inspect_gaussian_map, _json, _project, _transform, _yaml,
                           inspect_gaussian_finalization)
 from gaussian_state import _unsigned
-from joint_renderer import _check_frontier, _real_directory, infer_blocks
+from joint_renderer import _ALPHA_THRESHOLD, _check_frontier, _real_directory, infer_blocks
 from render_gaussian_map import _exclusive_write, _json_bytes, _new_output, _png, _render_report
 
 
@@ -26,6 +26,10 @@ _MAX_PRIMARY = 32
 _MAX_PIXELS = 1_000_000
 _MAX_CLOUD_POINTS = 500_000
 _MAX_REPORT_BYTES = 2 * 1024 * 1024
+_SEED_POLICIES = ('uniform', 'coverage')
+_DEPTH_SAMPLE_DTYPE = np.dtype([('pixel_index', '<u4'), ('observed_z_m', '<f4'),
+                               ('single_z_m', '<f4'), ('joint_z_m', '<f4'),
+                               ('single_covered', '?'), ('joint_covered', '?')])
 
 
 @dataclass(frozen=True)
@@ -200,7 +204,7 @@ def prepare_group(prepare, keyframes, output, group, source_sha256):
     return read_prepared_group(keyframes, output, group, source_sha256)
 
 
-def train_group(group, train_views, poses, device):
+def train_group(group, train_views, poses, device, *, seed_policy='uniform'):
     train_ids = group['train_ids']
     if ([view['keyframe_id'] for view in train_views] != train_ids or
             any(view['split'] != 'train' for view in train_views) or
@@ -220,7 +224,7 @@ def train_group(group, train_views, poses, device):
         key = view['keyframe_id']
         camera = camera_from_final_parent(view, poses[key])
         local = dict(view, camera_from_parent=camera @ anchor_pose, generation='1')
-        _, metrics = model.train_candidate(local)
+        _, metrics = model.train_candidate(local, seed_policy=seed_policy)
         retained = train_ids[max(0, index + 1 - _MAX_VIEWS):index + 1]
         supervised = metrics['training_frame_ids']
         if (metrics['frame_ids'] != retained or metrics['steps'] != 20 or
@@ -246,15 +250,31 @@ def train_group(group, train_views, poses, device):
     return TrainedBlock(group['submap_id'], anchor_pose, parameters), evidence
 
 
-def render_query(output, query, camera_from_parent, current, previous, device, role):
+def _record_depth(samples, result, mode):
+    pixels = samples['pixel_index']
+    covered = result['alpha'].ravel()[pixels] >= _ALPHA_THRESHOLD
+    samples[f'{mode}_covered'] = covered
+    samples[f'{mode}_z_m'][covered] = result['depth_m'].ravel()[pixels[covered]]
+
+
+def render_query(output, query, camera_from_parent, current, previous, device, role,
+                 *, save_depth_samples=False):
     query_id = query['keyframe_id']
     height, width = query['rgb'].shape[:2]
     views = output / 'views' / str(query_id)
     views.mkdir(parents=True)
     _png(views / 'reference.png', query['rgb'])
+    samples = None
+    if save_depth_samples:
+        pixels = np.flatnonzero(query['image_mask'] & query['depth_mask'])
+        samples = np.zeros(pixels.size, dtype=_DEPTH_SAMPLE_DTYPE)
+        samples['pixel_index'] = pixels
+        samples['observed_z_m'] = query['depth_m'].ravel()[pixels]
     own = (current.submap_id, current.parameters, camera_from_parent @ current.parent_from_submap)
     rendered = infer_blocks([own], query['K'], width, height, device)
     single = _render_report(rendered, query)
+    if samples is not None:
+        _record_depth(samples, rendered, 'single')
     _png(views / 'single.png', rendered['rgb'])
     del rendered
     joint = None
@@ -263,11 +283,20 @@ def render_query(output, query, camera_from_parent, current, previous, device, r
                     camera_from_parent @ previous.parent_from_submap)
         rendered = infer_blocks([neighbor, own], query['K'], width, height, device)
         joint = _render_report(rendered, query)
+        if samples is not None:
+            _record_depth(samples, rendered, 'joint')
         _png(views / 'joint.png', rendered['rgb'])
-    return dict(keyframe_id=query_id, submap_id=current.submap_id, role=role,
-                capture_time=query['image_timestamp'], calibration_id=query['calibration_id'],
-                width=width, height=height, K=query['K'].tolist(),
-                camera_from_parent=camera_from_parent.tolist(), single=single, joint=joint)
+    report = dict(keyframe_id=query_id, submap_id=current.submap_id, role=role,
+                  capture_time=query['image_timestamp'], calibration_id=query['calibration_id'],
+                  width=width, height=height, K=query['K'].tolist(),
+                  camera_from_parent=camera_from_parent.tolist(), single=single, joint=joint)
+    if samples is not None:
+        path = views / 'depth-samples.npy'
+        with path.open('xb') as stream:
+            np.save(stream, samples, allow_pickle=False)
+        report.update(depth_samples=path.relative_to(output).as_posix(),
+                      depth_samples_sha256=file_sha256(path))
+    return report
 
 
 def _aggregate_metrics(results):
@@ -306,6 +335,10 @@ def summarize_views(queries):
 
 def run(args) -> dict:
     started = time.perf_counter()
+    seed_policy = getattr(args, 'seed_policy', 'uniform')
+    save_depth_samples = getattr(args, 'save_depth_samples', False)
+    if seed_policy not in _SEED_POLICIES:
+        raise ValueError('Unknown Gaussian seed policy')
     directory = args.map_directory.resolve(strict=True)
     keyframes = args.keyframes.resolve(strict=True)
     prepare = args.prepare_executable.resolve(strict=True)
@@ -329,14 +362,16 @@ def run(args) -> dict:
         with TemporaryDirectory(prefix='.prepare-', dir=output) as stage:
             views = prepare_group(prepare, keyframes, Path(stage) / 'bundle', group, split_sha256)
         prepare_seconds = time.perf_counter() - prepare_started
-        current, evidence = train_group(group, [views[key] for key in group['train_ids']], poses, device)
+        current, evidence = train_group(group, [views[key] for key in group['train_ids']], poses,
+                                        device, seed_policy=seed_policy)
         evidence.update(prepare_seconds=prepare_seconds,
                         gpu_allocated_after_training_bytes=torch.cuda.memory_allocated(device))
         groups.append(evidence)
         for index, key in enumerate(group['held_out_ids']):
             camera = camera_from_final_parent(views[key], poses[key])
             role = 'near_group_start' if index == 0 else 'interior'
-            queries.append(render_query(output, views[key], camera, current, previous, device, role))
+            queries.append(render_query(output, views[key], camera, current, previous, device, role,
+                                        save_depth_samples=save_depth_samples))
         previous = current
         del views
 
@@ -344,7 +379,7 @@ def run(args) -> dict:
     if file_sha256(split_path) != split_sha256:
         raise RuntimeError('Published split changed during evaluation')
     report = dict(schema=1, kind='livo_atlas.gaussian_holdout_evaluation', status='succeeded',
-                  split_sha256=split_sha256, session_id=split['session_id'],
+                  split_sha256=split_sha256, seed_policy=seed_policy, session_id=split['session_id'],
                   pose_version=split['pose_version'], frame_count=split['frame_count'],
                   optimized_frame_count=split['optimized_frame_count'], parent_frame=split['parent_frame'],
                   map_sequence=split['map_sequence'], submaps=groups, views=queries,
@@ -366,6 +401,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('--keyframes', '--map-directory', '--prepare-executable', '--output'):
         parser.add_argument(name, type=Path, required=True)
+    parser.add_argument('--seed-policy', choices=_SEED_POLICIES, default='uniform')
+    parser.add_argument('--save-depth-samples', action='store_true',
+                        help='Save covered and observed sparse depth for paired comparisons')
     args = parser.parse_args(argv)
     try:
         run(args)

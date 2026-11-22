@@ -11,7 +11,7 @@ from unittest import mock
 import numpy as np
 
 from evaluate_gaussian_submaps import (TrainedBlock, camera_from_final_parent,
-    check_split_identity, prepare_group, read_prepared_group, render_query, run,
+    check_split_identity, file_sha256, prepare_group, read_prepared_group, render_query, run,
     split_primary_ids, summarize_views, train_group)
 from test_joint_renderer import parameters
 from test_online_model import make_view
@@ -172,12 +172,70 @@ class HoldoutEvaluationTest(unittest.TestCase):
             root = Path(temporary)
             result = render_query(root, query, camera, block, None, self.device, 'near_group_start')
             self.assertFalse((root / 'views/1/joint.png').exists())
+            self.assertFalse((root / 'views/1/depth-samples.npy').exists())
         self.assertIsNone(result['joint'])
         metrics = result['single']['metrics']
         self.assertGreater(metrics['depth_pixels_available'], 0)
         self.assertEqual(metrics['depth_pixels_used'], 0)
         self.assertIsNone(metrics['depth_l1_m'])
         self.assertEqual(summarize_views([result])['paired']['query_count'], 0)
+
+    def test_coverage_evaluation_records_the_scored_sparse_depth(self):
+        groups = [dict(submap_id=i, anchor_id=key, train_ids=[key, key + 2],
+                       held_out_ids=[key + 1]) for i, key in enumerate((0, 3))]
+        views = {key: dict(make_view(key, dense=True), parent_from_body=np.eye(4),
+                           split='validation' if key in (1, 4) else 'train') for key in range(6)}
+        views[4]['image_mask'][0, 0] = False
+        views[4]['depth_mask'][0, 1] = False
+        views[4]['depth_m'][0, 1] = 0.
+        split = dict(schema=1, groups=groups, session_id='a' * 32, pose_version=2,
+                     frame_count=6, optimized_frame_count=5, parent_frame='map', map_sequence=4)
+        poses = [np.eye(4) for _ in views]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dataset, maps = root / 'dataset', root / 'maps'
+            dataset.mkdir()
+            maps.mkdir()
+            args = argparse.Namespace(keyframes=dataset, map_directory=maps, output=root / 'out',
+                                      prepare_executable=Path(os.environ['LIVO_PREPARE_BIN']),
+                                      seed_policy='coverage', save_depth_samples=True)
+            with (mock.patch('evaluate_gaussian_submaps.freeze_split', return_value=(split, poses)),
+                  mock.patch('evaluate_gaussian_submaps.prepare_group', return_value=views),
+                  mock.patch('evaluate_gaussian_submaps.verify_split_sources'),
+                  mock.patch('online_model._MAX_PER_VIEW', 16)):
+                report = run(args)
+            self.assertTrue((args.output / 'report.json').is_file())
+            self.assertEqual(report['seed_policy'], 'coverage')
+            for group, submap in zip(groups, report['submaps']):
+                operations = submap['training']
+                self.assertEqual([operation['keyframe_id'] for operation in operations], group['train_ids'])
+                self.assertIsNone(operations[0]['seed_selection']['prepass_seconds'])
+                self.assertIsNotNone(operations[1]['seed_selection']['prepass_seconds'])
+                for operation in operations:
+                    self.assertFalse({1, 4} & set(operation['training_frame_ids']))
+            for row in report['views']:
+                key = row['keyframe_id']
+                path = args.output / row['depth_samples']
+                self.assertEqual(path.relative_to(args.output).as_posix(), f'views/{key}/depth-samples.npy')
+                self.assertEqual(file_sha256(path), row['depth_samples_sha256'])
+                samples = np.load(path, allow_pickle=False)
+                query = views[key]
+                valid = query['image_mask'] & query['depth_mask']
+                np.testing.assert_array_equal(samples['pixel_index'], np.flatnonzero(valid))
+                np.testing.assert_array_equal(samples['observed_z_m'], query['depth_m'][valid])
+                for name in ('single', 'joint'):
+                    covered = samples[f'{name}_covered']
+                    z = samples[f'{name}_z_m']
+                    self.assertTrue((z[~covered] == 0).all())
+                    if row[name] is None:
+                        self.assertFalse(covered.any())
+                        continue
+                    metrics = row[name]['metrics']
+                    self.assertEqual(metrics['depth_pixels_available'], len(samples))
+                    self.assertEqual(metrics['depth_pixels_used'], int(covered.sum()))
+                    self.assertGreater(int(covered.sum()), 0)
+                    errors = np.abs(z[covered].astype(np.float64) - samples['observed_z_m'][covered])
+                    self.assertAlmostEqual(metrics['depth_l1_m'], float(errors.mean()))
 
     def test_render_failure_leaves_no_success_report(self):
         group, views, poses = prepared_views(3)
@@ -187,7 +245,8 @@ class HoldoutEvaluationTest(unittest.TestCase):
             dataset.mkdir()
             maps.mkdir()
             args = argparse.Namespace(keyframes=dataset, map_directory=maps, output=root / 'out',
-                                      prepare_executable=Path(os.environ['LIVO_PREPARE_BIN']))
+                                      prepare_executable=Path(os.environ['LIVO_PREPARE_BIN']),
+                                      seed_policy='coverage', save_depth_samples=True)
             with (mock.patch('evaluate_gaussian_submaps.freeze_split',
                              return_value=(dict(groups=[group]), poses)),
                   mock.patch('evaluate_gaussian_submaps.prepare_group', return_value=views),
