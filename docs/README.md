@@ -120,4 +120,4 @@ P6-02c2b 已完成有界在线调度、持久接纳、停止排空和共用 ROS 
 
 49. P6-03c4a 已建立固定最终位姿下的留出视角画质基线。Retail_Street 的 25 个留出视角完成评估，23 个配对视角的汇总 PSNR 从 8.98 升至 10.95 dB。两项审阅问题修复后完成重复实测。[验证与复现](p6-03c4a-validation.md) · [设计](superpowers/specs/2026-11-19-p6-03c4a-held-out-rendering-design.md) · [实施计划](superpowers/plans/2026-11-19-p6-03c4a-held-out-rendering.md)
 
-50. P6-03c4b 已完成原模型的覆盖补测。下一步用相同种子预算对照覆盖优先采样，并以共同 LiDAR 像素比较深度误差。[设计与实测依据](superpowers/specs/2026-11-22-p6-03c4b-coverage-guided-seeding-design.md) · [实施计划](superpowers/plans/2026-11-22-p6-03c4b-coverage-guided-seeding.md)
+50. P6-03c4b 完成同种子预算的覆盖优先采样对照。Retail_Street 的 23 个双块留出视角汇总 PSNR 增加 0.657 dB，覆盖率增加 3.065 个百分点，共同深度 L1 增加 7.8 mm，满足在线试验筛选线。[验证与复现](p6-03c4b-validation.md) · [设计与实测依据](superpowers/specs/2026-11-22-p6-03c4b-coverage-guided-seeding-design.md) · [实施计划](superpowers/plans/2026-11-22-p6-03c4b-coverage-guided-seeding.md)
