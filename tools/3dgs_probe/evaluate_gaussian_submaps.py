@@ -1,8 +1,15 @@
 """Evaluate Gaussian submaps on held-out views of a finalized SLAM snapshot."""
+import argparse
+from dataclasses import dataclass
 import hashlib
+import importlib.metadata
 import math
 from pathlib import Path
+import resource
 import subprocess
+import sys
+from tempfile import TemporaryDirectory
+import time
 
 import numpy as np
 
@@ -10,13 +17,22 @@ from bundle import load_bundle
 from gaussian_map import (_inspect_gaussian_map, _json, _transform, _yaml,
                           inspect_gaussian_finalization)
 from gaussian_state import _unsigned
-from joint_renderer import _check_frontier, _real_directory
+from joint_renderer import _check_frontier, _real_directory, infer_blocks
+from render_gaussian_map import _exclusive_write, _json_bytes, _new_output, _png, _render_report
 
 
 _MAX_FRAMES = 512
 _MAX_PRIMARY = 32
 _MAX_PIXELS = 1_000_000
 _MAX_CLOUD_POINTS = 500_000
+_MAX_REPORT_BYTES = 2 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class TrainedBlock:
+    submap_id: int
+    parent_from_submap: np.ndarray
+    parameters: dict[str, np.ndarray]
 
 
 def split_primary_ids(first: int, count: int) -> tuple[list[int], list[int]]:
@@ -167,3 +183,183 @@ def prepare_group(prepare, keyframes, output, group, source_sha256):
                     '--source-sha256', source_sha256, '--max-pixels', str(_MAX_PIXELS),
                     '--max-cloud-points', str(_MAX_CLOUD_POINTS)], check=True)
     return read_prepared_group(keyframes, output, group, source_sha256)
+
+
+def train_group(group, train_views, poses, device):
+    train_ids = group['train_ids']
+    if ([view['keyframe_id'] for view in train_views] != train_ids or
+            any(view['split'] != 'train' for view in train_views) or
+            set(train_ids).intersection(group['held_out_ids'])):
+        raise ValueError(f"Observations differ from the training split of submap {group['submap_id']}")
+
+    import torch
+    from online_model import OnlineGaussianModel, _MAX_VIEWS
+
+    started = time.perf_counter()
+    torch.cuda.reset_peak_memory_stats(device)
+    model = OnlineGaussianModel(device)
+    model.reset(1)
+    anchor_pose = poses[group['anchor_id']]
+    training = []
+    for index, view in enumerate(train_views):
+        key = view['keyframe_id']
+        camera = camera_from_final_parent(view, poses[key])
+        local = dict(view, camera_from_parent=camera @ anchor_pose, generation='1')
+        _, metrics = model.train_candidate(local)
+        retained = train_ids[max(0, index + 1 - _MAX_VIEWS):index + 1]
+        supervised = metrics['training_frame_ids']
+        if (metrics['frame_ids'] != retained or metrics['steps'] != 20 or
+                len(supervised) != metrics['steps'] or key not in supervised or
+                set(supervised).difference(retained)):
+            raise RuntimeError(f'Unexpected training provenance for keyframe {key}')
+        model.decide(True)
+        training.append(dict(metrics, keyframe_id=key))
+
+    origin_ids, counts = np.unique(model.origin_ids.cpu().numpy(), return_counts=True)
+    if origin_ids.tolist() != model.frame_ids:
+        raise RuntimeError(f"Unexpected Gaussian origins for submap {group['submap_id']}")
+    parameters = {name: value.detach().cpu().numpy().copy() for name, value in model.parameters.items()}
+    torch.cuda.synchronize(device)
+    evidence = dict(submap_id=group['submap_id'], anchor_id=group['anchor_id'],
+                    parent_from_submap=anchor_pose.tolist(), training=training,
+                    retained_frame_ids=model.frame_ids,
+                    gaussian_origins={str(key): int(count) for key, count in zip(origin_ids, counts)},
+                    training_seconds=time.perf_counter() - started,
+                    gpu_peak_allocated_bytes=torch.cuda.max_memory_allocated(device),
+                    gpu_peak_reserved_bytes=torch.cuda.max_memory_reserved(device))
+    # The caller renders only the owned CPU arrays, after this model goes out of scope.
+    return TrainedBlock(group['submap_id'], anchor_pose, parameters), evidence
+
+
+def render_query(output, query, camera_from_parent, current, previous, device, role):
+    query_id = query['keyframe_id']
+    height, width = query['rgb'].shape[:2]
+    views = output / 'views' / str(query_id)
+    views.mkdir(parents=True)
+    _png(views / 'reference.png', query['rgb'])
+    own = (current.submap_id, current.parameters, camera_from_parent @ current.parent_from_submap)
+    rendered = infer_blocks([own], query['K'], width, height, device)
+    single = _render_report(rendered, query)
+    _png(views / 'single.png', rendered['rgb'])
+    del rendered
+    joint = None
+    if previous is not None:
+        neighbor = (previous.submap_id, previous.parameters,
+                    camera_from_parent @ previous.parent_from_submap)
+        rendered = infer_blocks([neighbor, own], query['K'], width, height, device)
+        joint = _render_report(rendered, query)
+        _png(views / 'joint.png', rendered['rgb'])
+    return dict(keyframe_id=query_id, submap_id=current.submap_id, role=role,
+                capture_time=query['image_timestamp'], calibration_id=query['calibration_id'],
+                width=width, height=height, K=query['K'].tolist(),
+                camera_from_parent=camera_from_parent.tolist(), single=single, joint=joint)
+
+
+def _aggregate_metrics(results):
+    if not results:
+        return None
+    metrics = [result['metrics'] for result in results]
+    image_pixels = sum(row['image_pixels'] for row in metrics)
+    covered = sum(row['covered_pixels'] for row in metrics)
+    depth_pixels = sum(row['depth_pixels_used'] for row in metrics)
+    rgb_mse = sum(row['rgb_mse'] * row['image_pixels'] for row in metrics) / image_pixels
+    rgb_l1 = sum(row['rgb_l1'] * row['image_pixels'] for row in metrics) / image_pixels
+    depth_l1 = depth_rmse = None
+    if depth_pixels:
+        depth_l1 = sum(row['depth_l1_m'] * row['depth_pixels_used'] for row in metrics
+                       if row['depth_pixels_used']) / depth_pixels
+        depth_rmse = math.sqrt(sum(row['depth_rmse_m'] ** 2 * row['depth_pixels_used'] for row in metrics
+                                   if row['depth_pixels_used']) / depth_pixels)
+    return dict(image_pixels=image_pixels, covered_pixels=covered, alpha_coverage=covered / image_pixels,
+                rgb_l1=rgb_l1, rgb_mse=rgb_mse, rgb_perfect=rgb_mse == 0,
+                rgb_psnr_db=-10 * math.log10(rgb_mse) if rgb_mse else None,
+                depth_pixels_available=sum(row['depth_pixels_available'] for row in metrics),
+                depth_pixels_used=depth_pixels, depth_l1_m=depth_l1, depth_rmse_m=depth_rmse)
+
+
+def summarize_views(queries):
+    paired = [query for query in queries if query['joint'] is not None]
+    selections = dict(paired=paired,
+                      single_only=[query for query in queries if query['joint'] is None])
+    for role in ('near_group_start', 'interior'):
+        selections[role] = [query for query in paired if query['role'] == role]
+    return {name: dict(query_count=len(rows),
+                       single=_aggregate_metrics([query['single'] for query in rows]),
+                       joint=_aggregate_metrics([query['joint'] for query in rows if query['joint'] is not None]))
+            for name, rows in selections.items()}
+
+
+def run(args) -> dict:
+    started = time.perf_counter()
+    directory = args.map_directory.resolve(strict=True)
+    keyframes = args.keyframes.resolve(strict=True)
+    prepare = args.prepare_executable.resolve(strict=True)
+    output = _new_output(directory, keyframes, args.output)
+    split, poses = freeze_split(directory, keyframes, prepare)
+    validated = time.perf_counter()
+    output.mkdir(mode=0o700)
+    split_path = output / 'split.json'
+    _exclusive_write(split_path, _json_bytes(split, _MAX_REPORT_BYTES))
+    split_sha256 = file_sha256(split_path)
+
+    import torch
+    from online_model import checked_cuda_device
+
+    torch.set_num_threads(1)
+    device = checked_cuda_device()
+    groups, queries = [], []
+    previous = None
+    for group in split['groups']:
+        prepare_started = time.perf_counter()
+        with TemporaryDirectory(prefix='.prepare-', dir=output) as stage:
+            views = prepare_group(prepare, keyframes, Path(stage) / 'bundle', group, split_sha256)
+        prepare_seconds = time.perf_counter() - prepare_started
+        current, evidence = train_group(group, [views[key] for key in group['train_ids']], poses, device)
+        evidence.update(prepare_seconds=prepare_seconds,
+                        gpu_allocated_after_training_bytes=torch.cuda.memory_allocated(device))
+        groups.append(evidence)
+        for index, key in enumerate(group['held_out_ids']):
+            camera = camera_from_final_parent(views[key], poses[key])
+            role = 'near_group_start' if index == 0 else 'interior'
+            queries.append(render_query(output, views[key], camera, current, previous, device, role))
+        previous = current
+        del views
+
+    verify_split_sources(split, directory, keyframes, prepare)
+    if file_sha256(split_path) != split_sha256:
+        raise RuntimeError('Published split changed during evaluation')
+    report = dict(schema=1, kind='livo_atlas.gaussian_holdout_evaluation', status='succeeded',
+                  split_sha256=split_sha256, session_id=split['session_id'],
+                  pose_version=split['pose_version'], frame_count=split['frame_count'],
+                  optimized_frame_count=split['optimized_frame_count'], parent_frame=split['parent_frame'],
+                  map_sequence=split['map_sequence'], submaps=groups, views=queries,
+                  summary=summarize_views(queries),
+                  environment=dict(python=sys.version.split()[0], numpy=np.__version__,
+                                   torch=str(torch.__version__), cuda=torch.version.cuda,
+                                   gsplat=importlib.metadata.version('gsplat'),
+                                   device=torch.cuda.get_device_name(device)),
+                  snapshot_validation_seconds=validated - started,
+                  elapsed_seconds=time.perf_counter() - started,
+                  peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024)
+    pending = output / 'report.json.pending'
+    _exclusive_write(pending, _json_bytes(report, _MAX_REPORT_BYTES))
+    pending.replace(output / 'report.json')
+    return report
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ('--keyframes', '--map-directory', '--prepare-executable', '--output'):
+        parser.add_argument(name, type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        run(args)
+    except Exception as error:
+        print(f'{type(error).__name__}: {error}', file=sys.stderr)
+        return 1
+    print(f'Evaluation report: {args.output / "report.json"}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
