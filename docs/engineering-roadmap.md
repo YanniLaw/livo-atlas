@@ -1,0 +1,127 @@
+# 后续优化与工程改造建议
+
+当前基准为 `2318335`。C4c 已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
+以下记录待推进项和工程改造建议。[C4c 验证](p6-03c4c-validation.md)
+
+## 后续 3DGS 优化
+
+| 方向 | 交付和验收 |
+| --- | --- |
+| 在线留出画质与指定相机渲染 | 固定仅用于高斯评分的帧，记录回放时已确认的地图版本。给定相机内参和位姿，渲染 RGB、深度和覆盖掩码。对比 `uniform` 与 `coverage` 的画质、深度和开销，分别记录运行中结果与 Finalize 结果。首轮可沿用 Retail_Street |
+| 自由视角浏览与高斯地图导出 | 用已确认快照和指定相机驱动查看。导出训练后高斯参数，并用实际查看器验证子地图位姿、尺度、颜色和不透明度。现有 COLMAP 导出继续提供重建观测 |
+| 画质和几何一致性 | 从留出视角定位空洞、重影和跨块接缝。测得有效密度不足时，试验定额内增密与裁剪，同时核对共同深度误差、显存和训练延迟 |
+| 跨场景与真值复验 | 有合适数据时补测不同光照、动态物体及重访。使用有真值的路线评估轨迹误差、回环误检和留出视角画质 |
+| Humble GPU 全链路 | 使用共用 worker 验证实际训练、回环修正、ROS2 接收及封口，记录跨电脑复用的构建和启动步骤 |
+| 长时地图与续建 | 处理历史高斯资产的总容量和跨会话续建，验证版本、故障恢复及重访时的地图一致性 |
+| P6-04 高斯辅助定位 | 先记录基于确认地图的位姿诊断，再用有真值的退化场景对照收益，结合已有视觉量测的相关性考虑估计器接入 |
+
+在线留出和自由视角查看可以共享一个指定相机的渲染入口。地图质量优化按留出结果选定首个问题。
+[在线 Gaussian 边界](online-gaussian.md) · [C4b 留出结果](p6-03c4b-validation.md) ·
+[阶段路线](superpowers/specs/2026-11-08-online-submaps-design.md#p6-01-之后的阶段路线)
+
+## ROS 执行器与后端线程
+
+当前两端共用 `src/app/livo_main.cc`。Noetic 在主循环用 `ros::spinOnce()` 和 `ProcessNext()`，
+Humble 用 `SingleThreadedExecutor` 处理订阅与处理定时器。前端状态由这条串行执行线持有。
+启用相关功能后，`LoopWorker`、`OnlineGaussianMapper`、Gaussian 预览输出、轨迹和几何地图输出
+各有后台线程。GPU 训练另由 Python worker 进程执行。编译支持时，LIO 和 VIO 内部还会并行计算。
+[共用主入口](../src/app/livo_main.cc) · [Humble 节点](../src/ros2/livo_node.cc) ·
+[回环所有权与停止](online-loop-backend.md#sdk-所有权与停止)
+
+回环已有单后台线程。它读取已封存几何、逐个验证候选，再用私有 GTSAM 图试算。
+`LoopBackend::Poll()` 在系统所有者线程校验提案前沿和位姿版本，按当前持久事务顺序接纳位姿。
+C4c 的 Retail_Street 完整均匀侧有 13 次查询，其中 4 次的候选数大于 1。第 12 项任务的
+5 个候选验证耗时合计约 809 ms，GTSAM 求解约 6.8 ms。这是候选诊断中的实测，池的收益还要按
+端到端延迟、前端负载和内存复测。原始记录位于工作区的
+`validation/P6-03c4c-20261122/full-uniform/keyframes/loop_closure/queries/12.yml`。
+[候选验证与优化](../src/backend/loop_admission.cc) · [提案接纳](../src/core/loop_backend.cc)
+
+Cartographer 用带依赖的任务和后台线程池计算约束，并按工作队列处理位姿图。它用 Abseil 的
+互斥锁同步任务状态和队列，任务计算在队列锁释放后执行。适合本项目借鉴的是并行计算与串行
+提交的职责分工。[Cartographer ThreadPool](https://github.com/cartographer-project/cartographer/blob/master/cartographer/common/thread_pool.cc) ·
+[Task 状态](https://github.com/cartographer-project/cartographer/blob/master/cartographer/common/task.cc) ·
+[PoseGraph2D 工作队列](https://github.com/cartographer-project/cartographer/blob/master/cartographer/mapping/internal/2d/pose_graph_2d.cc#L487)
+
+源码复用有许可证约束。当前 `LICENSE` 和 README 声明 GPLv2，`package.xml` 写的是 BSD。
+Cartographer 线程池源码采用 Apache-2.0，Apache 软件基金会的兼容性说明指出 Apache-2.0 与
+GPLv2 不兼容。按现有 GPLv2 声明交付时，建议独立实现小型 C++17 有界线程池。许可证元数据
+可在核实本包与上游各文件的许可授予后统一。[本仓库许可证](../LICENSE) ·
+[包元数据](../package.xml) · [Cartographer 许可证](https://github.com/cartographer-project/cartographer/blob/master/LICENSE) ·
+[ASF 兼容性说明](https://www.apache.org/licenses/GPL-compatibility.html)
+
+### 建议的首期线程池边界
+
+1. `LoopWorker` 从同一版本快照读取候选，独占现有可变几何缓存。向线程池交付带所有权的只读
+   几何对象，每批的活跃对象和任务数受预算约束。
+2. 同一回环查询的独立 `VerifyLoop()` 可并行。完成结果按原候选顺序汇总，随后由后台执行线
+   串行筛选、试算和复核。池内任务直接返回验证结果，等待批次结果发生在池外。
+3. `LoopBackend` 独占接受历史与位姿提交权。保留同一时刻一个在途查询和一个最新待查 ID 的
+   背压合同，提交前重验来源版本与成员修订。结束时按现有封输入、排空、join 和提交顺序收尾。
+4. 单所有者持有的串行状态无需跨线程锁。任务队列和完成通知使用短临界区和条件变量，具体计算
+   在锁外。若实测表明队列同步成为瓶颈，再评估具备明确单生产者、单消费者契约的方案。
+
+首期只并行候选几何验证。建议运行参数 `loop_closure.worker_threads` 缺省为 1，此时直接走
+串行验证。功能回归沿用现有 bag 和 CPU 亲和性。性能对照为两侧分配同一组至少两个可用逻辑 CPU，
+固定前端 OpenMP 预算，对比 1 与 2 个候选验证线程的回环耗时、前端 P95、实际并发、过期结果
+和 RSS。核对候选排序、接纳 ID、位姿版本、旧任务丢弃和停止排空。
+
+## 构建能力与 YAML 运行选择
+
+建议让 **CMake 解析可编译能力，YAML 选择本次会话使用的能力**。编译了回环的节点可以用
+同一个二进制切换工作模式。GTSAM 链接和目标文件的组成在构建期决定。YAML 请求所需能力时，
+共用入口应在创建输出目录之前检查，并报告缺失的编译项或依赖。
+
+| 功能 | 编译期 | 运行期 |
+| --- | --- | --- |
+| GTSAM 位姿图与几何回环 | 探测 `GTSAM 4.2` 兼容包及 PCL 的 `registration`、`kdtree`。保留 SDK 按能力构建的选项 | `loop_closure.enabled` 控制当前在线 GTSAM 和回环路径。二者当前一起启动 |
+| 在线 Gaussian | 在支持的目标平台编译 C++ socket 桥接，现有实现限 Linux | `gaussian.enabled` 控制连接和建图，Python worker 在运行时检查 CUDA 等依赖 |
+| OpenMP | 工具链探测 C++ OpenMP，按目标链接 `OpenMP::OpenMP_CXX` | 用 `frontend.openmp_threads` 指定并行区预算，1 表示串行 |
+
+现有 `loop_closure.enabled`、`gaussian.enabled` 已可控制相应运行功能。当前在线位姿图求解
+由回环后端发起。若以后有独立的外部约束或纯位姿图运行模式，再给它独立的 YAML 开关和行为。
+[当前 YAML 解析](../src/core/livo_config.cc) · [节点准入](../src/app/livo_main.cc) ·
+[构建入口](../CMakeLists.txt) · [Gaussian 桥接目标](../cmake/online_gaussian.cmake)
+
+建议 `LIVO_ATLAS_USE_OPENMP` 支持 `AUTO`、`ON`、`OFF`。`AUTO` 以目标工具链实际探测结果为
+准，`ON` 要求依赖可用，`OFF` 显式关闭。三项 `WITH_*` 可使用相同档位，全功能机器用 `AUTO`
+探测，最小 SDK 和需要可复现的构建可显式选择。已解析的布尔能力应同时供目标、测试和安装
+依赖使用，涵盖普通 SDK、Catkin 和 Ament。ROS 版本由构建目标选择。
+
+平台相关的选项根据 `CMAKE_SYSTEM_PROCESSOR` 判断目标架构，x86_64 和 ARM 均通过编译器
+探测决定 OpenMP 能力。现有 `ProcessorCount()` 在配置机器上求值并将上限为 4 的线程数写入
+并行宏。运行参数可取代该编译期定值，首版在前端和后台同时运行时核对各自的实际线程预算。
+架构判断可使用工具链。若添加指令集优化，需核对它与外部 PCL 和 Eigen 的对齐约定。
+选项实现沿用项目 CMake 3.16 基线。本机已核对 x86_64 的现有配置，ARM 的配置和运行结果
+需要用对应目标环境验证。[当前 OpenMP 设置](../cmake/core.cmake) ·
+[PCL 内存兼容回归](../tests/pcl_memory_compatibility_test.cc) ·
+[CMake 目标处理器](https://cmake.org/cmake/help/v3.16/variable/CMAKE_SYSTEM_PROCESSOR.html) ·
+[FindOpenMP](https://cmake.org/cmake/help/v3.16/module/FindOpenMP.html) ·
+[ProcessorCount](https://cmake.org/cmake/help/v3.16/module/ProcessorCount.html)
+
+建议的 ROS1 配置形态如下。Humble 的参数适配器提供同名字段给共用读取逻辑。线程数示例用于
+对照，OpenMP 的默认预算按同机基线和目标机器的资源确定。
+
+```yaml
+frontend:
+  openmp_threads: 2
+loop_closure:
+  enabled: true
+  worker_threads: 2
+gaussian:
+  enabled: true
+```
+
+示例展示功能和线程选择。开启相应功能时按照现有配置提供 keyframes、online submaps、
+Gaussian socket 和输出目录。[在线回环参数](online-loop-backend.md#构建与开启) ·
+[在线 Gaussian 参数](online-gaussian.md)
+
+## 可以一起收敛的工程问题
+
+- 启动时汇报目标架构、编译能力、有效运行开关和线程数。缺少能力时给出具体依赖和开关名称。
+- 从共用 `main` 提取会话装配、轮询和收尾代码，明确线程 join、系统销毁及 ROS publisher 的
+  生命周期。改动覆盖两端入口、停止次序及暂停仿真时间下的结果交付。
+- 给回环分阶段计时，单列几何读取、候选验证、GTSAM 试算和 `Poll()` 中的持久提交。利用实际
+  数据判断下一处开销，对照前端回调尾延迟及后台高水位。
+
+建议先收敛编译能力和运行参数，再单独落地有界候选验证池。两步各用现有 SDK 消费者、双 ROS
+启动检查和 Retail_Street 回放验证。正式编码前先完成该阶段设计和模型切换通知。
