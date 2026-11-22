@@ -38,17 +38,17 @@
 返回 4×4 float64 位姿。`prepare_group(prepare, keyframes, output, group, source_sha256)` 调用已有 exporter，
 返回按 ID 的 CPU 观测。`group` 至少包含 `submap_id`、`anchor_id`、`train_ids` 和 `held_out_ids`。
 
-- [ ] 写测试。`test_split_excludes_held_out_ids` 核对 `(168, 4)` 产生训练 `[168, 170, 171]`
+- [x] 写测试。`test_split_excludes_held_out_ids` 核对 `(168, 4)` 产生训练 `[168, 170, 171]`
   和留出 `[169]`，`(0, 18)` 留出 `[1, 9]` 并保留其余 16 帧。`test_rebind_camera_after_loop`
   用非恒等旋转和平移对照已知最终相机，同时检查原图/深度视图未被修改。
   `test_input_collisions_and_bundle_mismatches_are_rejected` 覆盖跨集采集时间、原图哈希重复及导出 ID/标记偏差。
-- [ ] 运行 `"$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_evaluate_gaussian_submaps.py -v`，
+- [x] 运行 `"$LIVO_PYTHON" -m unittest discover -s tests/3dgs_probe -p test_evaluate_gaussian_submaps.py -v`，
   观察缺失接口或对应断言先失败。
-- [ ] 读取 `map.json` 前沿并用 `_inspect_gaussian_map` / `inspect_gaussian_finalization` 核对最终位姿、
+- [x] 读取 `map.json` 前沿并用 `_inspect_gaussian_map` / `inspect_gaussian_finalization` 核对最终位姿、
   资产及封口成员。要求实际权威 records 与最新 pose 文件。先用原始 `frame.yml` 的 `image_timestamp`
   和 `image.png` 哈希全局核对身份，冻结划分与来源。逐组准备，核对 bundle 清单与 split 的精确对应，
   `parent_from_body` 缺失或 bundle 位姿版本混杂时报错。使用设计稿中的相机合成顺序。
-- [ ] 运行定向测试及已有 `test_bundle.py`，预期均通过。普通 SDK 准备器用既有方式安装后构建，
+- [x] 运行定向测试及已有 `test_bundle.py`，预期均通过。普通 SDK 准备器用既有方式安装后构建，
   见 [构建命令](../../gaussian-state.md#环境和数据准备)，也可复用预检查使用的同版二进制。
 
 ### Task 2: 逐组训练、成对渲染和真实数据报告
