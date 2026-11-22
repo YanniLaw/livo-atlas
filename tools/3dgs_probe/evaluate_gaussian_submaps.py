@@ -14,7 +14,7 @@ import time
 import numpy as np
 
 from bundle import load_bundle
-from gaussian_map import (_inspect_gaussian_map, _json, _transform, _yaml,
+from gaussian_map import (_inspect_gaussian_map, _json, _project, _transform, _yaml,
                           inspect_gaussian_finalization)
 from gaussian_state import _unsigned
 from joint_renderer import _check_frontier, _real_directory, infer_blocks
@@ -151,6 +151,9 @@ def read_prepared_group(keyframes, output, group, source_sha256):
             not isinstance(entries, list) or len(entries) != len(expected) or
             len(entries) > _MAX_PRIMARY):
         raise ValueError(f"Prepared bundle differs from submap {group['submap_id']} split")
+    assets = (('image', 'image.png'), ('image_mask', 'image_mask.png'),
+              ('depth_mask', 'depth_mask.png'), ('depth_m', 'depth.f32le'))
+    _real_directory(output / 'views')
     seen = set()
     for entry in entries:
         key = _unsigned(entry['keyframe_id'])
@@ -162,6 +165,13 @@ def read_prepared_group(keyframes, output, group, source_sha256):
                 width <= 0 or height <= 0 or width * height > _MAX_PIXELS):
             raise ValueError(f'Prepared view {key} differs from the frozen split or raw pose frontier')
         seen.add(key)
+        relative = Path('views') / str(key)
+        _real_directory(output / relative)
+        for field, filename in assets:
+            asset = relative / filename
+            path = output / asset
+            if entry[field] != asset.as_posix() or path.is_symlink() or not path.is_file():
+                raise ValueError(f'Prepared view {key} has an invalid {field} asset path')
 
     views = {view['keyframe_id']: view for view in load_bundle(output)}
     for key, view in views.items():
@@ -171,6 +181,11 @@ def read_prepared_group(keyframes, output, group, source_sha256):
                 not np.allclose(view['parent_from_body'], _transform(raw['odom_from_body']),
                                 atol=1e-12, rtol=0)):
             raise ValueError(f'Prepared view {key} does not match its source observation')
+        # In raw odom the body transforms cancel. The C++ exporter first
+        # projects the recorded rotations back onto SO(3).
+        raw_camera = _project(_transform(raw['camera_from_odom']))
+        if not np.allclose(view['camera_from_parent'], raw_camera, atol=1e-9, rtol=1e-12):
+            raise ValueError(f'Prepared camera pose does not match raw keyframe {key}')
         if not view['image_mask'].any() or (view['split'] == 'train' and not view['depth_mask'].any()):
             raise ValueError(f'Keyframe {key} lacks usable image or training depth')
     return views

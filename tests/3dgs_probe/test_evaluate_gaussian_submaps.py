@@ -18,6 +18,18 @@ from test_online_model import make_view
 
 
 class HoldoutPreparationTest(unittest.TestCase):
+    def prepare_fixture(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        keyframes, bundle = root / 'dataset', root / 'bundle'
+        subprocess.run([os.environ['LIVO_FIXTURE_BIN'], str(keyframes), '--nonidentity-body'],
+                       check=True)
+        group = dict(submap_id=0, anchor_id=0, frame_count=2, train_ids=[0], held_out_ids=[1])
+        views = prepare_group(os.environ['LIVO_PREPARE_BIN'], keyframes, bundle, group, 'a' * 64)
+        self.assertEqual({i: view['split'] for i, view in views.items()}, {0: 'train', 1: 'validation'})
+        return keyframes, bundle, group
+
     def test_split_excludes_held_out_ids(self):
         self.assertEqual(split_primary_ids(168, 4), ([168, 170, 171], [169]))
         train, held = split_primary_ids(0, 18)
@@ -52,27 +64,50 @@ class HoldoutPreparationTest(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, '0.*5'):
                 check_split_identity(invalid)
 
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            keyframes, bundle = root / 'dataset', root / 'bundle'
-            subprocess.run([os.environ['LIVO_FIXTURE_BIN'], str(keyframes)], check=True)
-            group = dict(submap_id=0, anchor_id=0, frame_count=2, train_ids=[0], held_out_ids=[1])
-            views = prepare_group(os.environ['LIVO_PREPARE_BIN'], keyframes, bundle, group, 'a' * 64)
-            self.assertEqual({i: view['split'] for i, view in views.items()}, {0: 'train', 1: 'validation'})
-            manifest = bundle / 'bundle.json'
-            original = json.loads(manifest.read_text())
-            for edit in (lambda doc: doc['views'].append(doc['views'][0]),
-                         lambda doc: doc['views'].pop(),
-                         lambda doc: doc['views'][1].update(keyframe_id='9'),
-                         lambda doc: doc['views'][1].update(split='train'),
-                         lambda doc: doc['views'][1].update(frame_count='3'),
-                         lambda doc: doc['views'][1].update(pose_version='1'),
-                         lambda doc: doc['views'][1].pop('parent_from_body')):
-                changed = copy.deepcopy(original)
-                edit(changed)
-                manifest.write_text(json.dumps(changed))
-                with self.subTest(manifest=changed), self.assertRaises(ValueError):
-                    read_prepared_group(keyframes, bundle, group, 'a' * 64)
+        keyframes, bundle, group = self.prepare_fixture()
+        manifest = bundle / 'bundle.json'
+        original = json.loads(manifest.read_text())
+        for edit in (lambda doc: doc['views'].append(doc['views'][0]),
+                     lambda doc: doc['views'].pop(),
+                     lambda doc: doc['views'][1].update(keyframe_id='9'),
+                     lambda doc: doc['views'][1].update(split='train'),
+                     lambda doc: doc['views'][1].update(frame_count='3'),
+                     lambda doc: doc['views'][1].update(pose_version='1'),
+                     lambda doc: doc['views'][1].pop('parent_from_body')):
+            changed = copy.deepcopy(original)
+            edit(changed)
+            manifest.write_text(json.dumps(changed))
+            with self.subTest(manifest=changed), self.assertRaises(ValueError):
+                read_prepared_group(keyframes, bundle, group, 'a' * 64)
+
+    def test_prepared_pose_must_match_its_raw_camera(self):
+        keyframes, bundle, group = self.prepare_fixture()
+        manifest = bundle / 'bundle.json'
+        document = json.loads(manifest.read_text())
+        train, held = document['views']
+        self.assertNotEqual(train['camera_from_parent'], held['camera_from_parent'])
+        train['camera_from_parent'] = held['camera_from_parent']
+        manifest.write_text(json.dumps(document))
+        with self.assertRaisesRegex(ValueError, 'camera pose.*keyframe 0'):
+            read_prepared_group(keyframes, bundle, group, 'a' * 64)
+
+    def test_prepared_assets_must_belong_to_their_keyframe(self):
+        keyframes, bundle, group = self.prepare_fixture()
+        manifest = bundle / 'bundle.json'
+        original = json.loads(manifest.read_text())
+        for asset in ('image', 'image_mask', 'depth_mask', 'depth_m'):
+            document = copy.deepcopy(original)
+            train, held = document['views']
+            train[asset] = held[asset]
+            manifest.write_text(json.dumps(document))
+            with self.subTest(asset=asset), self.assertRaisesRegex(ValueError, 'view 0.*asset'):
+                read_prepared_group(keyframes, bundle, group, 'a' * 64)
+        manifest.write_text(json.dumps(original))
+        train_image = bundle / original['views'][0]['image']
+        train_image.unlink()
+        train_image.symlink_to(bundle / original['views'][1]['image'])
+        with self.assertRaisesRegex(ValueError, 'view 0.*asset'):
+            read_prepared_group(keyframes, bundle, group, 'a' * 64)
 
 
 def prepared_views(count):
