@@ -1,7 +1,7 @@
 # 在线回环接纳
 
 P6-02c2b 将已有 [C2a 准入计算](loop-admission.md)接入在线封存事件。
-默认关闭；开启后，一个 worker 计算提案，系统所有者检查来源、保存 prepared，再通过原有系统接口发布位姿。
+默认关闭。启用图优化时，一个 worker 计算提案，系统所有者检查来源、保存 prepared，再发布位姿。
 ROS1 Noetic 与 ROS2 Humble 使用同一个 `src/app/livo_main.cc`。
 worker 通过 Cartographer 2.0.0 的单线程 `ThreadPool` 调度回环任务，位姿提交由系统所有者执行。
 [线程池来源](../third_party/cartographer/README.md)
@@ -9,17 +9,18 @@ worker 通过 Cartographer 2.0.0 的单线程 `ThreadPool` 调度回环任务，
 
 ## 构建与开启
 
-在现有[构建方式](ros-builds.md)上同时启用两个开关，并提供兼容的 GTSAM 4.2 安装：
+常规[构建](ros-builds.md)提供 `livo_atlas::online_backend` 和 `livo_atlas_check_loops`，
+需要兼容的 GTSAM 4.2 和带 registration、kdtree 的 PCL。非标准安装可指定
+`-DGTSAM_DIR=/absolute/path/to/gtsam/lib/cmake/GTSAM`。
 
-```text
--DLIVO_ATLAS_WITH_GTSAM=ON
--DLIVO_ATLAS_WITH_LOOP_CLOSURE=ON
--DGTSAM_DIR=/absolute/path/to/gtsam/lib/cmake/GTSAM
-```
+| `loop_closure.enabled` | `pose_graph.enabled` | 本次运行 |
+| --- | --- | --- |
+| `false` | `false` | 纯 LIVO |
+| `true` | `false` | 检测回环并保存通过几何筛选的匹配 |
+| `true` | `true` | 检测回环、试算位姿图，接纳通过复核的更新 |
 
-双开时提供 `livo_atlas::online_backend` 和 `livo_atlas_check_loops`。
-两个开关全关时无需 GTSAM；单开时没有 online_backend 目标。
-双开节点直接链接可选后端库，运行时关闭仍可能加载 GTSAM。运行开关控制会话目录和 worker 的创建。
+位姿图使用检测到的回环约束，启用时需要同时开启回环检测。旧 YAML 省略
+`pose_graph.enabled` 时，取 `loop_closure.enabled` 的值。
 
 在现有传感器、标定配置基础上，ROS1 使用以下参数：
 
@@ -33,6 +34,8 @@ submaps:
 loop_closure:
   enabled: true
   options_file: ""
+pose_graph:
+  enabled: true
 ```
 
 ROS2 对应参数使用同一套字段：
@@ -46,12 +49,13 @@ laserMapping:
     submaps.max_keyframes: 20
     loop_closure.enabled: true
     loop_closure.options_file: ""
+    pose_graph.enabled: true
 ```
 
 每次使用新的输出目录。启用要求在线关键帧和子地图，每块最多 64 个主成员。
 `submaps.geometry.enabled` 可以关闭；worker 自己使用固定的 0.2 m 几何表示和三块缓存。
 空 options_file 使用 C2a 默认值；非空时读取与离线工具相同的 search、registration、graph、admission 四组。
-选项和构建支持检查发生在创建系统输出目录之前。运行关闭时不读取选项文件。
+节点在创建输出目录前校验参数组合。启用回环检测时读取选项文件。
 
 ## SDK 所有权与停止
 
@@ -59,10 +63,11 @@ SDK 链接 `livo_atlas::online_backend`。先读取选项，再创建 `LivoSyste
 应用注册唯一在线通知回调，并在系统处理返回后泵送结果：
 
 ```cpp
-const auto loop_options = config.loop_closure_options_file.empty()
-                              ? LoopAdmissionOptions{}
-                              : ReadLoopAdmissionOptions(
-                                    config.loop_closure_options_file);
+auto loop_options = config.loop_closure_options_file.empty()
+                        ? LoopAdmissionOptions{}
+                        : ReadLoopAdmissionOptions(
+                              config.loop_closure_options_file);
+loop_options.pose_graph_enabled = config.pose_graph_enabled;
 LivoSystem system(config.system);
 LoopBackend backend(system, loop_options);
 system.SetOnlineSubmapCallback([&](const OnlineSubmapUpdate& update) {
@@ -115,6 +120,10 @@ ROS1 开启后台时使用壁钟等待，因此暂停仿真时钟也能继续泵
 | events/SEQ.yml | 合并跳过范围和资源停止 |
 | summary.yml | 初始 complete=0，正常排空和系统 Finish 成功后原子替换为 complete=1 |
 | failure.yml | 尽力写入的失败原因 |
+
+仅检测模式保留原始位姿版本 0。通过几何筛选的查询记录 `detected` 和选中目标子地图 ID，
+摘要包含 `detected` 计数。回放工具使用 `--loop-detection-only` 选择此模式，
+使用 `--loop-closure` 运行检测和位姿图优化。
 
 session、prepared、query、event 正式文件不可覆盖。只有 prepared 与匹配的正式 pose 才建立已接纳版本。
 pose 发布后通知或诊断失败，文件保留，整个会话终止；summary 或额外确认文件不能替代位姿提交权威。

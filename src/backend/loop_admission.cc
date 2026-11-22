@@ -271,6 +271,11 @@ LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
   result.status = selection.status;
   if (!selection.index) return result;
   auto& chosen = hypotheses[*selection.index];
+  if (!options.pose_graph_enabled) {
+    result.status = LoopAdmissionStatus::kDetected;
+    result.detected_target_id = chosen.loop.target.primary.id;
+    return result;
+  }
   const auto build_start = std::chrono::steady_clock::now();
   PoseGraph graph(options.graph);
   for (std::size_t i = 0; i < input.raw_poses.size(); ++i)
@@ -353,6 +358,8 @@ const char* LoopAdmissionStatusName(LoopAdmissionStatus status) {
       return "geometry_changed";
     case LoopAdmissionStatus::kProposed:
       return "proposed";
+    case LoopAdmissionStatus::kDetected:
+      return "detected";
   }
   throw std::invalid_argument("Unknown loop admission status");
 }

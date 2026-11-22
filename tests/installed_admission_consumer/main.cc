@@ -14,16 +14,10 @@
 #include "livo_atlas/mapping/geometry_map_builder.h"
 #include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/mapping/pose_snapshot.h"
-#ifdef EXPECT_GTSAM
 #include "livo_atlas/backend/pose_graph.h"
-#endif
-#ifdef EXPECT_LOOP
 #include "livo_atlas/backend/loop_closure.h"
-#endif
-#ifdef EXPECT_ADMISSION
 #include "livo_atlas/backend/loop_admission.h"
 #include "livo_atlas/core/loop_backend.h"
-#endif
 
 namespace livo_atlas {
 
@@ -54,14 +48,11 @@ int RunInstalledAdmissionConsumer() {
         map.sources.size() != 1 || map.sources[0].input_point_count != 1)
       throw std::runtime_error(
           "Installed geometry map builder lost its source");
-#ifdef EXPECT_GTSAM
     PoseGraph graph({});
     for (std::uint64_t i = 0; i < raw.size(); ++i) graph.AddKeyframe(i, raw[i]);
     const auto optimized = graph.Optimize(poses);
     if (optimized.update.poses.size() != 3 || optimized.final_error != 0)
       return 1;
-#endif
-#ifdef EXPECT_LOOP
     GeometrySubmap target;
     target.membership = {{0, 0, {0}}, {}, 2, OnlineSubmapState::kSealed};
     target.frame_count = 3;
@@ -76,8 +67,6 @@ int RunInstalledAdmissionConsumer() {
     source.data = source_data;
     if (VerifyLoop(target, source).status != LoopStatus::kInsufficientPoints)
       return 1;
-#endif
-#ifdef EXPECT_ADMISSION
     LoopAdmissionInput input;
     input.raw_poses = raw;
     input.poses = poses;
@@ -91,7 +80,6 @@ int RunInstalledAdmissionConsumer() {
         });
     if (result.status != LoopAdmissionStatus::kNoCandidate || result.proposal)
       return 1;
-#endif
     const GlobalOutputOptions output{true, true, "atlas/map_2"};
     ValidateGlobalOutputOptions(output);
     const RigidTransform published{Eigen::Matrix3d::Identity(), {1, 2, 3}};
@@ -119,9 +107,7 @@ int RunInstalledAdmissionConsumer() {
           !ApplyMapCorrection(correction, published)
                .translation.isApprox(published.translation))
         throw std::runtime_error("Installed map correction is not identity");
-#ifdef EXPECT_ADMISSION
       LoopBackend backend(system);
-#endif
       // Read these values only after Finish has joined their sole writer.
       std::vector<TrajectorySnapshot> received;
       TrajectoryOutputOptions trajectory_options;
@@ -136,21 +122,15 @@ int RunInstalledAdmissionConsumer() {
           system, geometry_options, options.geometry,
           [&](const auto& item) { maps.push_back(item); });
       system.SetOnlineSubmapCallback([&](const auto& update) {
-#ifdef EXPECT_ADMISSION
         backend.Observe(update);
-#endif
         trajectory.Observe(update);
         geometry.Observe(update);
       });
-#ifdef EXPECT_ADMISSION
       backend.Finish();
       const auto report = InspectLoopDataset(directory / "keyframes");
       if (report.status != LoopRecoveryStatus::kConsistent)
         throw std::runtime_error(
             "Installed backend did not finish consistently");
-#else
-      system.Finish();
-#endif
       trajectory.Finish();
       geometry.Finish();
       if (received.size() != 1 || received[0].revision != 1 ||

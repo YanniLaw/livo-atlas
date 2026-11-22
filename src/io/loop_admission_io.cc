@@ -1,9 +1,10 @@
 #include "io/loop_admission_io.h"
 
 #include <algorithm>
+#include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
-#include <set>
 
 #include "io/dataset_metadata.h"
 #include "io/loop_diagnostics.h"
@@ -128,6 +129,8 @@ void WriteQuery(cv::FileStorage& yaml, const LoopSubmapInfo& source,
        << "first_timestamp" << Decimal(source.first_timestamp)
        << "last_timestamp" << Decimal(source.last_timestamp)
        << "elapsed_seconds" << Decimal(elapsed_seconds);
+  if (result.detected_target_id)
+    yaml << "detected_target_id" << std::to_string(*result.detected_target_id);
   WriteMembership(yaml, "source", source.membership);
   yaml << "candidates"
        << "[";
@@ -591,14 +594,15 @@ void CheckAdmissionDiagnostics(const cv::FileNode& node,
       node, {"schema_version", "query_id", "status", "base_version",
              "pose_version", "frame_count", "first_timestamp", "last_timestamp",
              "elapsed_seconds", "source", "candidates", "optimization_error",
-             "trial", "geometry_checks"});
+             "trial", "geometry_checks", "detected_target_id"});
   const auto status = meta::String(node["status"]);
   const std::set<std::string> statuses = {
       "no_candidate",        "geometry_rejected",
       "ambiguous",           "correlated",
       "resource_limit",      "optimization_rejected",
       "constraint_residual", "pose_correction",
-      "geometry_changed",    "proposed"};
+      "geometry_changed",    "proposed",
+      "detected"};
   RequireDiagnostic(statuses.count(status) && base.frame_count &&
                     meta::Integer(node["schema_version"]) == 1 &&
                     meta::Id(node["query_id"]) == query_id &&
@@ -617,6 +621,10 @@ void CheckAdmissionDiagnostics(const cv::FileNode& node,
                         timestamps.at(source.primary.keyframe_ids.back()));
   const auto candidates = node["candidates"];
   RequireDiagnostic(candidates.isSeq());
+  const auto detected_id = node["detected_target_id"];
+  std::optional<std::uint64_t> detected_target;
+  if (!detected_id.empty()) detected_target = meta::Id(detected_id);
+  RequireDiagnostic((status == "detected") == detected_target.has_value());
   std::set<std::uint64_t> targets;
   for (const auto& row : candidates) {
     RequireDiagnostic(row.isMap());
@@ -628,7 +636,10 @@ void CheckAdmissionDiagnostics(const cv::FileNode& node,
     RequireDiagnostic(target.state == OnlineSubmapState::kSealed &&
                       target.primary.keyframe_ids.back() < base.frame_count);
     CheckVerification(row, target, source, base);
+    if (detected_target == target_id)
+      RequireDiagnostic(meta::String(row["status"]) == "verified");
   }
+  RequireDiagnostic(!detected_target || targets.count(*detected_target));
   const bool early = status == "no_candidate" || status == "resource_limit";
   RequireDiagnostic(early == (candidates.size() == 0));
   const bool error = !node["optimization_error"].empty();

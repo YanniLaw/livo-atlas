@@ -10,12 +10,11 @@ P6-02c2a 在 C1 几何验证之后增加多候选一致性、相关约束去重�
 
 ## 构建与安装
 
-同时开启两个已有选项才生成 `livo_atlas::loop_backend` 和 `livo_atlas_propose_loops`：
+常规构建生成 `livo_atlas::loop_backend` 和 `livo_atlas_propose_loops`。
 
 ```bash
 cmake -S /path/to/livo-atlas -B /path/to/build \
   -DLIVO_ATLAS_ROS_VERSION=0 -DBUILD_TESTING=ON \
-  -DLIVO_ATLAS_WITH_GTSAM=ON -DLIVO_ATLAS_WITH_LOOP_CLOSURE=ON \
   -DGTSAM_DIR=/path/to/gtsam/lib/cmake/GTSAM \
   -DSophus_DIR=/path/to/compatible-sophus-config \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/path/to/install
@@ -27,9 +26,9 @@ cmake --install /path/to/build
 外部 CMake 消费者通过 `find_package(livo_atlas CONFIG REQUIRED)` 和
 `target_link_libraries(my_target PRIVATE livo_atlas::loop_backend)` 使用普通接口。
 公共头不包含 ROS、GTSAM 或 PCL registration 类型。静态工程库使用 `BUILD_SHARED_LIBS=OFF`；
-关闭 OpenMP 使用 `LIVO_ATLAS_USE_OPENMP=OFF`。两种单开分别保留位姿图或 C1 能力，
-全关维持原前端构建。安装消费示例见 [测试工程](../tests/installed_admission_consumer/CMakeLists.txt)。
-Noetic/Humble 使用同样的两个选项，工作空间准备见[双 ROS 构建](ros-builds.md)。
+关闭 OpenMP 使用 `LIVO_ATLAS_USE_OPENMP=OFF`。
+安装消费示例见[测试工程](../tests/installed_admission_consumer/CMakeLists.txt)。
+Noetic 和 Humble 的工作空间准备见[双 ROS 构建](ros-builds.md)。
 
 ## 运行已结束的数据集
 

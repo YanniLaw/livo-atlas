@@ -35,6 +35,12 @@ RigidTransform Transform(ParameterReader& reader, const std::string& rotation,
 LivoConfig LoadLivoConfig(ParameterReader& reader) {
   LivoConfig config;
   config.loop_closure_enabled = reader.Boolean("loop_closure.enabled", false);
+  config.pose_graph_enabled =
+      reader.Boolean("pose_graph.enabled", config.loop_closure_enabled);
+  if (config.pose_graph_enabled && !config.loop_closure_enabled) {
+    throw std::invalid_argument(
+        "pose_graph.enabled requires loop_closure.enabled");
+  }
   config.loop_closure_options_file =
       reader.String("loop_closure.options_file", "");
   auto& gaussian = config.gaussian;

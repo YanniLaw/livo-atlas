@@ -91,6 +91,18 @@ class BaselineRunnerTest(unittest.TestCase):
 
 
 class GlobalBaselineParserTest(unittest.TestCase):
+    def test_loop_replays_select_detection_or_pose_graph(self):
+        for module, entry in ((run_baseline, ['--workspace', '/ws']),
+                              (run_ros2_baseline, ['--executable', '/node'])):
+            common = entry + ['--bag', '/bag', '--output', '/output']
+            for flag, optimize in (('--loop-closure', True),
+                                   ('--loop-detection-only', False)):
+                with self.subTest(module=module.__name__, flag=flag):
+                    args = module.parse_arguments(common + [flag])
+                    self.assertTrue(args.loop_closure)
+                    self.assertEqual(args.pose_graph_enabled, optimize)
+                    self.assertEqual(args.submap_mode, 'online')
+
     def test_gaussian_paths_do_not_overlap_working_or_exported_dataset(self):
         for module, node_output in ((run_baseline, 'node_output'),
                                     (run_ros2_baseline, 'node-output')):

@@ -155,6 +155,31 @@ class CompareGaussianReplaysTest(unittest.TestCase):
         self.assertIn("parameters", result["differences"])
         self.assertIn("loop_backend", result["differences"])
 
+    def test_pose_graph_toggle_is_compared_with_legacy_default(self):
+        for run in (self.off, self.on):
+            path = run / "parameters.yaml"
+            config = yaml.safe_load(path.read_text())
+            config["loop_closure"] = {"enabled": True}
+            path.write_text(yaml.safe_dump(config))
+        path = self.on / "parameters.yaml"
+        config = yaml.safe_load(path.read_text())
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                config["pose_graph"] = {"enabled": enabled}
+                path.write_text(yaml.safe_dump(config))
+                result = compare(self.off, self.on, self.previews)
+                self.assertEqual(result["passed"], enabled, result)
+                self.assertEqual("parameters" in result["differences"], not enabled)
+
+    def test_detection_counts_are_compared(self):
+        for run, detected in ((self.off, 1), (self.on, 2)):
+            with (run / "mapping.log").open("a") as log:
+                log.write(f"livo_atlas loop detection: detected={detected}\n")
+        result = compare(self.off, self.on, self.previews)
+        self.assertFalse(result["passed"])
+        self.assertEqual([stats["detected"] for stats in
+                          result["differences"]["loop_backend"]], [1, 2])
+
     def test_published_semantics_differences_are_reported(self):
         (self.on / "semantic-output.json").write_text(json.dumps({"/rgb_img": ["changed"]}))
         result = compare(self.off, self.on, self.previews)

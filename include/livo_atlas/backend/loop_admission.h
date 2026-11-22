@@ -43,6 +43,7 @@ struct LoopAdmissionOptions {
   double max_pose_correction_deg = 20;
   std::size_t max_keyframes = 5000;
   std::size_t max_loops = 200;
+  bool pose_graph_enabled = true;
 };
 
 enum class LoopAdmissionStatus {
@@ -56,6 +57,7 @@ enum class LoopAdmissionStatus {
   kPoseCorrection,
   kGeometryChanged,
   kProposed,
+  kDetected,
 };
 
 struct LoopCandidateReport {
@@ -92,6 +94,7 @@ struct LoopAdmissionResult {
   // Rejected trials never expose a committable update.
   std::optional<LoopProposal> proposal;
   std::optional<std::string> optimization_error;
+  std::optional<std::uint64_t> detected_target_id;
 };
 
 using LoopGeometryReader = std::function<GeometrySubmap(

@@ -3,7 +3,6 @@
 #include <memory>
 
 int main() {
-#ifdef EXPECT_LOOP
   livo_atlas::GeometrySubmap target, source;
   target.membership.primary = {0, 0, {0}};
   source.membership.primary = {5, 100, {100}};
@@ -20,6 +19,5 @@ int main() {
   if (result.status != livo_atlas::LoopStatus::kInsufficientPoints ||
       result.target_from_source)
     return 1;
-#endif
   return 0;
 }

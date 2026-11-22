@@ -136,6 +136,27 @@ TEST_F(LoopBackendTest, WaitingPumpAcceptsResult) {
   backend.Finish();
 }
 
+TEST_F(LoopBackendTest, DetectionOnlyFinishesWithoutPublishingAPoseUpdate) {
+  auto options = loop_test::NearbyOptions();
+  options.pose_graph_enabled = false;
+  LoopBackend backend(*system_, options);
+  Observe(backend);
+  Append(0, 4);
+  backend.Poll();
+  ASSERT_TRUE(Pump(backend));
+  backend.Finish();
+
+  const auto stats = backend.GetStats();
+  EXPECT_GT(stats.detected, 0u);
+  EXPECT_EQ(stats.accepted, 0u);
+  EXPECT_EQ(stats.completed, stats.detected + stats.rejected);
+  EXPECT_EQ(system_->GetPoseSnapshot()->version, 0u);
+  EXPECT_TRUE(fs::is_empty(Dataset() / "loop_closure" / "prepared"));
+  const auto report = InspectLoopDataset(Dataset());
+  EXPECT_EQ(report.status, LoopRecoveryStatus::kConsistent)
+      << testing::PrintToString(report.issues);
+}
+
 TEST_F(LoopBackendTest, CrossedBudgetDoesNotCommit) {
   Gate gate;
   auto options = loop_test::NearbyOptions();

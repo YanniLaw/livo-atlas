@@ -16,7 +16,8 @@ enum class LoopDisposition {
   kAccepted,
   kStale,
   kResourceLimit,
-  kFailed
+  kFailed,
+  kDetected
 };
 
 struct LoopSessionStats {
@@ -24,6 +25,7 @@ struct LoopSessionStats {
   std::uint64_t submitted = 0, completed = 0, rejected = 0, accepted = 0;
   std::uint64_t stale = 0, skipped = 0, resource_limited = 0;
   std::uint64_t peak_work_payloads = 0, peak_pending = 0;
+  std::uint64_t detected = 0;
 };
 
 enum class LoopRecoveryStatus { kConsistent, kIncomplete, kInconsistent };
@@ -57,6 +59,7 @@ class LoopClosureStore {
  private:
   void WriteSummary(const LoopSessionStats& stats, bool complete);
   std::filesystem::path directory_;
+  bool pose_graph_enabled_;
   std::uint64_t next_event_ = 1;
 };
 

@@ -30,7 +30,7 @@ ament_target_dependencies(livo_atlas_ros2_conversions
 add_library(livo_atlas_ros2_node src/ros2/node_options.cc src/ros2/livo_node.cc
   src/ros2/livo_publisher.cc src/ros2/keyframe_trajectory_publisher.cc
   src/ros2/geometry_map_publisher.cc)
-if(livo_atlas_build_online_gaussian)
+if(TARGET livo_atlas_online_gaussian)
   target_sources(livo_atlas_ros2_node PRIVATE src/ros2/gaussian_render_publisher.cc)
   target_link_libraries(livo_atlas_ros2_node livo_atlas_online_gaussian)
 endif()

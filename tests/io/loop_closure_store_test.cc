@@ -76,10 +76,14 @@ class LoopClosureStoreTest : public testing::Test {
     }
     for (const auto& group : builder.Finish()) poses_->AppendRevision(group);
     journal_ = std::make_unique<LoopClosureStore>(frames_->CaptureReadView(),
-                                                  loop_test::NearbyOptions());
+                                                  SessionOptions());
   }
 
   void TearDown() override { fs::remove_all(root_); }
+
+  virtual LoopAdmissionOptions SessionOptions() const {
+    return loop_test::NearbyOptions();
+  }
 
   LoopTaskResult Result(
       std::uint64_t query_id = 2,
@@ -121,6 +125,59 @@ class LoopClosureStoreTest : public testing::Test {
   std::unique_ptr<LoopClosureStore> journal_;
 };
 
+class DetectionOnlyLoopClosureStoreTest : public LoopClosureStoreTest {
+ protected:
+  LoopAdmissionOptions SessionOptions() const override {
+    auto options = LoopClosureStoreTest::SessionOptions();
+    options.pose_graph_enabled = false;
+    return options;
+  }
+};
+
+TEST_F(DetectionOnlyLoopClosureStoreTest, RecordsVerifiedTargetAndCount) {
+  const auto result = Result(2, SessionOptions());
+  ASSERT_EQ(result.admission->status, LoopAdmissionStatus::kDetected);
+  journal_->WriteQuery(result, LoopDisposition::kDetected, 0, 4);
+  auto stats = Stats();
+  stats.pose_version = stats.accepted = 0;
+  stats.detected = 1;
+  journal_->Finish(stats);
+  const auto report = InspectLoopDataset(root_);
+  ASSERT_EQ(report.status, LoopRecoveryStatus::kConsistent)
+      << testing::PrintToString(report.issues);
+  EXPECT_EQ(report.committed_version, 0u);
+
+  const auto query = root_ / "loop_closure/queries/1.yml";
+  const auto original = Bytes(query);
+  Replace(query, "detected_target_id: \"0\"", "detected_target_id: \"1\"");
+  EXPECT_EQ(InspectLoopDataset(root_).status,
+            LoopRecoveryStatus::kInconsistent);
+  std::ofstream(query) << original;
+
+  const auto summary = root_ / "loop_closure/summary.yml";
+  Replace(summary, "detected: \"1\"", "detected: \"0\"");
+  EXPECT_EQ(InspectLoopDataset(root_).status,
+            LoopRecoveryStatus::kInconsistent);
+}
+
+TEST_F(DetectionOnlyLoopClosureStoreTest, CanCompleteWithZeroDetections) {
+  LoopSessionStats stats;
+  stats.frame_count = 4;
+  journal_->Finish(stats);
+  const auto report = InspectLoopDataset(root_);
+  EXPECT_EQ(report.status, LoopRecoveryStatus::kConsistent)
+      << testing::PrintToString(report.issues);
+  EXPECT_EQ(report.committed_version, 0u);
+}
+
+TEST_F(DetectionOnlyLoopClosureStoreTest, RejectsPreparedPoseUpdates) {
+  const auto result = Result();
+  ASSERT_TRUE(result.admission->proposal);
+  EXPECT_THROW(journal_->WritePrepared(result, Candidate(result)),
+               std::invalid_argument);
+  EXPECT_FALSE(fs::exists(Prepared()));
+}
+
 TEST_F(LoopClosureStoreTest, PreparedIsNotCommit) {
   const auto result = Result();
   ASSERT_TRUE(result.admission->proposal);
@@ -132,6 +189,12 @@ TEST_F(LoopClosureStoreTest, PreparedIsNotCommit) {
   EXPECT_EQ(report.committed_version, 0u);
   EXPECT_EQ(report.uncommitted_prepared, (std::vector<std::uint64_t>{1}));
   EXPECT_EQ(Bytes(Prepared()), before);
+
+  const auto session = root_ / "loop_closure/session.yml";
+  Replace(session, "schema_version: 1",
+          "schema_version: 1\npose_graph_enabled: 0");
+  EXPECT_EQ(InspectLoopDataset(root_).status,
+            LoopRecoveryStatus::kInconsistent);
 }
 
 TEST_F(LoopClosureStoreTest, PublishedPoseMatchesPrepared) {

@@ -19,14 +19,12 @@
 空闲显存，并将 PyTorch 的进程分配比例限制为显存总量的 40%；缺少预编译扩展时不会自动
 触发 JIT 编译。该限制不能约束驱动、其他进程或所有非 PyTorch 分配。
 
-以下示例在包外放运行数据，并假设当前目录是工作空间根目录。`LIVO_PYTHON`、`Sophus_DIR`
-等路径需要按实际电脑替换；如果启用已有回环后端，还须同时开启 GTSAM 和回环编译选项，
-并提供对应的 `GTSAM_DIR`。构建前请检查所在分区空间。
+以下示例假设当前目录是工作空间根目录，运行数据放在包外。按实际电脑替换路径。
+自定义 GTSAM 安装可通过 `GTSAM_DIR` 指定。ROS 参数见[在线回环设置](online-loop-backend.md)。
 
 ```bash
 source /opt/ros/noetic/setup.bash
 catkin_make -j1 -DLIVO_ATLAS_ROS_VERSION=1 \
-  -DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=AUTO \
   -DSophus_DIR=/path/to/Sophus/build
 source devel/setup.bash
 ```
@@ -36,19 +34,14 @@ ROS2 Humble 使用现有工作空间和 `livox_ros_driver2` 环境，例如：
 ```bash
 source /opt/ros/humble/setup.bash
 colcon build --packages-select livo_atlas --parallel-workers 1 --cmake-args \
-  -DLIVO_ATLAS_ROS_VERSION=2 -DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=AUTO \
+  -DLIVO_ATLAS_ROS_VERSION=2 \
   -DSophus_DIR=/path/to/Sophus/build
 source install/setup.bash
 ```
 
-Noetic、Humble 和独立 SDK 的 `LIVO_ATLAS_WITH_ONLINE_GAUSSIAN` 默认均为 `AUTO`。
-它根据 CMake 的目标系统选择，Linux 编入 C++ 桥接层，其他目标关闭桥接层。
-`ON` 显式要求 Linux 桥接层，`OFF` 用于裁剪构建。已有构建目录沿用原有开关选择，
-可以用 `-DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=AUTO` 切回自动选择。
-
-节点每次启动读取 `gaussian.enabled`，默认 `false`。已有桥接层的节点可以用同一二进制
-切换纯 LIVO 和在线 Gaussian。关闭时节点不创建 Gaussian mapper、预览发布器或 worker 连接。
-如果配置请求在线 Gaussian，而构建关闭了桥接层，节点在创建输出目录前报告编译选项。
+Linux 目标包含 C++ 桥接层。节点每次启动读取 `gaussian.enabled`，默认 `false`。
+在 Linux 上可用同一二进制切换纯 LIVO 和在线 Gaussian。其他目标收到启用请求时，
+节点会在创建输出目录前报告平台要求。
 编译桥接层使用现有 C++ 依赖，Python/CUDA 环境在启动独立 worker 时使用。
 [节点装配](../src/app/online_gaussian.cc)
 
@@ -360,7 +353,7 @@ worker 在推理前核对已确认内容；返回时 owner 再按当前地图校
 ```bash
 export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OPENBLAS_NUM_THREADS=1
 cmake -S src/livo-atlas -B build/spatial-check -DLIVO_ATLAS_ROS_VERSION=0 \
-  -DBUILD_TESTING=ON -DLIVO_ATLAS_WITH_ONLINE_GAUSSIAN=ON \
+  -DBUILD_TESTING=ON \
   -DSophus_DIR=/path/to/Sophus/build
 cmake --build build/spatial-check --target gaussian_projection_probe -j1
 export LIVO_PROJECTION_PROBE="$PWD/build/spatial-check/gaussian_projection_probe"

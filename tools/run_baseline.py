@@ -131,8 +131,11 @@ def parse_arguments(arguments=None):
                         help='Select the submap index format (default: keyframe_groups)')
     parser.add_argument('--geometry-submaps', action='store_true',
                         help='Enable online geometry submaps and their required inputs')
-    parser.add_argument('--loop-closure', action='store_true',
-                        help='Enable the online loop backend and its required storage')
+    loop = parser.add_mutually_exclusive_group()
+    loop.add_argument('--loop-closure', action='store_true',
+                      help='Detect loops and optimize the pose graph')
+    loop.add_argument('--loop-detection-only', action='store_true',
+                      help='Detect loops and record matches')
     parser.add_argument('--global-output', action='store_true',
                         help='Publish map correction and current global pose using online storage')
     parser.add_argument('--keyframe-trajectory', action='store_true',
@@ -141,6 +144,8 @@ def parse_arguments(arguments=None):
                         help='Record versioned geometry maps; enables global output and online storage')
     add_gaussian_arguments(parser)
     args = parser.parse_args(arguments)
+    args.pose_graph_enabled = args.loop_closure
+    args.loop_closure = args.loop_closure or args.loop_detection_only
     working_dataset = (args.workspace / 'src/livo-atlas/Log/keyframes' if args.legacy_output
                        else args.output / 'node_output/keyframes')
     validate_gaussian_arguments(args, parser, working_dataset)
@@ -151,7 +156,8 @@ def parse_arguments(arguments=None):
     if args.global_output and args.submap_mode == 'keyframe_groups':
         parser.error('--global-output requires online submaps')
     if args.loop_closure and args.submap_mode == 'keyframe_groups':
-        parser.error('--loop-closure requires online submaps')
+        flag = '--loop-detection-only' if args.loop_detection_only else '--loop-closure'
+        parser.error(flag + ' requires online submaps')
     if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-submaps requires online submaps')
     if args.submap_mode is None:
@@ -297,6 +303,8 @@ def main():
             run(['rosparam', 'set', '/global_output/geometry/enabled', 'true'])
         if args.loop_closure:
             run(['rosparam', 'set', '/loop_closure/enabled', 'true'])
+            run(['rosparam', 'set', '/pose_graph/enabled',
+                 json.dumps(args.pose_graph_enabled)])
         if args.geometry_submaps:
             run(['rosparam', 'set', '/submaps/geometry/enabled', 'true'])
         for name, value in gaussian_parameters(args).items():
@@ -310,16 +318,25 @@ def main():
                                ('pcd_save/interval', '-1'),
                                ('image_save/img_save_en', 'true')]:
                 run(['rosparam', 'set', '/' + key, value])
-        run(['rosparam', 'dump', str(output / 'parameters.yaml')])
+        parameters_path = output / 'parameters.yaml'
+        run(['rosparam', 'dump', str(parameters_path)])
 
         import psutil
         import rosbag
         import rospy as ros_module
+        import yaml
         from nav_msgs.msg import Odometry, Path as RosPath
         from geometry_msgs.msg import PoseStamped
         from tf2_msgs.msg import TFMessage
         from rosgraph_msgs.msg import Clock
         from sensor_msgs.msg import Image, PointCloud2
+
+        parameters = yaml.safe_load(parameters_path.read_text())
+        keyframes_enabled = parameters.get('keyframes', {}).get('enabled', False)
+        submaps = parameters.get('submaps', {})
+        loop_enabled = parameters.get('loop_closure', {}).get('enabled', False)
+        pose_graph = parameters.get('pose_graph', {})
+
         try:
             from .output_digest import cloud_digest, image_digest
             from .gaussian_preview_report import (gaussian_render_record, gaussian_image_record,
@@ -581,7 +598,7 @@ def main():
                 json.dumps(geometry_observation, indent=2) + '\n')
         if args.semantic_output:
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
-        if args.save_keyframes:
+        if keyframes_enabled:
             shutil.move(str(node_output / 'keyframes'), str(output / 'keyframes'))
         if args.save_products:
             for directory in ['pcd', 'image', 'Colmap']:
@@ -662,13 +679,14 @@ def main():
                                    'p95': float(np.percentile(values, 95)), 'max': max(values)}
                                for key, values in timings.items()},
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
-            'keyframes_enabled': args.save_keyframes,
-            'submaps_enabled': args.save_submaps,
-            'submap_mode': args.submap_mode,
-            'geometry_enabled': args.geometry_submaps,
+            'keyframes_enabled': keyframes_enabled,
+            'submaps_enabled': submaps.get('enabled', False),
+            'submap_mode': submaps.get('mode', 'keyframe_groups'),
+            'geometry_enabled': submaps.get('geometry', {}).get('enabled', False),
             'geometry_map_enabled': geometry_observation['enabled'],
             'geometry_map_samples': len(geometry_observation['samples']),
-            'loop_closure_enabled': args.loop_closure,
+            'loop_closure_enabled': loop_enabled,
+            'pose_graph_enabled': pose_graph.get('enabled', loop_enabled),
             'geometry_timing_seconds': geometry_timings,
             'gdb_enabled': args.gdb,
             'clean_shutdown': (not shutdown['forced_termination'] and

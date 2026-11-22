@@ -73,6 +73,8 @@ const char* DispositionName(LoopDisposition disposition) {
       return "resource_limit";
     case LoopDisposition::kFailed:
       return "failed";
+    case LoopDisposition::kDetected:
+      return "detected";
   }
   throw std::invalid_argument("Unknown loop disposition");
 }
@@ -276,7 +278,8 @@ AcceptedLoop CheckPrepared(const cv::FileStorage& yaml, std::uint64_t version,
 
 void CheckQueryDiagnostics(const cv::FileStorage& query,
                            const OnlineSubmapStore& store,
-                           const std::vector<double>& timestamps) {
+                           const std::vector<double>& timestamps,
+                           bool pose_graph_enabled) {
   const auto disposition = meta::String(query["disposition"]);
   const auto diagnostics = query["diagnostics"];
   if (disposition == "failed") {
@@ -292,6 +295,17 @@ void CheckQueryDiagnostics(const cv::FileStorage& query,
   io::CheckAdmissionDiagnostics(diagnostics, store, timestamps,
                                 meta::Id(query["query_id"]),
                                 store.MaterializePoseSnapshot(base, count));
+  if (!pose_graph_enabled)
+    Require(diagnostics["trial"].empty() &&
+                diagnostics["optimization_error"].empty(),
+            "Detection-only query contains optimization diagnostics");
+  if (disposition == "detected")
+    Require(status == "detected",
+            "Detected query lacks detection diagnostics");
+  if (status == "detected")
+    Require(!pose_graph_enabled &&
+                (disposition == "detected" || disposition == "resource_limit"),
+            "Detected diagnostics have an incompatible session or disposition");
   if (disposition == "accepted" || disposition == "stale")
     Require(status == "proposed", "Accepted or stale query has no proposal");
   if (disposition == "rejected")
@@ -302,7 +316,8 @@ void CheckQueryDiagnostics(const cv::FileStorage& query,
 
 LoopClosureStore::LoopClosureStore(const KeyframeReadView& frames,
                                    const LoopAdmissionOptions& options)
-    : directory_(frames.directory() / "loop_closure") {
+    : directory_(frames.directory() / "loop_closure"),
+      pose_graph_enabled_(options.pose_graph_enabled) {
   ValidateLoopAdmissionOptions(options);
   const auto metadata = SourceMetadata(frames.directory());
   if (!fs::create_directory(directory_))
@@ -320,7 +335,9 @@ LoopClosureStore::LoopClosureStore(const KeyframeReadView& frames,
          << "map"
          << "tail_policy"
          << "projected_last_optimized_anchor"
-         << "dataset_metadata" << metadata << "options"
+         << "dataset_metadata" << metadata;
+    if (!pose_graph_enabled_) yaml << "pose_graph_enabled" << 0;
+    yaml << "options"
          << "{";
     GeometryOptions geometry;
     geometry.enabled = true;
@@ -332,6 +349,8 @@ LoopClosureStore::LoopClosureStore(const KeyframeReadView& frames,
 
 void LoopClosureStore::WritePrepared(const LoopTaskResult& result,
                                      const PoseSnapshot& candidate) {
+  Require(pose_graph_enabled_,
+          "Detection-only session cannot prepare a pose update");
   Require(!result.error && result.admission && result.admission->proposal &&
               result.admission->status == LoopAdmissionStatus::kProposed,
           "Only a valid proposal can be prepared");
@@ -458,6 +477,8 @@ void LoopClosureStore::WriteSummary(const LoopSessionStats& stats,
     StatsFields(copy, [&](const char* key, auto value) {
       yaml << key << std::to_string(value);
     });
+    if (!pose_graph_enabled_ || stats.detected)
+      yaml << "detected" << std::to_string(stats.detected);
   });
 }
 
@@ -495,7 +516,13 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
     loop_options::ValidateKeys(session.root(),
                                {"schema_version", "frontier", "body_frame",
                                 "raw_parent_frame", "optimized_parent_frame",
-                                "tail_policy", "dataset_metadata", "options"});
+                                "tail_policy", "dataset_metadata", "options",
+                                "pose_graph_enabled"});
+    const auto graph_flag = session["pose_graph_enabled"];
+    const auto graph_value =
+        graph_flag.empty() ? 1 : meta::Integer(graph_flag);
+    Require(graph_value == 0 || graph_value == 1, "Invalid pose graph flag");
+    const bool pose_graph_enabled = graph_value != 0;
     Require(meta::String(session["frontier"]) == "dispatch_prefix" &&
                 meta::String(session["body_frame"]) == "imu" &&
                 meta::String(session["raw_parent_frame"]) == "odom" &&
@@ -521,6 +548,8 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
     }
     const auto prepared = Records(directory / "prepared");
     const auto versions = Records(dataset / "online_submaps/poses");
+    Require(pose_graph_enabled || (prepared.empty() && versions.empty()),
+            "Detection-only session contains pose updates");
     std::map<std::uint64_t, std::uint64_t> accepted_tasks;
     std::vector<AcceptedLoop> history;
     for (auto version : prepared) {
@@ -569,7 +598,7 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
                   meta::Id(query["current_version"]) &&
               meta::Id(query["current_version"]) <= report.committed_version,
           "Invalid query identity or frontier");
-      CheckQueryDiagnostics(query, store, timestamps);
+      CheckQueryDiagnostics(query, store, timestamps, pose_graph_enabled);
       const auto disposition = meta::String(query["disposition"]);
       // A missing final query can follow interrupted publication; a present
       // query must agree with the already verified committed task authority.
@@ -591,6 +620,8 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
                         meta::Id(prepared["frame_count"]),
                 "Accepted query differs from its prepared source or frontier");
         ++observed.accepted;
+      } else if (disposition == "detected") {
+        ++observed.detected;
       } else if (disposition == "rejected")
         ++observed.rejected;
       else if (disposition == "stale")
@@ -633,13 +664,18 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
       }
     }
     const auto summary = Read(directory / "summary.yml");
-    auto keys = std::set<std::string>{"schema_version", "complete"};
+    auto keys = std::set<std::string>{"schema_version", "complete", "detected"};
     LoopSessionStats saved;
     StatsFields(saved, [&](const char* key, auto& value) {
       keys.insert(key);
       value = meta::Id(summary[key]);
     });
     loop_options::ValidateKeys(summary.root(), keys);
+    const auto detected_count = summary["detected"];
+    if (!pose_graph_enabled || !detected_count.empty())
+      saved.detected = meta::Id(detected_count);
+    Require(!pose_graph_enabled || saved.detected == 0,
+            "Pose graph session contains a detected count");
     const auto complete = meta::Integer(summary["complete"]);
     Require(complete == 0 || complete == 1, "Invalid completion flag");
     const bool sealed =
@@ -661,14 +697,16 @@ LoopRecoveryReport InspectLoopDataset(const fs::path& dataset) {
                   saved.submitted == observed.completed &&
                   saved.completed == observed.completed &&
                   saved.accepted == observed.accepted &&
+                  saved.detected == observed.detected &&
                   saved.rejected == observed.rejected &&
                   saved.stale == observed.stale &&
                   saved.skipped == observed.skipped &&
                   saved.resource_limited == observed.resource_limited &&
                   saved.peak_work_payloads <= 1 && saved.peak_pending <= 1 &&
                   !failed_query &&
-                  saved.completed == saved.accepted + saved.rejected +
-                                         saved.stale + resource_queries,
+                  saved.completed == saved.accepted + saved.detected +
+                                         saved.rejected + saved.stale +
+                                         resource_queries,
               "Completion summary does not match committed records");
       report.status = LoopRecoveryStatus::kConsistent;
     }

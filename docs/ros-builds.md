@@ -26,7 +26,8 @@ NodeHandle、XmlRpc、ImageTransport与无符号时间范围，Humble的rclcpp�
 
 ## 依赖
 
-核心需要 Eigen3、PCL、OpenCV、glog 和兼容旧非模板 API 的 Sophus。Ubuntu 的 glog
+核心需要 Eigen3、PCL、OpenCV、glog、GTSAM 4.2 和兼容旧非模板 API 的 Sophus。
+ROS 的 rosdep 键为 `gtsam`，自定义前缀可提供 `GTSAM_DIR`。Ubuntu 的 glog
 开发包为 `libgoogle-glog-dev`。继续沿用原工程兼容版
 Sophus，通过 `Sophus_DIR` 指定其配置目录；不能直接用只提供模板 API 的新版替换。
 Noetic/Humble 的实际依赖版本与验证范围见阶段报告。
@@ -174,7 +175,7 @@ ROS跨话题启动顺序可能改变该接纳集；接收计数完整不能替�
 
 关键帧、子地图和选定位姿版本的离线COLMAP导出已提供。停止采集后调用安装前缀/bin下的
 `livo_atlas_export_colmap`，见[离线导出说明](colmap-export.md)。该工具两端共用普通C++实现。
-可选 GTSAM 批量位姿图的构建和手动交付方式见[位姿图说明](pose-graph.md)；
+GTSAM 批量位姿图的构建和手动交付方式见[位姿图说明](pose-graph.md)；
 [C2a 回环准入工具](loop-admission.md)提供离线试算；[C2b 在线协调层](online-loop-backend.md)
-通过同一个 main 接入两个 ROS，启动时默认关闭。双开构建会链接可选后端，
-运行启用时才创建 worker 和接纳目录。全局融合与实际 3DGS 训练仍属于后续阶段。
+通过同一个 main 接入两个 ROS。`loop_closure.enabled` 和 `pose_graph.enabled` 默认关闭。
+启用回环时创建 worker 和回环记录目录。

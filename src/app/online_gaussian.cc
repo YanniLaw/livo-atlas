@@ -294,9 +294,7 @@ bool OnlineGaussian::Finish(const OnlineGaussianOptions& options) {
 
 void OnlineGaussian::ValidateConfig(const LivoConfig& config) {
   if (config.gaussian.enabled) {
-    throw std::invalid_argument(
-        "Online Gaussian requires LIVO_ATLAS_WITH_ONLINE_GAUSSIAN=ON or "
-        "AUTO on Linux");
+    throw std::invalid_argument("gaussian.enabled requires a Linux build");
   }
 }
 

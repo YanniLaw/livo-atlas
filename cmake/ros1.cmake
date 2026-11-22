@@ -9,34 +9,21 @@ if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
 endif()
 # External catkin projects receive library files, not the original targets.
 # Keep dependents before dependencies for static linking as well.
-set(livo_atlas_optional_libraries)
-set(livo_atlas_optional_extras catkin_logging.cmake)
-if(livo_atlas_build_online_gaussian)
-  list(APPEND livo_atlas_optional_libraries livo_atlas_online_gaussian)
-endif()
-if(LIVO_ATLAS_WITH_GTSAM AND LIVO_ATLAS_WITH_LOOP_CLOSURE)
-  list(APPEND livo_atlas_optional_libraries livo_atlas_online_backend livo_atlas_loop_backend)
-endif()
-if(LIVO_ATLAS_WITH_LOOP_CLOSURE)
-  list(APPEND livo_atlas_optional_libraries livo_atlas_loop_closure)
-  list(APPEND livo_atlas_optional_extras catkin_loop_closure.cmake)
-endif()
-if(LIVO_ATLAS_WITH_GTSAM)
-  list(APPEND livo_atlas_optional_libraries livo_atlas_backend)
-  list(APPEND livo_atlas_optional_extras catkin_backend.cmake)
+set(livo_atlas_libraries livo_atlas_online_backend livo_atlas_loop_backend
+  livo_atlas_loop_closure livo_atlas_backend livo_atlas_core livo_atlas_frontend
+  livo_atlas_colorizer livo_atlas_io livo_atlas_geometry livo_atlas_keyframes
+  livo_atlas_vio livo_atlas_lio livo_atlas_imu livo_atlas_synchronization
+  livo_atlas_preprocess livo_atlas_camera livo_atlas_calibration)
+if(TARGET livo_atlas_online_gaussian)
+  list(PREPEND livo_atlas_libraries livo_atlas_online_gaussian)
 endif()
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES ${livo_atlas_optional_libraries}
-    livo_atlas_core livo_atlas_frontend livo_atlas_colorizer livo_atlas_io
-    livo_atlas_geometry livo_atlas_keyframes
-    livo_atlas_vio livo_atlas_lio livo_atlas_imu livo_atlas_synchronization
-    livo_atlas_preprocess livo_atlas_camera livo_atlas_calibration
-    ${livo_atlas_runtime_libraries}
+  LIBRARIES ${livo_atlas_libraries} ${livo_atlas_runtime_libraries}
   CATKIN_DEPENDS geometry_msgs nav_msgs sensor_msgs roscpp rospy std_msgs
     pcl_ros tf message_runtime cv_bridge image_transport visualization_msgs
   DEPENDS PCL OpenCV Sophus
-  CFG_EXTRAS ${livo_atlas_optional_extras})
+  CFG_EXTRAS catkin_logging.cmake catkin_loop_closure.cmake catkin_backend.cmake)
 
 add_library(livo_atlas_ros1_conversions src/ros1/measurement_conversions.cc)
 target_include_directories(livo_atlas_ros1_conversions PUBLIC ${catkin_INCLUDE_DIRS})
@@ -45,7 +32,7 @@ target_link_libraries(livo_atlas_ros1_conversions PUBLIC livo_atlas::core
 add_library(livo_atlas_ros1_node src/ros1/livo_node.cc src/ros1/node_options.cc
   src/ros1/livo_publisher.cc src/ros1/keyframe_trajectory_publisher.cc
   src/ros1/geometry_map_publisher.cc)
-if(livo_atlas_build_online_gaussian)
+if(TARGET livo_atlas_online_gaussian)
   target_sources(livo_atlas_ros1_node PRIVATE src/ros1/gaussian_render_publisher.cc)
   target_link_libraries(livo_atlas_ros1_node PUBLIC livo_atlas_online_gaussian)
 endif()

@@ -93,6 +93,7 @@ def main():
         common = {"use_sim_time": True, "output.directory": str(dataset),
                   "keyframes.enabled": True, "submaps.enabled": True,
                   "submaps.mode": "online", "loop_closure.enabled": True,
+                  "pose_graph.enabled": True,
                   "global_output.enabled": True, "global_output.trajectory.enabled": True,
                   "global_output.geometry.enabled": True, "gaussian.enabled": True,
                   "gaussian.socket_path": str(socket_path),
@@ -148,7 +149,7 @@ def main():
             node.wait(timeout=20)
             text = (output / "node.log").read_text(errors="replace")
             if (node.returncode == 0 or dataset.exists() or previews.exists() or
-                    "LIVO_ATLAS_WITH_ONLINE_GAUSSIAN" not in text):
+                    "gaussian.enabled requires a Linux build" not in text):
                 raise RuntimeError("Disabled build did not reject Gaussian before output")
             print("ROS%s disabled build rejected Gaussian before output" % args.system)
             return

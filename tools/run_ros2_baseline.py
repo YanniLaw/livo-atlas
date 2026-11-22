@@ -105,8 +105,11 @@ def parse_arguments(arguments=None):
                         help='Select the submap index format (default: keyframe_groups)')
     parser.add_argument('--geometry-submaps', action='store_true',
                         help='Enable online geometry submaps and their required inputs')
-    parser.add_argument('--loop-closure', action='store_true',
-                        help='Enable the online loop backend and its required storage')
+    loop = parser.add_mutually_exclusive_group()
+    loop.add_argument('--loop-closure', action='store_true',
+                      help='Detect loops and optimize the pose graph')
+    loop.add_argument('--loop-detection-only', action='store_true',
+                      help='Detect loops and record matches')
     parser.add_argument('--global-output', action='store_true',
                         help='Publish map correction and current global pose using online storage')
     parser.add_argument('--keyframe-trajectory', action='store_true',
@@ -115,6 +118,8 @@ def parse_arguments(arguments=None):
                         help='Record versioned geometry maps; enables global output and online storage')
     add_gaussian_arguments(parser)
     args = parser.parse_args(arguments)
+    args.pose_graph_enabled = args.loop_closure
+    args.loop_closure = args.loop_closure or args.loop_detection_only
     validate_gaussian_arguments(args, parser, args.output / 'node-output/keyframes')
     if args.geometry_map and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-map requires online submaps')
@@ -123,7 +128,8 @@ def parse_arguments(arguments=None):
     if args.global_output and args.submap_mode == 'keyframe_groups':
         parser.error('--global-output requires online submaps')
     if args.loop_closure and args.submap_mode == 'keyframe_groups':
-        parser.error('--loop-closure requires online submaps')
+        flag = '--loop-detection-only' if args.loop_detection_only else '--loop-closure'
+        parser.error(flag + ' requires online submaps')
     if args.geometry_submaps and args.submap_mode == 'keyframe_groups':
         parser.error('--geometry-submaps requires online submaps')
     if args.submap_mode is None:
@@ -209,11 +215,14 @@ def main():
         parameters['global_output.geometry.enabled'] = True
     if args.loop_closure:
         parameters['loop_closure.enabled'] = True
+        parameters['pose_graph.enabled'] = args.pose_graph_enabled
     if args.geometry_submaps:
         parameters['submaps.geometry.enabled'] = True
     if args.save_products:
         parameters.update({'pcd_save.pcd_save_en': True, 'pcd_save.colmap_output_en': True,
                            'pcd_save.interval': -1, 'image_save.img_save_en': True})
+    keyframes_enabled = parameters.get('keyframes.enabled', False)
+    loop_enabled = parameters.get('loop_closure.enabled', False)
     config = output / 'parameters.yaml'
     config.write_text(yaml.safe_dump({'laserMapping': {'ros__parameters': parameters}}))
     child_env = os.environ.copy()
@@ -452,7 +461,7 @@ def main():
     for name in ('mat_pre.txt', 'mat_out.txt', 'imu.txt'):
         shutil.copy2(node_output / name, output / name)
     shutil.copy2(node_output / 'result/p4_humble.txt', output / 'trajectory.tum')
-    if args.save_keyframes:
+    if keyframes_enabled:
         shutil.move(str(node_output / 'keyframes'), str(output / 'keyframes'))
     if args.save_products:
         for name in ('pcd', 'image', 'Colmap'):
@@ -482,13 +491,14 @@ def main():
     summary = dict(passed=clean and not mismatches and not node_mismatches and payload_exact and finite and trajectory_valid and not publication_issues and not geometry_observation['errors'] and not gaussian_observation['errors'],
                    clean_shutdown=clean, returncode=process.returncode, duration_requested_s=args.duration,
                    gaussian_publish_preview=gaussian_observation['enabled'],
-                   keyframes_enabled=args.save_keyframes,
-                   submaps_enabled=args.save_submaps,
-                   submap_mode=args.submap_mode,
-                   geometry_enabled=args.geometry_submaps,
+                   keyframes_enabled=keyframes_enabled,
+                   submaps_enabled=parameters.get('submaps.enabled', False),
+                   submap_mode=parameters.get('submaps.mode', 'keyframe_groups'),
+                   geometry_enabled=parameters.get('submaps.geometry.enabled', False),
                    geometry_map_enabled=geometry_observation['enabled'],
                    geometry_map_samples=len(geometry_observation['samples']),
-                   loop_closure_enabled=args.loop_closure,
+                   loop_closure_enabled=loop_enabled,
+                   pose_graph_enabled=parameters.get('pose_graph.enabled', loop_enabled),
                    geometry_timing_seconds=geometry_timings,
                    playback_rate=args.rate, domain_id=args.domain, rmw=get_rmw_implementation_identifier(),
                    playback_started_steady_seconds=began,

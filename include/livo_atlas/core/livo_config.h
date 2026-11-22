@@ -24,6 +24,7 @@ struct LivoConfig {
   GlobalOutputOptions global_output;
   OnlineGaussianOptions gaussian;
   GaussianRenderOutputOptions gaussian_output;
+  bool pose_graph_enabled = false;
 };
 
 // Reads the shared schema and validates it without opening output files.

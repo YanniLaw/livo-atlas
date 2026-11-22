@@ -1,6 +1,6 @@
 # 几何回环候选验证
 
-C1 提供可选的普通 C++ 几何验证库和只读离线工具。输入为同一位姿视图的封存体素子地图，
+C1 提供普通 C++ 几何验证库和只读离线工具。输入为同一位姿视图的封存体素子地图，
 输出候选相对位姿、来源修订和质量诊断。它使用里程计邻域初值，适用于先验仍足够接近的场景。
 候选通过几何检查后还需要 [C2a 一致性与图准入](loop-admission.md)；C1 工具不提交位姿更新。
 
@@ -8,13 +8,12 @@ C1 提供可选的普通 C++ 几何验证库和只读离线工具。输入为同
 
 ## 构建与安装
 
-默认 `LIVO_ATLAS_WITH_LOOP_CLOSURE=OFF`，开启后导出 `livo_atlas::loop_closure`。
-算法库不暴露 ROS/GICP/GTSAM 类型，GTSAM 开关独立。已有 PCL 安装需包含 registration 和 kdtree。
+常规构建导出 `livo_atlas::loop_closure`。已有 PCL 安装需包含 registration 和 kdtree，
+并按[核心构建说明](core-build.md)提供 GTSAM 4.2。
 
 ```bash
 cmake -S /path/to/livo-atlas -B /path/to/build \
-  -DLIVO_ATLAS_ROS_VERSION=0 -DLIVO_ATLAS_WITH_LOOP_CLOSURE=ON \
-  -DLIVO_ATLAS_WITH_GTSAM=OFF -DCMAKE_BUILD_TYPE=Release \
+  -DLIVO_ATLAS_ROS_VERSION=0 -DCMAKE_BUILD_TYPE=Release \
   -DSophus_DIR=/path/to/compatible-sophus-config \
   -DCMAKE_INSTALL_PREFIX=/path/to/install
 nice -n 10 cmake --build /path/to/build -- -j1
@@ -22,8 +21,8 @@ nice -n 10 cmake --build /path/to/build -- -j1
 cmake --install /path/to/build
 ```
 
-可追加 `-DBUILD_SHARED_LIBS=OFF` 验证静态工程库。Noetic/Humble 构建使用同一选项；
-工作空间准备和运行方式见[双 ROS 说明](ros-builds.md)。开启验证库不会自动改变 ROS 节点流程。
+可追加 `-DBUILD_SHARED_LIBS=OFF` 验证静态工程库。Noetic 和 Humble 节点启动时通过
+`loop_closure.enabled` 启用在线检测。[双 ROS 说明](ros-builds.md)
 
 ## 验证已结束的数据集
 

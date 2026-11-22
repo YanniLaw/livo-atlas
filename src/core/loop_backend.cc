@@ -209,6 +209,16 @@ void LoopBackend::Complete(LoopTaskResult result) {
     ++stats_.resource_limited;
     return;
   }
+  if (result.admission->status == LoopAdmissionStatus::kDetected) {
+    Require(!options_.pose_graph_enabled &&
+                result.admission->detected_target_id &&
+                !result.admission->proposal,
+            "Invalid detection-only result");
+    store_.WriteQuery(result, LoopDisposition::kDetected, stats_.pose_version,
+                      stats_.frame_count);
+    ++stats_.detected;
+    return;
+  }
   if (!result.admission->proposal) {
     Require(result.admission->status != LoopAdmissionStatus::kProposed,
             "Proposed status has no proposal");
@@ -217,6 +227,8 @@ void LoopBackend::Complete(LoopTaskResult result) {
     ++stats_.rejected;
     return;
   }
+  Require(options_.pose_graph_enabled,
+          "Pose graph is disabled for this loop session");
   const auto& constraint = result.admission->proposal->loop.constraint;
   Require(
       constraint.rotation_sigma_rad == options_.loop_rotation_sigma_rad &&

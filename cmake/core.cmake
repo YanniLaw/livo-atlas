@@ -1,5 +1,5 @@
 find_package(Eigen3 REQUIRED)
-find_package(PCL REQUIRED COMPONENTS common filters io)
+find_package(PCL REQUIRED COMPONENTS common filters io registration kdtree)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d imgcodecs)
 find_package(Sophus REQUIRED)
 find_package(Threads REQUIRED)

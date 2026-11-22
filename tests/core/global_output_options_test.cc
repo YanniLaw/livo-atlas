@@ -139,6 +139,24 @@ TEST_F(GlobalOutputOptionsTest, GaussianPreviewRequiresJointAndSafeFrame) {
   EXPECT_FALSE(fs::exists(directory_));
 }
 
+TEST_F(GlobalOutputOptionsTest, LoopDetectionAndPoseGraphReadStartupParameters) {
+  GlobalParameters parameters(directory_);
+  EXPECT_FALSE(LoadLivoConfig(parameters).pose_graph_enabled);
+  parameters.EnableOnlineStorage();
+  parameters.booleans_["loop_closure.enabled"] = true;
+  EXPECT_TRUE(LoadLivoConfig(parameters).pose_graph_enabled);
+
+  parameters.booleans_["pose_graph.enabled"] = false;
+  const auto detection = LoadLivoConfig(parameters);
+  EXPECT_TRUE(detection.loop_closure_enabled);
+  EXPECT_FALSE(detection.pose_graph_enabled);
+
+  parameters.booleans_["loop_closure.enabled"] = false;
+  parameters.booleans_["pose_graph.enabled"] = true;
+  EXPECT_THROW(LoadLivoConfig(parameters), std::invalid_argument);
+  EXPECT_FALSE(fs::exists(directory_));
+}
+
 TEST_F(GlobalOutputOptionsTest, GaussianJointRenderDependenciesAndRanges) {
   GlobalParameters parameters(directory_);
   auto defaults = LoadLivoConfig(parameters).gaussian;

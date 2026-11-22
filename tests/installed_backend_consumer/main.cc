@@ -5,7 +5,6 @@
 #include <vector>
 
 int main() {
-#ifdef EXPECT_BACKEND
   std::vector<livo_atlas::RigidTransform> raw(3);
   raw[1].translation.x() = 1;
   raw[2].translation.x() = 0.2;
@@ -20,8 +19,5 @@ int main() {
       result.update.optimized_frame_count != raw.size()) {
     return 1;
   }
-#else
-  livo_atlas::ValidatePoseSnapshot({});
-#endif
   return 0;
 }

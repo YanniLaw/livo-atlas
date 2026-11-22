@@ -170,6 +170,31 @@ TEST(LoopAdmissionTest, RefusesTrialsAtEachGraphGateWithoutReturningAnUpdate) {
             LoopAdmissionStatus::kProposed);
 }
 
+TEST(LoopAdmissionTest, DetectionReportsTheSelectedMatchWithoutATrial) {
+  LoopAdmissionOptions options;
+  options.pose_graph_enabled = false;
+  options.graph.max_iterations = 1;
+  const auto input = Input();
+  std::vector<std::uint64_t> requested_versions;
+  const auto result = ProposeLoopUpdate(
+      input,
+      [&](auto id, const auto& poses) {
+        requested_versions.push_back(poses.version);
+        return ReadGeometry(id, poses);
+      },
+      options);
+
+  EXPECT_EQ(result.status, LoopAdmissionStatus::kDetected);
+  EXPECT_EQ(result.detected_target_id, 0u);
+  ASSERT_EQ(result.candidates.size(), 1u);
+  EXPECT_EQ(result.candidates.front().verification.status,
+            LoopStatus::kVerified);
+  EXPECT_FALSE(result.proposal);
+  EXPECT_FALSE(result.trial);
+  EXPECT_TRUE(result.geometry_checks.empty());
+  EXPECT_EQ(requested_versions, (std::vector<std::uint64_t>{0, 0}));
+}
+
 TEST(LoopAdmissionTest, ChecksPreviewGeometryAndRejectsStaleSourcePoses) {
   const auto input = Input();
   const auto changed = [](auto id, const auto& poses) {

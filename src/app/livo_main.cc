@@ -2,17 +2,14 @@
 #include <functional>
 #include <iomanip>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/core/loop_backend.h"
 #include "livo_atlas/core/trajectory_output.h"
 #include "online_gaussian.h"
-#if LIVO_ATLAS_ONLINE_BACKEND
-#include "livo_atlas/core/loop_backend.h"
-#endif
 #if LIVO_ATLAS_ROS_VERSION == 1
 #include "livo_atlas/ros1/geometry_map_publisher.h"
 #include "livo_atlas/ros1/keyframe_trajectory_publisher.h"
@@ -41,29 +38,21 @@ int main(int argc, char** argv) {
     auto node = std::make_shared<rclcpp::Node>("laserMapping");
 #endif
     const auto parameters = ros_integration::ReadNodeOptions(*node);
-#if LIVO_ATLAS_ONLINE_BACKEND
     livo_atlas::LoopAdmissionOptions loop_options;
     if (parameters.livo.loop_closure_enabled &&
         !parameters.livo.loop_closure_options_file.empty())
       loop_options = livo_atlas::ReadLoopAdmissionOptions(
           parameters.livo.loop_closure_options_file);
-#else
-    if (parameters.livo.loop_closure_enabled)
-      throw std::invalid_argument(
-          "Online loops require LIVO_ATLAS_WITH_GTSAM and "
-          "LIVO_ATLAS_WITH_LOOP_CLOSURE");
-#endif
+    loop_options.pose_graph_enabled = parameters.livo.pose_graph_enabled;
     livo_atlas::app::OnlineGaussian::ValidateConfig(parameters.livo);
     livo_atlas::LivoSystem system(parameters.livo.system);
     std::function<void()> after_process;
-#if LIVO_ATLAS_ONLINE_BACKEND
     // Declaration order keeps callback sources before backend before system
     // during destruction, including exceptional shutdown.
     std::unique_ptr<livo_atlas::LoopBackend> backend;
     if (parameters.livo.loop_closure_enabled) {
       backend = std::make_unique<livo_atlas::LoopBackend>(system, loop_options);
     }
-#endif
     livo_atlas::app::OnlineGaussian gaussian(*node, system, parameters.livo);
     // The worker joins before its captured publisher handles are destroyed.
     std::unique_ptr<ros_integration::KeyframeTrajectoryPublisher>
@@ -97,17 +86,13 @@ int main(int argc, char** argv) {
         parameters.livo.gaussian.enabled;
     if (has_background_work) {
       system.SetOnlineSubmapCallback([&](const auto& update) {
-#if LIVO_ATLAS_ONLINE_BACKEND
         if (backend) backend->Observe(update);
-#endif
         if (trajectory) trajectory->Observe(update);
         if (geometry) geometry->Observe(update);
         gaussian.Observe(update);
       });
       after_process = [&] {
-#if LIVO_ATLAS_ONLINE_BACKEND
         if (backend) backend->Poll();
-#endif
         if (trajectory) trajectory->Poll();
         if (geometry) geometry->Poll();
         gaussian.Poll();
@@ -139,7 +124,6 @@ int main(int argc, char** argv) {
 #endif
     // Withdraw preview output before terminal backend work can block.
     gaussian.FinishPublication();
-#if LIVO_ATLAS_ONLINE_BACKEND
     if (backend) {
       backend->Finish();
       const auto s = backend->GetStats();
@@ -151,9 +135,10 @@ int main(int argc, char** argv) {
                 << " resource_limited=" << s.resource_limited
                 << " peak_work_payloads=" << s.peak_work_payloads
                 << " peak_pending=" << s.peak_pending;
-    } else
-#endif
-    {
+      if (!parameters.livo.pose_graph_enabled) {
+        LOG(INFO) << "livo_atlas loop detection: detected=" << s.detected;
+      }
+    } else {
       system.Finish();
     }
     if (!gaussian.Finish(parameters.livo.gaussian)) result = 1;

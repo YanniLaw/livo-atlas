@@ -1,5 +1,3 @@
-find_package(PCL REQUIRED COMPONENTS common filters io registration kdtree)
-
 livo_atlas_library(loop_closure src/backend/loop_closure.cc
   src/backend/loop_registration.cc src/backend/loop_quality.cc)
 target_include_directories(livo_atlas_loop_closure PRIVATE ${PROJECT_SOURCE_DIR}/src)

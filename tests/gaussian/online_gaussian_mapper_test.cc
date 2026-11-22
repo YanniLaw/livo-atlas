@@ -26,9 +26,7 @@
 #include <opencv2/core/persistence.hpp>
 
 #include "core/fixtures.h"
-#if LIVO_ATLAS_TEST_WITH_BACKEND
 #include "core/loop_backend_fixtures.h"
-#endif
 #include "gaussian/wire_protocol.h"
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/livo_system.h"
@@ -433,7 +431,6 @@ TEST_F(OnlineGaussianMapperTest,
             (std::vector<std::uint64_t>{0}));
 }
 
-#if LIVO_ATLAS_TEST_WITH_BACKEND
 TEST_F(OnlineGaussianMapperTest,
        BackendFinishDeliversItsFinalPoseBeforeMapperShutdown) {
   auto options = loop_test::OnlineOptions();
@@ -460,7 +457,6 @@ TEST_F(OnlineGaussianMapperTest,
   EXPECT_FALSE(mapper_->GetLatestPreview());
   mapper_->Finish();
 }
-#endif
 
 TEST_F(OnlineGaussianMapperTest,
        PoseChangeBeforeCandidateDiscardsAndResetsLatestVersion) {

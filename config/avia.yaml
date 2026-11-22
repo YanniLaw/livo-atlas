@@ -89,6 +89,12 @@ image_save:
   img_save_en: false
   interval: 1
 
+loop_closure:
+  enabled: false
+
+pose_graph:
+  enabled: false
+
 gaussian:
   enabled: false
   # Joint previews require Gaussian persistence.

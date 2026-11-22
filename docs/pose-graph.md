@@ -1,8 +1,8 @@
-# 可选 GTSAM 位姿图
+# GTSAM 位姿图
 
-位姿图是独立的普通 C++ 库，默认不编译。它接收已提交关键帧的原始里程计位姿和调用者
-明确提供的相对位姿约束，使用 GTSAM 批量求解并返回一个 `PoseUpdate`。本阶段没有真实
-闭环检测、自动优化线程或 `map→odom` TF；启用库不会改变 ROS 节点的运行方式。
+位姿图是独立的普通 C++ 库。它接收已提交关键帧的原始里程计位姿和调用者提供的相对位姿约束，
+使用 GTSAM 批量求解并返回 `PoseUpdate`。ROS 节点通过 `pose_graph.enabled` 启用在线位姿图，
+约束由在线回环检测提供。[在线参数](online-loop-backend.md#构建与开启)
 
 ## 构建
 
@@ -23,7 +23,7 @@ cmake --build /path/to/gtsam-build
 cmake --install /path/to/gtsam-build
 
 cmake -S /path/to/livo-atlas -B /path/to/livo-build \
-  -DLIVO_ATLAS_ROS_VERSION=0 -DLIVO_ATLAS_WITH_GTSAM=ON \
+  -DLIVO_ATLAS_ROS_VERSION=0 \
   -DCMAKE_PREFIX_PATH="/path/to/gtsam-install;/path/to/sophus-install"
 cmake --build /path/to/livo-build
 (cd /path/to/livo-build && ctest --output-on-failure)
@@ -33,24 +33,20 @@ cmake --install /path/to/livo-build --prefix /path/to/livo-install
 普通 CMake 构建可追加 `-DBUILD_SHARED_LIBS=OFF` 使用静态工程库，或追加
 `-DLIVO_ATLAS_USE_OPENMP=OFF` 关闭估计器的 OpenMP 循环。
 
-ROS1 和 ROS2 构建同样使用 `LIVO_ATLAS_WITH_GTSAM=ON` 并提供 GTSAM 前缀；其余 ROS
-依赖和构建步骤见工程原有说明。例如在已配置的工作空间中：
+ROS1 和 ROS2 构建同样需要 GTSAM。使用独立前缀时，可在已配置的工作空间中指定：
 
 ```bash
 # Noetic
-catkin_make -DLIVO_ATLAS_WITH_GTSAM=ON \
-  -DGTSAM_DIR=/path/to/gtsam-install/lib/cmake/GTSAM
+catkin_make -DGTSAM_DIR=/path/to/gtsam-install/lib/cmake/GTSAM
 
 # Humble
 colcon build --packages-select livo_atlas --cmake-args \
-  -DLIVO_ATLAS_WITH_GTSAM=ON \
   -DGTSAM_DIR=/path/to/gtsam-install/lib/cmake/GTSAM
 ```
 
-关闭时工程不查找 GTSAM，也不导出 `livo_atlas::backend`。
 普通 CMake 和 ROS2 的安装消费者可链接 `livo_atlas::backend`；ROS1 catkin 消费者使用
-`${catkin_LIBRARIES}`，并在查找包时提供 GTSAM 前缀。GTSAM 是手动启用的可选依赖，
-当前 `package.xml` 不会让 rosdep 自动安装它。GTSAM 和调用方应使用兼容的编译器、标准库、
+`${catkin_LIBRARIES}`，并在查找包时提供 GTSAM 前缀。ROS 的 rosdep 键为 `gtsam`。
+GTSAM 和调用方应使用兼容的编译器、标准库、
 Eigen 版本与对齐选项，尤其不要混用不同的 Eigen 构建。
 
 ## 数据与调用顺序

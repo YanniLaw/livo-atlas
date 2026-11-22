@@ -22,7 +22,7 @@ _ARRAYS = ("trajectory.tum", "mat_pre.txt", "mat_out.txt", "imu.txt")
 _PARAMETER_GROUPS = ("common", "extrin_calib", "time_offset", "preprocess", "vio",
                      "imu", "lio", "local_map", "uav", "publish", "evo", "pcd_save",
                      "image_save", "debug", "laserMapping", "use_sim_time", "keyframes",
-                     "submaps", "loop_closure", "global_output")
+                     "submaps", "loop_closure", "pose_graph", "global_output")
 
 
 def _digest(path):
@@ -44,6 +44,10 @@ def _raw_keyframes(directory):
 def _parameters(directory):
     tree = yaml.safe_load((directory / "parameters.yaml").read_text()) or {}
     result = {key: tree[key] for key in _PARAMETER_GROUPS if key in tree}
+    loop = result.get("loop_closure", {})
+    pose_graph = result.get("pose_graph", {})
+    if isinstance(loop, dict) and isinstance(pose_graph, dict):
+        result["pose_graph"] = {"enabled": loop.get("enabled", False), **pose_graph}
     if isinstance(result.get("evo"), dict):
         result["evo"] = dict(result["evo"])
         result["evo"].pop("seq_name", None)
@@ -238,11 +242,12 @@ def compare(off, on, previews, joint_render=False, min_joint_dual=0, min_joint_g
                                         "different": sorted(set(raw_off) ^ set(raw_on) |
                                             {name for name in raw_off.keys() & raw_on.keys()
                                              if raw_off[name] != raw_on[name]})}
-    loops = [_stats(run, "livo_atlas loops:") for run in (off, on)]
-    for key in ("frames", "pose_version", "accepted"):
-        if key not in loops[0] or loops[0].get(key) != loops[1].get(key):
-            differences["loop_backend"] = loops
-            break
+    loops = [{**_stats(run, "livo_atlas loops:"),
+              **_stats(run, "livo_atlas loop detection:")} for run in (off, on)]
+    loop_fields = ("frames", "pose_version", "accepted")
+    if (any(key not in loops[0] or loops[0][key] != loops[1].get(key)
+            for key in loop_fields) or loops[0].get("detected") != loops[1].get("detected")):
+        differences["loop_backend"] = loops
     stats = _stats(on, "livo_atlas gaussian:")
     required = ("observed", "submitted", "completed", "accepted", "failed",
                 "peak_pending", "peak_in_flight")
