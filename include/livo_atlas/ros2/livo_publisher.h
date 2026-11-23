@@ -29,14 +29,14 @@ namespace livo_atlas::ros2 {
 class LivoPublisher {
  public:
   LivoPublisher(rclcpp::Node& node, FrontendMode mode, int image_queue_size = 1,
-                GlobalOutputOptions global_output = {});
+                GlobalOutputOptions global_output = {},
+                int path_max_poses = 2000, bool stage_timing = false);
   ~LivoPublisher();
   LivoPublisher(const LivoPublisher&) = delete;
   LivoPublisher& operator=(const LivoPublisher&) = delete;
   void Publish(const FrontendResult& result,
                const ColoredCloud::ConstPtr& colored_cloud,
-               const std::optional<MapCorrection>& correction = std::nullopt,
-               bool stage_timing = false);
+               const std::optional<MapCorrection>& correction = std::nullopt);
   void PublishImuPropagation(const FilterState& state, double timestamp);
 
  private:
@@ -46,6 +46,8 @@ class LivoPublisher {
 
   rclcpp::Node& node_;
   FrontendMode mode_;
+  int path_max_poses_;
+  bool stage_timing_;
   GlobalOutputOptions global_output_;
   std::int64_t last_global_stamp_ns_ = 0;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr global_pose_;

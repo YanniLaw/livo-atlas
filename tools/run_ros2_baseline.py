@@ -17,12 +17,12 @@ import time
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
-    from tools.mapping_log import (glog_severity, read_mapping_log, read_node_logs,
+    from tools.mapping_log import (glog_severity, read_mapping_log, read_node_logs, read_path_max_poses,
                                    summarize_frontend_updates, summarize_stage_timings)
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
-    from mapping_log import (glog_severity, read_mapping_log, read_node_logs,
+    from mapping_log import (glog_severity, read_mapping_log, read_node_logs, read_path_max_poses,
                              summarize_frontend_updates, summarize_stage_timings)
 
 
@@ -39,12 +39,13 @@ def count_mismatches(expected, observed):
             if expected.get(topic, 0) != observed.get(topic, 0)}
 
 
-def output_issues(lio, vio, counts, path_size, odometry):
+def output_issues(lio, vio, counts, path_size, odometry, path_max_poses=None):
     expected = {'/aft_mapped_to_init': lio, '/rgb_img': vio,
                 '/cloud_registered': lio + vio}
     issues = count_mismatches(expected, counts)
-    if path_size != lio:
-        issues['path_size'] = dict(expected=lio, observed=path_size)
+    expected_path_size = lio if path_max_poses is None else min(lio, path_max_poses)
+    if path_size != expected_path_size:
+        issues['path_size'] = dict(expected=expected_path_size, observed=path_size)
     if len(odometry) != lio:
         issues['odometry_rows'] = dict(expected=lio, observed=len(odometry))
     for pose in odometry:
@@ -100,6 +101,8 @@ def parse_arguments(arguments=None):
                         help='Override the positive image publication queue depth (node default: 1)')
     parser.add_argument('--stage-timing', action='store_true',
                         help='Enable detailed stage timing in the node')
+    parser.add_argument('--path-max-poses', type=int,
+                        help='Override the positive /path pose limit')
     parser.add_argument('--domain', type=int, default=74)
     parser.add_argument('--save-products', action='store_true')
     parser.add_argument('--save-keyframes', action='store_true')
@@ -140,6 +143,8 @@ def parse_arguments(arguments=None):
         args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output or args.gaussian_socket) else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
+    if args.path_max_poses is not None and args.path_max_poses <= 0:
+        parser.error('--path-max-poses must be positive')
     if args.submap_mode == 'online':
         args.save_submaps = True
     if args.save_submaps:
@@ -163,6 +168,7 @@ def main():
     import psutil
     import rclpy
     from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+    from rclpy.serialization import serialize_message
     from rclpy.utilities import get_rmw_implementation_identifier
     import rosbag2_py
     from rosgraph_msgs.msg import Clock
@@ -209,6 +215,8 @@ def main():
         parameters['publish.image_queue_size'] = args.image_queue_size
     if args.stage_timing:
         parameters['diagnostics.stage_timing'] = True
+    if args.path_max_poses is not None:
+        parameters['publish.path.max_poses'] = args.path_max_poses
     image_queue_size = parameters.get('publish.image_queue_size', 1)
     observer_image_depth = max(20, image_queue_size)
     if args.save_keyframes:
@@ -312,7 +320,7 @@ def main():
                              rotation_xyzw=[value.rotation.x, value.rotation.y, value.rotation.z, value.rotation.w]))
         global_observation['tf_messages'].append(rows)
 
-    path_size = 0
+    latest_path = None
     peak_rss = 0
 
     def input_callback(topic):
@@ -346,8 +354,8 @@ def main():
         semantic['/rgb_img'].append(image_digest(message))
 
     def receive_path(message):
-        nonlocal path_size
-        path_size = len(message.poses)
+        nonlocal latest_path
+        latest_path = message
 
     subscriptions += [observer.create_subscription(Odometry, '/aft_mapped_to_init', receive_odom, 2000),
                       observer.create_subscription(PointCloud2, '/cloud_registered', receive_cloud, 100),
@@ -487,7 +495,19 @@ def main():
     updates, timings = summarize_frontend_updates(node_log, np)
     stage_timings, buffer_peaks = summarize_stage_timings(node_log, np)
     lio, vio = updates['lio'], updates['vio']
-    publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
+    path_max_poses = read_path_max_poses(node_log)
+    path_size = 0
+    path_bytes = 0
+    if latest_path is not None:
+        path_size = len(latest_path.poses)
+        path_bytes = len(serialize_message(latest_path))
+        (output / 'path.json').write_text(json.dumps(
+            trajectory_path_record(latest_path, stamp_ns)) + '\n')
+    publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry,
+                                       path_max_poses)
+    if args.path_max_poses is not None and path_max_poses != args.path_max_poses:
+        publication_issues['path_max_poses'] = dict(expected=args.path_max_poses,
+                                                   observed=path_max_poses)
     if geometry_observation['enabled'] and not geometry_observation['samples']:
         geometry_observation['errors'].append('No geometry map messages received')
     gaussian_observation['errors'] = gaussian_reception_errors(gaussian_observation)
@@ -527,6 +547,7 @@ def main():
                    node_input_counts=node_counts, input_count_mismatches=mismatches,
                    node_input_count_mismatches=node_mismatches, input_serialized_payloads_exact=payload_exact,
                    outputs=dict(outputs), trajectory_rows=len(poses), path_size=path_size,
+                   path_max_poses=path_max_poses, path_serialized_bytes=path_bytes,
                    lio_cycles=lio, vio_cycles=vio, timing_seconds=timings,
                    stage_timing_seconds=stage_timings, sensor_buffer_peaks=buffer_peaks,
                    output_issues=publication_issues,

@@ -47,6 +47,21 @@ LiDAR 关闭或相机启用时 IMU 关闭，节点会在创建输出文件前报
 首个有效 LiDAR 到达时交接有界的启动缓存。运行中输入超限会记录队列名、占用和时戳并以失败退出，
 已提交关键帧与位姿仍可读取。 [backend.yaml](../config/backend.yaml)
 
+## 处理耗时和路径发布
+
+前端更新日志中的 `frontend_process_seconds` 记录 `Frontend::Process()` 的耗时。
+设置 `diagnostics.stage_timing: true` 可采集分段计时，默认关闭。分段日志包含消息转换、锁等待、
+LiDAR 预处理、同步、前端计算、关键帧写入、位姿提交、ROS 消息构造和发布调用。回环结果时延从派发计到
+系统取回结果，配准与求解另有计时。启用 IMU 传播时记录相邻输出间隔。正常收尾时输出启动暂存和运行队列的
+峰值。运行队列跨度采用校正后的传感器时戳。 [backend.yaml](../config/backend.yaml)
+
+两端回放工具支持 `--stage-timing`，在摘要里输出 `stage_timing_seconds` 和 `sensor_buffer_peaks`。
+`timing_seconds` 保留 LIO 与 VIO 的前端耗时，支持历史日志。比较分位数时固定输入、构建类型、CPU 亲和性、
+OpenMP 和观测话题。 [Noetic 回放工具](../tools/run_baseline.py) · [Humble 回放工具](../tools/run_ros2_baseline.py)
+
+`publish.path.max_poses` 为正整数，默认 2000。`/path` 按发布顺序滚动保留最新位姿，轨迹文件和版本化
+`/keyframe_path` 按各自的配置输出。回放工具可用 `--path-max-poses` 覆盖容量，并在摘要中记录末条消息的位姿数和序列化大小。
+
 ## 依赖
 
 核心需要 Eigen3、PCL、OpenCV、glog、GTSAM 4.2 和兼容旧非模板 API 的 Sophus。

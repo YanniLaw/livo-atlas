@@ -193,9 +193,10 @@ void LoopBackend::FlushEvents() {
 }
 
 void LoopBackend::Complete(LoopTaskResult result) {
-  LogStageTiming(options_.pose_graph_enabled ? "loop_optimization_latency"
-                                              : "loop_detection_latency",
-                 dispatch_time_);
+  LogStageTiming(
+      options_.pose_graph_enabled ? "loop_optimization_result_latency"
+                                  : "loop_detection_result_latency",
+      dispatch_time_);
   ++stats_.completed;
   if (result.error) {
     try {

@@ -35,7 +35,8 @@ namespace ros1 {
 class LivoPublisher {
  public:
   explicit LivoPublisher(FrontendMode mode, int image_queue_size = 1,
-                         GlobalOutputOptions global_output = {});
+                         GlobalOutputOptions global_output = {},
+                         int path_max_poses = 2000, bool stage_timing = false);
   ~LivoPublisher();
   LivoPublisher(const LivoPublisher&) = delete;
   LivoPublisher& operator=(const LivoPublisher&) = delete;
@@ -44,8 +45,7 @@ class LivoPublisher {
                   image_transport::ImageTransport& transport);
   void Publish(const FrontendResult& result,
                const ColoredCloud::ConstPtr& colored_cloud,
-               const std::optional<MapCorrection>& correction = std::nullopt,
-               bool stage_timing = false);
+               const std::optional<MapCorrection>& correction = std::nullopt);
   void PublishImuPropagation(const FilterState& state,
                              const ros::Time& timestamp);
 
@@ -56,6 +56,8 @@ class LivoPublisher {
 
   FrontendMode mode_;
   int image_queue_size_;
+  int path_max_poses_;
+  bool stage_timing_;
   GlobalOutputOptions global_output_;
   std::int64_t last_global_stamp_ns_ = 0;
   ros::Publisher global_pose_;

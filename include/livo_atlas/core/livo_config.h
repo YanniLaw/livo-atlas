@@ -23,6 +23,7 @@ struct LivoConfig {
   OnlineGaussianOptions gaussian;
   GaussianRenderOutputOptions gaussian_output;
   int executor_threads = 4;
+  int path_max_poses = 2000;
 };
 
 // Reads the shared schema and validates it without opening output files.

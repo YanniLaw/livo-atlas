@@ -33,6 +33,7 @@ TEST(Ros2ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
   for (const auto& invalid : std::vector<rclcpp::Parameter>{
            {"imu.imu_int_frame", "three"},
            {"publish.image_queue_size", "many"},
+           {"publish.path.max_poses", 1.5},
            {"sensor_buffer.max_lidar_scans", 1.5},
            {"diagnostics.stage_timing", "true"},
            {"cam_fx", true},
@@ -68,6 +69,7 @@ TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
   EXPECT_FALSE(config.livo.system.submaps.enabled);
   EXPECT_EQ(config.livo.system.submaps.max_keyframes, 20);
   EXPECT_EQ(config.livo.image_queue_size, 1);
+  EXPECT_EQ(config.livo.path_max_poses, 2000);
   EXPECT_EQ(config.livo.system.frontend.calibration.camera.model, "Pinhole");
   EXPECT_TRUE(config.livo.system.frontend.imu.enabled);
   EXPECT_FALSE(config.livo.system.stage_timing);
@@ -124,6 +126,8 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
            {"publish.pub_scan_num", 0},
            {"publish.image_queue_size", 0},
            {"publish.image_queue_size", -1},
+           {"publish.path.max_poses", 0},
+           {"publish.path.max_poses", -1},
            {"sensor_buffer.max_lidar_scans", 0},
            {"sensor_buffer.max_imu_samples", -1},
            {"sensor_buffer.max_images", 0},
@@ -270,6 +274,7 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   params.emplace_back("lio.layer_init_num", std::vector<std::int64_t>{3, 6, 9});
   params.emplace_back("publish.pub_scan_num", 3);
   params.emplace_back("publish.image_queue_size", 32);
+  params.emplace_back("publish.path.max_poses", 3);
   params.emplace_back("sensor_buffer.max_lidar_scans", 4);
   params.emplace_back("sensor_buffer.max_imu_samples", 40);
   params.emplace_back("sensor_buffer.max_images", 3);
@@ -294,6 +299,7 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
             (std::vector<int>{3, 6, 9}));
   EXPECT_EQ(options.colorizer.scan_interval, 3);
   EXPECT_EQ(config.livo.image_queue_size, 32);
+  EXPECT_EQ(config.livo.path_max_poses, 3);
   EXPECT_EQ(options.sensor_buffer.max_lidar_scans, 4);
   EXPECT_EQ(options.sensor_buffer.max_imu_samples, 40);
   EXPECT_EQ(options.sensor_buffer.max_images, 3);

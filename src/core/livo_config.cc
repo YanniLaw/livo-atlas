@@ -229,6 +229,12 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   if (config.image_queue_size <= 0)
     throw std::invalid_argument(reader.Name("publish.image_queue_size") +
                                 ": must be positive");
+  config.path_max_poses =
+      reader.Integer("publish.path.max_poses", config.path_max_poses);
+  if (config.path_max_poses <= 0) {
+    throw std::invalid_argument(reader.Name("publish.path.max_poses") +
+                                ": must be positive");
+  }
   visual.normal_enabled =
       reader.Boolean("vio.normal_en", visual.normal_enabled);
   visual.inverse_composition =

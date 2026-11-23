@@ -85,6 +85,7 @@ TEST_F(Ros1ParametersTest, ReadsPrivateCameraNumericArraysAndSharedDefaults) {
   EXPECT_FALSE(options.submaps.enabled);
   EXPECT_EQ(options.submaps.max_keyframes, 20);
   EXPECT_EQ(config.livo.image_queue_size, 1);
+  EXPECT_EQ(config.livo.path_max_poses, 2000);
   EXPECT_DOUBLE_EQ(options.imu_time_range.minimum, 0);
   EXPECT_DOUBLE_EQ(options.imu_time_range.maximum, 4294967296.0);
   EXPECT_FALSE(std::filesystem::exists(directory_));
@@ -117,6 +118,7 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   node_->setParam("preprocess/point_filter_num", 1);
   node_->setParam("publish/pub_scan_num", 3);
   node_->setParam("publish/image_queue_size", 32);
+  node_->setParam("publish/path/max_poses", 3);
   node_->setParam("sensor_buffer/max_lidar_scans", 4);
   node_->setParam("sensor_buffer/max_imu_samples", 40);
   node_->setParam("sensor_buffer/max_images", 3);
@@ -139,6 +141,7 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
             (std::vector<int>{3, 6, 9}));
   EXPECT_EQ(options.colorizer.scan_interval, 3);
   EXPECT_EQ(config.livo.image_queue_size, 32);
+  EXPECT_EQ(config.livo.path_max_poses, 3);
   EXPECT_EQ(options.sensor_buffer.max_lidar_scans, 4);
   EXPECT_EQ(options.sensor_buffer.max_imu_samples, 40);
   EXPECT_EQ(options.sensor_buffer.max_images, 3);
@@ -171,7 +174,7 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
           "keyframes/time_threshold", "submaps/max_keyframes",
           "sensor_buffer/max_lidar_scans", "sensor_buffer/max_imu_samples",
           "sensor_buffer/max_images", "sensor_buffer/max_span_s",
-          "publish/image_queue_size"}) {
+          "publish/image_queue_size", "publish/path/max_poses"}) {
       node_->setParam(key, -1);
       EXPECT_THROW(
           {
@@ -197,10 +200,16 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
     node_->setParam("publish/image_queue_size", 0);
     EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
     node_->deleteParam("publish/image_queue_size");
+    node_->setParam("publish/path/max_poses", 0);
+    EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+    node_->deleteParam("publish/path/max_poses");
   }
 }
 
 TEST_F(Ros1ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
+  node_->setParam("publish/path/max_poses", 1.5);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->deleteParam("publish/path/max_poses");
   node_->setParam("diagnostics/stage_timing", std::string("true"));
   EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
   node_->deleteParam("diagnostics/stage_timing");

@@ -74,11 +74,13 @@ void DiscardCoveredImu(double estimate_time, std::deque<Imu>* buffer) {
 }
 
 template <typename Sample>
-double BufferSpan(const std::deque<Sample>& buffer, double timestamp) {
+double BufferSpan(const std::deque<Sample>& buffer, double timestamp,
+                  bool ordered = true) {
   double earliest = buffer.front().timestamp;
   double latest = buffer.back().timestamp;
-  // IMU ingress preserves the legacy ordering rule across nonpositive times.
-  if (earliest <= 0) {
+  // Startup IMU samples can be out of order before clock correction. The
+  // active queue still accepts the legacy ordering across nonpositive times.
+  if (!ordered || earliest <= 0) {
     const auto limits = std::minmax_element(
         buffer.begin(), buffer.end(), [](const auto& lhs, const auto& rhs) {
           return lhs.timestamp < rhs.timestamp;
@@ -157,11 +159,11 @@ void LivoSystem::CheckBufferLimit(const char* name,
 
 template <typename Sample>
 void LivoSystem::RecordBufferPeak(const std::deque<Sample>& buffer,
-                                 BufferPeak* peak) {
+                                 BufferPeak* peak, bool ordered) {
   if (!options_.stage_timing || buffer.empty()) return;
   peak->count = std::max(peak->count, buffer.size());
-  peak->span_s =
-      std::max(peak->span_s, BufferSpan(buffer, buffer.back().timestamp));
+  peak->span_s = std::max(
+      peak->span_s, BufferSpan(buffer, buffer.back().timestamp, ordered));
 }
 
 void LivoSystem::ReportBufferPeaks() const {
@@ -175,6 +177,8 @@ void LivoSystem::ReportBufferPeaks() const {
   log("imu", imu_peak_);
   log("image", image_peak_);
   log("imu_propagation", propagation_peak_);
+  log("startup_imu", startup_imu_peak_);
+  log("startup_image", startup_image_peak_);
 }
 
 bool LivoSystem::AddLidar(const LidarScan& scan) {
@@ -227,6 +231,7 @@ bool LivoSystem::AddImu(Imu measurement) {
       startup_imu_.pop_front();
       ++startup_stats_.evicted_imu;
     }
+    RecordBufferPeak(startup_imu_, &startup_imu_peak_, /*ordered=*/false);
     return true;
   }
   const auto corrected =
@@ -356,6 +361,7 @@ bool LivoSystem::AddImage(TimedImage measurement) {
       buffers_.images.pop_front();
       ++startup_stats_.evicted_images;
     }
+    RecordBufferPeak(buffers_.images, &startup_image_peak_);
   } else {
     RecordBufferPeak(buffers_.images, &image_peak_);
   }
@@ -387,6 +393,7 @@ SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
   const double elapsed =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
           .count();
+  if (options_.stage_timing) LogStageSeconds("frontend_process", elapsed);
   if (result.updated && options_.propagate_imu) {
     latest_state_ = result.estimate;
     latest_time_ = result.timestamp;

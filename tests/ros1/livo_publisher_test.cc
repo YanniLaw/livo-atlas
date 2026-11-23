@@ -11,6 +11,7 @@
 #include <nav_msgs/Path.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>
+#include <ros/serialization.h>
 #include <visualization_msgs/MarkerArray.h>
 
 #include <cmath>
@@ -139,6 +140,54 @@ TEST(RosOutputTest, PublishesOrdinarySnapshotsWithLegacySchemasAndPoses) {
   EXPECT_NEAR(marker.scale.z, 0.2, 1e-15);
   EXPECT_FLOAT_EQ(marker.color.a, 0.8);
   EXPECT_FLOAT_EQ(marker.color.b, 0.5);
+}
+
+TEST(RosOutputTest, PathKeepsNewestPosesAndBoundedMessageSize) {
+  ros::NodeHandle node;
+  nav_msgs::Path received;
+  auto subscription = node.subscribe<nav_msgs::Path>(
+      "/path", 10,
+      [&](const nav_msgs::Path::ConstPtr& msg) { received = *msg; });
+  image_transport::ImageTransport transport(node);
+  ros1::LivoPublisher publisher(FrontendMode::kLidarInertial, 1, {}, 3);
+  publisher.Initialize(node, transport);
+  ASSERT_TRUE(WaitFor([&] { return subscription.getNumPublishers() != 0; }));
+  FrontendResult result;
+  result.updated = true;
+  result.kind = UpdateKind::kLidarInertial;
+  const auto send = [&](int frame) {
+    result.estimate.pos_end.x() = frame;
+    publisher.Publish(result, nullptr);
+  };
+  const auto received_frame = [&](int frame) {
+    return !received.poses.empty() &&
+           received.poses.back().pose.position.x == frame;
+  };
+  send(1);
+  ASSERT_TRUE(WaitFor([&] { return received_frame(1); }));
+  const auto path_stamp = received.header.stamp;
+  send(2);
+  send(3);
+  ASSERT_TRUE(WaitFor([&] { return received_frame(3); }));
+  const auto third_stamp = received.poses.back().header.stamp;
+  send(4);
+  send(5);
+  ASSERT_TRUE(WaitFor([&] { return received_frame(5); }));
+  ASSERT_EQ(received.poses.size(), 3u);
+  EXPECT_EQ(received.header.frame_id, "camera_init");
+  EXPECT_EQ(received.header.stamp, path_stamp);
+  EXPECT_EQ(received.poses.front().header.stamp, third_stamp);
+  for (int index = 0; index < 3; ++index) {
+    EXPECT_DOUBLE_EQ(received.poses[index].pose.position.x, 3 + index);
+    EXPECT_EQ(received.poses[index].header.frame_id, "camera_init");
+    EXPECT_GE(received.poses[index].header.stamp, third_stamp);
+  }
+  const auto bytes = ros::serialization::serializationLength(received);
+  for (int frame = 6; frame <= 256; ++frame) send(frame);
+  ASSERT_TRUE(WaitFor([&] { return received_frame(256); }));
+  ASSERT_EQ(received.poses.size(), 3u);
+  EXPECT_DOUBLE_EQ(received.poses.front().pose.position.x, 254);
+  EXPECT_EQ(ros::serialization::serializationLength(received), bytes);
 }
 
 }  // namespace

@@ -15,6 +15,7 @@
 #include <Eigen/Geometry>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <utility>
@@ -104,13 +105,19 @@ geometry_msgs::Pose Pose(const FilterState& state,
 }  // namespace
 
 LivoPublisher::LivoPublisher(FrontendMode mode, int image_queue_size,
-                             GlobalOutputOptions global_output)
+                             GlobalOutputOptions global_output,
+                             int path_max_poses, bool stage_timing)
     : mode_(mode),
       image_queue_size_(image_queue_size),
+      path_max_poses_(path_max_poses),
+      stage_timing_(stage_timing),
       global_output_(std::move(global_output)) {
   ValidateGlobalOutputOptions(global_output_);
   if (image_queue_size <= 0)
     throw std::invalid_argument("Image queue size must be positive");
+  if (path_max_poses <= 0) {
+    throw std::invalid_argument("Path pose limit must be positive");
+  }
 }
 
 void LivoPublisher::Initialize(ros::NodeHandle& node,
@@ -162,10 +169,9 @@ void LivoPublisher::PublishCloud(const FrontendResult& result,
 
 void LivoPublisher::Publish(const FrontendResult& result,
                             const ColoredCloud::ConstPtr& colored_cloud,
-                            const std::optional<MapCorrection>& correction,
-                            bool stage_timing) {
+                            const std::optional<MapCorrection>& correction) {
   if (!result.updated) return;
-  ros_detail::PublicationTiming timing(stage_timing, result.kind);
+  ros_detail::PublicationTiming timing(stage_timing_, result.kind);
   if (result.kind == UpdateKind::kVisual) {
     PublishCloud(result, colored_cloud, timing);
     cv_bridge::CvImage image;
@@ -258,6 +264,9 @@ void LivoPublisher::Publish(const FrontendResult& result,
   pose.pose = odometry.pose.pose;
   pose.header.stamp = ros::Time::now();
   pose.header.frame_id = "camera_init";
+  if (path_.poses.size() == static_cast<std::size_t>(path_max_poses_)) {
+    path_.poses.erase(path_.poses.begin());
+  }
   path_.poses.push_back(pose);
   timing.Send([&] { path_publisher_.publish(path_); });
   pose.header.stamp = ros::Time::now();

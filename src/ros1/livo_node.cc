@@ -37,7 +37,8 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
       transport_(node),
       publisher_(parameters.livo.system.frontend_mode(),
                  parameters.livo.image_queue_size,
-                 parameters.livo.global_output) {
+                 parameters.livo.global_output, parameters.livo.path_max_poses,
+                 parameters.livo.system.stage_timing) {
   publisher_.Initialize(node, transport_);
   const auto& input = parameters_.livo;
   if (input.system.preprocess.lidar_type == kLivox) {
@@ -139,7 +140,8 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
           }
         });
       });
-  LOG(INFO) << "livo_atlas frontend ready";
+  LOG(INFO) << "livo_atlas frontend ready path_max_poses="
+            << parameters_.livo.path_max_poses;
 }
 
 SyncStatus LivoNode::ProcessNext() {
@@ -152,8 +154,7 @@ SyncStatus LivoNode::ProcessNext() {
             result.kind != UpdateKind::kVisual) {
           correction = system_.GetMapCorrection();
         }
-        publisher_.Publish(result, colored_cloud, correction,
-                           parameters_.livo.system.stage_timing);
+        publisher_.Publish(result, colored_cloud, correction);
         ros_detail::LogFrontendUpdate(result.kind, elapsed);
       });
   if (poll_background_outputs_) poll_background_outputs_();

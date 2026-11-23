@@ -58,6 +58,8 @@ TEST(SystemTest, StageTimingTracksAdmittedQueuesAndReadySteps) {
       EXPECT_EQ(log.find(sync, second + sync.size()), std::string::npos);
       EXPECT_NE(log.find("livo_atlas timing stage=lidar_preprocess seconds="),
                 std::string::npos);
+      EXPECT_NE(log.find("livo_atlas timing stage=frontend_process seconds="),
+                std::string::npos);
       EXPECT_NE(log.find("sensor_buffer_peak queue=lidar count=2 span_s=0.25"),
                 std::string::npos);
     } else {
@@ -65,6 +67,29 @@ TEST(SystemTest, StageTimingTracksAdmittedQueuesAndReadySteps) {
       EXPECT_EQ(log.find("sensor_buffer_peak"), std::string::npos);
     }
   }
+}
+
+TEST(SystemTest, StageTimingTracksStartupPeaksBeforeLidarAnchor) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  options.stage_timing = true;
+  LivoSystem system(options);
+  testing::internal::CaptureStderr();
+  for (double timestamp : {100.0, 104.5, 102.0}) {
+    EXPECT_TRUE(system.AddImu(
+        {timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  }
+  const auto image = test_data::MakeImage(512, 512, 3);
+  EXPECT_TRUE(system.AddImage({100, image}));
+  EXPECT_TRUE(system.AddImage({105, image}));
+  EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+  system.Finish();
+  const auto log = testing::internal::GetCapturedStderr();
+  EXPECT_NE(log.find("sensor_buffer_peak queue=startup_imu count=3 span_s=4.5"),
+            std::string::npos);
+  EXPECT_NE(log.find("sensor_buffer_peak queue=startup_image count=2 span_s=5"),
+            std::string::npos);
+  EXPECT_NE(log.find("sensor_buffer_peak queue=imu count=0"),
+            std::string::npos);
 }
 
 TEST(SystemOptionsTest, RejectsInvalidDirectOptionsBeforeTouchingOutput) {

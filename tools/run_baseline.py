@@ -8,6 +8,7 @@ whose output directory is compiled into the executable.
 import argparse
 import collections
 import hashlib
+import io
 import json
 import math
 import os
@@ -27,13 +28,13 @@ import xmlrpc.client
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from tools.mapping_log import (glog_severity, summarize_frontend_updates,
-                                   summarize_stage_timings)
+    from tools.mapping_log import (glog_severity, read_path_max_poses,
+                                   summarize_frontend_updates, summarize_stage_timings)
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from mapping_log import (glog_severity, summarize_frontend_updates,
-                             summarize_stage_timings)
+    from mapping_log import (glog_severity, read_path_max_poses,
+                             summarize_frontend_updates, summarize_stage_timings)
 
 
 def exited_cleanly(returncode, log, gdb_enabled):
@@ -119,6 +120,8 @@ def parse_arguments(arguments=None):
                         help='Override the positive image publication queue depth (node default: 1)')
     parser.add_argument('--stage-timing', action='store_true',
                         help='Enable detailed stage timing in the node')
+    parser.add_argument('--path-max-poses', type=int,
+                        help='Override the positive /path pose limit')
     parser.add_argument('--port', type=int, default=11341)
     parser.add_argument('--gdb', action='store_true', help='Capture a stack trace on shutdown faults')
     parser.add_argument('--semantic-output', action='store_true',
@@ -168,6 +171,8 @@ def parse_arguments(arguments=None):
         args.submap_mode = 'online' if (args.geometry_submaps or args.loop_closure or args.global_output or args.gaussian_socket) else 'keyframe_groups'
     if args.image_queue_size is not None and args.image_queue_size <= 0:
         parser.error('--image-queue-size must be positive')
+    if args.path_max_poses is not None and args.path_max_poses <= 0:
+        parser.error('--path-max-poses must be positive')
     if args.submap_mode == 'online':
         args.save_submaps = True
     if args.save_submaps:
@@ -235,6 +240,7 @@ def main():
     semantic = {'/cloud_registered': [], '/rgb_img': []}
     odometry = []
     cloud_sizes = []
+    latest_path = None
     resources = []
     shutdown_resources = []
     lock = threading.Lock()
@@ -322,6 +328,8 @@ def main():
             run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
         if args.stage_timing:
             run(['rosparam', 'set', '/diagnostics/stage_timing', 'true'])
+        if args.path_max_poses is not None:
+            run(['rosparam', 'set', '/publish/path/max_poses', str(args.path_max_poses)])
         if args.save_products:
             for key, value in [('pcd_save/pcd_save_en', 'true'),
                                ('pcd_save/colmap_output_en', 'true'),
@@ -467,6 +475,11 @@ def main():
                 counts['/rgb_img'] += 1
                 semantic['/rgb_img'].append(image_digest(msg))
 
+        def receive_path(message):
+            nonlocal latest_path
+            with lock:
+                latest_path = message
+
         subscribers = [rospy.Subscriber(topic, rospy.AnyMsg, count(topic),
                        queue_size=2000, buff_size=8 * 1024 * 1024)
                        for topic in ['/livox/lidar', '/livox/imu', '/left_camera/image']]
@@ -478,6 +491,8 @@ def main():
             rospy.Subscriber('/aft_mapped_to_init', Odometry, receive_odom, queue_size=2000),
             rospy.Subscriber('/cloud_registered', PointCloud2, receive_cloud,
                              queue_size=2000, buff_size=8 * 1024 * 1024),
+            rospy.Subscriber('/path', RosPath, receive_path, queue_size=1,
+                             buff_size=8 * 1024 * 1024),
         ])
         subscribers.extend([
             rospy.Subscriber('/global_pose', PoseStamped, receive_global, queue_size=2000),
@@ -605,6 +620,7 @@ def main():
         shutdown = stop_process(node, shutdown_wait_seconds(args),
                                 sample_shutdown if args.gaussian_finalize_on_shutdown else None)
         with lock:
+            saved_path = latest_path
             if geometry_observation['enabled'] and not geometry_observation['samples']:
                 geometry_observation['errors'].append('No geometry map messages received')
             gaussian_observation['errors'] = gaussian_reception_errors(gaussian_observation)
@@ -617,6 +633,15 @@ def main():
                 json.dumps(geometry_observation, indent=2) + '\n')
         if args.semantic_output:
             (output / 'semantic-output.json').write_text(json.dumps(semantic, indent=2) + '\n')
+        path_size = 0
+        path_bytes = 0
+        if saved_path is not None:
+            path_size = len(saved_path.poses)
+            serialized = io.BytesIO()
+            saved_path.serialize(serialized)
+            path_bytes = serialized.tell()
+            (output / 'path.json').write_text(json.dumps(
+                trajectory_path_record(saved_path, lambda stamp: stamp.to_nsec())) + '\n')
         if keyframes_enabled:
             shutil.move(str(node_output / 'keyframes'), str(output / 'keyframes'))
         if args.save_products:
@@ -646,9 +671,16 @@ def main():
         geometry_timings = summarize_geometry_timings(log, np)
         updates, timings = summarize_frontend_updates(log, np)
         stage_timings, buffer_peaks = summarize_stage_timings(log, np)
+        path_max_poses = read_path_max_poses(log)
         errors = [line for line in log.splitlines()
                   if '[ERROR]' in line or 'Assertion' in line
                   or glog_severity(line) in ('E', 'F')]
+        if args.path_max_poses is not None and path_max_poses != args.path_max_poses:
+            errors.append(f'Node reported /path limit {path_max_poses}, expected {args.path_max_poses}')
+        if path_max_poses is not None:
+            expected_path_size = min(updates['lio'], path_max_poses)
+            if path_size != expected_path_size:
+                errors.append(f'/path has {path_size} poses, expected {expected_path_size}')
         errors.extend('Geometry map record: ' + error for error in geometry_observation['errors'])
         errors.extend('Gaussian record: ' + error for error in gaussian_observation['errors'])
         summary = {
@@ -659,6 +691,9 @@ def main():
             'requested_cpu_affinity': args.cpu_affinity,
             'mapping_cpu_affinity': mapping_affinity,
             'image_queue_size': image_queue_size,
+            'path_max_poses': path_max_poses,
+            'path_size': path_size,
+            'path_serialized_bytes': path_bytes,
             'playback_wall_s': playback_wall_s, 'ros_master_port': args.port,
             'shutdown_wall_s': shutdown['elapsed_seconds'],
             'forced_termination': shutdown['forced_termination'],

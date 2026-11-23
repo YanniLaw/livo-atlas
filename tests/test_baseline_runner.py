@@ -128,6 +128,27 @@ class BaselineRunnerTest(unittest.TestCase):
         self.assertEqual(peaks, {'imu': {'count': 20, 'span_s': .12}})
         self.assertEqual(mapping_log.summarize_stage_timings('', np), ({}, {}))
 
+    def test_ros2_path_size_uses_configured_capacity(self):
+        counts = {'/aft_mapped_to_init': 5, '/rgb_img': 1, '/cloud_registered': 6}
+        poses = [[0., 0., 0., 0., 0., 0., 1.]] * 5
+        self.assertFalse(run_ros2_baseline.output_issues(
+            5, 1, counts, 3, poses, path_max_poses=3))
+        self.assertEqual(run_ros2_baseline.output_issues(
+            5, 1, counts, 4, poses, path_max_poses=3),
+            {'path_size': {'expected': 3, 'observed': 4}})
+        self.assertFalse(run_ros2_baseline.output_issues(5, 1, counts, 5, poses))
+
+    def test_path_capacity_comes_from_the_node_across_binary_versions(self):
+        logging_prefix = 'I1124 03:45:00.000000 1 livo_node.cc:163] '
+        legacy_log = logging_prefix + 'livo_atlas frontend ready\n'
+        current_log = logging_prefix + 'livo_atlas frontend ready path_max_poses=3\n'
+        self.assertIsNone(mapping_log.read_path_max_poses(legacy_log))
+        self.assertEqual(mapping_log.read_path_max_poses(current_log), 3)
+        counts = {'/aft_mapped_to_init': 2001, '/rgb_img': 0, '/cloud_registered': 2001}
+        poses = [[0., 0., 0., 0., 0., 0., 1.]] * 2001
+        self.assertFalse(run_ros2_baseline.output_issues(
+            2001, 0, counts, 2001, poses, mapping_log.read_path_max_poses(legacy_log)))
+
 
 class GlobalBaselineParserTest(unittest.TestCase):
     def test_loop_replays_select_detection_or_pose_graph(self):

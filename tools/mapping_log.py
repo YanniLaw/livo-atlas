@@ -11,6 +11,7 @@ _LEGACY_DURATION = re.compile(r'\|\s*Current Total Time\s*\|\s*([0-9.eE+-]+)')
 _STAGE_TIMING = re.compile(r'\blivo_atlas timing stage=([a-z_]+) seconds=(\S+)')
 _BUFFER_PEAK = re.compile(
     r'\blivo_atlas sensor_buffer_peak queue=([a-z_]+) count=(\d+) span_s=(\d+(?:\.\d+)?)')
+_PATH_LIMIT = re.compile(r'\blivo_atlas frontend ready path_max_poses=([1-9]\d*)\b')
 
 
 def glog_severity(line):
@@ -29,6 +30,11 @@ def read_mapping_log(output):
     if merged.is_file():
         return merged.read_text(errors='replace')
     return '\n'.join(read_node_logs(output))
+
+
+def read_path_max_poses(log):
+    match = _PATH_LIMIT.search(log)
+    return int(match.group(1)) if match else None
 
 
 def _append_seconds(samples, value):

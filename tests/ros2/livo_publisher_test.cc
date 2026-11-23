@@ -15,6 +15,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <opencv2/core/mat.hpp>
+#include <rclcpp/serialization.hpp>
 #include <thread>
 #include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -152,6 +153,62 @@ TEST(RosOutputTest, PublishesOrdinarySnapshotsWithLegacySchemasAndPoses) {
   EXPECT_NEAR(marker.scale.z, 0.2, 1e-15);
   EXPECT_FLOAT_EQ(marker.color.a, 0.8);
   EXPECT_FLOAT_EQ(marker.color.b, 0.5);
+}
+
+TEST(RosOutputTest, PathKeepsNewestPosesAndBoundedMessageSize) {
+  auto node = std::make_shared<rclcpp::Node>("path_capacity_test");
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  nav_msgs::msg::Path received;
+  auto subscription = node->create_subscription<nav_msgs::msg::Path>(
+      "/path", 10, [&](const nav_msgs::msg::Path::ConstSharedPtr& msg) {
+        received = *msg;
+      });
+  LivoPublisher publisher(*node, FrontendMode::kLidarInertial, 1, {}, 3);
+  ASSERT_TRUE(WaitFor(executor, [&] {
+    return subscription->get_publisher_count() != 0;
+  }));
+  FrontendResult result;
+  result.updated = true;
+  result.kind = UpdateKind::kLidarInertial;
+  const auto send = [&](int frame) {
+    result.estimate.pos_end.x() = frame;
+    publisher.Publish(result, nullptr);
+  };
+  const auto received_frame = [&](int frame) {
+    return !received.poses.empty() &&
+           received.poses.back().pose.position.x == frame;
+  };
+  send(1);
+  ASSERT_TRUE(WaitFor(executor, [&] { return received_frame(1); }));
+  const auto path_stamp = received.header.stamp;
+  send(2);
+  send(3);
+  ASSERT_TRUE(WaitFor(executor, [&] { return received_frame(3); }));
+  const auto third_stamp = received.poses.back().header.stamp;
+  send(4);
+  send(5);
+  ASSERT_TRUE(WaitFor(executor, [&] { return received_frame(5); }));
+  ASSERT_EQ(received.poses.size(), 3u);
+  EXPECT_EQ(received.header.frame_id, "camera_init");
+  EXPECT_EQ(received.header.stamp, path_stamp);
+  EXPECT_EQ(received.poses.front().header.stamp, third_stamp);
+  for (int index = 0; index < 3; ++index) {
+    EXPECT_DOUBLE_EQ(received.poses[index].pose.position.x, 3 + index);
+    EXPECT_EQ(received.poses[index].header.frame_id, "camera_init");
+    EXPECT_GE(rclcpp::Time(received.poses[index].header.stamp),
+              rclcpp::Time(third_stamp));
+  }
+  rclcpp::Serialization<nav_msgs::msg::Path> serialization;
+  rclcpp::SerializedMessage serialized;
+  serialization.serialize_message(&received, &serialized);
+  const auto bytes = serialized.size();
+  for (int frame = 6; frame <= 256; ++frame) send(frame);
+  ASSERT_TRUE(WaitFor(executor, [&] { return received_frame(256); }));
+  ASSERT_EQ(received.poses.size(), 3u);
+  EXPECT_DOUBLE_EQ(received.poses.front().pose.position.x, 254);
+  serialization.serialize_message(&received, &serialized);
+  EXPECT_EQ(serialized.size(), bytes);
 }
 
 }  // namespace

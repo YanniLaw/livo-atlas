@@ -54,7 +54,9 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
       poll_background_outputs_(std::move(poll_background_outputs)),
       publisher_(node, parameters_.livo.system.frontend_mode(),
                  parameters_.livo.image_queue_size,
-                 parameters_.livo.global_output),
+                 parameters_.livo.global_output,
+                 parameters_.livo.path_max_poses,
+                 parameters_.livo.system.stage_timing),
       context_(node.get_node_base_interface()->get_context()) {
   // Keep message order within each subscription while allowing different
   // sensors to convert messages independently.
@@ -185,7 +187,8 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
         });
       },
       processing_group_);
-  LOG(INFO) << "livo_atlas frontend ready";
+  LOG(INFO) << "livo_atlas frontend ready path_max_poses="
+            << parameters_.livo.path_max_poses;
 }
 
 SyncStatus LivoNode::ProcessNext() {
@@ -198,8 +201,7 @@ SyncStatus LivoNode::ProcessNext() {
             result.kind != UpdateKind::kVisual) {
           correction = system_.GetMapCorrection();
         }
-        publisher_.Publish(result, colored_cloud, correction,
-                           parameters_.livo.system.stage_timing);
+        publisher_.Publish(result, colored_cloud, correction);
         ros_detail::LogFrontendUpdate(result.kind, elapsed);
       });
   if (poll_background_outputs_) poll_background_outputs_();

@@ -4,6 +4,10 @@ ros:
 diagnostics:
   stage_timing: false
 
+publish:
+  path:
+    max_poses: 2000
+
 sensor_buffer:
   max_lidar_scans: 64
   max_imu_samples: 4096
