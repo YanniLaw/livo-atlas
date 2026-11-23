@@ -90,25 +90,33 @@ int main(int argc, char** argv) {
     gaussian.Poll();
     ros_integration::LivoNode ros_node(*node, parameters, system,
                                        std::move(poll_background_outputs));
+    try {
 #if LIVO_ATLAS_ROS_VERSION == 1
-    ros::AsyncSpinner spinner(parameters.livo.executor_threads);
-    spinner.start();
-    ros::WallRate rate(5000);
-    while (ros::ok()) {
-      if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
-        rate.sleep();
+      ros::AsyncSpinner spinner(parameters.livo.executor_threads);
+      spinner.start();
+      ros::WallRate rate(5000);
+      while (ros::ok()) {
+        if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
+          rate.sleep();
+        }
       }
-    }
-    spinner.stop();
+      spinner.stop();
 #else
-    rclcpp::executors::MultiThreadedExecutor executor(
-        rclcpp::ExecutorOptions(), parameters.livo.executor_threads);
-    executor.add_node(node);
-    executor.spin();
+      rclcpp::executors::MultiThreadedExecutor executor(
+          rclcpp::ExecutorOptions(), parameters.livo.executor_threads);
+      executor.add_node(node);
+      executor.spin();
 #endif
-    ros_node.RethrowCallbackFailure();
-    // Withdraw preview output before terminal backend work can block.
-    gaussian.FinishPublication();
+      ros_node.RethrowCallbackFailure();
+      // Withdraw preview output before terminal backend work can block.
+      gaussian.FinishPublication();
+      ros_node.DrainInput();
+    } catch (...) {
+      system.RecordFailure(std::current_exception());
+      ros_node.ReportInputs();
+      throw;
+    }
+    ros_node.ReportInputs();
     system.Finish();
     if (const auto stats = system.GetLoopStats()) {
       const auto& s = *stats;
@@ -175,7 +183,6 @@ int main(int argc, char** argv) {
                 << " max_worker_seconds=" << s.max_worker_seconds
                 << " last_latency_seconds=" << s.last_latency_seconds;
     }
-    ros_node.ReportInputs();
   } catch (const std::exception& error) {
     LOG(ERROR) << "LIVO initialization or processing failed: " << error.what();
     result = 1;

@@ -28,6 +28,7 @@ target_link_libraries(livo_atlas_ros2_conversions livo_atlas::core)
 ament_target_dependencies(livo_atlas_ros2_conversions
   sensor_msgs cv_bridge pcl_conversions livox_ros_driver2)
 add_library(livo_atlas_ros2_node src/ros2/node_options.cc src/ros2/livo_node.cc
+  src/ros_common/sensor_input.cc
   src/ros2/livo_publisher.cc src/ros2/keyframe_trajectory_publisher.cc
   src/ros2/geometry_map_publisher.cc)
 if(TARGET livo_atlas_online_gaussian)
@@ -43,7 +44,8 @@ set_target_properties(livo_atlas_ros2_conversions
   livo_atlas_ros2_node PROPERTIES INSTALL_RPATH "$ORIGIN" INSTALL_RPATH_USE_LINK_PATH TRUE)
 install(TARGETS livo_atlas_ros2_conversions livo_atlas_ros2_node
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
-install(DIRECTORY include/livo_atlas/ros2 DESTINATION include/livo_atlas)
+install(DIRECTORY include/livo_atlas/ros2 include/livo_atlas/ros_common
+  DESTINATION include/livo_atlas)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 
 set(LIVO_ATLAS_CONFIG_OPENMP FALSE)

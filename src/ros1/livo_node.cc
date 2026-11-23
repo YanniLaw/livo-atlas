@@ -1,32 +1,54 @@
 #include "livo_atlas/ros1/livo_node.h"
 
-#include <atomic>
+#include <ros/message_event.h>
+
+#include <cstdint>
 #include <exception>
-#include <mutex>
 #include <optional>
-#include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "livo_atlas/common/logging.h"
-#include "livo_atlas/ros1/livo_publisher.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
 #include "ros_common/input_diagnostics.h"
 
 namespace livo_atlas::ros1 {
+namespace {
 
-template <typename Callback>
-void LivoNode::RunCallback(Callback callback) {
-  try {
-    callback();
-  } catch (...) {
-    {
-      const std::lock_guard<std::mutex> lock(system_mutex_);
-      if (callback_failure_) return;
-      callback_failure_ = std::current_exception();
-    }
-    ros::requestShutdown();
-  }
+using ros_detail::Sensor;
+using ros_detail::SensorInput;
+
+template <typename Message, typename Sample, typename Converter>
+ros::Subscriber SubscribeSensor(ros::NodeHandle& node, const std::string& topic,
+                                int depth, SensorInput& input, Sensor sensor,
+                                Converter convert) {
+  using Event = ros::MessageEvent<const Message>;
+  return node.subscribe<Message, const Event&>(
+      topic, depth,
+      [&input, sensor, convert, connection = boost::shared_ptr<ros::M_string>(),
+       sequence = std::uint32_t{0}](const Event& event) mutable {
+        try {
+          const auto& message = *event.getMessage();
+          const auto& header = event.getConnectionHeaderPtr();
+          const std::uint32_t delta = message.header.seq - sequence;
+          // Only count forward gaps on the same publisher connection.
+          if (header && header == connection && delta > 1 &&
+              delta < 0x80000000u) {
+            input.RecordTransportLoss(sensor, delta - 1);
+          }
+          connection = header;
+          sequence = message.header.seq;
+          ros_detail::ReceiveInput<Sample>(input, sensor, [&](Sample* sample) {
+            return convert(message, sample);
+          });
+        } catch (...) {
+          input.Fail(std::current_exception());
+          ros::requestShutdown();
+        }
+      });
 }
+
+}  // namespace
 
 LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
                    LivoSystem& system,
@@ -38,141 +60,89 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
       publisher_(parameters.livo.system.frontend_mode(),
                  parameters.livo.image_queue_size,
                  parameters.livo.global_output, parameters.livo.path_max_poses,
-                 parameters.livo.system.stage_timing) {
+                 parameters.livo.system.stage_timing),
+      input_(parameters.livo.system.sensor_buffer,
+             parameters.livo.system.stage_timing) {
   publisher_.Initialize(node, transport_);
-  const auto& input = parameters_.livo;
-  if (input.system.preprocess.lidar_type == kLivox) {
-    lidar_ = node.subscribe<livox_ros_driver::CustomMsg>(
-        input.lidar_topic, 200000,
-        [this](const livox_ros_driver::CustomMsg::ConstPtr& message) {
-          RunCallback([&] {
-            lidar_count_.fetch_add(1, std::memory_order_relaxed);
-            LidarScan scan;
-            ros_detail::InputTiming timing(
-                parameters_.livo.system.stage_timing, "lidar_conversion",
-                "lidar_lock_wait");
-            const auto error = ConvertLivox(*message, &scan);
-            timing.Converted();
-            if (!error.empty()) {
-              LOG(WARNING) << error;
-              return;
-            }
-            const std::lock_guard<std::mutex> lock(system_mutex_);
-            timing.LockAcquired();
-            if (!callback_failure_) system_.AddLidar(scan);
+  const auto& config = parameters_.livo;
+  const auto& options = config.system;
+  const auto& depths = config.subscription_depths;
+  if (options.lidar_enabled) {
+    if (options.preprocess.lidar_type == kLivox) {
+      lidar_ = SubscribeSensor<livox_ros_driver::CustomMsg, LidarScan>(
+          node, config.lidar_topic, depths.lidar, input_, Sensor::kLidar,
+          ConvertLivox);
+    } else {
+      lidar_ = SubscribeSensor<sensor_msgs::PointCloud2, LidarScan>(
+          node, config.lidar_topic, depths.lidar, input_, Sensor::kLidar,
+          [type = options.preprocess.lidar_type,
+           offset = config.lidar_time_offset](const auto& message,
+                                              LidarScan* scan) {
+            return ConvertPointCloud(message, type, offset, scan);
           });
-        });
-  } else {
-    lidar_ = node.subscribe<sensor_msgs::PointCloud2>(
-        input.lidar_topic, 200000,
-        [this](const sensor_msgs::PointCloud2::ConstPtr& message) {
-          RunCallback([&] {
-            lidar_count_.fetch_add(1, std::memory_order_relaxed);
-            LidarScan scan;
-            ros_detail::InputTiming timing(
-                parameters_.livo.system.stage_timing, "lidar_conversion",
-                "lidar_lock_wait");
-            const auto error = ConvertPointCloud(
-                *message, parameters_.livo.system.preprocess.lidar_type,
-                parameters_.livo.lidar_time_offset, &scan);
-            timing.Converted();
-            if (!error.empty()) {
-              LOG(WARNING) << error;
-              return;
-            }
-            const std::lock_guard<std::mutex> lock(system_mutex_);
-            timing.LockAcquired();
-            if (!callback_failure_) system_.AddLidar(scan);
-          });
+    }
+  }
+  if (options.frontend.imu.enabled) {
+    imu_ = SubscribeSensor<sensor_msgs::Imu, Imu>(
+        node, config.imu_topic, depths.imu, input_, Sensor::kImu,
+        [](const auto& message, Imu* imu) {
+          *imu = ConvertImu(message);
+          return std::string{};
         });
   }
-  imu_ = node.subscribe<sensor_msgs::Imu>(
-      input.imu_topic, 200000,
-      [this](const sensor_msgs::Imu::ConstPtr& message) {
-        RunCallback([&] {
-          imu_count_.fetch_add(1, std::memory_order_relaxed);
-          try {
-            ros_detail::InputTiming timing(parameters_.livo.system.stage_timing,
-                                           "imu_conversion", "imu_lock_wait");
-            auto measurement = ConvertImu(*message);
-            timing.Converted();
-            const std::lock_guard<std::mutex> lock(system_mutex_);
-            timing.LockAcquired();
-            if (!callback_failure_) system_.AddImu(std::move(measurement));
-          } catch (const std::invalid_argument& error) {
-            LOG(WARNING) << error.what();
-          }
+  if (options.image_enabled) {
+    image_ = SubscribeSensor<sensor_msgs::Image, TimedImage>(
+        node, config.image_topic, depths.image, input_, Sensor::kImage,
+        [offset = config.image_time_offset](const auto& message,
+                                            TimedImage* image) {
+          return ConvertImage(message, offset, image);
         });
-      });
-  image_ = node.subscribe<sensor_msgs::Image>(
-      input.image_topic, 200000,
-      [this](const sensor_msgs::Image::ConstPtr& message) {
-        RunCallback([&] {
-          image_count_.fetch_add(1, std::memory_order_relaxed);
-          TimedImage image;
-          ros_detail::InputTiming timing(parameters_.livo.system.stage_timing,
-                                         "image_conversion", "image_lock_wait");
-          const auto error = ConvertImage(
-              *message, parameters_.livo.image_time_offset, &image);
-          timing.Converted();
-          if (!error.empty()) {
-            LOG(WARNING) << error;
-            return;
-          }
-          const std::lock_guard<std::mutex> lock(system_mutex_);
-          timing.LockAcquired();
-          if (!callback_failure_) system_.AddImage(std::move(image));
+  }
+  if (options.propagate_imu) {
+    propagation_ =
+        node.createTimer(ros::Duration(.004), [this](const ros::TimerEvent&) {
+          propagation_due_.store(true, std::memory_order_relaxed);
         });
-      });
-  propagation_ =
-      node.createTimer(ros::Duration(.004), [this](const ros::TimerEvent&) {
-        RunCallback([this] {
-          const std::lock_guard<std::mutex> lock(system_mutex_);
-          if (callback_failure_) return;
-          const auto result = system_.PropagateLatest();
-          if (result) {
-            ros::Time stamp;
-            stamp.fromSec(result->timestamp);
-            publisher_.PublishImuPropagation(result->state, stamp);
-            if (parameters_.livo.system.stage_timing) {
-              ros_detail::LogPropagationInterval(&last_propagation_);
-            }
-          }
-        });
-      });
+  }
   LOG(INFO) << "livo_atlas frontend ready path_max_poses="
-            << parameters_.livo.path_max_poses;
+            << config.path_max_poses;
 }
 
 SyncStatus LivoNode::ProcessNext() {
-  const std::lock_guard<std::mutex> lock(system_mutex_);
-  if (callback_failure_) std::rethrow_exception(callback_failure_);
-  const auto status = system_.ProcessNext(
+  const auto status = input_.ProcessNext(
+      system_,
       [this](const auto& result, const auto& colored_cloud, double elapsed) {
-        std::optional<MapCorrection> correction;
-        if (parameters_.livo.global_output.enabled && result.updated &&
-            result.kind != UpdateKind::kVisual) {
-          correction = system_.GetMapCorrection();
+        const bool publish = ros::ok();
+        if (publish) {
+          std::optional<MapCorrection> correction;
+          if (parameters_.livo.global_output.enabled &&
+              result.kind != UpdateKind::kVisual) {
+            correction = system_.GetMapCorrection();
+          }
+          publisher_.Publish(result, colored_cloud, correction);
         }
-        publisher_.Publish(result, colored_cloud, correction);
-        ros_detail::LogFrontendUpdate(result.kind, elapsed);
+        ros_detail::LogFrontendUpdate(result.kind, elapsed, publish);
       });
+  if (propagation_due_.exchange(false, std::memory_order_relaxed) &&
+      ros::ok()) {
+    if (const auto result = system_.PropagateLatest()) {
+      ros::Time stamp;
+      stamp.fromSec(result->timestamp);
+      publisher_.PublishImuPropagation(result->state, stamp);
+      if (parameters_.livo.system.stage_timing) {
+        ros_detail::LogPropagationInterval(&last_propagation_);
+      }
+    }
+  }
   if (poll_background_outputs_) poll_background_outputs_();
   return status;
 }
 
-void LivoNode::RethrowCallbackFailure() {
-  const std::lock_guard<std::mutex> lock(system_mutex_);
-  if (callback_failure_) std::rethrow_exception(callback_failure_);
-}
+void LivoNode::RethrowCallbackFailure() { input_.RethrowFailure(); }
 
-void LivoNode::ReportInputs() {
-  const std::lock_guard<std::mutex> lock(system_mutex_);
-  ros_detail::LogInputDiagnostics(lidar_count_.load(std::memory_order_relaxed),
-                                 imu_count_.load(std::memory_order_relaxed),
-                                 image_count_.load(std::memory_order_relaxed),
-                                 system_.GetStartupBufferStats());
-}
+void LivoNode::DrainInput() { input_.Drain(system_); }
+
+void LivoNode::ReportInputs() { input_.Report(system_); }
 
 LivoNode::~LivoNode() = default;
 

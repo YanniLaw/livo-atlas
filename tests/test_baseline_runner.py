@@ -114,6 +114,35 @@ class BaselineRunnerTest(unittest.TestCase):
         self.assertEqual(timings['vio']['max'], .004)
         self.assertEqual(timings['vio']['median'], timings['vio']['p50'])
 
+    def test_sensor_handoff_diagnostics(self):
+        log = (
+            'livo_atlas inputs: lidar=5 imu=200 image=4\n'
+            'livo_atlas sensor_input sensor=lidar peak=2 combined_sampled_peak=4 '
+            'pending=1 system_pending=2 transport_lost=3 conversion_rejected=1 '
+            'system_rejected=0 overflow_rejected=1 closed_rejected=2\n'
+        )
+        topics = {'lidar': '/lidar', 'imu': '/imu', 'image': '/camera'}
+        self.assertEqual(mapping_log.read_input_counts(log, topics),
+                         {'/lidar': 5, '/imu': 200, '/camera': 4})
+        self.assertEqual(mapping_log.read_sensor_input_stats(log), {
+            'lidar': dict(peak=2, combined_sampled_peak=4, pending=1,
+                          system_pending=2, transport_lost=3,
+                          conversion_rejected=1, system_rejected=0,
+                          overflow_rejected=1, closed_rejected=2),
+        })
+        self.assertEqual(mapping_log.read_input_counts('', topics), {})
+        self.assertEqual(mapping_log.read_sensor_input_stats(''), {})
+
+    def test_shutdown_updates_count_toward_estimation_and_skip_ros(self):
+        log = ('livo_atlas update kind=lio frontend_process_seconds=0.05 ros_published=1\n'
+               'livo_atlas update kind=lio frontend_process_seconds=0.05 ros_published=0\n'
+               'livo_atlas update kind=vio frontend_process_seconds=0.01\n')
+        counts, timings = mapping_log.summarize_frontend_updates(log, np)
+        self.assertEqual(counts, {'lio': 2, 'vio': 1})
+        self.assertEqual(timings['lio']['count'], 2)
+        self.assertEqual(mapping_log.count_published_updates(log, counts),
+                         {'lio': 1, 'vio': 1})
+
     def test_stage_timings_and_queue_peaks_share_both_replay_summaries(self):
         log = ('I1124 02:20:00.000000  1 livo_system.cc:331] '
                'livo_atlas timing stage=synchronization seconds=0.001\n'

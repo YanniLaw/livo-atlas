@@ -30,6 +30,7 @@ target_include_directories(livo_atlas_ros1_conversions PUBLIC ${catkin_INCLUDE_D
 target_link_libraries(livo_atlas_ros1_conversions PUBLIC livo_atlas::core
   ${catkin_LIBRARIES})
 add_library(livo_atlas_ros1_node src/ros1/livo_node.cc src/ros1/node_options.cc
+  src/ros_common/sensor_input.cc
   src/ros1/livo_publisher.cc src/ros1/keyframe_trajectory_publisher.cc
   src/ros1/geometry_map_publisher.cc)
 if(TARGET livo_atlas_online_gaussian)
@@ -49,7 +50,7 @@ install(TARGETS livo_atlas_ros1_node livo_atlas_ros1_conversions
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
 install(DIRECTORY config launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
-install(DIRECTORY include/livo_atlas/ros1
+install(DIRECTORY include/livo_atlas/ros1 include/livo_atlas/ros_common
   DESTINATION ${CATKIN_GLOBAL_INCLUDE_DESTINATION}/livo_atlas)
 install(DIRECTORY include/livox_ros_driver
   DESTINATION ${CATKIN_GLOBAL_INCLUDE_DESTINATION})

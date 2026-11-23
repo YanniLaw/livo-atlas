@@ -50,6 +50,13 @@ struct StartupBufferStats {
   std::uint64_t rejected_imu = 0;
 };
 
+struct SensorBufferCounts {
+  std::size_t lidar = 0;
+  std::size_t imu = 0;
+  std::size_t image = 0;
+  std::size_t propagation_imu = 0;
+};
+
 // Callers serialize access to the system. Consume callback views before the
 // next ProcessNext call.
 class LivoSystem {
@@ -81,11 +88,19 @@ class LivoSystem {
   bool AddImage(TimedImage measurement);
   // Called by the same owner as input methods; counts include startup only.
   StartupBufferStats GetStartupBufferStats() const noexcept;
+  SensorBufferCounts GetSensorBufferCounts() const noexcept;
+  // Let a batched caller try synchronization before submitting input that
+  // could exceed the current count or corrected timestamp span.
+  bool WouldExceedInputLimit(const LidarScan& scan) const;
+  bool WouldExceedInputLimit(const Imu& imu) const;
+  bool WouldExceedInputLimit(const TimedImage& image) const;
   SyncStatus ProcessNext(const ResultCallback& callback);
   void ProcessAvailable(const ResultCallback& callback);
   std::optional<PropagationResult> PropagateLatest();
   // Close input and seal the tail while keeping pose updates available.
   void SealInput();
+  // Record a terminal failure from the owner before an unsuccessful shutdown.
+  void RecordFailure(std::exception_ptr error) noexcept;
   // Input overflow and persistence failures stop the session. Subsequent input,
   // processing and Finish rethrow the original error. Committed views remain
   // readable.
@@ -104,7 +119,6 @@ class LivoSystem {
   friend class LoopBackendTestPeer;
   void ClaimLoopPoseUpdates();
   void ApplyLoopPoseUpdate(const PoseUpdate& update);
-  void FailLoopBackend(std::exception_ptr error) noexcept;
   void FinishSession(LoopBackend* backend);
   void CheckInputOpen() const;
   SyncStatus ProcessMeasurement(const ResultCallback& callback);

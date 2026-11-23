@@ -11,9 +11,6 @@ namespace livo_atlas::ros2 {
 struct NodeOptions {
   LivoConfig livo;
   std::string reliability = "best_effort";
-  int imu_depth = 2000;
-  int lidar_depth = 100;
-  int image_depth = 20;
 };
 
 NodeOptions ReadNodeOptions(rclcpp::Node& node);

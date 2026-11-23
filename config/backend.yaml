@@ -1,6 +1,13 @@
 ros:
   executor_threads: 4
 
+# Transport subscriber depths for ROS1 and ROS2.
+qos:
+  lidar_depth: 100
+  imu_depth: 2000
+  image_depth: 20
+  reliability: best_effort  # ROS2 only.
+
 diagnostics:
   stage_timing: false
 
@@ -9,6 +16,7 @@ publish:
     max_poses: 2000
 
 sensor_buffer:
+  # Apply each count limit separately at the ROS handoff and synchronization.
   max_lidar_scans: 64
   max_imu_samples: 4096
   max_images: 32

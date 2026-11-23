@@ -11,6 +11,12 @@
 
 namespace livo_atlas {
 
+struct SubscriptionDepths {
+  int lidar = 100;
+  int imu = 2000;
+  int image = 20;
+};
+
 struct LivoConfig {
   SystemOptions system;
   std::string lidar_topic = "/livox/lidar";
@@ -24,6 +30,7 @@ struct LivoConfig {
   GaussianRenderOutputOptions gaussian_output;
   int executor_threads = 4;
   int path_max_poses = 2000;
+  SubscriptionDepths subscription_depths;
 };
 
 // Reads the shared schema and validates it without opening output files.

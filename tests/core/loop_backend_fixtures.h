@@ -19,7 +19,7 @@ namespace livo_atlas {
 class LoopBackendTestPeer {
  public:
   static void FailCompletedSystem(LivoSystem& system) {
-    system.FailLoopBackend(std::make_exception_ptr(
+    system.RecordFailure(std::make_exception_ptr(
         std::runtime_error("Terminal backend storage failure")));
   }
 

@@ -3,44 +3,42 @@
 
 #include <cstdint>
 #include <iomanip>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
 #include "common/timing.h"
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/ros_common/sensor_input.h"
 
 namespace livo_atlas::ros_detail {
 
-class InputTiming {
- public:
-  InputTiming(bool enabled, const char* conversion_stage,
-              const char* lock_wait_stage)
-      : conversion_stage_(conversion_stage),
-        lock_wait_stage_(lock_wait_stage),
-        start_(StartTiming(enabled)) {}
-
-  void Converted() {
-    converted_ = StartTiming(start_ != SteadyClock::time_point{});
+template <typename Sample, typename Converter>
+void ReceiveInput(SensorInput& input, Sensor sensor, Converter convert) {
+  constexpr const char* kStages[] = {"lidar_conversion", "imu_conversion",
+                                     "image_conversion"};
+  input.RecordReceived(sensor);
+  const auto start = StartTiming(input.stage_timing());
+  Sample sample;
+  std::string error;
+  try {
+    error = convert(&sample);
+  } catch (const std::invalid_argument& invalid) {
+    error = invalid.what();
   }
-
-  void LockAcquired() {
-    acquired_ = StartTiming(start_ != SteadyClock::time_point{});
+  const auto converted = StartTiming(input.stage_timing());
+  if (!error.empty()) {
+    input.RecordConversionRejection(sensor);
+    LOG(WARNING) << error;
+  } else {
+    input.Push(std::move(sample));
   }
-
-  // Declare this before the lock guard so logging happens after unlocking.
-  ~InputTiming() {
-    if (converted_ != SteadyClock::time_point{}) {
-      LogStageTiming(conversion_stage_, converted_ - start_);
-    }
-    if (acquired_ != SteadyClock::time_point{}) {
-      LogStageTiming(lock_wait_stage_, acquired_ - converted_);
-    }
+  if (input.stage_timing()) {
+    LogStageTiming(kStages[static_cast<std::size_t>(sensor)],
+                   converted - start);
   }
-
- private:
-  const char* conversion_stage_;
-  const char* lock_wait_stage_;
-  SteadyClock::time_point start_, converted_, acquired_;
-};
+}
 
 inline void LogPropagationInterval(SteadyClock::time_point* previous) {
   const auto now = SteadyClock::now();
@@ -62,11 +60,12 @@ inline void LogInputDiagnostics(std::uint64_t lidar, std::uint64_t imu,
             << " imu_rejected=" << startup.rejected_imu;
 }
 
-inline void LogFrontendUpdate(UpdateKind kind, double elapsed) {
+inline void LogFrontendUpdate(UpdateKind kind, double elapsed, bool published) {
   LOG(INFO) << "livo_atlas update kind="
             << (kind == UpdateKind::kVisual ? "vio" : "lio")
             << " frontend_process_seconds=" << std::fixed
-            << std::setprecision(9) << elapsed;
+            << std::setprecision(9) << elapsed
+            << " ros_published=" << (published ? 1 : 0);
 }
 
 }  // namespace livo_atlas::ros_detail

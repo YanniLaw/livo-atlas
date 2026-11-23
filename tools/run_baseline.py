@@ -28,13 +28,17 @@ import xmlrpc.client
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from tools.mapping_log import (glog_severity, read_path_max_poses,
-                                   summarize_frontend_updates, summarize_stage_timings)
+    from tools.mapping_log import (
+        count_published_updates, glog_severity, read_input_counts,
+        read_path_max_poses, read_sensor_input_stats,
+        summarize_frontend_updates, summarize_stage_timings)
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from mapping_log import (glog_severity, read_path_max_poses,
-                             summarize_frontend_updates, summarize_stage_timings)
+    from mapping_log import (
+        count_published_updates, glog_severity, read_input_counts,
+        read_path_max_poses, read_sensor_input_stats,
+        summarize_frontend_updates, summarize_stage_timings)
 
 
 def exited_cleanly(returncode, log, gdb_enabled):
@@ -350,6 +354,16 @@ def main():
         from sensor_msgs.msg import Image, PointCloud2
 
         parameters = yaml.safe_load(parameters_path.read_text())
+        common = parameters.get('common', {})
+        image_enabled = common.get('img_en', 1)
+        imu_enabled = parameters.get('imu', {}).get('imu_en', image_enabled)
+        topics = {}
+        if common.get('lidar_en', 1):
+            topics['lidar'] = common.get('lid_topic', '/livox/lidar')
+        if imu_enabled:
+            topics['imu'] = common.get('imu_topic', '/livox/imu')
+        if image_enabled:
+            topics['image'] = common.get('img_topic', '/left_camera/image')
         keyframes_enabled = parameters.get('keyframes', {}).get('enabled', False)
         submaps = parameters.get('submaps', {})
         loop_enabled = parameters.get('loop_closure', {}).get('enabled', False)
@@ -532,7 +546,7 @@ def main():
                             '--args'] + node_command
         node = launch(with_cpu_affinity(node_command, args.cpu_affinity), 'mapping')
         deadline = time.monotonic() + 20
-        required = {'/livox/lidar', '/livox/imu', '/left_camera/image'}
+        required = set(topics.values())
         while True:
             if node.poll() is not None:
                 raise RuntimeError('Mapping node exited before playback; see mapping.log')
@@ -647,7 +661,8 @@ def main():
         if args.save_products:
             for directory in ['pcd', 'image', 'Colmap']:
                 shutil.copytree(node_output / directory, output / 'products' / directory)
-        for name in ['mat_pre.txt', 'mat_out.txt', 'imu.txt']:
+        debug_files = ['mat_pre.txt', 'mat_out.txt'] + (['imu.txt'] if imu_enabled else [])
+        for name in debug_files:
             shutil.copy2(node_output / name, output / name)
         if not trajectory.exists():
             raise RuntimeError('No sensor-timestamped trajectory was produced')
@@ -670,7 +685,11 @@ def main():
             from geometry_diagnostics import summarize_geometry_timings
         geometry_timings = summarize_geometry_timings(log, np)
         updates, timings = summarize_frontend_updates(log, np)
+        published_updates = count_published_updates(log, updates)
         stage_timings, buffer_peaks = summarize_stage_timings(log, np)
+        node_counts = read_input_counts(log, topics)
+        node_mismatches = {topic: [expected[topic], count] for topic, count in node_counts.items()
+                           if topic in expected and expected[topic] != count}
         path_max_poses = read_path_max_poses(log)
         errors = [line for line in log.splitlines()
                   if '[ERROR]' in line or 'Assertion' in line
@@ -678,7 +697,7 @@ def main():
         if args.path_max_poses is not None and path_max_poses != args.path_max_poses:
             errors.append(f'Node reported /path limit {path_max_poses}, expected {args.path_max_poses}')
         if path_max_poses is not None:
-            expected_path_size = min(updates['lio'], path_max_poses)
+            expected_path_size = min(published_updates['lio'], path_max_poses)
             if path_size != expected_path_size:
                 errors.append(f'/path has {path_size} poses, expected {expected_path_size}')
         errors.extend('Geometry map record: ' + error for error in geometry_observation['errors'])
@@ -713,6 +732,8 @@ def main():
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,
             'input_count_mismatches': mismatches,
+            'node_input_counts': node_counts,
+            'node_input_count_mismatches': node_mismatches,
             'lio_cycles': updates['lio'], 'vio_cycles': updates['vio'],
             'trajectory_rows': int(poses.shape[0]),
             'trajectory_first_sensor_time_s': float(poses[0, 0]),
@@ -724,6 +745,8 @@ def main():
             'timing_seconds': timings,
             'stage_timing_seconds': stage_timings,
             'sensor_buffer_peaks': buffer_peaks,
+            'sensor_input': read_sensor_input_stats(log),
+            'ros_published_updates': published_updates,
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
             'keyframes_enabled': keyframes_enabled,
             'submaps_enabled': submaps.get('enabled', False),
@@ -755,7 +778,7 @@ def main():
         (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps({key: summary[key] for key in ['trajectory_rows', 'lio_cycles', 'vio_cycles',
                          'input_count_mismatches', 'peak_sampled_rss_mib', 'errors', 'timing_seconds']}, indent=2), flush=True)
-        if mismatches or errors or not summary['clean_shutdown']:
+        if mismatches or node_mismatches or errors or not summary['clean_shutdown']:
             raise RuntimeError('Baseline needs investigation; see summary.json')
     except Exception as exc:
         (output / 'failure.json').write_text(json.dumps({'error': str(exc), 'commands': commands}, indent=2) + '\n')

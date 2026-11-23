@@ -181,6 +181,9 @@ if(LIVO_ATLAS_ROS_VERSION STREQUAL "2")
 endif()
 
 livo_atlas_test(livo_system_test tests/core/livo_system_test.cc)
+livo_atlas_test(sensor_input_test tests/common/sensor_input_test.cc
+  src/ros_common/sensor_input.cc)
+target_include_directories(sensor_input_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 livo_atlas_test(input_seal_test tests/core/input_seal_test.cc)
 livo_atlas_test(keyframe_system_test tests/core/keyframe_system_test.cc)
 livo_atlas_test(submap_system_test tests/core/submap_system_test.cc)

@@ -224,6 +224,13 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   buffer.max_span_s =
       reader.Number("sensor_buffer.max_span_s", buffer.max_span_s);
   config.image_topic = reader.String("common.img_topic", config.image_topic);
+  auto& depths = config.subscription_depths;
+  depths.lidar = reader.Integer("qos.lidar_depth", depths.lidar);
+  depths.imu = reader.Integer("qos.imu_depth", depths.imu);
+  depths.image = reader.Integer("qos.image_depth", depths.image);
+  if (depths.lidar <= 0 || depths.imu <= 0 || depths.image <= 0) {
+    throw std::invalid_argument("qos subscription depths must be positive");
+  }
   config.image_queue_size =
       reader.Integer("publish.image_queue_size", config.image_queue_size);
   if (config.image_queue_size <= 0)

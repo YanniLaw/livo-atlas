@@ -275,7 +275,7 @@ void LoopBackend::Complete(LoopTaskResult result) {
 
 void LoopBackend::StopOnFailure(std::exception_ptr error) noexcept {
   if (!failure_) failure_ = std::move(error);
-  system_.FailLoopBackend(failure_);
+  system_.RecordFailure(failure_);
   pending_.reset();
   try {
     worker_.Stop();

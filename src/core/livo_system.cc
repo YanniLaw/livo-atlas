@@ -91,6 +91,14 @@ double BufferSpan(const std::deque<Sample>& buffer, double timestamp,
   return std::max(latest, timestamp) - std::min(earliest, timestamp);
 }
 
+template <typename Sample>
+bool ExceedsBufferLimit(const std::deque<Sample>& buffer, int max_count,
+                        double timestamp, double max_span) {
+  return !buffer.empty() &&
+         (buffer.size() >= static_cast<std::size_t>(max_count) ||
+          !(BufferSpan(buffer, timestamp) <= max_span));
+}
+
 }  // namespace
 
 LivoSystem::LivoSystem(SystemOptions options)
@@ -138,15 +146,12 @@ void LivoSystem::CheckInputOpen() const {
 
 template <typename Sample>
 void LivoSystem::CheckBufferLimit(const char* name,
-                                 const std::deque<Sample>& buffer,
-                                 int max_count, double timestamp) {
-  if (buffer.empty()) return;
+                                  const std::deque<Sample>& buffer,
+                                  int max_count, double timestamp) {
+  const double max_span = options_.sensor_buffer.max_span_s;
+  if (!ExceedsBufferLimit(buffer, max_count, timestamp, max_span)) return;
   const double oldest = buffer.front().timestamp;
   const double span = BufferSpan(buffer, timestamp);
-  const double max_span = options_.sensor_buffer.max_span_s;
-  if (buffer.size() < static_cast<std::size_t>(max_count) && span <= max_span) {
-    return;
-  }
   std::ostringstream message;
   message << std::setprecision(std::numeric_limits<double>::max_digits10)
           << "sensor_buffer overflow in " << name << " queue"
@@ -376,6 +381,49 @@ StartupBufferStats LivoSystem::GetStartupBufferStats() const noexcept {
   return stats;
 }
 
+SensorBufferCounts LivoSystem::GetSensorBufferCounts() const noexcept {
+  return {buffers_.point_clouds.size(),
+          buffers_.imu.size() + startup_imu_.size(), buffers_.images.size(),
+          propagation_buffer_.size()};
+}
+
+bool LivoSystem::WouldExceedInputLimit(const LidarScan& scan) const {
+  const auto& limits = options_.sensor_buffer;
+  return scan.timestamp >= last_lidar_ &&
+         (last_lidar_ >= 0 || scan.timestamp < 0) &&
+         ExceedsBufferLimit(buffers_.point_clouds, limits.max_lidar_scans,
+                            scan.timestamp, limits.max_span_s);
+}
+
+bool LivoSystem::WouldExceedInputLimit(const Imu& imu) const {
+  if (last_lidar_ < 0 ||
+      (buffers_.imu.empty() && propagation_buffer_.empty())) {
+    return false;
+  }
+  auto corrected = imu;
+  try {
+    corrected.timestamp = NanosecondTime(
+        imu.timestamp - options_.imu_time_offset, options_.imu_time_range);
+    if (!CorrectImuTimestamp(last_lidar_, last_imu_, &corrected)) return false;
+  } catch (const std::invalid_argument&) {
+    return false;
+  }
+  const auto& limits = options_.sensor_buffer;
+  return ExceedsBufferLimit(buffers_.imu, limits.max_imu_samples,
+                            corrected.timestamp, limits.max_span_s) ||
+         (options_.propagate_imu && !frontend_.imu_needs_initialization() &&
+          (!have_estimate_ || corrected.timestamp >= latest_time_) &&
+          ExceedsBufferLimit(propagation_buffer_, limits.max_imu_samples,
+                             corrected.timestamp, limits.max_span_s));
+}
+
+bool LivoSystem::WouldExceedInputLimit(const TimedImage& image) const {
+  const auto& limits = options_.sensor_buffer;
+  return have_first_lidar_ && image.timestamp - last_image_ >= 0.02 &&
+         ExceedsBufferLimit(buffers_.images, limits.max_images, image.timestamp,
+                            limits.max_span_s);
+}
+
 SyncStatus LivoSystem::ProcessNext(const ResultCallback& callback) {
   const auto status = ProcessMeasurement(callback);
   if (loop_backend_) loop_backend_->Poll();
@@ -522,7 +570,7 @@ void LivoSystem::ApplyLoopPoseUpdate(const PoseUpdate& update) {
   LogStageTiming("pose_commit", start);
 }
 
-void LivoSystem::FailLoopBackend(std::exception_ptr error) noexcept {
+void LivoSystem::RecordFailure(std::exception_ptr error) noexcept {
   if (!session_error_) session_error_ = std::move(error);
 }
 

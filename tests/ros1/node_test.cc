@@ -180,6 +180,50 @@ TEST(Ros1NodeTest, ReportsStartupBufferOverflow) {
             std::string::npos);
 }
 
+TEST(Ros1NodeTest, SubscriptionHandsOffImuToSystemOwner) {
+  ros::NodeHandle node;
+  auto parameters = Options(kLivox);
+  parameters.livo.system.frontend.imu.enabled = true;
+  LivoSystem system(parameters.livo.system);
+  LivoNode adapter(node, parameters, system);
+  auto publisher =
+      node.advertise<sensor_msgs::Imu>(parameters.livo.imu_topic, 10);
+  ASSERT_TRUE(WaitFor([&] { return publisher.getNumSubscribers() == 1; }));
+  sensor_msgs::Imu message;
+  message.header.stamp.fromSec(100);
+  message.linear_acceleration.z = -9.81;
+  publisher.publish(message);
+  PumpCallbacks();
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 0u);
+  EXPECT_EQ(adapter.ProcessNext(), SyncStatus::kWaiting);
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 1u);
+  system.Finish();
+}
+
+TEST(Ros1NodeTest, IngressOverflowFailsTheSession) {
+  ros::NodeHandle node;
+  auto parameters = Options(kLivox);
+  auto& options = parameters.livo.system;
+  options.frontend.imu.enabled = true;
+  options.sensor_buffer.max_imu_samples = 1;
+  LivoSystem system(options);
+  LivoNode adapter(node, parameters, system);
+  auto publisher =
+      node.advertise<sensor_msgs::Imu>(parameters.livo.imu_topic, 10);
+  ASSERT_TRUE(WaitFor([&] { return publisher.getNumSubscribers() == 1; }));
+  sensor_msgs::Imu message;
+  message.header.stamp.fromSec(100);
+  message.linear_acceleration.z = -9.81;
+  publisher.publish(message);
+  message.header.stamp.fromSec(100.01);
+  publisher.publish(message);
+  PumpCallbacks();
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 0u);
+  EXPECT_THROW(adapter.DrainInput(), std::overflow_error);
+  EXPECT_THROW(system.Finish(), std::overflow_error);
+  EXPECT_FALSE(system.IsFinished());
+}
+
 TEST(Ros1NodeTest,
      StandardTransportRejectsBadRollbackWithoutErasingPendingInput) {
   VerifyRollbackPipeline(kVelodyne);

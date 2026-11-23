@@ -122,7 +122,8 @@ install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camer
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  PATTERN ros1 EXCLUDE PATTERN ros2 EXCLUDE PATTERN livox_ros_driver EXCLUDE)
+  PATTERN ros1 EXCLUDE PATTERN ros2 EXCLUDE PATTERN ros_common EXCLUDE
+  PATTERN livox_ros_driver EXCLUDE)
 install(FILES docs/LICENSE.cartographer
   DESTINATION ${CMAKE_INSTALL_DATADIR}/livo_atlas/licenses/cartographer
   RENAME LICENSE)

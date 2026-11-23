@@ -96,16 +96,9 @@ NodeOptions ReadNodeOptions(rclcpp::Node& node) {
                             result.livo.image_topic})
     node.get_node_topics_interface()->resolve_topic_name(topic);
   result.reliability = reader.String("qos.reliability", result.reliability);
-  result.imu_depth = reader.Integer("qos.imu_depth", result.imu_depth);
-  result.lidar_depth = reader.Integer("qos.lidar_depth", result.lidar_depth);
-  result.image_depth = reader.Integer("qos.image_depth", result.image_depth);
-  if ((result.reliability != "best_effort" &&
-       result.reliability != "reliable") ||
-      result.imu_depth <= 0 || result.lidar_depth <= 0 ||
-      result.image_depth <= 0)
-    throw std::invalid_argument(
-        "qos reliability must be best_effort/reliable and depths must be "
-        "positive");
+  if (result.reliability != "best_effort" && result.reliability != "reliable") {
+    throw std::invalid_argument("qos.reliability must be best_effort/reliable");
+  }
   return result;
 }
 }  // namespace livo_atlas::ros2

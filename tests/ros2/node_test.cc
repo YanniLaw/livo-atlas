@@ -104,7 +104,9 @@ TEST(Ros2NodeTest, BackgroundOutputFailureShutsDownItsContext) {
   EXPECT_FALSE(context->is_valid());
   EXPECT_TRUE(rclcpp::ok());
   EXPECT_THROW(adapter.RethrowCallbackFailure(), std::runtime_error);
-  system.Finish();
+  EXPECT_THROW(adapter.DrainInput(), std::runtime_error);
+  EXPECT_THROW(system.Finish(), std::runtime_error);
+  EXPECT_FALSE(system.IsFinished());
 }
 
 TEST(Ros2NodeTest, ActualDdsPublishesLidarPoseCloudAndTransform) {

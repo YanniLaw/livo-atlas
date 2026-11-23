@@ -7,7 +7,6 @@ import json
 import math
 import os
 from pathlib import Path
-import re
 import shutil
 import signal
 import subprocess
@@ -17,13 +16,19 @@ import time
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
-    from tools.mapping_log import (glog_severity, read_mapping_log, read_node_logs, read_path_max_poses,
-                                   summarize_frontend_updates, summarize_stage_timings)
+    from tools.mapping_log import (
+        count_published_updates, glog_severity, read_input_counts,
+        read_mapping_log, read_node_logs, read_path_max_poses,
+        read_sensor_input_stats, summarize_frontend_updates,
+        summarize_stage_timings)
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
-    from mapping_log import (glog_severity, read_mapping_log, read_node_logs, read_path_max_poses,
-                             summarize_frontend_updates, summarize_stage_timings)
+    from mapping_log import (
+        count_published_updates, glog_severity, read_input_counts,
+        read_mapping_log, read_node_logs, read_path_max_poses,
+        read_sensor_input_stats, summarize_frontend_updates,
+        summarize_stage_timings)
 
 
 def exited_cleanly(returncode, log):
@@ -211,6 +216,16 @@ def main():
     parameters.update({'use_sim_time': True, 'qos.reliability': 'reliable',
                        'evo.pose_output_en': True, 'evo.seq_name': 'p4_humble',
                        'output.directory': str(output / 'node-output')})
+    image_enabled = parameters.get('common.img_en', 1)
+    imu_enabled = parameters.get('imu.imu_en', image_enabled)
+    topics = {}
+    if parameters.get('common.lidar_en', 1):
+        topics['lidar'] = parameters.get('common.lid_topic', '/livox/lidar')
+    if imu_enabled:
+        topics['imu'] = parameters.get('common.imu_topic', '/livox/imu')
+    if image_enabled:
+        topics['image'] = parameters.get('common.img_topic', '/left_camera/image')
+    mapper_topics = set(topics.values())
     if args.image_queue_size is not None:
         parameters['publish.image_queue_size'] = args.image_queue_size
     if args.stage_timing:
@@ -406,10 +421,11 @@ def main():
                 if process.poll() is not None:
                     raise RuntimeError('Node failed during startup: ' +
                                        '\n'.join(read_node_logs(output)))
-                if all(pub.get_subscription_count() >= 2 for pub in publishers.values()):
+                if all(pub.get_subscription_count() >= 1 + (topic in mapper_topics)
+                       for topic, pub in publishers.items()):
                     break
             else:
-                raise TimeoutError('DDS inputs did not discover both node and observer')
+                raise TimeoutError('DDS inputs did not discover the required subscribers')
             mapping_affinity = psutil.Process(process.pid).cpu_affinity()
             # Allow output subscriptions and /clock discovery to settle.
             settle = time.monotonic() + 1
@@ -470,14 +486,14 @@ def main():
     except ImportError:
         from geometry_diagnostics import summarize_geometry_timings
     geometry_timings = summarize_geometry_timings(node_log, np)
-    counter = re.search(r'livo_atlas inputs: lidar=(\d+) imu=(\d+) image=(\d+)', node_log)
-    node_counts = dict(zip((parameters['common.lid_topic'], parameters['common.imu_topic'], parameters['common.img_topic']),
-                          map(int, counter.groups()))) if counter else {}
+    node_counts = read_input_counts(node_log, topics)
     mismatches = count_mismatches(dict(expected), dict(received))
-    node_mismatches = count_mismatches(dict(expected), node_counts)
+    expected_node = {topic: expected.get(topic, 0) for topic in topics.values()}
+    node_mismatches = count_mismatches(expected_node, node_counts)
     payload_exact = all(expected_hash[topic].digest() == observed_hash[topic].digest() for topic in expected)
     node_output = output / 'node-output'
-    for name in ('mat_pre.txt', 'mat_out.txt', 'imu.txt'):
+    debug_files = ['mat_pre.txt', 'mat_out.txt'] + (['imu.txt'] if imu_enabled else [])
+    for name in debug_files:
         shutil.copy2(node_output / name, output / name)
     shutil.copy2(node_output / 'result/p4_humble.txt', output / 'trajectory.tum')
     if keyframes_enabled:
@@ -485,7 +501,8 @@ def main():
     if args.save_products:
         for name in ('pcd', 'image', 'Colmap'):
             shutil.copytree(node_output / name, output / 'products' / name)
-    arrays = {name: np.loadtxt(output / name, ndmin=2) for name in ('trajectory.tum', 'mat_pre.txt', 'mat_out.txt', 'imu.txt')}
+    arrays = {name: np.loadtxt(output / name, ndmin=2)
+              for name in ['trajectory.tum'] + debug_files}
     finite = all(np.isfinite(value).all() for value in arrays.values())
     poses = arrays['trajectory.tum']
     trajectory_valid = (poses.shape[1] == 8 and len(poses) > 0 and
@@ -493,6 +510,7 @@ def main():
                         bool(np.allclose(np.linalg.norm(poses[:, 4:8], axis=1), 1, atol=1e-5)))
     clean = exited_cleanly(process.returncode, node_log)
     updates, timings = summarize_frontend_updates(node_log, np)
+    published_updates = count_published_updates(node_log, updates)
     stage_timings, buffer_peaks = summarize_stage_timings(node_log, np)
     lio, vio = updates['lio'], updates['vio']
     path_max_poses = read_path_max_poses(node_log)
@@ -503,8 +521,8 @@ def main():
         path_bytes = len(serialize_message(latest_path))
         (output / 'path.json').write_text(json.dumps(
             trajectory_path_record(latest_path, stamp_ns)) + '\n')
-    publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry,
-                                       path_max_poses)
+    publication_issues = output_issues(published_updates['lio'], published_updates['vio'],
+                                       dict(outputs), path_size, odometry, path_max_poses)
     if args.path_max_poses is not None and path_max_poses != args.path_max_poses:
         publication_issues['path_max_poses'] = dict(expected=args.path_max_poses,
                                                    observed=path_max_poses)
@@ -550,6 +568,8 @@ def main():
                    path_max_poses=path_max_poses, path_serialized_bytes=path_bytes,
                    lio_cycles=lio, vio_cycles=vio, timing_seconds=timings,
                    stage_timing_seconds=stage_timings, sensor_buffer_peaks=buffer_peaks,
+                   sensor_input=read_sensor_input_stats(node_log),
+                   ros_published_updates=published_updates,
                    output_issues=publication_issues,
                    arrays={name: dict(shape=list(value.shape), finite=bool(np.isfinite(value).all())) for name, value in arrays.items()},
                    peak_sampled_rss_mib=peak_rss / 1048576, default_threads=args.default_threads,
