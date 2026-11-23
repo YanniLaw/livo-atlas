@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "livo_atlas/common/so3_math.h"
+#include "ros_common/publication_timing.h"
 
 namespace livo_atlas {
 namespace ros1 {
@@ -143,7 +144,8 @@ void LivoPublisher::Initialize(ros::NodeHandle& node,
 }
 
 void LivoPublisher::PublishCloud(const FrontendResult& result,
-                                 const ColoredCloud::ConstPtr& colored_cloud) {
+                                 const ColoredCloud::ConstPtr& colored_cloud,
+                                 ros_detail::PublicationTiming& timing) {
   if (!colored_cloud) return;
   sensor_msgs::PointCloud2 message;
   if (mode_ == FrontendMode::kLidarInertialVisual) {
@@ -155,20 +157,24 @@ void LivoPublisher::PublishCloud(const FrontendResult& result,
   }
   message.header.stamp = ros::Time::now();
   message.header.frame_id = "camera_init";
-  cloud_.publish(message);
+  timing.Send([&] { cloud_.publish(message); });
 }
 
 void LivoPublisher::Publish(const FrontendResult& result,
                             const ColoredCloud::ConstPtr& colored_cloud,
-                            const std::optional<MapCorrection>& correction) {
+                            const std::optional<MapCorrection>& correction,
+                            bool stage_timing) {
   if (!result.updated) return;
+  ros_detail::PublicationTiming timing(stage_timing, result.kind);
   if (result.kind == UpdateKind::kVisual) {
-    PublishCloud(result, colored_cloud);
+    PublishCloud(result, colored_cloud, timing);
     cv_bridge::CvImage image;
     image.header.stamp = ros::Time::now();
     image.encoding = sensor_msgs::image_encodings::BGR8;
     image.image = result.tracking_image;
-    image_.publish(image.toImageMsg());
+    const auto message = image.toImageMsg();
+    timing.Send([&] { image_.publish(message); });
+    timing.Report();
     return;
   }
   const Eigen::Vector3d euler = RotationMatrixToEuler(result.estimate.rot_end);
@@ -223,37 +229,40 @@ void LivoPublisher::Publish(const FrontendResult& result,
     global_transform.setRotation(
         tf::Quaternion(rotation.x(), rotation.y(), rotation.z(), rotation.w()));
     // Both edges carry the same sample time in one TFMessage.
-    broadcaster_.sendTransform(std::vector<tf::StampedTransform>{
+    const std::vector<tf::StampedTransform> transforms{
         {global_transform, odometry.header.stamp, global_output_.map_frame,
          "camera_init"},
-        raw_tf});
+        raw_tf};
+    timing.Send([&] { broadcaster_.sendTransform(transforms); });
   } else {
-    broadcaster_.sendTransform(raw_tf);
+    timing.Send([&] { broadcaster_.sendTransform(raw_tf); });
   }
-  odometry_.publish(odometry);
+  timing.Send([&] { odometry_.publish(odometry); });
   if (publish_global) {
-    global_pose_.publish(global_pose);
+    timing.Send([&] { global_pose_.publish(global_pose); });
     last_global_stamp_ns_ = stamp_ns;
   }
-  PublishCloud(result, colored_cloud);
+  PublishCloud(result, colored_cloud, timing);
   if (result.effective_cloud) {
     sensor_msgs::PointCloud2 message;
     pcl::toROSMsg(*result.effective_cloud, message);
     message.header.stamp = ros::Time::now();
     message.header.frame_id = "camera_init";
-    effect_.publish(message);
+    timing.Send([&] { effect_.publish(message); });
   }
   if (result.has_plane_visualization) {
-    planes_.publish(PlaneMarkers(result.planes));
+    const auto markers = PlaneMarkers(result.planes);
+    timing.Send([&] { planes_.publish(markers); });
   }
   geometry_msgs::PoseStamped pose;
   pose.pose = odometry.pose.pose;
   pose.header.stamp = ros::Time::now();
   pose.header.frame_id = "camera_init";
   path_.poses.push_back(pose);
-  path_publisher_.publish(path_);
+  timing.Send([&] { path_publisher_.publish(path_); });
   pose.header.stamp = ros::Time::now();
-  mavros_.publish(pose);
+  timing.Send([&] { mavros_.publish(pose); });
+  timing.Report();
 }
 
 void LivoPublisher::PublishImuPropagation(const FilterState& state,

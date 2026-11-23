@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_ROS1_LIVO_NODE_H_
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -41,6 +42,7 @@ class LivoNode {
   // Serialize system access and background output polling across callbacks.
   std::mutex system_mutex_;
   std::exception_ptr callback_failure_;
+  std::chrono::steady_clock::time_point last_propagation_;
   std::atomic<std::uint64_t> lidar_count_{0};
   std::atomic<std::uint64_t> imu_count_{0};
   std::atomic<std::uint64_t> image_count_{0};

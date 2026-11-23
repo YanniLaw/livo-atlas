@@ -20,6 +20,10 @@
 #include "livo_atlas/mapping/map_correction.h"
 #include "livo_atlas/sensor/point_types.h"
 
+namespace livo_atlas::ros_detail {
+class PublicationTiming;
+}  // namespace livo_atlas::ros_detail
+
 namespace livo_atlas::ros2 {
 
 class LivoPublisher {
@@ -31,12 +35,14 @@ class LivoPublisher {
   LivoPublisher& operator=(const LivoPublisher&) = delete;
   void Publish(const FrontendResult& result,
                const ColoredCloud::ConstPtr& colored_cloud,
-               const std::optional<MapCorrection>& correction = std::nullopt);
+               const std::optional<MapCorrection>& correction = std::nullopt,
+               bool stage_timing = false);
   void PublishImuPropagation(const FilterState& state, double timestamp);
 
  private:
   void PublishCloud(const FrontendResult& result,
-                    const ColoredCloud::ConstPtr& colored_cloud);
+                    const ColoredCloud::ConstPtr& colored_cloud,
+                    ros_detail::PublicationTiming& timing);
 
   rclcpp::Node& node_;
   FrontendMode mode_;

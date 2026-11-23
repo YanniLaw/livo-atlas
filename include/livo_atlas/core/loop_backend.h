@@ -1,6 +1,7 @@
 #ifndef LIVO_ATLAS_CORE_LOOP_BACKEND_H_
 #define LIVO_ATLAS_CORE_LOOP_BACKEND_H_
 
+#include <chrono>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -62,6 +63,7 @@ class LoopBackend {
   std::shared_ptr<const PoseSnapshot> poses_;
   std::optional<std::uint64_t> pending_;
   std::optional<Coalesced> coalesced_;
+  std::chrono::steady_clock::time_point dispatch_time_;
   LoopSessionStats stats_;
   std::exception_ptr failure_;
   std::uint64_t latest_query_ = 0;

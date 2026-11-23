@@ -79,6 +79,7 @@ TEST_F(Ros1ParametersTest, ReadsPrivateCameraNumericArraysAndSharedDefaults) {
             (std::vector<int>{5, 5, 5, 5, 5}));
   EXPECT_EQ(options.exporter.mode, FrontendMode::kLidarInertialVisual);
   EXPECT_TRUE(options.frontend.imu.enabled);
+  EXPECT_FALSE(options.stage_timing);
   EXPECT_EQ(options.exporter.directory, directory_);
   EXPECT_FALSE(options.keyframes.enabled);
   EXPECT_FALSE(options.submaps.enabled);
@@ -120,6 +121,7 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   node_->setParam("sensor_buffer/max_imu_samples", 40);
   node_->setParam("sensor_buffer/max_images", 3);
   node_->setParam("sensor_buffer/max_span_s", .75);
+  node_->setParam("diagnostics/stage_timing", true);
   node_->setParam("keyframes/enabled", true);
   node_->setParam("keyframes/translation_threshold", .7);
   node_->setParam("keyframes/rotation_threshold_deg", 15.);
@@ -141,6 +143,7 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   EXPECT_EQ(options.sensor_buffer.max_imu_samples, 40);
   EXPECT_EQ(options.sensor_buffer.max_images, 3);
   EXPECT_DOUBLE_EQ(options.sensor_buffer.max_span_s, .75);
+  EXPECT_TRUE(options.stage_timing);
   EXPECT_TRUE(options.keyframes.enabled);
   EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
   EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);
@@ -198,6 +201,9 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
 }
 
 TEST_F(Ros1ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
+  node_->setParam("diagnostics/stage_timing", std::string("true"));
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->deleteParam("diagnostics/stage_timing");
   node_->setParam("sensor_buffer/max_lidar_scans", 1.5);
   EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
   node_->deleteParam("sensor_buffer/max_lidar_scans");

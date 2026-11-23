@@ -1,6 +1,9 @@
 ros:
   executor_threads: 4
 
+diagnostics:
+  stage_timing: false
+
 sensor_buffer:
   max_lidar_scans: 64
   max_imu_samples: 4096

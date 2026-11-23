@@ -8,6 +8,9 @@ _GLOG_PREFIX = re.compile(r'^([IWEF])\d{4}(?:\d{4})? \d{2}:\d{2}:\d{2}\.\d{6}\s+
 _FRONTEND_UPDATE = re.compile(
     r'\blivo_atlas update kind=(lio|vio) frontend_process_seconds=(\S+)')
 _LEGACY_DURATION = re.compile(r'\|\s*Current Total Time\s*\|\s*([0-9.eE+-]+)')
+_STAGE_TIMING = re.compile(r'\blivo_atlas timing stage=([a-z_]+) seconds=(\S+)')
+_BUFFER_PEAK = re.compile(
+    r'\blivo_atlas sensor_buffer_peak queue=([a-z_]+) count=(\d+) span_s=(\d+(?:\.\d+)?)')
 
 
 def glog_severity(line):
@@ -69,3 +72,12 @@ def summarize_frontend_updates(log, np):
             if match and kind is not None:
                 _append_seconds(samples[kind], match.group(1))
     return counts, summarize_timings(samples, np)
+
+
+def summarize_stage_timings(log, np):
+    samples = {}
+    for stage, value in _STAGE_TIMING.findall(log):
+        _append_seconds(samples.setdefault(stage, []), value)
+    peaks = {queue: dict(count=int(count), span_s=float(span))
+             for queue, count, span in _BUFFER_PEAK.findall(log)}
+    return summarize_timings(samples, np), peaks

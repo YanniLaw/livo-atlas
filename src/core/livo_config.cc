@@ -37,6 +37,8 @@ RigidTransform Transform(ParameterReader& reader, const std::string& rotation,
 
 LivoConfig LoadLivoConfig(ParameterReader& reader) {
   LivoConfig config;
+  config.system.stage_timing =
+      reader.Boolean("diagnostics.stage_timing", config.system.stage_timing);
   config.executor_threads =
       reader.Integer("ros.executor_threads", config.executor_threads);
   if (config.executor_threads < 2) {

@@ -59,6 +59,7 @@ struct SystemOptions {
   TimestampRange imu_time_range;
   std::optional<LoopAdmissionOptions> loop_closure;
   SensorBufferOptions sensor_buffer;
+  bool stage_timing = false;
 };
 
 // Validates configuration and fills derived output mode/calibration without

@@ -114,6 +114,20 @@ class BaselineRunnerTest(unittest.TestCase):
         self.assertEqual(timings['vio']['max'], .004)
         self.assertEqual(timings['vio']['median'], timings['vio']['p50'])
 
+    def test_stage_timings_and_queue_peaks_share_both_replay_summaries(self):
+        log = ('I1124 02:20:00.000000  1 livo_system.cc:331] '
+               'livo_atlas timing stage=synchronization seconds=0.001\n'
+               'livo_atlas timing stage=imu_lock_wait seconds=0.08\n'
+               'livo_atlas timing stage=imu_lock_wait seconds=0.02\n'
+               'livo_atlas timing stage=imu_lock_wait seconds=nan\n'
+               'livo_atlas sensor_buffer_peak queue=imu count=20 span_s=0.12\n')
+        timings, peaks = mapping_log.summarize_stage_timings(log, np)
+        self.assertEqual(timings['imu_lock_wait']['count'], 2)
+        self.assertAlmostEqual(timings['imu_lock_wait']['p95'], .077)
+        self.assertEqual(timings['synchronization']['p99'], .001)
+        self.assertEqual(peaks, {'imu': {'count': 20, 'span_s': .12}})
+        self.assertEqual(mapping_log.summarize_stage_timings('', np), ({}, {}))
+
 
 class GlobalBaselineParserTest(unittest.TestCase):
     def test_loop_replays_select_detection_or_pose_graph(self):

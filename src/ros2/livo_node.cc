@@ -78,12 +78,17 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
           RunCallback([&] {
             lidar_count_.fetch_add(1, std::memory_order_relaxed);
             LidarScan scan;
+            ros_detail::InputTiming timing(
+                parameters_.livo.system.stage_timing, "lidar_conversion",
+                "lidar_lock_wait");
             const auto error = ConvertLivox(*message, &scan);
+            timing.Converted();
             if (!error.empty()) {
               LOG(WARNING) << error;
               return;
             }
             const std::lock_guard<std::mutex> lock(system_mutex_);
+            timing.LockAcquired();
             if (!callback_failure_) system_.AddLidar(scan);
           });
         },
@@ -96,14 +101,19 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
           RunCallback([&] {
             lidar_count_.fetch_add(1, std::memory_order_relaxed);
             LidarScan scan;
+            ros_detail::InputTiming timing(
+                parameters_.livo.system.stage_timing, "lidar_conversion",
+                "lidar_lock_wait");
             const auto error = ConvertPointCloud(
                 *message, parameters_.livo.system.preprocess.lidar_type,
                 parameters_.livo.lidar_time_offset, &scan);
+            timing.Converted();
             if (!error.empty()) {
               LOG(WARNING) << error;
               return;
             }
             const std::lock_guard<std::mutex> lock(system_mutex_);
+            timing.LockAcquired();
             if (!callback_failure_) system_.AddLidar(scan);
           });
         },
@@ -115,8 +125,12 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
         RunCallback([&] {
           imu_count_.fetch_add(1, std::memory_order_relaxed);
           try {
+            ros_detail::InputTiming timing(parameters_.livo.system.stage_timing,
+                                           "imu_conversion", "imu_lock_wait");
             auto measurement = ConvertImu(*message);
+            timing.Converted();
             const std::lock_guard<std::mutex> lock(system_mutex_);
+            timing.LockAcquired();
             if (!callback_failure_) system_.AddImu(std::move(measurement));
           } catch (const std::invalid_argument& error) {
             LOG(WARNING) << error.what();
@@ -131,13 +145,17 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
         RunCallback([&] {
           image_count_.fetch_add(1, std::memory_order_relaxed);
           TimedImage image;
+          ros_detail::InputTiming timing(parameters_.livo.system.stage_timing,
+                                         "image_conversion", "image_lock_wait");
           const auto error = ConvertImage(
               *message, parameters_.livo.image_time_offset, &image);
+          timing.Converted();
           if (!error.empty()) {
             LOG(WARNING) << error;
             return;
           }
           const std::lock_guard<std::mutex> lock(system_mutex_);
+          timing.LockAcquired();
           if (!callback_failure_) system_.AddImage(std::move(image));
         });
       },
@@ -160,6 +178,9 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
           const auto result = system_.PropagateLatest();
           if (result) {
             publisher_.PublishImuPropagation(result->state, result->timestamp);
+            if (parameters_.livo.system.stage_timing) {
+              ros_detail::LogPropagationInterval(&last_propagation_);
+            }
           }
         });
       },
@@ -177,7 +198,8 @@ SyncStatus LivoNode::ProcessNext() {
             result.kind != UpdateKind::kVisual) {
           correction = system_.GetMapCorrection();
         }
-        publisher_.Publish(result, colored_cloud, correction);
+        publisher_.Publish(result, colored_cloud, correction,
+                           parameters_.livo.system.stage_timing);
         ros_detail::LogFrontendUpdate(result.kind, elapsed);
       });
   if (poll_background_outputs_) poll_background_outputs_();

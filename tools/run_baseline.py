@@ -27,11 +27,13 @@ import xmlrpc.client
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from tools.mapping_log import glog_severity, summarize_frontend_updates
+    from tools.mapping_log import (glog_severity, summarize_frontend_updates,
+                                   summarize_stage_timings)
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from mapping_log import glog_severity, summarize_frontend_updates
+    from mapping_log import (glog_severity, summarize_frontend_updates,
+                             summarize_stage_timings)
 
 
 def exited_cleanly(returncode, log, gdb_enabled):
@@ -115,6 +117,8 @@ def parse_arguments(arguments=None):
                         help='Pin the mapping process to one logical CPU before exec')
     parser.add_argument('--image-queue-size', type=int,
                         help='Override the positive image publication queue depth (node default: 1)')
+    parser.add_argument('--stage-timing', action='store_true',
+                        help='Enable detailed stage timing in the node')
     parser.add_argument('--port', type=int, default=11341)
     parser.add_argument('--gdb', action='store_true', help='Capture a stack trace on shutdown faults')
     parser.add_argument('--semantic-output', action='store_true',
@@ -316,6 +320,8 @@ def main():
                  json.dumps(value) if isinstance(value, bool) else str(value)])
         if args.image_queue_size is not None:
             run(['rosparam', 'set', '/publish/image_queue_size', str(args.image_queue_size)])
+        if args.stage_timing:
+            run(['rosparam', 'set', '/diagnostics/stage_timing', 'true'])
         if args.save_products:
             for key, value in [('pcd_save/pcd_save_en', 'true'),
                                ('pcd_save/colmap_output_en', 'true'),
@@ -639,6 +645,7 @@ def main():
             from geometry_diagnostics import summarize_geometry_timings
         geometry_timings = summarize_geometry_timings(log, np)
         updates, timings = summarize_frontend_updates(log, np)
+        stage_timings, buffer_peaks = summarize_stage_timings(log, np)
         errors = [line for line in log.splitlines()
                   if '[ERROR]' in line or 'Assertion' in line
                   or glog_severity(line) in ('E', 'F')]
@@ -680,6 +687,8 @@ def main():
             'peak_sampled_rss_mib': max((row[1] for row in resources), default=0) / 2**20,
             'sampled_resource_process': 'debugger' if args.gdb else 'mapping_node',
             'timing_seconds': timings,
+            'stage_timing_seconds': stage_timings,
+            'sensor_buffer_peaks': buffer_peaks,
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
             'keyframes_enabled': keyframes_enabled,
             'submaps_enabled': submaps.get('enabled', False),

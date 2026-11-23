@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "common/timing.h"
 #include "core/loop_commit.h"
 #include "io/loop_admission_io.h"
 #include "livo_atlas/core/livo_system.h"
@@ -192,6 +193,9 @@ void LoopBackend::FlushEvents() {
 }
 
 void LoopBackend::Complete(LoopTaskResult result) {
+  LogStageTiming(options_.pose_graph_enabled ? "loop_optimization_latency"
+                                              : "loop_detection_latency",
+                 dispatch_time_);
   ++stats_.completed;
   if (result.error) {
     try {
@@ -202,6 +206,17 @@ void LoopBackend::Complete(LoopTaskResult result) {
     std::rethrow_exception(result.error);
   }
   Require(bool(result.admission), "Worker returned no admission or exception");
+  if (system_.options_.stage_timing) {
+    for (const auto& candidate : result.admission->candidates) {
+      LogStageSeconds("loop_registration",
+                      candidate.verification.elapsed_seconds);
+    }
+    if (result.admission->trial) {
+      LogStageSeconds("loop_graph_build",
+                      result.admission->trial->graph_build_seconds);
+      LogStageSeconds("loop_solve", result.admission->trial->solve_seconds);
+    }
+  }
   if (budget_stopped_ ||
       result.admission->status == LoopAdmissionStatus::kResourceLimit) {
     store_.WriteQuery(result, LoopDisposition::kResourceLimit,
@@ -289,6 +304,7 @@ void LoopBackend::Poll() {
               "Unobserved committed frames");
       LoopTask task{stats_.submitted + 1, CurrentInput(*pending_), timestamps_,
                     std::move(view)};
+      dispatch_time_ = StartTiming(system_.options_.stage_timing);
       worker_.Submit(std::move(task));
       ++stats_.submitted;
       stats_.peak_work_payloads = 1;

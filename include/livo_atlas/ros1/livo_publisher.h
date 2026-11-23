@@ -25,6 +25,10 @@ namespace image_transport {
 class ImageTransport;
 }  // namespace image_transport
 
+namespace livo_atlas::ros_detail {
+class PublicationTiming;
+}  // namespace livo_atlas::ros_detail
+
 namespace livo_atlas {
 namespace ros1 {
 
@@ -40,13 +44,15 @@ class LivoPublisher {
                   image_transport::ImageTransport& transport);
   void Publish(const FrontendResult& result,
                const ColoredCloud::ConstPtr& colored_cloud,
-               const std::optional<MapCorrection>& correction = std::nullopt);
+               const std::optional<MapCorrection>& correction = std::nullopt,
+               bool stage_timing = false);
   void PublishImuPropagation(const FilterState& state,
                              const ros::Time& timestamp);
 
  private:
   void PublishCloud(const FrontendResult& result,
-                    const ColoredCloud::ConstPtr& colored_cloud);
+                    const ColoredCloud::ConstPtr& colored_cloud,
+                    ros_detail::PublicationTiming& timing);
 
   FrontendMode mode_;
   int image_queue_size_;

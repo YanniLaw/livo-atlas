@@ -18,12 +18,12 @@ try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
     from tools.mapping_log import (glog_severity, read_mapping_log, read_node_logs,
-                                   summarize_frontend_updates)
+                                   summarize_frontend_updates, summarize_stage_timings)
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
     from mapping_log import (glog_severity, read_mapping_log, read_node_logs,
-                             summarize_frontend_updates)
+                             summarize_frontend_updates, summarize_stage_timings)
 
 
 def exited_cleanly(returncode, log):
@@ -98,6 +98,8 @@ def parse_arguments(arguments=None):
                         help='Pin the mapping process to one logical CPU before exec')
     parser.add_argument('--image-queue-size', type=int,
                         help='Override the positive image publication queue depth (node default: 1)')
+    parser.add_argument('--stage-timing', action='store_true',
+                        help='Enable detailed stage timing in the node')
     parser.add_argument('--domain', type=int, default=74)
     parser.add_argument('--save-products', action='store_true')
     parser.add_argument('--save-keyframes', action='store_true')
@@ -205,6 +207,8 @@ def main():
                        'output.directory': str(output / 'node-output')})
     if args.image_queue_size is not None:
         parameters['publish.image_queue_size'] = args.image_queue_size
+    if args.stage_timing:
+        parameters['diagnostics.stage_timing'] = True
     image_queue_size = parameters.get('publish.image_queue_size', 1)
     observer_image_depth = max(20, image_queue_size)
     if args.save_keyframes:
@@ -481,6 +485,7 @@ def main():
                         bool(np.allclose(np.linalg.norm(poses[:, 4:8], axis=1), 1, atol=1e-5)))
     clean = exited_cleanly(process.returncode, node_log)
     updates, timings = summarize_frontend_updates(node_log, np)
+    stage_timings, buffer_peaks = summarize_stage_timings(node_log, np)
     lio, vio = updates['lio'], updates['vio']
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
     if geometry_observation['enabled'] and not geometry_observation['samples']:
@@ -523,6 +528,7 @@ def main():
                    node_input_count_mismatches=node_mismatches, input_serialized_payloads_exact=payload_exact,
                    outputs=dict(outputs), trajectory_rows=len(poses), path_size=path_size,
                    lio_cycles=lio, vio_cycles=vio, timing_seconds=timings,
+                   stage_timing_seconds=stage_timings, sensor_buffer_peaks=buffer_peaks,
                    output_issues=publication_issues,
                    arrays={name: dict(shape=list(value.shape), finite=bool(np.isfinite(value).all())) for name, value in arrays.items()},
                    peak_sampled_rss_mib=peak_rss / 1048576, default_threads=args.default_threads,

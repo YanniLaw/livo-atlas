@@ -32,6 +32,41 @@ TEST(SystemOptionsTest, DerivesModesFromSensorFlags) {
   }
 }
 
+TEST(SystemTest, StageTimingTracksAdmittedQueuesAndReadySteps) {
+  for (bool enabled : {false, true}) {
+    SCOPED_TRACE(enabled);
+    auto options = test::Options(FrontendMode::kLidarOnly);
+    options.stage_timing = enabled;
+    LivoSystem system(options);
+    testing::internal::CaptureStderr();
+    EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+    EXPECT_TRUE(system.AddLidar(test::Scan(100)));
+    EXPECT_TRUE(system.AddLidar(test::Scan(100.25)));
+    EXPECT_EQ(system.ProcessNext({}), SyncStatus::kReady);
+    EXPECT_EQ(system.ProcessNext({}), SyncStatus::kReady);
+    for (int step = 0; step < 10; ++step) {
+      EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+    }
+    system.Finish();
+    const auto log = testing::internal::GetCapturedStderr();
+    const std::string sync = "livo_atlas timing stage=synchronization seconds=";
+    if (enabled) {
+      const auto first = log.find(sync);
+      ASSERT_NE(first, std::string::npos);
+      const auto second = log.find(sync, first + sync.size());
+      ASSERT_NE(second, std::string::npos);
+      EXPECT_EQ(log.find(sync, second + sync.size()), std::string::npos);
+      EXPECT_NE(log.find("livo_atlas timing stage=lidar_preprocess seconds="),
+                std::string::npos);
+      EXPECT_NE(log.find("sensor_buffer_peak queue=lidar count=2 span_s=0.25"),
+                std::string::npos);
+    } else {
+      EXPECT_EQ(log.find("livo_atlas timing stage="), std::string::npos);
+      EXPECT_EQ(log.find("sensor_buffer_peak"), std::string::npos);
+    }
+  }
+}
+
 TEST(SystemOptionsTest, RejectsInvalidDirectOptionsBeforeTouchingOutput) {
   const std::array<std::function<void(SystemOptions&)>, 14> corrupt = {
       [](auto& options) { options.lidar_enabled = false; },

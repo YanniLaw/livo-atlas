@@ -34,6 +34,7 @@ TEST(Ros2ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
            {"imu.imu_int_frame", "three"},
            {"publish.image_queue_size", "many"},
            {"sensor_buffer.max_lidar_scans", 1.5},
+           {"diagnostics.stage_timing", "true"},
            {"cam_fx", true},
            {"extrin_calib.extrinsic_R", std::vector<bool>{true, false}}}) {
     const auto directory =
@@ -69,6 +70,7 @@ TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
   EXPECT_EQ(config.livo.image_queue_size, 1);
   EXPECT_EQ(config.livo.system.frontend.calibration.camera.model, "Pinhole");
   EXPECT_TRUE(config.livo.system.frontend.imu.enabled);
+  EXPECT_FALSE(config.livo.system.stage_timing);
   EXPECT_EQ(node.get_node_topics_interface()->resolve_topic_name(
                 config.livo.imu_topic),
             "/review/imu");
@@ -272,6 +274,7 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   params.emplace_back("sensor_buffer.max_imu_samples", 40);
   params.emplace_back("sensor_buffer.max_images", 3);
   params.emplace_back("sensor_buffer.max_span_s", .75);
+  params.emplace_back("diagnostics.stage_timing", true);
   params.emplace_back("keyframes.enabled", true);
   params.emplace_back("keyframes.translation_threshold", .7);
   params.emplace_back("keyframes.rotation_threshold_deg", 15.);
@@ -295,6 +298,7 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   EXPECT_EQ(options.sensor_buffer.max_imu_samples, 40);
   EXPECT_EQ(options.sensor_buffer.max_images, 3);
   EXPECT_DOUBLE_EQ(options.sensor_buffer.max_span_s, .75);
+  EXPECT_TRUE(options.stage_timing);
   EXPECT_TRUE(options.keyframes.enabled);
   EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
   EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);

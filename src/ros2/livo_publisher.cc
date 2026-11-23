@@ -20,6 +20,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "livo_atlas/common/so3_math.h"
+#include "ros_common/publication_timing.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
 
 namespace livo_atlas::ros2 {
@@ -135,7 +136,8 @@ LivoPublisher::LivoPublisher(rclcpp::Node& node, FrontendMode mode,
 }
 
 void LivoPublisher::PublishCloud(const FrontendResult& result,
-                                 const ColoredCloud::ConstPtr& colored_cloud) {
+                                 const ColoredCloud::ConstPtr& colored_cloud,
+                                 ros_detail::PublicationTiming& timing) {
   if (!colored_cloud) return;
   sensor_msgs::msg::PointCloud2 message;
   if (mode_ == FrontendMode::kLidarInertialVisual) {
@@ -147,20 +149,24 @@ void LivoPublisher::PublishCloud(const FrontendResult& result,
   }
   message.header.stamp = node_.now();
   message.header.frame_id = "camera_init";
-  cloud_->publish(message);
+  timing.Send([&] { cloud_->publish(message); });
 }
 
 void LivoPublisher::Publish(const FrontendResult& result,
                             const ColoredCloud::ConstPtr& colored_cloud,
-                            const std::optional<MapCorrection>& correction) {
+                            const std::optional<MapCorrection>& correction,
+                            bool stage_timing) {
   if (!result.updated) return;
+  ros_detail::PublicationTiming timing(stage_timing, result.kind);
   if (result.kind == UpdateKind::kVisual) {
-    PublishCloud(result, colored_cloud);
+    PublishCloud(result, colored_cloud, timing);
     cv_bridge::CvImage image;
     image.header.stamp = node_.now();
     image.encoding = sensor_msgs::image_encodings::BGR8;
     image.image = result.tracking_image;
-    image_->publish(*image.toImageMsg());
+    const auto message = image.toImageMsg();
+    timing.Send([&] { image_->publish(*message); });
+    timing.Report();
     return;
   }
   const Eigen::Vector3d euler = RotationMatrixToEuler(result.estimate.rot_end);
@@ -226,36 +232,38 @@ void LivoPublisher::Publish(const FrontendResult& result,
     global_transform.transform.rotation.y = rotation.y();
     global_transform.transform.rotation.z = rotation.z();
     // Both edges carry the same sample time in one TFMessage.
-    broadcaster_.sendTransform(
-        std::vector<geometry_msgs::msg::TransformStamped>{global_transform,
-                                                          transform});
+    const std::vector<geometry_msgs::msg::TransformStamped> transforms{
+        global_transform, transform};
+    timing.Send([&] { broadcaster_.sendTransform(transforms); });
   } else {
-    broadcaster_.sendTransform(transform);
+    timing.Send([&] { broadcaster_.sendTransform(transform); });
   }
-  odometry_->publish(odometry);
+  timing.Send([&] { odometry_->publish(odometry); });
   if (publish_global) {
-    global_pose_->publish(global_pose);
+    timing.Send([&] { global_pose_->publish(global_pose); });
     last_global_stamp_ns_ = stamp_ns;
   }
-  PublishCloud(result, colored_cloud);
+  PublishCloud(result, colored_cloud, timing);
   if (result.effective_cloud) {
     sensor_msgs::msg::PointCloud2 message;
     pcl::toROSMsg(*result.effective_cloud, message);
     message.header.stamp = node_.now();
     message.header.frame_id = "camera_init";
-    effect_->publish(message);
+    timing.Send([&] { effect_->publish(message); });
   }
   if (result.has_plane_visualization) {
-    planes_->publish(PlaneMarkers(result.planes));
+    const auto markers = PlaneMarkers(result.planes);
+    timing.Send([&] { planes_->publish(markers); });
   }
   geometry_msgs::msg::PoseStamped pose;
   pose.pose = odometry.pose.pose;
   pose.header.stamp = node_.now();
   pose.header.frame_id = "camera_init";
   path_.poses.push_back(pose);
-  path_publisher_->publish(path_);
+  timing.Send([&] { path_publisher_->publish(path_); });
   pose.header.stamp = node_.now();
-  mavros_->publish(pose);
+  timing.Send([&] { mavros_->publish(pose); });
+  timing.Report();
 }
 
 void LivoPublisher::PublishImuPropagation(const FilterState& state,

@@ -95,6 +95,11 @@ class LivoSystem {
   bool IsFinished() const noexcept;
 
  private:
+  struct BufferPeak {
+    std::size_t count = 0;
+    double span_s = 0;
+  };
+
   friend class LoopBackend;
   friend class LoopBackendTestPeer;
   void ClaimLoopPoseUpdates();
@@ -106,6 +111,9 @@ class LivoSystem {
   template <typename Sample>
   void CheckBufferLimit(const char* name, const std::deque<Sample>& buffer,
                         int max_count, double timestamp);
+  template <typename Sample>
+  void RecordBufferPeak(const std::deque<Sample>& buffer, BufferPeak* peak);
+  void ReportBufferPeaks() const;
   void AcceptLidarAnchor(TimedPointCloud measurement);
   std::optional<double> CorrectImuTimestamp(double lidar_time,
                                             double previous_imu_time,
@@ -139,6 +147,7 @@ class LivoSystem {
   std::uint64_t image_count_ = 0;
   std::deque<Imu> startup_imu_;
   StartupBufferStats startup_stats_;
+  BufferPeak lidar_peak_, imu_peak_, image_peak_, propagation_peak_;
   std::deque<Imu> propagation_buffer_;
   Imu newest_imu_;
   bool new_imu_ = false, state_updated_ = false, have_estimate_ = false;
