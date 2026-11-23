@@ -16,8 +16,8 @@
  * limitations under the License.
  */
 
-#ifndef CARTOGRAPHER_COMMON_THREAD_POOL_H_
-#define CARTOGRAPHER_COMMON_THREAD_POOL_H_
+#ifndef LIVO_ATLAS_SRC_COMMON_THREAD_POOL_H_
+#define LIVO_ATLAS_SRC_COMMON_THREAD_POOL_H_
 
 #include <condition_variable>
 #include <deque>
@@ -27,17 +27,14 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cartographer/common/task.h"
+#include "common/task.h"
 
-namespace livo_atlas::cartographer {
-namespace common {
-
-class Task;
+namespace livo_atlas {
 
 class ThreadPoolInterface {
  public:
-  ThreadPoolInterface() {}
-  virtual ~ThreadPoolInterface() {}
+  ThreadPoolInterface() = default;
+  virtual ~ThreadPoolInterface() = default;
   virtual std::weak_ptr<Task> Schedule(std::unique_ptr<Task> task) = 0;
 
  protected:
@@ -59,7 +56,7 @@ class ThreadPoolInterface {
 class ThreadPool : public ThreadPoolInterface {
  public:
   explicit ThreadPool(int num_threads);
-  ~ThreadPool();
+  ~ThreadPool() override;
 
   ThreadPool(const ThreadPool&) = delete;
   ThreadPool& operator=(const ThreadPool&) = delete;
@@ -81,7 +78,6 @@ class ThreadPool : public ThreadPoolInterface {
   std::unordered_map<Task*, std::shared_ptr<Task>> tasks_not_ready_;
 };
 
-}  // namespace common
-}  // namespace livo_atlas::cartographer
+}  // namespace livo_atlas
 
-#endif  // CARTOGRAPHER_COMMON_THREAD_POOL_H_
+#endif  // LIVO_ATLAS_SRC_COMMON_THREAD_POOL_H_

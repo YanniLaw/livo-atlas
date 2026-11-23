@@ -209,10 +209,18 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.Boolean("common.ros_driver_bug_fix", options.driver_fix);
   options.buffer_before_first_lidar = reader.Boolean(
       "common.buffer_before_first_lidar", options.buffer_before_first_lidar);
-  options.image_enabled =
-      reader.Integer("common.img_en", options.image_enabled ? 1 : 0) != 0;
+  options.image_enabled = reader.Integer("common.img_en", 1) != 0;
   options.lidar_enabled =
       reader.Integer("common.lidar_en", options.lidar_enabled ? 1 : 0) != 0;
+  auto& buffer = options.sensor_buffer;
+  buffer.max_lidar_scans =
+      reader.Integer("sensor_buffer.max_lidar_scans", buffer.max_lidar_scans);
+  buffer.max_imu_samples =
+      reader.Integer("sensor_buffer.max_imu_samples", buffer.max_imu_samples);
+  buffer.max_images =
+      reader.Integer("sensor_buffer.max_images", buffer.max_images);
+  buffer.max_span_s =
+      reader.Number("sensor_buffer.max_span_s", buffer.max_span_s);
   config.image_topic = reader.String("common.img_topic", config.image_topic);
   config.image_queue_size =
       reader.Integer("publish.image_queue_size", config.image_queue_size);
@@ -259,7 +267,7 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.Number("imu.acc_cov", imu.accelerometer_covariance);
   imu.initialization_frames =
       reader.Integer("imu.imu_int_frame", imu.initialization_frames);
-  imu.enabled = reader.Boolean("imu.imu_en", imu.enabled);
+  imu.enabled = reader.Boolean("imu.imu_en", options.image_enabled);
   imu.estimate_gravity =
       reader.Boolean("imu.gravity_est_en", imu.estimate_gravity);
   imu.estimate_bias = reader.Boolean("imu.ba_bg_est_en", imu.estimate_bias);

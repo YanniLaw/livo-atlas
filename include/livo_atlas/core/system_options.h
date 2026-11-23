@@ -5,6 +5,7 @@
 
 #include "livo_atlas/backend/loop_admission.h"
 #include "livo_atlas/frontend/frontend_options.h"
+#include "livo_atlas/frontend/synchronized_measurements.h"
 #include "livo_atlas/io/livo_exporter.h"
 #include "livo_atlas/mapping/cloud_colorizer.h"
 #include "livo_atlas/mapping/geometry_submap.h"
@@ -12,7 +13,9 @@
 #include "livo_atlas/mapping/online_submap.h"
 #include "livo_atlas/mapping/submap.h"
 #include "livo_atlas/sensor/point_types.h"
+
 namespace livo_atlas {
+
 struct LidarPreprocessorOptions {
   int lidar_type = kLivox;
   int scan_lines = 6;
@@ -20,11 +23,22 @@ struct LidarPreprocessorOptions {
   double blind = 0.01;
   bool features = false;
 };
+
 struct TimestampRange {
   double minimum = -2147483648.0;
   double maximum = 2147483648.0;
 };
+
+struct SensorBufferOptions {
+  int max_lidar_scans = 64;
+  int max_imu_samples = 4096;
+  int max_images = 32;
+  double max_span_s = 3.0;
+};
+
 struct SystemOptions {
+  FrontendMode frontend_mode() const;
+
   FrontendOptions frontend;
   ExportOptions exporter;
   CloudColorizerOptions colorizer;
@@ -35,7 +49,7 @@ struct SystemOptions {
   GeometryOptions geometry;
   LidarPreprocessorOptions preprocess;
   bool lidar_enabled = true;
-  bool image_enabled = true;
+  bool image_enabled = false;
   bool hilti = false;
   bool driver_fix = false;
   bool buffer_before_first_lidar = true;
@@ -44,10 +58,13 @@ struct SystemOptions {
   double imu_time_offset = 0;
   TimestampRange imu_time_range;
   std::optional<LoopAdmissionOptions> loop_closure;
+  SensorBufferOptions sensor_buffer;
 };
 
 // Validates configuration and fills derived output mode/calibration without
 // I/O.
 SystemOptions PrepareSystemOptions(SystemOptions options);
+
 }  // namespace livo_atlas
+
 #endif  // LIVO_ATLAS_CORE_SYSTEM_OPTIONS_H_

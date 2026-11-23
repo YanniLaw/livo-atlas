@@ -3,13 +3,14 @@
 #include <stdexcept>
 #include <utility>
 
-#include "cartographer/common/thread_pool.h"
+#include "common/task.h"
+#include "common/thread_pool.h"
 
 namespace livo_atlas {
 
 LoopWorker::LoopWorker(LoopTaskRunner runner) : runner_(std::move(runner)) {
   if (!runner_) throw std::invalid_argument("Missing loop task runner");
-  thread_pool_ = std::make_unique<cartographer::common::ThreadPool>(1);
+  thread_pool_ = std::make_unique<ThreadPool>(1);
 }
 
 LoopWorker::~LoopWorker() { Stop(); }
@@ -24,9 +25,8 @@ void LoopWorker::Submit(LoopTask task) {
   if (stopping_ || busy_ || result_) {
     throw std::logic_error("Loop worker is not idle");
   }
-  auto work = std::make_unique<cartographer::common::Task>();
-  // Cartographer stores a copyable callback. Sharing the payload avoids
-  // copying the task data when setting the callback.
+  auto work = std::make_unique<Task>();
+  // Share the payload so copying the callback doesn't copy the task data.
   auto payload = std::make_shared<LoopTask>(std::move(task));
   work->SetWorkItem([this, payload] { Run(std::move(*payload)); });
   busy_ = true;

@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_ROS_GAUSSIAN_RENDER_MESSAGES_H_
-#define LIVO_ATLAS_SRC_ROS_GAUSSIAN_RENDER_MESSAGES_H_
+#ifndef LIVO_ATLAS_SRC_ROS_COMMON_GAUSSIAN_RENDER_MESSAGES_H_
+#define LIVO_ATLAS_SRC_ROS_COMMON_GAUSSIAN_RENDER_MESSAGES_H_
 
 #include <Eigen/Geometry>
 #include <algorithm>
@@ -126,4 +126,4 @@ Message MakeGaussianRenderMessage(const GaussianRenderSnapshot& source,
 }
 
 }  // namespace livo_atlas::ros_detail
-#endif  // LIVO_ATLAS_SRC_ROS_GAUSSIAN_RENDER_MESSAGES_H_
+#endif  // LIVO_ATLAS_SRC_ROS_COMMON_GAUSSIAN_RENDER_MESSAGES_H_

@@ -32,7 +32,7 @@ Humble 用 `SingleThreadedExecutor` 处理订阅与处理定时器。前端状�
 标准库同步。每个 `LoopWorker` 使用池内一个线程，读取已封存几何、逐个验证候选，再用私有
 GTSAM 图试算。计算在队列与结果交接的临界区之外运行。
 `LoopBackend::Poll()` 在系统所有者线程校验提案前沿和位姿版本，按当前持久事务顺序接纳位姿。
-[Cartographer 来源与许可](../third_party/cartographer/README.md) ·
+[Cartographer 来源与许可](cartographer-scheduler.md) ·
 [回环 worker](../src/backend/loop_worker.cc) · [提案接纳](../src/core/loop_backend.cc)
 
 线程池和日志迁移后，Noetic 完整回放的轨迹、前端数值输出和原始关键帧与 C4c 均匀采样侧一致。

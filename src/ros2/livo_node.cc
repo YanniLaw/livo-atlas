@@ -13,7 +13,7 @@
 #include "livo_atlas/ros2/livo_publisher.h"
 #include "livo_atlas/ros2/measurement_conversions.h"
 #include "livo_atlas/ros2/node_options.h"
-#include "ros/input_diagnostics.h"
+#include "ros_common/input_diagnostics.h"
 
 namespace livo_atlas::ros2 {
 namespace {
@@ -52,7 +52,7 @@ LivoNode::LivoNode(rclcpp::Node& node, const NodeOptions& parameters,
     : parameters_(parameters),
       system_(system),
       poll_background_outputs_(std::move(poll_background_outputs)),
-      publisher_(node, parameters_.livo.system.exporter.mode,
+      publisher_(node, parameters_.livo.system.frontend_mode(),
                  parameters_.livo.image_queue_size,
                  parameters_.livo.global_output),
       context_(node.get_node_base_interface()->get_context()) {

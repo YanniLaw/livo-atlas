@@ -2,7 +2,7 @@
 
 本功能发布 owner 已接纳的联合渲染图像，不读 PNG 或地图，不增加 GPU 请求。
 同一个 `src/app/livo_main.cc` 同时接入 Noetic 和 Humble；转换位于
-`src/ros/gaussian_render_messages.h`，两个原生 publisher 只负责时间类型和发布。
+`src/ros_common/gaussian_render_messages.h`，两个原生 publisher 只负责时间类型和发布。
 
 ## 开启
 

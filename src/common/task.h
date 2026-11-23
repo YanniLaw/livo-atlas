@@ -16,16 +16,15 @@
  * limitations under the License.
  */
 
-#ifndef CARTOGRAPHER_COMMON_TASK_H_
-#define CARTOGRAPHER_COMMON_TASK_H_
+#ifndef LIVO_ATLAS_SRC_COMMON_TASK_H_
+#define LIVO_ATLAS_SRC_COMMON_TASK_H_
 
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <set>
 
-namespace livo_atlas::cartographer {
-namespace common {
+namespace livo_atlas {
 
 class ThreadPoolInterface;
 
@@ -71,7 +70,6 @@ class Task {
   std::mutex mutex_;
 };
 
-}  // namespace common
-}  // namespace livo_atlas::cartographer
+}  // namespace livo_atlas
 
-#endif  // CARTOGRAPHER_COMMON_TASK_H_
+#endif  // LIVO_ATLAS_SRC_COMMON_TASK_H_

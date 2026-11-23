@@ -8,6 +8,7 @@ Ubuntu22.04/Humble。跨系统需要重新编译。
 算法库、相机、同步器、文件输出和运行调度共用；`src/core` 的公开 `LivoSystem`
 统一处理普通测量，`LoadLivoConfig` 统一参数键、默认值、标定装配和校验。
 `src/ros1` 与 `src/ros2` 各自只处理参数来源、消息转换、订阅/定时器与发布。
+`src/ros_common` 存放两端共用的私有头文件，负责时间转换、输出消息构造和输入诊断。
 核心安装与外部 CMake 消费见 [core-build.md](core-build.md)。
 
 两个版本共用 `src/app/livo_main.cc` 中唯一的 main，按 OpenVINS 的
@@ -20,13 +21,31 @@ Noetic 使用 `AsyncSpinner` 接收消息，主线程推进系统。Humble 使�
 `src/ros1` / `src/ros2` 保存各自的接入实现；源码与头文件的职责目录和 include 迁移表见
 [源码组织](core-build.md#源码组织与-include-迁移)。
 
-两个 ROS 目录的主要接入文件为 `livo_node`、`node_options`、`measurement_conversions`、
+两个版本的主要接入文件为 `livo_node`、`node_options`、`measurement_conversions`、
 `livo_publisher` 四对源/头。两端算法流程相同，API差异仍留在各自适配器：Noetic的
 NodeHandle、XmlRpc、ImageTransport与无符号时间范围，Humble的rclcpp、DDS QoS和有符号时间范围。
 设计和实际验证见 [命名整理记录](p4-naming-validation.md)。
 
 两端 launch 加载 `config/backend.yaml` 和 `config/gaussian.yaml`，再加载传感器及标定配置。
 使用 `backend_config` 或 `gaussian_config` launch 参数可以指定另一份 YAML。
+
+## 传感器模式与输入缓存
+
+`common.lidar_en`、`imu.imu_en` 和 `common.img_en` 共同确定前端模式。
+
+| 模式 | `common.lidar_en` | `imu.imu_en` | `common.img_en` |
+| --- | --- | --- | --- |
+| LO | `1` | `false` | `0` |
+| LIO | `1` | `true` | `0` |
+| LIVO | `1` | `true` | `1` |
+
+LiDAR 关闭或相机启用时 IMU 关闭，节点会在创建输出文件前报告配置错误。ROS 参数省略
+`imu.imu_en` 时随 `common.img_en` 启用，独立 C++ SDK 的 `SystemOptions` 默认选择 LO。
+
+`sensor_buffer` 设置核心同步队列。默认允许 64 扫 LiDAR、4096 条 IMU、32 帧图像，
+每个队列的校正时戳跨度最多 3 秒。IMU 传播队列采用相同的 IMU 数目和跨度上限。
+首个有效 LiDAR 到达时交接有界的启动缓存。运行中输入超限会记录队列名、占用和时戳并以失败退出，
+已提交关键帧与位姿仍可读取。 [backend.yaml](../config/backend.yaml)
 
 ## 依赖
 
@@ -111,7 +130,7 @@ Noetic现在也会拒绝非法协方差/地图/预处理配置和非有限IMU；
 输入 QoS 默认为 best_effort/volatile；IMU、云、图像队列默认 2000/100/20。
 回放 bag 时使用 launch 的 `reliability:=reliable`，大图像的可靠传输已实测核验。
 直接启动可执行文件时可用 `--ros-args -p qos.reliability:=reliable`，以及
-`qos.imu_depth`、`qos.lidar_depth`、`qos.image_depth`。节点使用单线程 executor。
+`qos.imu_depth`、`qos.lidar_depth`、`qos.image_depth`。这些参数控制 DDS 接收队列。
 
 活动发布话题为 `/cloud_registered`、`/cloud_effected`、`/aft_mapped_to_init`、`/path`、
 `/mavros/vision_pose/pose`、`/LIVO2/imu_propagate`、`/planes`、`/rgb_img` 与 TF。
@@ -167,9 +186,9 @@ Humble记录器的图像输出观察深度至少为20，并随显式发布深度
 即使限制OpenMP线程，同一二进制也可能出现从约1e-17放大到可见轨迹差异的结果。
 P5-04交叉缓存控制和完整bag复现已确认这一原因；工具没有改滤波公式、全局Eigen缓存或节点默认CPU调度。
 
-相同环境和相同算法接纳输入要求严格一致。首个LiDAR之前的IMU/图像会被现有策略拒绝，
-ROS跨话题启动顺序可能改变该接纳集；接收计数完整不能替代接纳顺序记录。
-两次启动变体及冻结旧库的完整受控复现见[P5-04报告](p5-04-validation.md)，不承诺任意启动顺序下逐位相同。
+严格比较需要相同环境与算法接纳顺序。首个 LiDAR 之前的 IMU 和图像默认有界暂存，
+`common.buffer_before_first_lidar=false` 时会拒收。比较历史结果时同时检查接收计数和接纳顺序。
+[启动暂存](startup-sensor-buffer.md) · [P5-04 报告](p5-04-validation.md)
 
 本次命名整理逐环境对照冻结的P4-convergence结果；
 之前Noetic对P3、Humble对同环境P4的关系保存在历史报告中。

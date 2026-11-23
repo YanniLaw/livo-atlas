@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_ROS_TIME_CONVERSION_H_
-#define LIVO_ATLAS_SRC_ROS_TIME_CONVERSION_H_
+#ifndef LIVO_ATLAS_SRC_ROS_COMMON_TIME_CONVERSION_H_
+#define LIVO_ATLAS_SRC_ROS_COMMON_TIME_CONVERSION_H_
 
 #include <cmath>
 #include <cstdint>
@@ -24,4 +24,4 @@ inline std::int64_t RosNanoseconds(double time, const char* context,
 
 }  // namespace livo_atlas::ros_detail
 
-#endif  // LIVO_ATLAS_SRC_ROS_TIME_CONVERSION_H_
+#endif  // LIVO_ATLAS_SRC_ROS_COMMON_TIME_CONVERSION_H_

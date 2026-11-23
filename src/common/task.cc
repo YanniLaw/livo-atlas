@@ -16,13 +16,12 @@
  * limitations under the License.
  */
 
-#include "cartographer/common/task.h"
+#include "common/task.h"
 
-#include "cartographer/common/thread_pool.h"
-#include "glog/logging.h"
+#include "common/thread_pool.h"
+#include "livo_atlas/common/logging.h"
 
-namespace livo_atlas::cartographer {
-namespace common {
+namespace livo_atlas {
 
 Task::~Task() {
   // TODO(gaschler): Relax some checks after testing.
@@ -108,5 +107,4 @@ void Task::Execute() {
   }
 }
 
-}  // namespace common
-}  // namespace livo_atlas::cartographer
+}  // namespace livo_atlas

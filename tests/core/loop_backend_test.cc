@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 
 #include "core/loop_backend_fixtures.h"
@@ -295,6 +296,18 @@ TEST_F(LoopBackendTest, ExclusivePoseWriterAndObserverFailure) {
   EXPECT_THROW(backend.Poll(), std::invalid_argument);
   EXPECT_THROW(system_->AddLidar(test::Scan(100)), std::invalid_argument);
   EXPECT_THROW(backend.Finish(), std::invalid_argument);
+}
+
+TEST_F(LoopBackendTest, StandalonePollStopsAfterSystemOverflow) {
+  LoopBackend backend(*system_, loop_test::NearbyOptions());
+  for (int scan = 0; scan < 64; ++scan) {
+    ASSERT_TRUE(system_->AddLidar(test::Scan(100)));
+  }
+  ASSERT_THROW(system_->AddLidar(test::Scan(100)), std::overflow_error);
+  EXPECT_THROW(backend.Poll(), std::overflow_error);
+  EXPECT_THROW(backend.Finish(), std::overflow_error);
+  EXPECT_FALSE(system_->IsFinished());
+  EXPECT_TRUE(fs::exists(Dataset() / "loop_closure/failure.yml"));
 }
 
 TEST_F(LoopBackendTest, UnknownWorkerExceptionIsPreserved) {

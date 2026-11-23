@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "livo_atlas/core/gaussian_render_output_options.h"
-#include "ros/gaussian_render_messages.h"
+#include "ros_common/gaussian_render_messages.h"
 
 namespace livo_atlas::ros2 {
 

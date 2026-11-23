@@ -9,6 +9,7 @@
 
 #include "core/fixtures.h"
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/io/loop_closure_store.h"
 #include "livo_atlas/io/online_submap_store.h"
 
 namespace livo_atlas {
@@ -147,6 +148,55 @@ TEST_F(InputSealTest, SealFailureIsTerminal) {
   EXPECT_EQ(system.GetPoseSnapshot()->version, 0u);
   EXPECT_FALSE(system.IsFinished());
   EXPECT_EQ(Files(dataset), saved);
+}
+
+TEST_F(InputSealTest, InputOverflowKeepsCommittedViewsAndAnIncompleteJournal) {
+  options_.sensor_buffer.max_lidar_scans = 1;
+  options_.loop_closure.emplace();
+  const auto dataset = options_.exporter.directory / "keyframes";
+  std::string failure;
+  {
+    LivoSystem system(options_);
+    Populate(system);
+    const auto before = system.GetPoseSnapshot();
+    ASSERT_TRUE(system.AddLidar(test::Scan(101)));
+    try {
+      system.AddLidar(test::Scan(101.25));
+      FAIL() << "A full LiDAR queue should fail";
+    } catch (const std::overflow_error& error) {
+      failure = error.what();
+    }
+    EXPECT_NE(failure.find("LiDAR queue queued=1 max_count=1"),
+              std::string::npos);
+    EXPECT_NE(failure.find("oldest_timestamp=101"), std::string::npos);
+    const auto expect_failure = [&failure](const auto& operation) {
+      try {
+        operation();
+        ADD_FAILURE() << "The first overflow should be rethrown";
+      } catch (const std::overflow_error& error) {
+        EXPECT_EQ(error.what(), failure);
+      }
+    };
+    expect_failure([&] { system.AddLidar(test::Scan(102)); });
+    expect_failure([&] { system.AddImu({}); });
+    expect_failure([&] { system.AddImage({}); });
+    expect_failure([&] { system.ProcessNext({}); });
+    expect_failure([&] { system.PropagateLatest(); });
+    expect_failure([&] { system.SealInput(); });
+    expect_failure([&] { system.Finish(); });
+    expect_failure([&] { system.Finish(); });
+    EXPECT_FALSE(system.IsFinished());
+    EXPECT_EQ(system.GetPoseSnapshot()->version, before->version);
+    EXPECT_EQ(system.GetPoseSnapshot()->frame_count, before->frame_count);
+    EXPECT_EQ(system.GetKeyframeReadView().frame_count(), before->frame_count);
+  }
+  const auto report = InspectLoopDataset(dataset);
+  EXPECT_EQ(report.status, LoopRecoveryStatus::kIncomplete);
+  EXPECT_EQ(report.committed_version, 0u);
+  std::ifstream record(dataset / "loop_closure/failure.yml");
+  ASSERT_TRUE(record.good());
+  const std::string recorded_error(std::istreambuf_iterator<char>(record), {});
+  EXPECT_NE(recorded_error.find(failure), std::string::npos);
 }
 
 TEST_F(InputSealTest, PublishedPoseSurvivesNotificationFailure) {

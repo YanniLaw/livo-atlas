@@ -9,7 +9,33 @@
 
 namespace livo_atlas {
 
+FrontendMode SystemOptions::frontend_mode() const {
+  if (!lidar_enabled) {
+    throw std::invalid_argument("common.lidar_en must be enabled");
+  }
+  if (image_enabled) {
+    if (!frontend.imu.enabled) {
+      throw std::invalid_argument("common.img_en requires imu.imu_en");
+    }
+    return FrontendMode::kLidarInertialVisual;
+  }
+  return frontend.imu.enabled ? FrontendMode::kLidarInertial
+                              : FrontendMode::kLidarOnly;
+}
+
 SystemOptions PrepareSystemOptions(SystemOptions options) {
+  const auto mode = options.frontend_mode();
+  const auto& buffer = options.sensor_buffer;
+  if (buffer.max_lidar_scans <= 0 || buffer.max_imu_samples <= 0 ||
+      buffer.max_images <= 0) {
+    throw std::invalid_argument(
+        "sensor_buffer.max_lidar_scans, sensor_buffer.max_imu_samples and "
+        "sensor_buffer.max_images must be positive");
+  }
+  if (!std::isfinite(buffer.max_span_s) || buffer.max_span_s <= 0) {
+    throw std::invalid_argument(
+        "sensor_buffer.max_span_s must be finite and positive");
+  }
   ValidateKeyframeOptions(options.keyframes);
   ValidateSubmapOptions(options.submaps);
   if (options.submap_mode != SubmapMode::kKeyframeGroups &&
@@ -102,10 +128,6 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
   if (options.colorizer.scan_interval <= 0) {
     throw std::invalid_argument("publish/pub_scan_num must be positive");
   }
-  const auto mode = options.image_enabled && options.lidar_enabled
-                        ? FrontendMode::kLidarInertialVisual
-                    : imu.enabled ? FrontendMode::kLidarInertial
-                                  : FrontendMode::kLidarOnly;
   options.exporter.mode = options.colorizer.mode = mode;
   options.exporter.calibration = front.calibration;
   options.colorizer.camera = front.calibration.camera;

@@ -9,11 +9,9 @@
 
 #include "livo_atlas/backend/loop_task.h"
 
-namespace livo_atlas::cartographer::common {
-class ThreadPool;
-}  // namespace livo_atlas::cartographer::common
-
 namespace livo_atlas {
+
+class ThreadPool;
 
 using LoopTaskRunner = std::function<LoopAdmissionResult(const LoopTask&)>;
 
@@ -42,7 +40,7 @@ class LoopWorker {
   std::optional<LoopTaskResult> result_;
   bool busy_ = false;
   bool stopping_ = false;
-  std::unique_ptr<cartographer::common::ThreadPool> thread_pool_;
+  std::unique_ptr<ThreadPool> thread_pool_;
 };
 
 }  // namespace livo_atlas

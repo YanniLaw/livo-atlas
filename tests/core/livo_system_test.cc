@@ -8,6 +8,7 @@
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -15,11 +16,37 @@
 #include <gtest/gtest.h>
 
 #include "core/fixtures.h"
+#include "livo_atlas/frontend/imu/imu_propagation.h"
 #include "test_images.h"
 namespace livo_atlas {
 namespace {
+
+TEST(SystemOptionsTest, DerivesModesFromSensorFlags) {
+  EXPECT_EQ(SystemOptions().frontend_mode(), FrontendMode::kLidarOnly);
+  for (const auto mode : {FrontendMode::kLidarOnly, FrontendMode::kLidarInertial,
+                          FrontendMode::kLidarInertialVisual}) {
+    const auto options = PrepareSystemOptions(test::Options(mode));
+    EXPECT_EQ(options.frontend_mode(), mode);
+    EXPECT_EQ(options.exporter.mode, mode);
+    EXPECT_EQ(options.colorizer.mode, mode);
+  }
+}
+
 TEST(SystemOptionsTest, RejectsInvalidDirectOptionsBeforeTouchingOutput) {
-  const std::array<std::function<void(SystemOptions&)>, 7> corrupt = {
+  const std::array<std::function<void(SystemOptions&)>, 14> corrupt = {
+      [](auto& options) { options.lidar_enabled = false; },
+      [](auto& options) {
+        options.image_enabled = true;
+        options.frontend.imu.enabled = false;
+      },
+      [](auto& options) { options.sensor_buffer.max_lidar_scans = 0; },
+      [](auto& options) { options.sensor_buffer.max_imu_samples = -1; },
+      [](auto& options) { options.sensor_buffer.max_images = 0; },
+      [](auto& options) { options.sensor_buffer.max_span_s = 0; },
+      [](auto& options) {
+        options.sensor_buffer.max_span_s =
+            std::numeric_limits<double>::quiet_NaN();
+      },
       [](auto& options) {
         options.frontend.calibration.imu_from_lidar.translation.x() =
             std::numeric_limits<double>::quiet_NaN();
@@ -72,6 +99,75 @@ TEST(SystemOptionsTest, RejectsInvalidDirectOptionsBeforeTouchingOutput) {
       }
     }
   }
+}
+
+TEST(SystemTest, StalledImageBufferFailsAfterDefaultCapacity) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  const auto image = test_data::MakeImage(512, 512, 3);
+  EXPECT_EQ(options.sensor_buffer.max_images, 32);
+  for (const int limit : {32, 2}) {
+    SCOPED_TRACE(limit);
+    options.sensor_buffer.max_images = limit;
+    options.exporter.directory /= std::to_string(limit);
+    LivoSystem system(options);
+    ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+    for (int i = 0; i < limit; ++i) {
+      ASSERT_TRUE(system.AddImage({100 + i * .0625, image}));
+      EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+    }
+    EXPECT_THROW(system.AddImage({100 + limit * .0625, image}),
+                 std::overflow_error);
+    EXPECT_THROW(system.ProcessNext({}), std::overflow_error);
+    EXPECT_THROW(system.Finish(), std::overflow_error);
+    EXPECT_FALSE(system.IsFinished());
+  }
+}
+
+TEST(SystemTest, StalledImuBufferAcceptsExactDefaultSpanThenFails) {
+  LivoSystem system(test::Options(FrontendMode::kLidarInertialVisual));
+  ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+  for (double timestamp : {100.0, 103.0}) {
+    ASSERT_TRUE(system.AddImu(
+        {timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+    EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+  }
+  EXPECT_THROW(
+      system.AddImu({103.125, Eigen::Vector3d::Zero(), {0, 0, -9.81}}),
+      std::overflow_error);
+}
+
+TEST(SystemTest, StalledImuBufferChecksLimitsAfterDriverCorrection) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  options.sensor_buffer.max_imu_samples = 2;
+  options.sensor_buffer.max_span_s = .25;
+  options.driver_fix = true;
+  LivoSystem system(options);
+  ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+  for (double timestamp : {90.0, 100.25}) {
+    ASSERT_TRUE(system.AddImu(
+        {timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+    EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+  }
+  EXPECT_THROW(system.AddImu(
+                   {100.25, Eigen::Vector3d::Zero(), {0, 0, -9.81}}),
+               std::overflow_error);
+}
+
+TEST(SystemTest, LidarRollbackResetsCapacityWithoutCountingEmptyScans) {
+  auto options = test::Options(FrontendMode::kLidarInertial);
+  options.sensor_buffer.max_lidar_scans = 2;
+  options.sensor_buffer.max_span_s = .5;
+  LivoSystem system(options);
+  ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+  ASSERT_TRUE(system.AddLidar(test::Scan(100.5)));
+  EXPECT_FALSE(system.AddLidar({102, {}}));
+  LivoxPoint point;
+  point.z = 4;
+  EXPECT_FALSE(system.AddLidar({102, std::vector<LivoxPoint>{point}}));
+  EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
+  ASSERT_TRUE(system.AddLidar(test::Scan(99)));
+  ASSERT_TRUE(system.AddLidar(test::Scan(99.25)));
+  EXPECT_THROW(system.AddLidar(test::Scan(99.5)), std::overflow_error);
 }
 
 void CheckNonfiniteTimestamps(bool image, bool hilti) {
@@ -354,15 +450,17 @@ TEST(SystemTest, StartupBufferRetainsRecentSamplesWithinLimits) {
   LivoSystem reference(reference_options);
   const auto image = test_data::MakeImage(512, 512, 3);
   for (int i = 0; i < 2001; ++i) {
+    const double timestamp = (i < 3 ? 95.0 : 100.0) + i * .001;
     ASSERT_TRUE(system.AddImu(
-        {100 + i * .001, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
-    if (i != 0)
+        {timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+    if (i >= 3)
       ASSERT_TRUE(reference.AddImu(
-          {100 + i * .001, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+          {timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
   }
   for (int i = 0; i < 9; ++i) {
-    ASSERT_TRUE(system.AddImage({100 + i * .03, image}));
-    if (i != 0) ASSERT_TRUE(reference.AddImage({100 + i * .03, image}));
+    const double timestamp = (i < 2 ? 95.0 : 100.0) + i * .03;
+    ASSERT_TRUE(system.AddImage({timestamp, image}));
+    if (i >= 2) ASSERT_TRUE(reference.AddImage({timestamp, image}));
   }
   auto stats = system.GetStartupBufferStats();
   EXPECT_EQ(stats.pending_imu, 2000u);
@@ -375,8 +473,8 @@ TEST(SystemTest, StartupBufferRetainsRecentSamplesWithinLimits) {
   stats = system.GetStartupBufferStats();
   EXPECT_EQ(stats.pending_imu, 0u);
   EXPECT_EQ(stats.pending_images, 0u);
-  EXPECT_EQ(stats.evicted_imu, 1u);
-  EXPECT_EQ(stats.evicted_images, 1u);
+  EXPECT_EQ(stats.evicted_imu, 3u);
+  EXPECT_EQ(stats.evicted_images, 2u);
   EXPECT_EQ(stats.rejected_imu, 0u);
   ASSERT_TRUE(reference.AddLidar(test::Scan(100)));
   ASSERT_TRUE(system.AddLidar(test::Scan(100.25)));
@@ -393,6 +491,32 @@ TEST(SystemTest, StartupBufferRetainsRecentSamplesWithinLimits) {
     EXPECT_EQ(std::string(std::istreambuf_iterator<char>(actual), {}),
               std::string(std::istreambuf_iterator<char>(expected), {}));
   }
+}
+
+TEST(SystemTest, StartupCapacityAllowsHandoffWithCorrectedImuTimes) {
+  auto options = test::Options(FrontendMode::kLidarInertialVisual);
+  options.sensor_buffer = {2, 2, 2, .25};
+  options.driver_fix = true;
+  LivoSystem system(options);
+  for (double timestamp : {90.0, 95.0625, 100.125}) {
+    ASSERT_TRUE(system.AddImu(
+        {timestamp, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  }
+  const auto image = test_data::MakeImage(512, 512, 3);
+  for (double timestamp : {99.9375, 100.0625, 100.125}) {
+    ASSERT_TRUE(system.AddImage({timestamp, image}));
+  }
+  EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 2u);
+  EXPECT_EQ(system.GetStartupBufferStats().pending_images, 2u);
+  ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+  const auto stats = system.GetStartupBufferStats();
+  EXPECT_EQ(stats.pending_imu, 0u);
+  EXPECT_EQ(stats.pending_images, 0u);
+  EXPECT_EQ(stats.evicted_imu, 1u);
+  EXPECT_EQ(stats.evicted_images, 1u);
+  EXPECT_EQ(stats.rejected_imu, 0u);
+  EXPECT_EQ(system.ProcessNext({}), SyncStatus::kReady);
+  system.Finish();
 }
 
 TEST(SystemTest, StartupBufferRejectsInvalidInputWithoutChangingState) {
@@ -422,7 +546,31 @@ TEST(SystemTest, NegativeLidarTimeDoesNotReleaseStartupData) {
   EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 1u);
   ASSERT_TRUE(system.AddLidar(test::Scan(100)));
   EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 0u);
+  ASSERT_TRUE(system.AddImu({100.125, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  EXPECT_EQ(system.ProcessNext({}), SyncStatus::kReady);
+  EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
   system.Finish();
+}
+
+TEST(SystemTest, NegativeLidarRollbackWaitsForTheNextDriverAnchor) {
+  for (bool startup_buffer : {true, false}) {
+    auto options = test::Options(FrontendMode::kLidarInertial);
+    options.driver_fix = true;
+    options.imu_time_range.minimum = 0;
+    options.buffer_before_first_lidar = startup_buffer;
+    LivoSystem system(options);
+    ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+    ASSERT_TRUE(system.AddImu({100.0, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+    ASSERT_TRUE(system.AddLidar(test::Scan(-.25)));
+    EXPECT_EQ(system.AddImu({100.875, Eigen::Vector3d::Zero(), {0, 0, -9.81}}),
+              startup_buffer);
+    EXPECT_EQ(system.GetStartupBufferStats().pending_imu, startup_buffer ? 1u : 0u);
+    ASSERT_TRUE(system.AddLidar(test::Scan(100.75)));
+    EXPECT_EQ(system.GetStartupBufferStats().pending_imu, 0u);
+    EXPECT_EQ(system.ProcessNext({}), startup_buffer ? SyncStatus::kReady
+                                                    : SyncStatus::kWaiting);
+    system.Finish();
+  }
 }
 
 TEST(SystemTest, StartupBufferCanPreserveLegacyInputBehavior) {
@@ -572,6 +720,72 @@ TEST(SystemTest, IndependentPropagationCursors) {
   }
   a.Finish();
   b.Finish();
+}
+
+TEST(SystemTest, PropagationBudgetKeepsImuAtTheLatestEstimateBoundary) {
+  for (const bool publish_before_overflow : {false, true}) {
+    auto options = test::Options(FrontendMode::kLidarInertial);
+    options.sensor_buffer.max_imu_samples = 2;
+    options.propagate_imu = true;
+    LivoSystem system(options);
+    for (const double time : {100.0, 100.25}) {
+      ASSERT_TRUE(system.AddLidar(test::Scan(time)));
+      for (const double offset : {.0625, .125}) {
+        ASSERT_TRUE(system.AddImu(
+            {time + offset, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+      }
+      ASSERT_EQ(system.ProcessNext({}), SyncStatus::kReady);
+    }
+    ASSERT_TRUE(system.AddImu(
+        {100.4375, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+    if (publish_before_overflow) {
+      const auto propagation = system.PropagateLatest();
+      ASSERT_TRUE(propagation);
+      EXPECT_DOUBLE_EQ(propagation->timestamp, 100.4375);
+    }
+    try {
+      system.AddImu({100.5, Eigen::Vector3d::Zero(), {0, 0, -9.81}});
+      ADD_FAILURE() << "The propagation queue should exceed its IMU limit";
+    } catch (const std::overflow_error& error) {
+      EXPECT_NE(std::string(error.what()).find("IMU propagation"),
+                std::string::npos);
+    }
+  }
+}
+
+TEST(SystemTest, PropagationRetainsImuForBackToBackLidarEstimates) {
+  auto options = test::Options(FrontendMode::kLidarInertial);
+  options.propagate_imu = true;
+  LivoSystem system(options);
+  ASSERT_TRUE(system.AddLidar(test::Scan(100)));
+  for (double time : {100.0625, 100.125}) {
+    ASSERT_TRUE(system.AddImu({time, Eigen::Vector3d::Zero(), {0, 0, -9.81}}));
+  }
+  ASSERT_EQ(system.ProcessNext({}), SyncStatus::kReady);
+  ASSERT_TRUE(system.AddLidar(test::Scan(101)));
+  const std::array<Imu, 3> imu = {{{100.75, {0, 0, 1}, {0, 0, -9.81}},
+                                   {101.125, {0, 0, 0}, {0, 0, -9.81}},
+                                   {101.25, {0, 0, 0}, {0, 0, -9.81}}}};
+  for (const auto& sample : imu) ASSERT_TRUE(system.AddImu(sample));
+  ASSERT_EQ(system.ProcessNext({}), SyncStatus::kReady);
+  ASSERT_TRUE(system.AddLidar(test::Scan(100.5)));
+  std::optional<FilterState> estimate;
+  ASSERT_EQ(system.ProcessNext([&](const auto& result, const auto&, double) {
+              EXPECT_DOUBLE_EQ(result.timestamp, 100.625);
+              estimate = result.estimate;
+            }),
+            SyncStatus::kReady);
+  ASSERT_TRUE(estimate);
+  double previous_time = 100.625;
+  for (const auto& sample : imu) {
+    PropagateImu(&*estimate, sample.timestamp - previous_time,
+                 sample.linear_acceleration, sample.angular_velocity, 9.81);
+    previous_time = sample.timestamp;
+  }
+  const auto propagation = system.PropagateLatest();
+  ASSERT_TRUE(propagation);
+  EXPECT_TRUE(propagation->state.rot_end.isApprox(estimate->rot_end, 1e-12));
+  system.Finish();
 }
 
 TEST(SystemTest, ImageRejectionAndHiltiCountersBelongToEachInstance) {

@@ -71,6 +71,12 @@ target_link_libraries(my_frontend PRIVATE livo_atlas::core)
 `tests/installed_consumer` 实际通过 Frontend 和 LivoSystem 两种接口执行连续
 LO/LIO/VIO，并检查视觉跟踪、有限状态和文件写入。它只依赖安装头和导出目标。
 
+`SystemOptions::frontend_mode()` 由传感器启用设置派生模式。调用方可以用
+`SystemOptions::sensor_buffer` 调整同步队列和 IMU 传播缓存的上限。运行期超限后，
+后续输入、推进及显式收尾继续抛出首个 `std::overflow_error`，已提交视图可读。输出流随
+`LivoSystem` 析构关闭。
+[模式与缓存参数](ros-builds.md#传感器模式与输入缓存)
+
 Frontend、LivoSystem 等公开类直接声明私有成员，头文件包含这些成员所需的普通 C++ 类型。
 移除 Pimpl 后对象布局发生变化：升级时请重新编译本包、节点和使用这些类的下游程序，
 不要将旧版二进制与新版库混用。Eigen、PCL 和 OpenCV 等仍由导出目标提供所需构建依赖。
@@ -134,7 +140,9 @@ mode0 提供普通库、离线数据集检查和COLMAP导出工具。`cmake/ros1
 ```text
 src/
 ├── app/livo_main.cc                  # 唯一 ROS 节点入口
+├── common/                          # 线程池、任务和内部数学工具
 ├── core/                            # LivoSystem、配置读取与校验
+├── backend/                         # 回环、位姿图及工作队列类型
 ├── frontend/
 │   ├── frontend.cc                   # 估计流程与状态所有权
 │   ├── imu/{imu_processor,imu_propagation}.cc
@@ -144,6 +152,7 @@ src/
 ├── camera/                          # 相机模型
 ├── image/                           # 图像基础操作
 ├── io/                              # 原有导出、关键帧/子地图数据集与离线COLMAP
+├── ros_common/                      # ROS1 与 ROS2 共用的私有头文件
 ├── ros1/                            # 四对接入源/头
 └── ros2/                            # 同样四类职责
 ```
@@ -152,7 +161,7 @@ src/
 `include/livo_atlas/common/`。`Pose6D` 位于 `frontend/imu/pose6d.h`，点协方差在
 `mapping/point_with_covariance.h`。没有 `runtime/`、`internal/` 或 `output/` 兼容目录。
 
-两个 ROS 目录各含 `livo_node`、`node_options`、`measurement_conversions`、
+`ros1` 和 `ros2` 各含 `livo_node`、`node_options`、`measurement_conversions`、
 `livo_publisher` 四对源/头，普通配置由 `core/livo_config` 共用。
 visual_point 归 mapping，Frame/Feature 归视觉前端；目录不强制对应单独物理库。
 

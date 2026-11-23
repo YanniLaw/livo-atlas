@@ -9,6 +9,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -77,6 +78,7 @@ TEST_F(Ros1ParametersTest, ReadsPrivateCameraNumericArraysAndSharedDefaults) {
   EXPECT_EQ(options.frontend.voxel_map.layer_init_num_,
             (std::vector<int>{5, 5, 5, 5, 5}));
   EXPECT_EQ(options.exporter.mode, FrontendMode::kLidarInertialVisual);
+  EXPECT_TRUE(options.frontend.imu.enabled);
   EXPECT_EQ(options.exporter.directory, directory_);
   EXPECT_FALSE(options.keyframes.enabled);
   EXPECT_FALSE(options.submaps.enabled);
@@ -93,6 +95,16 @@ TEST_F(Ros1ParametersTest, StartupBufferParameterCanRestoreLegacyBehavior) {
   EXPECT_FALSE(ReadNodeOptions(*node_).livo.system.buffer_before_first_lidar);
 }
 
+TEST_F(Ros1ParametersTest, RejectsUnsupportedSensorModes) {
+  node_->setParam("common/lidar_en", 0);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("common/lidar_en", 1);
+  node_->setParam("common/img_en", 1);
+  node_->setParam("imu/imu_en", false);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
+
 TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   node_->setParam("common/img_en", 0);
   node_->setParam("imu/imu_en", true);
@@ -104,6 +116,10 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
   node_->setParam("preprocess/point_filter_num", 1);
   node_->setParam("publish/pub_scan_num", 3);
   node_->setParam("publish/image_queue_size", 32);
+  node_->setParam("sensor_buffer/max_lidar_scans", 4);
+  node_->setParam("sensor_buffer/max_imu_samples", 40);
+  node_->setParam("sensor_buffer/max_images", 3);
+  node_->setParam("sensor_buffer/max_span_s", .75);
   node_->setParam("keyframes/enabled", true);
   node_->setParam("keyframes/translation_threshold", .7);
   node_->setParam("keyframes/rotation_threshold_deg", 15.);
@@ -121,6 +137,10 @@ TEST_F(Ros1ParametersTest, AppliesOverridesToOneOrdinaryConfiguration) {
             (std::vector<int>{3, 6, 9}));
   EXPECT_EQ(options.colorizer.scan_interval, 3);
   EXPECT_EQ(config.livo.image_queue_size, 32);
+  EXPECT_EQ(options.sensor_buffer.max_lidar_scans, 4);
+  EXPECT_EQ(options.sensor_buffer.max_imu_samples, 40);
+  EXPECT_EQ(options.sensor_buffer.max_images, 3);
+  EXPECT_DOUBLE_EQ(options.sensor_buffer.max_span_s, .75);
   EXPECT_TRUE(options.keyframes.enabled);
   EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
   EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);
@@ -146,6 +166,8 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
          {"vio/img_point_cov", "imu/acc_cov", "preprocess/point_filter_num",
           "keyframes/translation_threshold", "keyframes/rotation_threshold_deg",
           "keyframes/time_threshold", "submaps/max_keyframes",
+          "sensor_buffer/max_lidar_scans", "sensor_buffer/max_imu_samples",
+          "sensor_buffer/max_images", "sensor_buffer/max_span_s",
           "publish/image_queue_size"}) {
       node_->setParam(key, -1);
       EXPECT_THROW(
@@ -176,6 +198,9 @@ TEST_F(Ros1ParametersTest, InvalidConfigurationCannotCreateOrTruncateOutput) {
 }
 
 TEST_F(Ros1ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
+  node_->setParam("sensor_buffer/max_lidar_scans", 1.5);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->deleteParam("sensor_buffer/max_lidar_scans");
   node_->setParam("imu/imu_int_frame", "three");
   EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
   node_->deleteParam("imu/imu_int_frame");

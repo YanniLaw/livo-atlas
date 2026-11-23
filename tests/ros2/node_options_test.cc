@@ -9,6 +9,7 @@
 #include <iterator>
 #include <limits>
 #include <rclcpp/node_interfaces/node_topics_interface.hpp>
+#include <stdexcept>
 #include <vector>
 
 #include "livo_atlas/core/livo_system.h"
@@ -32,6 +33,7 @@ TEST(Ros2ParametersTest, RejectsWrongScalarAndArrayTypesBeforeOpeningFiles) {
   for (const auto& invalid : std::vector<rclcpp::Parameter>{
            {"imu.imu_int_frame", "three"},
            {"publish.image_queue_size", "many"},
+           {"sensor_buffer.max_lidar_scans", 1.5},
            {"cam_fx", true},
            {"extrin_calib.extrinsic_R", std::vector<bool>{true, false}}}) {
     const auto directory =
@@ -66,6 +68,7 @@ TEST(Ros2ParametersTest, AcceptsMixedNumericCalibrationAndDeclaresReadOnly) {
   EXPECT_EQ(config.livo.system.submaps.max_keyframes, 20);
   EXPECT_EQ(config.livo.image_queue_size, 1);
   EXPECT_EQ(config.livo.system.frontend.calibration.camera.model, "Pinhole");
+  EXPECT_TRUE(config.livo.system.frontend.imu.enabled);
   EXPECT_EQ(node.get_node_topics_interface()->resolve_topic_name(
                 config.livo.imu_topic),
             "/review/imu");
@@ -91,6 +94,21 @@ TEST(Ros2ParametersTest, StartupBufferParameterCanRestoreLegacyBehavior) {
       legacy.describe_parameter("common.buffer_before_first_lidar").read_only);
 }
 
+TEST(Ros2ParametersTest, RejectsUnsupportedSensorModes) {
+  const auto directory = std::filesystem::temp_directory_path() /
+                         "livo_atlas_tests/unsupported-sensor-mode";
+  for (const auto& parameter : {rclcpp::Parameter("common.lidar_en", 0),
+                                rclcpp::Parameter("imu.imu_en", false)}) {
+    auto params = test::Parameters(directory.string());
+    params.emplace_back("common.img_en", 1);
+    params.push_back(parameter);
+    rclcpp::Node node("unsupported_sensor_mode",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+    EXPECT_FALSE(std::filesystem::exists(directory));
+  }
+}
+
 TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
   int index = 0;
   for (const auto& invalid : std::vector<rclcpp::Parameter>{
@@ -104,6 +122,11 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
            {"publish.pub_scan_num", 0},
            {"publish.image_queue_size", 0},
            {"publish.image_queue_size", -1},
+           {"sensor_buffer.max_lidar_scans", 0},
+           {"sensor_buffer.max_imu_samples", -1},
+           {"sensor_buffer.max_images", 0},
+           {"sensor_buffer.max_span_s", 0.0},
+           {"sensor_buffer.max_span_s", std::numeric_limits<double>::infinity()},
            {"keyframes.translation_threshold", -.1},
            {"keyframes.rotation_threshold_deg", -1.},
            {"keyframes.time_threshold", -1.},
@@ -245,6 +268,10 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
   params.emplace_back("lio.layer_init_num", std::vector<std::int64_t>{3, 6, 9});
   params.emplace_back("publish.pub_scan_num", 3);
   params.emplace_back("publish.image_queue_size", 32);
+  params.emplace_back("sensor_buffer.max_lidar_scans", 4);
+  params.emplace_back("sensor_buffer.max_imu_samples", 40);
+  params.emplace_back("sensor_buffer.max_images", 3);
+  params.emplace_back("sensor_buffer.max_span_s", .75);
   params.emplace_back("keyframes.enabled", true);
   params.emplace_back("keyframes.translation_threshold", .7);
   params.emplace_back("keyframes.rotation_threshold_deg", 15.);
@@ -264,6 +291,10 @@ TEST(Ros2ParametersTest, SharedSchemaAppliesDefaultsAndOrdinaryOverrides) {
             (std::vector<int>{3, 6, 9}));
   EXPECT_EQ(options.colorizer.scan_interval, 3);
   EXPECT_EQ(config.livo.image_queue_size, 32);
+  EXPECT_EQ(options.sensor_buffer.max_lidar_scans, 4);
+  EXPECT_EQ(options.sensor_buffer.max_imu_samples, 40);
+  EXPECT_EQ(options.sensor_buffer.max_images, 3);
+  EXPECT_DOUBLE_EQ(options.sensor_buffer.max_span_s, .75);
   EXPECT_TRUE(options.keyframes.enabled);
   EXPECT_DOUBLE_EQ(options.keyframes.translation_threshold, .7);
   EXPECT_DOUBLE_EQ(options.keyframes.rotation_threshold_deg, 15);

@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_ROS_GEOMETRY_MESSAGES_H_
-#define LIVO_ATLAS_SRC_ROS_GEOMETRY_MESSAGES_H_
+#ifndef LIVO_ATLAS_SRC_ROS_COMMON_GEOMETRY_MESSAGES_H_
+#define LIVO_ATLAS_SRC_ROS_COMMON_GEOMETRY_MESSAGES_H_
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +13,7 @@
 
 #include "livo_atlas/mapping/geometry_map_snapshot.h"
 #include "mapping/geometry_map_sampling.h"
-#include "ros/time_conversion.h"
+#include "ros_common/time_conversion.h"
 
 namespace livo_atlas::ros_detail {
 
@@ -195,4 +195,4 @@ std::pair<Message, Cloud> MakeGeometryMessages(
 
 }  // namespace livo_atlas::ros_detail
 
-#endif  // LIVO_ATLAS_SRC_ROS_GEOMETRY_MESSAGES_H_
+#endif  // LIVO_ATLAS_SRC_ROS_COMMON_GEOMETRY_MESSAGES_H_

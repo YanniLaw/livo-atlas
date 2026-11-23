@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-#include "cartographer/common/thread_pool.h"
+#include "common/thread_pool.h"
 
 #ifdef __linux__
 #include <unistd.h>
@@ -25,11 +25,10 @@
 #include <cerrno>
 #include <utility>
 
-#include "cartographer/common/task.h"
-#include "glog/logging.h"
+#include "common/task.h"
+#include "livo_atlas/common/logging.h"
 
-namespace livo_atlas::cartographer {
-namespace common {
+namespace livo_atlas {
 
 void ThreadPoolInterface::Execute(Task* task) { task->Execute(); }
 
@@ -105,10 +104,9 @@ void ThreadPool::DoWork() {
       }
     }
     CHECK(task);
-    CHECK_EQ(task->GetState(), common::Task::DEPENDENCIES_COMPLETED);
+    CHECK_EQ(task->GetState(), Task::DEPENDENCIES_COMPLETED);
     Execute(task.get());
   }
 }
 
-}  // namespace common
-}  // namespace livo_atlas::cartographer
+}  // namespace livo_atlas

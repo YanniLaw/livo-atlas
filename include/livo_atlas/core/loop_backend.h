@@ -44,6 +44,7 @@ class LoopBackend {
   void Complete(LoopTaskResult result);
   void Drain();
   void FinishJournal();
+  void StopOnFailure(std::exception_ptr error) noexcept;
   [[noreturn]] void Fail(std::exception_ptr error);
 
   struct Coalesced {

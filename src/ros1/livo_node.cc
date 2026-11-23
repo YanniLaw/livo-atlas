@@ -10,7 +10,7 @@
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/ros1/livo_publisher.h"
 #include "livo_atlas/ros1/measurement_conversions.h"
-#include "ros/input_diagnostics.h"
+#include "ros_common/input_diagnostics.h"
 
 namespace livo_atlas::ros1 {
 
@@ -35,7 +35,7 @@ LivoNode::LivoNode(ros::NodeHandle& node, const NodeOptions& parameters,
       system_(system),
       poll_background_outputs_(std::move(poll_background_outputs)),
       transport_(node),
-      publisher_(parameters.livo.system.exporter.mode,
+      publisher_(parameters.livo.system.frontend_mode(),
                  parameters.livo.image_queue_size,
                  parameters.livo.global_output) {
   publisher_.Initialize(node, transport_);

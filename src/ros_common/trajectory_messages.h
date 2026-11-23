@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_ROS_TRAJECTORY_MESSAGES_H_
-#define LIVO_ATLAS_SRC_ROS_TRAJECTORY_MESSAGES_H_
+#ifndef LIVO_ATLAS_SRC_ROS_COMMON_TRAJECTORY_MESSAGES_H_
+#define LIVO_ATLAS_SRC_ROS_COMMON_TRAJECTORY_MESSAGES_H_
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +13,7 @@
 #include <Eigen/LU>
 
 #include "livo_atlas/mapping/trajectory_snapshot.h"
-#include "ros/time_conversion.h"
+#include "ros_common/time_conversion.h"
 
 namespace livo_atlas::ros_detail {
 
@@ -107,4 +107,4 @@ std::pair<Message, Path> MakeTrajectoryMessages(
 
 }  // namespace livo_atlas::ros_detail
 
-#endif  // LIVO_ATLAS_SRC_ROS_TRAJECTORY_MESSAGES_H_
+#endif  // LIVO_ATLAS_SRC_ROS_COMMON_TRAJECTORY_MESSAGES_H_

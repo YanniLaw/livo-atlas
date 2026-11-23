@@ -1,4 +1,4 @@
-#include "cartographer/common/thread_pool.h"
+#include "common/thread_pool.h"
 
 #include <gtest/gtest.h>
 
@@ -9,13 +9,13 @@
 #include <memory>
 #include <mutex>
 
+#include "common/task.h"
+
 namespace livo_atlas {
 namespace {
-using cartographer::common::Task;
-using cartographer::common::ThreadPool;
 using namespace std::chrono_literals;
 
-TEST(CartographerThreadPoolTest, ReadyTasksRunTogetherBeforeDependentTask) {
+TEST(ThreadPoolTest, ReadyTasksRunTogetherBeforeDependentTask) {
   std::mutex mutex;
   std::condition_variable condition;
   int running = 0;

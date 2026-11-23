@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "livo_atlas/core/global_output_options.h"
-#include "ros/trajectory_messages.h"
+#include "ros_common/trajectory_messages.h"
 
 namespace livo_atlas::ros1 {
 

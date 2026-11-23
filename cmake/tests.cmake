@@ -204,10 +204,9 @@ target_compile_definitions(loop_closure_store_test PRIVATE
   LIVO_ATLAS_CHECK_LOOPS="$<TARGET_FILE:livo_atlas_check_loops>")
 livo_atlas_test(loop_worker_test tests/backend/loop_worker_test.cc)
 target_link_libraries(loop_worker_test livo_atlas::online_backend)
-livo_atlas_test(cartographer_thread_pool_test tests/backend/cartographer_thread_pool_test.cc)
-target_include_directories(cartographer_thread_pool_test PRIVATE
-  ${PROJECT_SOURCE_DIR}/third_party/cartographer)
-target_link_libraries(cartographer_thread_pool_test livo_atlas::online_backend)
+livo_atlas_test(thread_pool_test tests/common/thread_pool_test.cc)
+target_include_directories(thread_pool_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(thread_pool_test livo_atlas::core)
 livo_atlas_test(loop_task_test tests/backend/loop_task_test.cc)
 target_link_libraries(loop_task_test livo_atlas::online_backend)
 livo_atlas_test(loop_selection_test tests/backend/loop_selection_test.cc)

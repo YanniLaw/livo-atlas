@@ -3,8 +3,8 @@
 `LivoSystem` 管理前端、封存子地图和回环后端的生命周期。后端默认关闭。
 启用图优化时，worker 计算提案，由 `LivoSystem` 检查来源、保存 prepared，再发布位姿。
 ROS1 Noetic 与 ROS2 Humble 使用同一个 `src/app/livo_main.cc`。
-worker 通过 Cartographer 2.0.0 的单线程 `ThreadPool` 调度回环任务，位姿提交由系统所有者执行。
-[线程池来源](../third_party/cartographer/README.md)
+worker 通过 `src/common` 中的单线程 `ThreadPool` 调度回环任务，位姿提交由系统所有者执行。
+[线程池来源与许可](cartographer-scheduler.md)
 它仍使用批量 GTSAM LM 试算，当前不包含 iSAM2、全局描述子、全局 TF 发布或 Gaussian 训练。
 
 ## 构建与开启

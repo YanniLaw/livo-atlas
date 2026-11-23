@@ -1,11 +1,14 @@
 #include "livo_atlas/core/livo_system.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <deque>
 #include <exception>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -19,8 +22,9 @@
 
 namespace livo_atlas {
 namespace {
-constexpr std::size_t kStartupImuLimit = 2000;
-constexpr std::size_t kStartupImageLimit = 8;
+
+constexpr int kStartupImuLimit = 2000;
+constexpr int kStartupImageLimit = 8;
 
 // Preserve the two ROS1 fromSec/toSec stages without importing ROS into this
 // ordinary system. The source supplies its whole-second transport range.
@@ -41,14 +45,41 @@ double NanosecondTime(double value, const TimestampRange& range) {
   }
   return result;
 }
+
+// Keep the newest contiguous suffix. Startup IMU times can still be reversed
+// around zero, so consider both endpoints of the timestamp range.
+template <typename Sample>
+std::size_t TrimStartupSpan(std::deque<Sample>* buffer, double max_span_s) {
+  if (buffer->empty()) return 0;
+  auto first = buffer->end();
+  double earliest = buffer->back().timestamp;
+  double latest = earliest;
+  while (first != buffer->begin()) {
+    const double timestamp = (first - 1)->timestamp;
+    earliest = std::min(earliest, timestamp);
+    latest = std::max(latest, timestamp);
+    if (latest - earliest > max_span_s) break;
+    --first;
+  }
+  const auto dropped = first - buffer->begin();
+  buffer->erase(buffer->begin(), first);
+  return dropped;
+}
+
+void DiscardCoveredImu(double estimate_time, std::deque<Imu>* buffer) {
+  while (!buffer->empty() && buffer->front().timestamp < estimate_time) {
+    buffer->pop_front();
+  }
+}
+
 }  // namespace
 
 LivoSystem::LivoSystem(SystemOptions options)
     : options_(PrepareSystemOptions(std::move(options))),
-      synchronizer_(options_.exporter.mode, options_.exposure_time),
+      synchronizer_(options_.frontend_mode(), options_.exposure_time),
       frontend_(options_.frontend),
       colorizer_(options_.colorizer),
-      keyframe_selector_(options_.exporter.mode, options_.keyframes),
+      keyframe_selector_(options_.frontend_mode(), options_.keyframes),
       keyframe_store_(options_.keyframes.enabled
                           ? std::make_unique<KeyframeStore>(
                                 options_.exporter.directory / "keyframes",
@@ -81,9 +112,42 @@ LivoSystem::LivoSystem(SystemOptions options)
 }
 
 void LivoSystem::CheckInputOpen() const {
-  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (session_error_) std::rethrow_exception(session_error_);
   if (online_) online_->CheckRunning();
   if (input_sealed_) throw std::logic_error("System input has been sealed");
+}
+
+template <typename Sample>
+void LivoSystem::CheckBufferLimit(const char* name,
+                                 const std::deque<Sample>& buffer,
+                                 int max_count, double timestamp) {
+  if (buffer.empty()) return;
+  const double oldest = buffer.front().timestamp;
+  double earliest = oldest;
+  double latest = buffer.back().timestamp;
+  // IMU ingress preserves the legacy ordering rule across nonpositive times.
+  if (oldest <= 0) {
+    const auto limits = std::minmax_element(
+        buffer.begin(), buffer.end(), [](const auto& lhs, const auto& rhs) {
+          return lhs.timestamp < rhs.timestamp;
+        });
+    earliest = limits.first->timestamp;
+    latest = limits.second->timestamp;
+  }
+  const double span =
+      std::max(latest, timestamp) - std::min(earliest, timestamp);
+  const double max_span = options_.sensor_buffer.max_span_s;
+  if (buffer.size() < static_cast<std::size_t>(max_count) && span <= max_span) {
+    return;
+  }
+  std::ostringstream message;
+  message << std::setprecision(std::numeric_limits<double>::max_digits10)
+          << "sensor_buffer overflow in " << name << " queue"
+          << " queued=" << buffer.size() << " max_count=" << max_count
+          << " oldest_timestamp=" << oldest << " new_timestamp=" << timestamp
+          << " span_s=" << span << " max_span_s=" << max_span;
+  session_error_ = std::make_exception_ptr(std::overflow_error(message.str()));
+  std::rethrow_exception(session_error_);
 }
 
 bool LivoSystem::AddLidar(const LidarScan& scan) {
@@ -91,12 +155,24 @@ bool LivoSystem::AddLidar(const LidarScan& scan) {
   if (!options_.lidar_enabled || !std::isfinite(scan.timestamp)) return false;
   TimedPointCloud measurement{scan.timestamp, PointCloud::Ptr(new PointCloud)};
   preprocess_.Process(scan, measurement.cloud.get());
-  if (measurement.cloud->empty()) return false;
-  const bool first_lidar = last_lidar_ < 0;
-  if (scan.timestamp < last_lidar_) buffers_.point_clouds.clear();
-  buffers_.point_clouds.push_back(std::move(measurement));
+  if (measurement.cloud->empty() ||
+      (measurement.cloud->size() == 1 &&
+       options_.frontend_mode() == FrontendMode::kLidarInertial)) {
+    return false;
+  }
+  if (last_lidar_ < 0 && scan.timestamp >= 0) {
+    AcceptLidarAnchor(std::move(measurement));
+    have_first_lidar_ = true;
+  } else {
+    if (scan.timestamp < last_lidar_) {
+      buffers_.point_clouds.clear();
+    } else {
+      CheckBufferLimit("LiDAR", buffers_.point_clouds,
+                       options_.sensor_buffer.max_lidar_scans, scan.timestamp);
+    }
+    buffers_.point_clouds.push_back(std::move(measurement));
+  }
   last_lidar_ = scan.timestamp;
-  if (first_lidar && last_lidar_ >= 0) FlushStartupImu();
   return true;
 }
 
@@ -112,46 +188,114 @@ bool LivoSystem::AddImu(Imu measurement) {
   measurement.timestamp =
       NanosecondTime(measurement.timestamp - options_.imu_time_offset,
                      options_.imu_time_range);
+  const auto& limits = options_.sensor_buffer;
   if (last_lidar_ < 0) {
     startup_imu_.push_back(std::move(measurement));
     ++startup_stats_.buffered_imu;
-    if (startup_imu_.size() > kStartupImuLimit) {
+    const auto capacity = std::min(kStartupImuLimit, limits.max_imu_samples);
+    if (startup_imu_.size() > static_cast<std::size_t>(capacity)) {
       startup_imu_.pop_front();
       ++startup_stats_.evicted_imu;
     }
     return true;
   }
-  return EnqueueImu(std::move(measurement));
-}
-
-bool LivoSystem::EnqueueImu(Imu measurement) {
-  double timestamp = measurement.timestamp;
-  if (options_.driver_fix) timestamp += std::round(last_lidar_ - timestamp);
-  if (last_imu_ > 0 && timestamp < last_imu_) return false;
-  measurement.timestamp = NanosecondTime(timestamp, options_.imu_time_range);
-  last_imu_ = timestamp;
-  buffers_.imu.push_back(measurement);
-  buffers_.latest_imu_time = timestamp;
-  if (options_.propagate_imu) {
-    if (!frontend_.imu_needs_initialization())
-      propagation_buffer_.push_back(measurement);
+  const auto corrected =
+      CorrectImuTimestamp(last_lidar_, last_imu_, &measurement);
+  if (!corrected) return false;
+  const bool propagate = options_.propagate_imu &&
+                         !frontend_.imu_needs_initialization();
+  BufferImu(measurement, propagate, &buffers_.imu, &propagation_buffer_);
+  last_imu_ = buffers_.latest_imu_time = *corrected;
+  if (propagate) {
     newest_imu_ = measurement;
     new_imu_ = true;
   }
   return true;
 }
 
-void LivoSystem::FlushStartupImu() {
-  // Driver correction needs the first valid LiDAR timestamp as its anchor.
-  while (!startup_imu_.empty()) {
-    auto measurement = std::move(startup_imu_.front());
-    startup_imu_.pop_front();
+void LivoSystem::BufferImu(const Imu& measurement, bool propagate,
+                           std::deque<Imu>* imu, std::deque<Imu>* propagation) {
+  const int capacity = options_.sensor_buffer.max_imu_samples;
+  CheckBufferLimit("IMU", *imu, capacity, measurement.timestamp);
+  const bool retain_for_propagation =
+      propagate && (!have_estimate_ || measurement.timestamp >= latest_time_);
+  if (retain_for_propagation) {
+    if (have_estimate_) DiscardCoveredImu(latest_time_, propagation);
+    CheckBufferLimit("IMU propagation", *propagation, capacity,
+                     measurement.timestamp);
+  }
+  imu->push_back(measurement);
+  if (retain_for_propagation) {
     try {
-      if (!EnqueueImu(std::move(measurement))) ++startup_stats_.rejected_imu;
-    } catch (const std::invalid_argument&) {
-      ++startup_stats_.rejected_imu;
+      propagation->push_back(measurement);
+    } catch (...) {
+      imu->pop_back();
+      throw;
     }
   }
+}
+
+std::optional<double> LivoSystem::CorrectImuTimestamp(
+    double lidar_time, double previous_imu_time, Imu* measurement) const {
+  double timestamp = measurement->timestamp;
+  if (options_.driver_fix) timestamp += std::round(lidar_time - timestamp);
+  if (previous_imu_time > 0 && timestamp < previous_imu_time) {
+    return std::nullopt;
+  }
+  measurement->timestamp = NanosecondTime(timestamp, options_.imu_time_range);
+  return timestamp;
+}
+
+void LivoSystem::AcceptLidarAnchor(TimedPointCloud measurement) {
+  // Use the new LiDAR anchor for correction. After a clock rollback, include
+  // queued measurements when checking the batch about to join the active IMU.
+  auto imu_buffer = buffers_.imu;
+  auto propagation = propagation_buffer_;
+  const bool propagate = options_.propagate_imu &&
+                         !frontend_.imu_needs_initialization();
+  double imu_time = last_imu_;
+  std::size_t rejected = 0;
+  for (auto imu : startup_imu_) {
+    try {
+      const auto corrected =
+          CorrectImuTimestamp(measurement.timestamp, imu_time, &imu);
+      if (!corrected) {
+        ++rejected;
+        continue;
+      }
+      if (have_first_lidar_) {
+        BufferImu(imu, propagate, &imu_buffer, &propagation);
+      } else {
+        imu_buffer.push_back(imu);
+      }
+      imu_time = *corrected;
+    } catch (const std::invalid_argument&) {
+      ++rejected;
+    }
+  }
+  buffers_.point_clouds.push_back(std::move(measurement));
+  const auto& limits = options_.sensor_buffer;
+  // Keep the anchor and the newest usable scans from the negative-time prefix.
+  TrimStartupSpan(&buffers_.point_clouds, limits.max_span_s);
+  if (buffers_.point_clouds.size() >
+      static_cast<std::size_t>(limits.max_lidar_scans)) {
+    buffers_.point_clouds.pop_front();
+  }
+  if (!have_first_lidar_) {
+    startup_stats_.evicted_imu +=
+        TrimStartupSpan(&imu_buffer, limits.max_span_s);
+    startup_stats_.evicted_images +=
+        TrimStartupSpan(&buffers_.images, limits.max_span_s);
+  }
+  if (propagate && imu_buffer.size() > buffers_.imu.size()) {
+    newest_imu_ = imu_buffer.back();
+    new_imu_ = true;
+  }
+  startup_stats_.rejected_imu += rejected;
+  startup_imu_.clear();
+  buffers_.imu.swap(imu_buffer);
+  propagation_buffer_.swap(propagation);
+  last_imu_ = buffers_.latest_imu_time = imu_time;
 }
 
 bool LivoSystem::AddImage(TimedImage measurement) {
@@ -165,10 +309,15 @@ bool LivoSystem::AddImage(TimedImage measurement) {
       timestamp < last_image_ || timestamp - last_image_ < 0.02) {
     return false;
   }
+  const int max_images = options_.sensor_buffer.max_images;
+  if (have_first_lidar_) {
+    CheckBufferLimit("image", buffers_.images, max_images, timestamp);
+  }
   buffers_.images.push_back(std::move(measurement));
-  if (last_lidar_ < 0) {
+  if (!have_first_lidar_) {
     ++startup_stats_.buffered_images;
-    if (buffers_.images.size() > kStartupImageLimit) {
+    const auto capacity = std::min(kStartupImageLimit, max_images);
+    if (buffers_.images.size() > static_cast<std::size_t>(capacity)) {
       buffers_.images.pop_front();
       ++startup_stats_.evicted_images;
     }
@@ -180,7 +329,7 @@ bool LivoSystem::AddImage(TimedImage measurement) {
 StartupBufferStats LivoSystem::GetStartupBufferStats() const noexcept {
   auto stats = startup_stats_;
   stats.pending_imu = startup_imu_.size();
-  stats.pending_images = last_lidar_ < 0 ? buffers_.images.size() : 0;
+  stats.pending_images = have_first_lidar_ ? 0 : buffers_.images.size();
   return stats;
 }
 
@@ -214,7 +363,7 @@ SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
         keyframe_store_->Append(*keyframe);
         online_->AppendCommittedKeyframe(std::move(keyframe));
       } catch (...) {
-        submap_error_ = std::current_exception();
+        session_error_ = std::current_exception();
         throw;
       }
     } else {
@@ -236,7 +385,7 @@ void LivoSystem::ProcessAvailable(const ResultCallback& callback) {
 }
 
 void LivoSystem::SealInput() {
-  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (session_error_) std::rethrow_exception(session_error_);
   if (online_) online_->RethrowFailure();
   if (input_sealed_) return;
   try {
@@ -250,7 +399,7 @@ void LivoSystem::SealInput() {
     }
     input_sealed_ = true;
   } catch (...) {
-    submap_error_ = std::current_exception();
+    session_error_ = std::current_exception();
     throw;
   }
 }
@@ -262,7 +411,7 @@ void LivoSystem::Finish() {
 
 void LivoSystem::FinishSession(LoopBackend* backend) {
   try {
-    if (submap_error_) std::rethrow_exception(submap_error_);
+    if (session_error_) std::rethrow_exception(session_error_);
     if (online_) online_->RethrowFailure();
     if (backend) backend->Drain();
     writer_.Finish();
@@ -271,33 +420,32 @@ void LivoSystem::FinishSession(LoopBackend* backend) {
     if (backend) backend->FinishJournal();
     finished_ = true;
   } catch (...) {
-    const auto error = std::current_exception();
-    if (backend) backend->Fail(error);
-    submap_error_ = error;
-    throw;
+    if (!session_error_) session_error_ = std::current_exception();
+    if (backend) backend->StopOnFailure(session_error_);
+    std::rethrow_exception(session_error_);
   }
 }
 
 bool LivoSystem::IsFinished() const noexcept {
-  return finished_ && !submap_error_;
+  return finished_ && !session_error_;
 }
 
 void LivoSystem::AppendSubmap(const Submap& submap) {
   try {
     submap_store_->Append(submap);
   } catch (...) {
-    submap_error_ = std::current_exception();
+    session_error_ = std::current_exception();
     throw;
   }
 }
 
 void LivoSystem::SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
-  if (callback && submap_error_) std::rethrow_exception(submap_error_);
+  if (callback && session_error_) std::rethrow_exception(session_error_);
   Online().SetCallback(std::move(callback));
 }
 
 void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
-  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (session_error_) std::rethrow_exception(session_error_);
   if (loop_pose_updates_claimed_)
     throw std::logic_error("Online loop backend owns pose updates");
   Online().ApplyPoseUpdate(update);
@@ -312,18 +460,18 @@ void LivoSystem::ClaimLoopPoseUpdates() {
 }
 
 void LivoSystem::ApplyLoopPoseUpdate(const PoseUpdate& update) {
-  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (session_error_) std::rethrow_exception(session_error_);
   if (!loop_pose_updates_claimed_)
     throw std::logic_error("Loop backend has not claimed pose updates");
   Online().ApplyPoseUpdate(update);
 }
 
 void LivoSystem::FailLoopBackend(std::exception_ptr error) noexcept {
-  if (!submap_error_) submap_error_ = std::move(error);
+  if (!session_error_) session_error_ = std::move(error);
 }
 
 GeometrySubmap LivoSystem::GetGeometrySubmap(std::uint64_t id) {
-  if (submap_error_) std::rethrow_exception(submap_error_);
+  if (session_error_) std::rethrow_exception(session_error_);
   return Online().GetGeometrySubmap(id);
 }
 
@@ -341,13 +489,9 @@ std::optional<PropagationResult> LivoSystem::PropagateLatest() {
   if (frontend_.imu_needs_initialization() || !new_imu_ || !have_estimate_)
     return {};
   new_imu_ = false;
-  if (!options_.propagate_imu || propagation_buffer_.empty()) return {};
   if (state_updated_) {
     propagated_ = latest_state_;
-    while (!propagation_buffer_.empty() &&
-           propagation_buffer_.front().timestamp < latest_time_) {
-      propagation_buffer_.pop_front();
-    }
+    DiscardCoveredImu(latest_time_, &propagation_buffer_);
     last_from_end_ = 0;
     for (const auto& imu : propagation_buffer_) Propagate(imu);
     state_updated_ = false;
@@ -365,7 +509,11 @@ void LivoSystem::Propagate(const Imu& measurement) {
   last_from_end_ = from_end;
 }
 
-LivoSystem::~LivoSystem() = default;
+LivoSystem::~LivoSystem() {
+  if (loop_backend_ && session_error_) {
+    loop_backend_->StopOnFailure(session_error_);
+  }
+}
 
 std::shared_ptr<const PoseSnapshot> LivoSystem::GetPoseSnapshot() const {
   return Online().GetPoseSnapshot();

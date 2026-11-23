@@ -1,6 +1,13 @@
 ros:
   executor_threads: 4
 
+sensor_buffer:
+  max_lidar_scans: 64
+  max_imu_samples: 4096
+  max_images: 32
+  # Per queue, measured in corrected sensor time.
+  max_span_s: 3.0
+
 keyframes:
   enabled: false
   translation_threshold: 0.5

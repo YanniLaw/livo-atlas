@@ -1,5 +1,6 @@
 /*
  * Copyright 2018 The Cartographer Authors
+ * Modified by livo-atlas to use the project namespace.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,15 +15,14 @@
  * limitations under the License.
  */
 
-#ifndef CARTOGRAPHER_MAPPING_INTERNAL_WORK_QUEUE_H
-#define CARTOGRAPHER_MAPPING_INTERNAL_WORK_QUEUE_H
+#ifndef LIVO_ATLAS_SRC_BACKEND_WORK_QUEUE_H_
+#define LIVO_ATLAS_SRC_BACKEND_WORK_QUEUE_H_
 
 #include <chrono>
 #include <deque>
 #include <functional>
 
-namespace cartographer {
-namespace mapping {
+namespace livo_atlas {
 
 struct WorkItem {
   enum class Result {
@@ -36,7 +36,6 @@ struct WorkItem {
 
 using WorkQueue = std::deque<WorkItem>;
 
-}  // namespace mapping
-}  // namespace cartographer
+}  // namespace livo_atlas
 
-#endif  // CARTOGRAPHER_MAPPING_INTERNAL_WORK_QUEUE_H
+#endif  // LIVO_ATLAS_SRC_BACKEND_WORK_QUEUE_H_

@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_ROS_INPUT_DIAGNOSTICS_H_
-#define LIVO_ATLAS_SRC_ROS_INPUT_DIAGNOSTICS_H_
+#ifndef LIVO_ATLAS_SRC_ROS_COMMON_INPUT_DIAGNOSTICS_H_
+#define LIVO_ATLAS_SRC_ROS_COMMON_INPUT_DIAGNOSTICS_H_
 
 #include <cstdint>
 #include <iomanip>
@@ -30,4 +30,4 @@ inline void LogUpdateTime(UpdateKind kind, double elapsed) {
 
 }  // namespace livo_atlas::ros_detail
 
-#endif  // LIVO_ATLAS_SRC_ROS_INPUT_DIAGNOSTICS_H_
+#endif  // LIVO_ATLAS_SRC_ROS_COMMON_INPUT_DIAGNOSTICS_H_

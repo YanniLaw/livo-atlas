@@ -8,7 +8,7 @@
 #include <rclcpp/utilities.hpp>
 
 #include "livo_atlas/core/global_output_options.h"
-#include "ros/geometry_messages.h"
+#include "ros_common/geometry_messages.h"
 
 namespace livo_atlas::ros2 {
 

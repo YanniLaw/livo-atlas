@@ -92,7 +92,8 @@ livo_atlas_library(io
 target_include_directories(livo_atlas_io PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_io PUBLIC livo_atlas_geometry livo_atlas_keyframes livo_atlas_camera Eigen3::Eigen
   pcl_io pcl_filters opencv_core opencv_imgcodecs)
-livo_atlas_library(core src/core/online_submap_manager.cc src/core/livo_system.cc
+livo_atlas_library(core src/common/task.cc src/common/thread_pool.cc
+  src/core/online_submap_manager.cc src/core/livo_system.cc
   src/core/system_options.cc src/core/livo_config.cc src/core/global_output_options.cc
   src/core/trajectory_output.cc src/core/geometry_map_output.cc
   src/core/online_gaussian_options.cc src/core/gaussian_render_output_options.cc)
@@ -122,6 +123,9 @@ install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camer
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   PATTERN ros1 EXCLUDE PATTERN ros2 EXCLUDE PATTERN livox_ros_driver EXCLUDE)
+install(FILES docs/LICENSE.cartographer
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/livo_atlas/licenses/cartographer
+  RENAME LICENSE)
 
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "0")
   include(CMakePackageConfigHelpers)

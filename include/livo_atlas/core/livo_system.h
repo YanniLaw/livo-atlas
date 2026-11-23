@@ -86,8 +86,9 @@ class LivoSystem {
   std::optional<PropagationResult> PropagateLatest();
   // Close input and seal the tail while keeping pose updates available.
   void SealInput();
-  // A submap persistence failure is terminal: subsequent processing and Finish
-  // rethrow the original error. Already committed data remains readable.
+  // Input overflow and persistence failures stop the session. Subsequent input,
+  // processing and Finish rethrow the original error. Committed views remain
+  // readable.
   void Finish();
   // Input sealing still permits pose updates; only successful Finish freezes
   // the source. A later terminal backend failure revokes completion.
@@ -102,8 +103,15 @@ class LivoSystem {
   void FinishSession(LoopBackend* backend);
   void CheckInputOpen() const;
   SyncStatus ProcessMeasurement(const ResultCallback& callback);
-  bool EnqueueImu(Imu measurement);
-  void FlushStartupImu();
+  template <typename Sample>
+  void CheckBufferLimit(const char* name, const std::deque<Sample>& buffer,
+                        int max_count, double timestamp);
+  void AcceptLidarAnchor(TimedPointCloud measurement);
+  std::optional<double> CorrectImuTimestamp(double lidar_time,
+                                            double previous_imu_time,
+                                            Imu* measurement) const;
+  void BufferImu(const Imu& measurement, bool propagate, std::deque<Imu>* imu,
+                 std::deque<Imu>* propagation);
   void AppendSubmap(const Submap& submap);
   OnlineSubmapManager& Online() const;
   void Propagate(const Imu& measurement);
@@ -119,11 +127,11 @@ class LivoSystem {
   std::unique_ptr<KeyframeStore> keyframe_store_;
   SubmapBuilder submap_builder_;
   std::unique_ptr<SubmapStore> submap_store_;
-  // A committed-data failure stops later online mutations.
-  std::exception_ptr submap_error_;
+  std::exception_ptr session_error_;
   std::unique_ptr<OnlineSubmapManager> online_;
   LivoExporter writer_;
   std::uint64_t next_keyframe_id_ = 0;
+  bool have_first_lidar_ = false;
   bool input_sealed_ = false;
   bool finished_ = false;
   bool loop_pose_updates_claimed_ = false;

@@ -257,7 +257,7 @@ void LoopBackend::Complete(LoopTaskResult result) {
   if (stats_.accepted >= options_.max_loops) StopDispatch();
 }
 
-[[noreturn]] void LoopBackend::Fail(std::exception_ptr error) {
+void LoopBackend::StopOnFailure(std::exception_ptr error) noexcept {
   if (!failure_) failure_ = std::move(error);
   system_.FailLoopBackend(failure_);
   pending_.reset();
@@ -266,11 +266,16 @@ void LoopBackend::Complete(LoopTaskResult result) {
   } catch (...) {
   }
   store_.WriteFailure(failure_);
+}
+
+[[noreturn]] void LoopBackend::Fail(std::exception_ptr error) {
+  StopOnFailure(std::move(error));
   std::rethrow_exception(failure_);
 }
 
 void LoopBackend::Poll() {
   if (failure_) Fail(failure_);
+  if (system_.session_error_) Fail(system_.session_error_);
   if (finished_) throw std::logic_error("Online loop backend has finished");
   try {
     Require(system_.GetKeyframeReadView().frame_count() == stats_.frame_count,
