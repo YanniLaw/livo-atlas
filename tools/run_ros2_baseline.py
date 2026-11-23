@@ -17,11 +17,13 @@ import time
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
-    from tools.mapping_log import glog_severity, read_mapping_log, read_node_logs
+    from tools.mapping_log import (glog_severity, read_mapping_log, read_node_logs,
+                                   summarize_frontend_updates)
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, validate_gaussian_arguments)
-    from mapping_log import glog_severity, read_mapping_log, read_node_logs
+    from mapping_log import (glog_severity, read_mapping_log, read_node_logs,
+                             summarize_frontend_updates)
 
 
 def exited_cleanly(returncode, log):
@@ -478,8 +480,8 @@ def main():
                         bool((np.diff(poses[:, 0]) > 0).all()) and
                         bool(np.allclose(np.linalg.norm(poses[:, 4:8], axis=1), 1, atol=1e-5)))
     clean = exited_cleanly(process.returncode, node_log)
-    lio = node_log.count('LIO Mapping Time')
-    vio = node_log.count('VIO Time')
+    updates, timings = summarize_frontend_updates(node_log, np)
+    lio, vio = updates['lio'], updates['vio']
     publication_issues = output_issues(lio, vio, dict(outputs), path_size, odometry)
     if geometry_observation['enabled'] and not geometry_observation['samples']:
         geometry_observation['errors'].append('No geometry map messages received')
@@ -520,7 +522,8 @@ def main():
                    node_input_counts=node_counts, input_count_mismatches=mismatches,
                    node_input_count_mismatches=node_mismatches, input_serialized_payloads_exact=payload_exact,
                    outputs=dict(outputs), trajectory_rows=len(poses), path_size=path_size,
-                   lio_cycles=lio, vio_cycles=vio, output_issues=publication_issues,
+                   lio_cycles=lio, vio_cycles=vio, timing_seconds=timings,
+                   output_issues=publication_issues,
                    arrays={name: dict(shape=list(value.shape), finite=bool(np.isfinite(value).all())) for name, value in arrays.items()},
                    peak_sampled_rss_mib=peak_rss / 1048576, default_threads=args.default_threads,
                    executable=str(args.executable), executable_sha256=file_digest(args.executable),

@@ -5,8 +5,10 @@ import sys
 import time
 import unittest
 
+import numpy as np
+
 from tools.run_baseline import exited_cleanly, make_trajectory_path
-from tools import run_baseline, run_ros2_baseline
+from tools import mapping_log, run_baseline, run_ros2_baseline
 
 
 class BaselineRunnerTest(unittest.TestCase):
@@ -88,6 +90,29 @@ class BaselineRunnerTest(unittest.TestCase):
             self.assertEqual(log.count('LIO Mapping Time'), 1)
             self.assertEqual(log.count('VIO Time'), 1)
             self.assertFalse(run_ros2_baseline.exited_cleanly(0, log))
+
+    def test_legacy_frontend_timing_retains_updates_without_samples(self):
+        log = ('LIO Mapping Time\n| Current Total Time | 0.02 |\n'
+               'VIO Time\nLIO Mapping Time\n| Current Total Time | 4e-2 |\n')
+        counts, timings = mapping_log.summarize_frontend_updates(log, np)
+        self.assertEqual(counts, {'lio': 2, 'vio': 1})
+        self.assertEqual(timings['lio']['count'], 2)
+        self.assertAlmostEqual(timings['lio']['p50'], .03)
+        self.assertAlmostEqual(timings['lio']['p95'], .039)
+        self.assertAlmostEqual(timings['lio']['p99'], .0398)
+        self.assertNotIn('vio', timings)
+
+    def test_structured_frontend_updates_take_precedence_over_legacy(self):
+        log = ('I1124 02:20:00.000000  1 input_diagnostics.h:27] '
+               'livo_atlas update kind=lio frontend_process_seconds=0.02\n'
+               'livo_atlas update kind=vio frontend_process_seconds=4e-3\n'
+               'LIO Mapping Time\n| Current Total Time | 0.02 |\n'
+               'VIO Time\n| Current Total Time | 0.004 |\n')
+        counts, timings = mapping_log.summarize_frontend_updates(log, np)
+        self.assertEqual(counts, {'lio': 1, 'vio': 1})
+        self.assertEqual(timings['lio']['count'], 1)
+        self.assertEqual(timings['vio']['max'], .004)
+        self.assertEqual(timings['vio']['median'], timings['vio']['p50'])
 
 
 class GlobalBaselineParserTest(unittest.TestCase):

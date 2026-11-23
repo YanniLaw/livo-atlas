@@ -27,11 +27,11 @@ import xmlrpc.client
 try:
     from tools.gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from tools.mapping_log import glog_severity
+    from tools.mapping_log import glog_severity, summarize_frontend_updates
 except ImportError:
     from gaussian_replay_options import (add_gaussian_arguments,
         gaussian_parameters, nonempty_path, validate_gaussian_arguments)
-    from mapping_log import glog_severity
+    from mapping_log import glog_severity, summarize_frontend_updates
 
 
 def exited_cleanly(returncode, log, gdb_enabled):
@@ -638,16 +638,7 @@ def main():
         except ImportError:
             from geometry_diagnostics import summarize_geometry_timings
         geometry_timings = summarize_geometry_timings(log, np)
-        timings = collections.defaultdict(list)
-        stage = None
-        for line in log.splitlines():
-            if 'LIO Mapping Time' in line:
-                stage = 'lio'
-            elif 'VIO Time' in line:
-                stage = 'vio'
-            match = re.search(r'\|\s*Current Total Time\s*\|\s*([0-9.eE+-]+)', line)
-            if match and stage:
-                timings[stage].append(float(match.group(1)))
+        updates, timings = summarize_frontend_updates(log, np)
         errors = [line for line in log.splitlines()
                   if '[ERROR]' in line or 'Assertion' in line
                   or glog_severity(line) in ('E', 'F')]
@@ -680,7 +671,7 @@ def main():
             'use_sim_time': True, 'clock_drain_after_eof_s': 2.0,
             'expected_input_counts': dict(expected), 'observed_counts': saved_counts,
             'input_count_mismatches': mismatches,
-            'lio_cycles': log.count('LIO Mapping Time'), 'vio_cycles': log.count('VIO Time'),
+            'lio_cycles': updates['lio'], 'vio_cycles': updates['vio'],
             'trajectory_rows': int(poses.shape[0]),
             'trajectory_first_sensor_time_s': float(poses[0, 0]),
             'trajectory_last_sensor_time_s': float(poses[-1, 0]),
@@ -688,9 +679,7 @@ def main():
             'path_length_m': float(np.linalg.norm(np.diff(poses[:, 1:4], axis=0), axis=1).sum()),
             'peak_sampled_rss_mib': max((row[1] for row in resources), default=0) / 2**20,
             'sampled_resource_process': 'debugger' if args.gdb else 'mapping_node',
-            'timing_seconds': {key: {'count': len(values), 'median': float(np.median(values)),
-                                   'p95': float(np.percentile(values, 95)), 'max': max(values)}
-                               for key, values in timings.items()},
+            'timing_seconds': timings,
             'errors': errors, 'node_returncode_after_sigint': node.returncode,
             'keyframes_enabled': keyframes_enabled,
             'submaps_enabled': submaps.get('enabled', False),
@@ -710,7 +699,7 @@ def main():
             'elapsed_wall_s': time.monotonic() - started,
             'limitations': ['No ground truth in this bag; this is a behavior baseline.',
                             'ROS output timestamps use simulated receipt time; use trajectory.tum sensor times for comparison.',
-                            'Timing is from legacy printed stage timers; memory is sampled process RSS.',
+                            'Frontend timing covers Frontend::Process. Memory is sampled process RSS.',
                             'Observer input counts confirm delivery to the observer, not estimator processing.'],
         }
         np.savetxt(output / 'odometry_published.tum', np.asarray(odometry), fmt='%.9f')

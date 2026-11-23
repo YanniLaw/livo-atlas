@@ -21,11 +21,11 @@ inline void LogInputDiagnostics(std::uint64_t lidar, std::uint64_t imu,
             << " imu_rejected=" << startup.rejected_imu;
 }
 
-inline void LogUpdateTime(UpdateKind kind, double elapsed) {
-  const char* stage =
-      kind == UpdateKind::kVisual ? "VIO Time" : "LIO Mapping Time";
-  LOG(INFO) << stage << "\n| Current Total Time | " << std::fixed
-            << std::setprecision(6) << elapsed << " |";
+inline void LogFrontendUpdate(UpdateKind kind, double elapsed) {
+  LOG(INFO) << "livo_atlas update kind="
+            << (kind == UpdateKind::kVisual ? "vio" : "lio")
+            << " frontend_process_seconds=" << std::fixed
+            << std::setprecision(9) << elapsed;
 }
 
 }  // namespace livo_atlas::ros_detail

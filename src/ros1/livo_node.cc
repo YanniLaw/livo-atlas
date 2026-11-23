@@ -132,7 +132,7 @@ SyncStatus LivoNode::ProcessNext() {
           correction = system_.GetMapCorrection();
         }
         publisher_.Publish(result, colored_cloud, correction);
-        ros_detail::LogUpdateTime(result.kind, elapsed);
+        ros_detail::LogFrontendUpdate(result.kind, elapsed);
       });
   if (poll_background_outputs_) poll_background_outputs_();
   return status;
