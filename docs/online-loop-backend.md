@@ -46,6 +46,22 @@ pose_graph:
 worker 使用 `loop_closure.geometry` 指定的独立几何参数，默认体素大小为 0.2 m，缓存三块。
 节点在创建输出目录前校验参数。旧 `loop_closure.options_file` 非空时优先读取兼容的离线选项格式。
 
+## 候选任务调度
+
+原生回环查询复用 `PoseGraph` 的 Cartographer 线程池。准备任务独占可变几何缓存，验证任务
+共享不可变源几何并持有各自的目标快照。每批候选都完成后，依赖任务按原检索顺序汇总结果，
+下一批才读取几何。最后一个任务执行筛选、私有位姿图试算和几何复核，提案返回串行
+`WorkQueue` 接纳。
+
+后台线程数为 N、几何驻留预算为 R 时，每批最多 `min(max(1, N-1), R-1)` 个候选。
+默认 N=4、R=3，可同时验证两个候选；N=6、R=6 时最多五个。R 包含源块，
+通过 `loop_closure.geometry.max_resident_submaps` 调整。并行批次不会另开线程池。
+
+完整依赖图在派发时注册，候选计算不访问图状态，工作线程不等待其他任务，也不继续派发任务。
+1 线程沿同一依赖图推进；停止先阻止新查询，再由线程池排空已注册任务。
+同步 SDK 的 `LoopClosure::Run()` 和 `ProposeLoopUpdate()` 沿用相同的准备与接纳判定。
+[实现](../src/loop_closure/loop_query.cc)
+
 ## SDK 所有权与停止
 
 SDK 链接 `livo_atlas::core`。启用在线关键帧和子地图后，把 `LoopAdmissionOptions` 交给 `SystemOptions::loop_closure`。已有导出目标 `livo_atlas::online_backend` 仍可链接。

@@ -56,6 +56,7 @@ class PoseGraph {
   ~PoseGraph();
 
   KeyframeReadView InitialReadView() const;
+  // An empty runner selects the native dependent candidate tasks.
   void EnableLoops(LoopAdmissionOptions options, LoopTaskRunner runner,
                    bool standalone);
   void PollStandalone();
@@ -101,6 +102,7 @@ class PoseGraph {
   bool CanDispatchLocked() const;
   void Dispatch();
   void RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept;
+  void DeliverQuery(std::shared_ptr<LoopTaskResult> payload) noexcept;
   WorkItem CompletionWork(std::shared_ptr<const LoopTaskResult> result);
   void Complete(std::shared_ptr<const LoopTaskResult> result);
   LoopDisposition Classify(const LoopTaskResult& result);
@@ -115,6 +117,7 @@ class PoseGraph {
   LoopAdmissionOptions options_;
   LoopTaskRunner runner_;
   const bool stage_timing_;
+  const int num_background_threads_;
   bool standalone_ = false;
   bool failure_written_ = false;
 

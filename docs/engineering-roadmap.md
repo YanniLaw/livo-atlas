@@ -44,20 +44,24 @@ C4c 的 Retail_Street 完整均匀侧有 13 次查询，其中 4 次的候选数
 `validation/P6-03c4c-20261122/full-uniform/keyframes/loop_closure/queries/12.yml`。
 [候选验证与优化](../src/loop_closure/loop_admission.cc)
 
-### 后续候选并行
+### 候选并行
 
-1. `LoopWorker` 从同一版本快照读取候选，独占现有可变几何缓存。向线程池交付带所有权的只读
-   几何对象，每批的活跃对象和任务数受预算约束。
-2. 同一回环查询的独立 `VerifyLoop()` 可并行。完成结果按原候选顺序汇总，随后由后台执行线
-   串行筛选、试算和复核。池内任务直接返回验证结果，等待批次结果发生在池外。
-3. `PoseGraph` 独占接受历史与位姿提交权。保留同一时刻一个在途查询和一个最新待查 ID 的
-   背压合同，提交前重验来源版本与成员修订。结束时按现有封输入、排空、join 和提交顺序收尾。
-4. 单所有者持有的串行状态无需跨线程锁。任务队列和完成通知使用短临界区和条件变量，具体计算
-   在锁外。若实测表明队列同步成为瓶颈，再评估具备明确单生产者、单消费者契约的方案。
+`LoopClosure` 的原生查询通过 `Task` 依赖连接准备、验证、汇总和试算。准备任务独占
+可变几何缓存，验证任务只读快照。下一批读取几何前，上一批必须全部完成并释放目标快照。
+批次上限同时受后台线程数减一和几何驻留数减一约束，单线程池沿相同依赖关系推进。
+
+结果按检索顺序归并，私有试算与几何复核由单个后续任务执行。`PoseGraph` 的串行
+`WorkQueue` 独占接受历史与正式位姿提交。仍保留一个在途查询和一个最新待查 ID。
+完整任务图在短临界区内注册，后续计算在锁外，工作线程无需等待或再次 Schedule。
+[回环调度](../src/loop_closure/loop_query.cc)
 
 后端线程池使用 `pose_graph.num_background_threads`，缺省为 4，可设为 6，1 用于单线程回归。
-线程池负责归档与回环任务。候选验证拆分后使用同一线程池及 `Task` 依赖。
-功能回归沿用现有 bag，性能对照为各侧分配同一组至少六个可用逻辑 CPU，
+线程池负责归档与回环任务，候选验证复用同一线程池及 `Task` 依赖。
+当前预算矩阵的回放与故障注入已完成，见 [线程验证记录](threading-validation.md)。
+候选并发已确认，端到端延迟尚未显示稳定下降。接下来补齐几何读取、构建、验证、
+试算和交付的分段计时，再决定减少重建、缓存或队列交付开销的优先级。
+
+性能对照为各侧分配同一组至少六个可用逻辑 CPU，
 固定前端 OpenMP 预算，对比 1、4、6 个工作线程的回环耗时、前端 P95、实际并发、过期结果
 和 RSS。核对候选排序、接纳 ID、位姿版本、旧任务丢弃和停止排空。
 
@@ -75,23 +79,22 @@ CMake 根据目标平台选择接入代码和桥接库，YAML 选择本次会话
 [当前 YAML 解析](../src/core/livo_config.cc) · [在线回环配置](online-loop-backend.md) ·
 [Gaussian 节点装配](../src/app/gaussian_mapping.cc)
 
-建议 `LIVO_ATLAS_USE_OPENMP` 支持 `AUTO`、`ON`、`OFF`。`AUTO` 以目标工具链实际探测结果为
+`LIVO_ATLAS_USE_OPENMP` 支持 `AUTO`、`ON`、`OFF`。`AUTO` 以目标工具链实际探测结果为
 准，`ON` 要求工具链提供 OpenMP，`OFF` 显式关闭。目标、测试和安装依赖应使用同一探测结果，
 涵盖普通 SDK、Catkin 和 Ament。ROS 版本由构建目标选择。
 
 平台相关的选项根据 `CMAKE_SYSTEM_PROCESSOR` 判断目标架构，x86_64 和 ARM 均通过编译器
-探测决定 OpenMP 能力。现有 `ProcessorCount()` 在配置机器上求值并将上限为 4 的线程数写入
-并行宏。运行参数可取代该编译期定值，首版在前端和后台同时运行时核对各自的实际线程预算。
+探测决定 OpenMP 能力。`frontend.openmp_threads` 默认 2，取代配置机器上的处理器计数；
+每个前端实例的并行区使用自己的预算。无 OpenMP 时记录串行回退。
 架构判断可使用工具链。若添加指令集优化，需核对它与外部 PCL 和 Eigen 的对齐约定。
 选项实现沿用项目 CMake 3.16 基线。本机已核对 x86_64 的现有配置，ARM 的配置和运行结果
 需要用对应目标环境验证。[当前 OpenMP 设置](../cmake/core.cmake) ·
 [PCL 内存兼容回归](../tests/pcl_memory_compatibility_test.cc) ·
 [CMake 目标处理器](https://cmake.org/cmake/help/v3.16/variable/CMAKE_SYSTEM_PROCESSOR.html) ·
-[FindOpenMP](https://cmake.org/cmake/help/v3.16/module/FindOpenMP.html) ·
-[ProcessorCount](https://cmake.org/cmake/help/v3.16/module/ProcessorCount.html)
+[FindOpenMP](https://cmake.org/cmake/help/v3.16/module/FindOpenMP.html)
 
-建议的 ROS1 配置形态如下。Humble 的参数适配器提供同名字段给共用读取逻辑。线程数示例用于
-对照，OpenMP 的默认预算按同机基线和目标机器的资源确定。
+ROS1 配置形态如下。Humble 的参数适配器提供同名字段给共用读取逻辑。
+OpenMP 的缺省预算为 2，可按同机基线和目标机器的资源调整。
 
 ```yaml
 frontend:

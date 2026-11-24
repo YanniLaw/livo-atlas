@@ -8,11 +8,13 @@ Source from Cartographer 2.0.0 at commit
   `livo_atlas::core` and use the `livo_atlas` namespace. The port implements
   Cartographer's ready queue and task dependencies with C++17 mutexes, a
   condition variable and standard containers. Workers on Linux lower their
-  priority when permitted.
+  priority when permitted. A task that has not been submitted unregisters its
+  dependencies when destroyed, so a failed submission cannot leave a dangling
+  dependent pointer. Once submitted, pool ownership covers its lifetime.
 - `src/pose_graph/work_queue.h` defines the upstream work-item and work-queue
   types. `PoseGraph` drains a bounded batch of ordered observations on a pool
-  task, runs a query on a separate task, and queues its completion on the same
-  serial execution line.
+  task, verifies independent loop candidates through dependent tasks, and queues
+  the query completion on the same serial execution line.
 
 The upstream copyright notices and the Apache 2.0 license apply to these
 files. The livo-atlas root license declares GPLv2. Review the terms before

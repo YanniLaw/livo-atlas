@@ -9,6 +9,7 @@
 #include "common/timing.h"
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/system_options.h"
+#include "loop_closure/loop_query.h"
 #include "pose_graph/loop_commit.h"
 #include "pose_graph/online_submap_archive.h"
 
@@ -28,6 +29,7 @@ PoseGraph::PoseGraph(const SystemOptions& options)
                  options.frontend.calibration),
       groups_(options.submaps.max_keyframes),
       stage_timing_(options.stage_timing),
+      num_background_threads_(options.num_background_threads),
       thread_pool_(
           std::make_unique<ThreadPool>(options.num_background_threads)) {
   LOG(INFO) << "pose_graph.num_background_threads="
@@ -56,7 +58,6 @@ KeyframeReadView PoseGraph::InitialReadView() const {
 void PoseGraph::EnableLoops(LoopAdmissionOptions options, LoopTaskRunner runner,
                             bool standalone) {
   // Registration precedes the first queued archive operation.
-  Require(static_cast<bool>(runner), "Missing loop task runner");
   journal_ = std::make_unique<LoopClosureStore>(InitialReadView(), options);
   options_ = std::move(options);
   runner_ = std::move(runner);
@@ -431,10 +432,26 @@ void PoseGraph::RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
     if (stopping_ || failure_ || standalone_abandoned_) return;
   }
   try {
+    if (!runner_) {
+      auto prepared = PrepareLoopTask(payload->task, options_);
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (stopping_ || failure_ || standalone_abandoned_) return;
+      // Register the full DAG before Stop can begin destroying the pool.
+      // Geometry preparation and verification execute outside this lock.
+      ScheduleLoopQuery(payload, options_, std::move(prepared), *thread_pool_,
+                        num_background_threads_, [this](auto result) {
+                          DeliverQuery(std::move(result));
+                        });
+      return;
+    }
     payload->admission = runner_(payload->task);
   } catch (...) {
     payload->error = std::current_exception();
   }
+  DeliverQuery(std::move(payload));
+}
+
+void PoseGraph::DeliverQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
   try {
     {
       std::lock_guard<std::mutex> lock(mutex_);

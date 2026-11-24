@@ -6,18 +6,23 @@
 #include <unistd.h>
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "backend/loop_dataset_fixtures.h"
+#include "common/thread_pool.h"
+#include "loop_closure/loop_query.h"
 #include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/io/online_submap_store.h"
 #include "livo_atlas/mapping/geometry_mapper.h"
@@ -90,6 +95,201 @@ class LoopTaskTest : public testing::Test {
   std::unique_ptr<OnlineSubmapStore> store_;
   std::unique_ptr<OnlineSubmapBuilder> builder_;
 };
+
+// Drive native Tasks in a chosen order, without depending on OS scheduling.
+class ManualThreadPool : public ThreadPoolInterface {
+ public:
+  std::weak_ptr<livo_atlas::Task> Schedule(
+      std::unique_ptr<livo_atlas::Task> task) override {
+    if (++schedule_calls_ == failure_call_) throw std::bad_alloc();
+    auto shared = std::shared_ptr<livo_atlas::Task>(std::move(task));
+    waiting_.emplace(shared.get(), shared);
+    SetThreadPool(shared.get());
+    return shared;
+  }
+
+  std::size_t ready_count() const { return ready_.size(); }
+
+  std::size_t waiting_count() const { return waiting_.size(); }
+
+  void FailAt(std::size_t call) { failure_call_ = call; }
+
+  void RunLastReady() {
+    auto task = std::move(ready_.back());
+    ready_.pop_back();
+    Execute(task.get());
+  }
+
+ private:
+  void NotifyDependenciesCompleted(livo_atlas::Task* task) override {
+    ready_.push_back(std::move(waiting_.at(task)));
+    waiting_.erase(task);
+  }
+
+  std::size_t schedule_calls_ = 0;
+  std::size_t failure_call_ = 0;
+  std::map<livo_atlas::Task*, std::shared_ptr<livo_atlas::Task>> waiting_;
+  std::vector<std::shared_ptr<livo_atlas::Task>> ready_;
+};
+
+TEST_F(LoopTaskTest, ParallelCandidatesRespectBudgetAndSearchOrder) {
+  for (std::uint64_t id = 4; id < 9; ++id) Append(id);
+  auto task = Task(9);
+  task.input.query_id = 7;
+  for (const int threads : {1, 4, 6}) {
+    for (const int resident : {2, 3, 6}) {
+      SCOPED_TRACE(threads);
+      SCOPED_TRACE(resident);
+      auto options = loop_test::NearbyOptions();
+      options.geometry.max_resident_submaps = resident;
+      const auto expected = RunLoopTask(task, options);
+      ASSERT_EQ(expected.candidates.size(), 5u);
+      auto payload = std::make_shared<LoopTaskResult>(
+          LoopTaskResult{task, {}, {}});
+      auto prepared = PrepareLoopTask(task, options);
+      ManualThreadPool pool;
+      int completed = 0;
+      ScheduleLoopQuery(payload, options, std::move(prepared), pool, threads,
+                        [&](auto result) {
+                          EXPECT_EQ(result, payload);
+                          ++completed;
+                        });
+      ASSERT_EQ(pool.ready_count(), 1u);
+      pool.RunLastReady();  // The first preparation makes its candidates ready.
+      const auto budget = static_cast<std::size_t>(
+          std::min(std::max(1, threads - 1), resident - 1));
+      ASSERT_EQ(pool.ready_count(), std::min(budget, std::size_t{5}));
+      for (int step = 0; pool.ready_count() && step < 100; ++step) {
+        EXPECT_LE(pool.ready_count(), budget);
+        EXPECT_EQ(completed, 0);
+        pool.RunLastReady();  // Finish candidates in reverse readiness order.
+      }
+      ASSERT_EQ(completed, 1);
+      ASSERT_FALSE(payload->error);
+      ASSERT_TRUE(payload->admission);
+      const auto& actual = *payload->admission;
+      EXPECT_EQ(actual.status, expected.status);
+      ASSERT_EQ(actual.candidates.size(), expected.candidates.size());
+      for (std::size_t i = 0; i < actual.candidates.size(); ++i) {
+        const auto& a = actual.candidates[i];
+        const auto& b = expected.candidates[i];
+        EXPECT_EQ(a.candidate.target_id, b.candidate.target_id);
+        EXPECT_EQ(a.verification.status, b.verification.status);
+        ASSERT_EQ(a.verification.forward.metrics.has_value(),
+                  b.verification.forward.metrics.has_value());
+        if (a.verification.forward.metrics) {
+          EXPECT_EQ(a.verification.forward.metrics->rmse_m,
+                    b.verification.forward.metrics->rmse_m);
+        }
+      }
+    }
+  }
+}
+
+TEST_F(LoopTaskTest, PoolShutdownDrainsAllDependentBatches) {
+  for (std::uint64_t id = 4; id < 9; ++id) Append(id);
+  auto task = Task(9);
+  task.input.query_id = 7;
+  const auto options = loop_test::NearbyOptions();
+  for (const int threads : {1, 4, 6}) {
+    std::promise<std::shared_ptr<LoopTaskResult>> completed;
+    auto future = completed.get_future();
+    {
+      ThreadPool pool(threads);
+      auto payload = std::make_shared<LoopTaskResult>(
+          LoopTaskResult{task, {}, {}});
+      ScheduleLoopQuery(payload, options, PrepareLoopTask(task, options), pool,
+                        threads, [&](auto result) {
+                          completed.set_value(std::move(result));
+                        });
+      // No further scheduling is allowed once destruction starts.
+    }
+    ASSERT_EQ(future.wait_for(std::chrono::seconds(0)),
+              std::future_status::ready);
+    const auto result = future.get();
+    EXPECT_FALSE(result->error);
+    ASSERT_TRUE(result->admission);
+    EXPECT_EQ(result->admission->candidates.size(), 5u);
+  }
+}
+
+TEST_F(LoopTaskTest, PartialRegistrationCanDrainAfterEverySubmissionFailure) {
+  for (std::uint64_t id = 4; id < 9; ++id) Append(id);
+  auto task = Task(9);
+  task.input.query_id = 7;
+  const auto options = loop_test::NearbyOptions();
+  // Five candidates in three batches use 3 preparation + 5 verification +
+  // 3 merge + 1 completion Tasks. Fail each submission in turn.
+  for (std::size_t failure = 1; failure <= 12; ++failure) {
+    SCOPED_TRACE(failure);
+    ManualThreadPool pool;
+    pool.FailAt(failure);
+    auto payload = std::make_shared<LoopTaskResult>(
+        LoopTaskResult{task, {}, {}});
+    int completed = 0;
+    try {
+      ScheduleLoopQuery(payload, options, PrepareLoopTask(task, options), pool,
+                        4, [&](auto) { ++completed; });
+      FAIL() << "Expected submission failure";
+    } catch (const std::bad_alloc&) {
+      payload->error = std::current_exception();
+    }
+    const auto failure_result = payload->error;
+    for (int step = 0; pool.ready_count() && step < 100; ++step)
+      pool.RunLastReady();
+    EXPECT_EQ(pool.ready_count(), 0u);
+    EXPECT_EQ(pool.waiting_count(), 0u);
+    EXPECT_EQ(completed, 0);
+    EXPECT_EQ(payload->error, failure_result);
+    EXPECT_FALSE(payload->admission);
+  }
+}
+
+TEST_F(LoopTaskTest, EmptyAndBudgetLimitedQueriesDoNotReadGeometry) {
+  for (std::uint64_t id = 0; id < 4; ++id)
+    fs::remove(root_ / "frames" / std::to_string(id) / "cloud.pcd");
+  for (const bool limited : {false, true}) {
+    auto task = Task();
+    auto options = loop_test::NearbyOptions();
+    if (limited) {
+      options.max_keyframes = 3;
+    } else {
+      task.input.query_id = 0;
+    }
+    auto payload = std::make_shared<LoopTaskResult>(
+        LoopTaskResult{task, {}, {}});
+    ManualThreadPool pool;
+    int completed = 0;
+    ScheduleLoopQuery(payload, options, PrepareLoopTask(task, options), pool, 1,
+                      [&](auto) { ++completed; });
+    ASSERT_EQ(pool.ready_count(), 1u);
+    pool.RunLastReady();
+    EXPECT_EQ(pool.ready_count(), 0u);
+    ASSERT_EQ(completed, 1);
+    ASSERT_FALSE(payload->error);
+    ASSERT_TRUE(payload->admission);
+    EXPECT_EQ(payload->admission->status,
+              limited ? LoopAdmissionStatus::kResourceLimit
+                      : LoopAdmissionStatus::kNoCandidate);
+  }
+}
+
+TEST_F(LoopTaskTest, CandidateReadFailureStillCompletesDependencyGraph) {
+  const auto task = Task();
+  fs::remove(root_ / "frames/0/cloud.pcd");
+  const auto options = loop_test::NearbyOptions();
+  auto payload = std::make_shared<LoopTaskResult>(
+      LoopTaskResult{task, {}, {}});
+  ManualThreadPool pool;
+  int completed = 0;
+  ScheduleLoopQuery(payload, options, PrepareLoopTask(task, options), pool, 4,
+                    [&](auto) { ++completed; });
+  for (int step = 0; pool.ready_count() && step < 100; ++step)
+    pool.RunLastReady();
+  EXPECT_EQ(completed, 1);
+  ASSERT_TRUE(payload->error);
+  EXPECT_THROW(std::rethrow_exception(payload->error), std::runtime_error);
+}
 
 TEST_F(LoopTaskTest, DispatchFrontierAndGeometryViews) {
   const auto task = Task();

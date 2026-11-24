@@ -127,10 +127,7 @@ LivoSystem::LivoSystem(SystemOptions options)
         });
   }
   if (options_.loop_closure) {
-    const auto& loop = *options_.loop_closure;
-    EnableLoops(loop, [closure = LoopClosure(loop)](const LoopTask& task) {
-      return closure.Run(task);
-    }, nullptr);
+    EnableLoops(*options_.loop_closure, {}, nullptr);
   }
 }
 

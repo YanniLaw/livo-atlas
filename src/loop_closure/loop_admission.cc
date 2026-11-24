@@ -9,6 +9,7 @@
 
 #include <Eigen/Geometry>
 
+#include "loop_closure/loop_admission.h"
 #include "loop_closure/loop_internal.h"
 #include "loop_closure/loop_selection.h"
 #include "common/rotation_projection.h"
@@ -224,11 +225,17 @@ void ValidateLoopAdmissionOptions(const LoopAdmissionOptions& o) {
   }
 }
 
-LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
-                                      const LoopGeometryReader& reader,
-                                      const LoopAdmissionOptions& options) {
+namespace loop_internal {
+
+GeometrySubmap ReadLoopGeometry(const OnlineSubmap& membership,
+                                const PoseSnapshot& poses,
+                                const LoopGeometryReader& reader) {
+  return ReadGeometry(membership, poses, reader);
+}
+
+LoopAdmissionResult PrepareLoopAdmission(
+    const LoopAdmissionInput& input, const LoopAdmissionOptions& options) {
   ValidateLoopAdmissionOptions(options);
-  if (!reader) throw std::invalid_argument("Missing loop geometry reader");
   ValidateInput(input, options);
   LoopAdmissionResult result;
   if (input.raw_poses.size() > options.max_keyframes ||
@@ -247,19 +254,22 @@ LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
   }
   const auto& query = FindInfo(submaps, input.query_id);
   const auto candidates = FindLoopCandidates(query, submaps, options.search);
-  if (candidates.empty()) return result;
-  std::vector<loop_internal::LoopHypothesis> hypotheses;
-  for (const auto& candidate : candidates) {
-    const auto& target_info = FindInfo(submaps, candidate.target_id);
-    const auto target =
-        ReadGeometry(target_info.membership, input.poses, reader);
-    const auto source = ReadGeometry(query.membership, input.poses, reader);
-    result.candidates.push_back(
-        {candidate, VerifyLoop(target, source, options.registration)});
-    const auto& report = result.candidates.back();
+  for (const auto& candidate : candidates)
+    result.candidates.push_back({candidate, {}});
+  return result;
+}
+
+LoopAdmissionResult FinishLoopAdmission(
+    const LoopAdmissionInput& input, const LoopGeometryReader& reader,
+    const LoopAdmissionOptions& options, LoopAdmissionResult result) {
+  if (result.candidates.empty()) return result;
+  const auto& query = FindInfo(input.submaps, input.query_id);
+  std::vector<LoopHypothesis> hypotheses;
+  for (const auto& report : result.candidates) {
     if (report.verification.status == LoopStatus::kVerified) {
       AcceptedLoop loop;
-      loop.target = target_info.membership;
+      loop.target =
+          FindInfo(input.submaps, report.candidate.target_id).membership;
       loop.source = query.membership;
       loop.constraint = {loop.target.primary.anchor_keyframe_id,
                          loop.source.primary.anchor_keyframe_id,
@@ -337,6 +347,26 @@ LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
                      std::move(chosen.report.verification),
                      std::move(trial.update)};
   return result;
+}
+
+}  // namespace loop_internal
+
+LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
+                                      const LoopGeometryReader& reader,
+                                      const LoopAdmissionOptions& options) {
+  if (!reader) throw std::invalid_argument("Missing loop geometry reader");
+  auto result = loop_internal::PrepareLoopAdmission(input, options);
+  for (auto& report : result.candidates) {
+    const auto& target_info =
+        FindInfo(input.submaps, report.candidate.target_id);
+    const auto& query = FindInfo(input.submaps, input.query_id);
+    const auto target =
+        ReadGeometry(target_info.membership, input.poses, reader);
+    const auto source = ReadGeometry(query.membership, input.poses, reader);
+    report.verification = VerifyLoop(target, source, options.registration);
+  }
+  return loop_internal::FinishLoopAdmission(input, reader, options,
+                                            std::move(result));
 }
 
 const char* LoopAdmissionStatusName(LoopAdmissionStatus status) {

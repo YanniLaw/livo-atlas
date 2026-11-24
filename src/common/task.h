@@ -1,7 +1,8 @@
 /*
  * Copyright 2018 The Cartographer Authors
  * Modified by livo-atlas to use C++ standard-library synchronization and
- * isolate symbols from upstream Cartographer.
+ * isolate symbols from upstream Cartographer and cancel unsubmitted
+ * dependencies.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <vector>
 
 namespace livo_atlas {
 
@@ -44,12 +46,13 @@ class Task {
   void SetWorkItem(const WorkItem& work_item);
 
   // State must be 'NEW'. 'dependency' may be nullptr, in which case it is
-  // assumed completed.
+  // assumed completed. Destroying a NEW task cancels its registrations.
   void AddDependency(std::weak_ptr<Task> dependency);
 
  private:
   // Allowed in all states.
   void AddDependentTask(Task* dependent_task);
+  void RemoveDependentTask(Task* dependent_task);
 
   // State must be 'DEPENDENCIES_COMPLETED' and becomes 'COMPLETED'.
   void Execute();
@@ -66,6 +69,8 @@ class Task {
   State state_ = NEW;
   unsigned int uncompleted_dependencies_ = 0;
   std::set<Task*> dependent_tasks_;
+  // Only NEW tasks retain predecessors, so failed submission can unsubscribe.
+  std::vector<std::shared_ptr<Task>> dependencies_;
 
   std::mutex mutex_;
 };

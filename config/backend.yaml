@@ -88,11 +88,13 @@ loop_closure:
     max_plane_ratio: 0.1
     max_voxels_per_submap: 100000
     max_points_per_keyframe: 1000000
+    # Includes the source; at most R-1 candidate targets are verified together.
     max_resident_submaps: 3
 
 pose_graph:
   # Defaults to loop_closure.enabled when omitted. Set false for detection only.
   # enabled: false
+  # Shared by serial archive work and dependent loop-verification tasks.
   num_background_threads: 4
   # Bounds pending archive writes, including when loop closure is disabled.
   max_pending_keyframes: 64

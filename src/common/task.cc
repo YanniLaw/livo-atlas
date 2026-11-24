@@ -1,7 +1,8 @@
 /*
  * Copyright 2018 The Cartographer Authors
  * Modified by livo-atlas to use C++ standard-library synchronization and
- * isolate symbols from upstream Cartographer.
+ * isolate symbols from upstream Cartographer and cancel unsubmitted
+ * dependencies.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +25,8 @@
 namespace livo_atlas {
 
 Task::~Task() {
+  for (const auto& dependency : dependencies_)
+    dependency->RemoveDependentTask(this);
   // TODO(gaschler): Relax some checks after testing.
   if (state_ != NEW && state_ != COMPLETED) {
     LOG(WARNING) << "Delete Task between dispatch and completion.";
@@ -47,6 +50,7 @@ void Task::AddDependency(std::weak_ptr<Task> dependency) {
     std::lock_guard<std::mutex> locker(mutex_);
     CHECK_EQ(state_, NEW);
     if ((shared_dependency = dependency.lock())) {
+      dependencies_.push_back(shared_dependency);
       ++uncompleted_dependencies_;
     }
   }
@@ -56,14 +60,20 @@ void Task::AddDependency(std::weak_ptr<Task> dependency) {
 }
 
 void Task::SetThreadPool(ThreadPoolInterface* thread_pool) {
-  std::lock_guard<std::mutex> locker(mutex_);
-  CHECK_EQ(state_, NEW);
-  state_ = DISPATCHED;
-  thread_pool_to_notify_ = thread_pool;
-  if (uncompleted_dependencies_ == 0) {
-    state_ = DEPENDENCIES_COMPLETED;
-    CHECK(thread_pool_to_notify_);
-    thread_pool_to_notify_->NotifyDependenciesCompleted(this);
+  std::vector<std::shared_ptr<Task>> dependencies;
+  {
+    std::lock_guard<std::mutex> locker(mutex_);
+    CHECK_EQ(state_, NEW);
+    state_ = DISPATCHED;
+    thread_pool_to_notify_ = thread_pool;
+    // The pool now owns this task through completion. Predecessors may keep
+    // their raw dependent pointers; release our temporary registration owners.
+    dependencies.swap(dependencies_);
+    if (uncompleted_dependencies_ == 0) {
+      state_ = DEPENDENCIES_COMPLETED;
+      CHECK(thread_pool_to_notify_);
+      thread_pool_to_notify_->NotifyDependenciesCompleted(this);
+    }
   }
 }
 
@@ -75,6 +85,11 @@ void Task::AddDependentTask(Task* dependent_task) {
   }
   bool inserted = dependent_tasks_.insert(dependent_task).second;
   CHECK(inserted) << "Given dependency is already a dependency.";
+}
+
+void Task::RemoveDependentTask(Task* dependent_task) {
+  std::lock_guard<std::mutex> locker(mutex_);
+  dependent_tasks_.erase(dependent_task);
 }
 
 void Task::OnDependenyCompleted() {

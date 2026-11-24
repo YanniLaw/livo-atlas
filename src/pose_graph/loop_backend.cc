@@ -17,10 +17,7 @@ void Require(bool condition, const char* message) {
 }  // namespace
 
 LoopBackend::LoopBackend(LivoSystem& system, LoopAdmissionOptions options)
-    : LoopBackend(system, options,
-                  [closure = LoopClosure(options)](const LoopTask& task) {
-                    return closure.Run(task);
-                  }) {}
+    : LoopBackend(system, std::move(options), {}) {}
 
 LoopBackend::LoopBackend(LivoSystem& system, LoopAdmissionOptions options,
                          LoopTaskRunner runner)
