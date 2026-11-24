@@ -14,7 +14,8 @@ GeometrySubmap ReadLoopGeometry(const OnlineSubmap& membership,
 LoopAdmissionResult FinishLoopAdmission(const LoopAdmissionInput& input,
                                         const LoopGeometryReader& reader,
                                         const LoopAdmissionOptions& options,
-                                        LoopAdmissionResult result);
+                                        LoopAdmissionResult result,
+                                        bool stage_timing = false);
 
 }  // namespace livo_atlas::loop_internal
 

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "common/thread_pool.h"
+#include "common/timing.h"
 #include "livo_atlas/mapping/geometry_mapper.h"
 #include "loop_closure/loop_admission.h"
 
@@ -42,15 +43,16 @@ void ValidateTask(const LoopTask& task) {
   }
 }
 
-LoopGeometryReader MakeGeometryReader(const LoopTask& task,
-                                      GeometryOptions geometry) {
+LoopGeometryReader MakeGeometryReader(
+    const LoopTask& task, GeometryOptions geometry, bool stage_timing = false) {
   // The reader outlives its preparation task and owns the mutable cache.
   struct Cache {
     std::unique_ptr<GeometryMapper> mapper;
     std::shared_ptr<const PoseSnapshot> view;
   };
   auto cache = std::make_shared<Cache>();
-  return [&task, geometry, cache](auto id, const auto& poses) {
+  return [&task, geometry, cache, stage_timing](auto id, const auto& poses) {
+    const auto start = StartTiming(stage_timing);
     auto& mapper = cache->mapper;
     auto& view = cache->view;
     if (!view || view->version != poses.version) {
@@ -75,7 +77,19 @@ LoopGeometryReader MakeGeometryReader(const LoopTask& task,
         groups.push_back(info.membership);
       mapper->Update(groups, view);
     }
-    return mapper->GetSubmap(id);
+    auto result = mapper->GetSubmap(id);
+    if (stage_timing) {
+      const auto elapsed = SteadyClock::now() - start;
+      const auto stats = mapper->GetStats();
+      if (stats.last_full_build_seconds > 0) {
+        // Full build includes cloud reads and snapshot construction.
+        LogStageSeconds("loop_cloud_read", stats.last_cloud_read_seconds);
+        LogStageSeconds("loop_geometry_build", stats.last_full_build_seconds);
+        LogStageSeconds("loop_geometry_snapshot", stats.last_snapshot_seconds);
+      }
+      LogStageTiming("loop_geometry_read", elapsed);
+    }
+    return result;
   };
 }
 
@@ -83,6 +97,8 @@ struct LoopQueryState {
   std::shared_ptr<LoopTaskResult> payload;
   LoopAdmissionOptions options;
   LoopAdmissionResult admission;
+  bool stage_timing = false;
+  SteadyClock::time_point compute_start, verification_start;
   LoopGeometryReader reader;
   std::optional<GeometrySubmap> source;
   std::vector<std::optional<GeometrySubmap>> targets;
@@ -95,6 +111,7 @@ struct LoopQueryState {
 
 void PrepareBatch(LoopQueryState& query, std::size_t begin, std::size_t end) {
   if (query.error) return;
+  const auto start = StartTiming(query.stage_timing);
   const auto& input = query.payload->task.input;
   const auto& source = input.submaps.at(input.query_id).membership;
   std::size_t index = begin;
@@ -114,19 +131,26 @@ void PrepareBatch(LoopQueryState& query, std::size_t begin, std::size_t end) {
   } catch (...) {
     query.errors[index] = std::current_exception();
   }
+  LogStageTiming("loop_prepare_batch", start);
+  query.verification_start = StartTiming(query.stage_timing);
 }
 
 void VerifyCandidate(LoopQueryState& query, std::size_t index) {
   if (query.error || !query.targets[index]) return;
+  const auto start = StartTiming(query.stage_timing);
   try {
     query.admission.candidates[index].verification = VerifyLoop(
         *query.targets[index], *query.source, query.options.registration);
   } catch (...) {
     query.errors[index] = std::current_exception();
   }
+  LogStageTiming("loop_candidate", start);
 }
 
 void MergeBatch(LoopQueryState& query, std::size_t begin, std::size_t end) {
+  const auto start =
+      std::exchange(query.verification_start, SteadyClock::time_point{});
+  LogStageTiming("loop_verification_batch", start);
   for (std::size_t index = begin; index < end; ++index) {
     // Completion order cannot change which candidate error reaches the owner.
     if (!query.error && query.errors[index])
@@ -140,14 +164,17 @@ void FinishQuery(LoopQueryState& query) {
   if (query.error) {
     query.payload->error = query.error;
   } else {
+    const auto start = StartTiming(query.stage_timing);
     try {
       query.payload->admission = loop_internal::FinishLoopAdmission(
           query.payload->task.input, query.reader, query.options,
-          std::move(query.admission));
+          std::move(query.admission), query.stage_timing);
     } catch (...) {
       query.payload->error = std::current_exception();
     }
+    LogStageTiming("loop_admission", start);
   }
+  LogStageTiming("loop_query_compute", query.compute_start);
   query.completion(std::move(query.payload));
 }
 
@@ -171,18 +198,21 @@ LoopAdmissionResult RunLoopQuery(const LoopTask& task,
 void ScheduleLoopQuery(
     std::shared_ptr<LoopTaskResult> payload, LoopAdmissionOptions options,
     LoopAdmissionResult prepared, ThreadPoolInterface& pool, int num_threads,
-    std::function<void(std::shared_ptr<LoopTaskResult>)> completion) {
+    std::function<void(std::shared_ptr<LoopTaskResult>)> completion,
+    bool stage_timing) {
   if (!payload || !completion || num_threads <= 0) {
     throw std::invalid_argument("Missing loop query payload, callback or pool");
   }
   const auto batch_size = static_cast<std::size_t>(std::min(
       std::max(1, num_threads - 1), options.geometry.max_resident_submaps - 1));
   auto query = std::make_shared<LoopQueryState>();
+  query->stage_timing = stage_timing;
+  query->compute_start = StartTiming(stage_timing);
   query->payload = std::move(payload);
   query->options = std::move(options);
   query->admission = std::move(prepared);
   query->reader = MakeGeometryReader(query->payload->task,
-                                     query->options.geometry);
+                                     query->options.geometry, stage_timing);
   const auto count = query->admission.candidates.size();
   query->targets.resize(count);
   query->errors.resize(count);

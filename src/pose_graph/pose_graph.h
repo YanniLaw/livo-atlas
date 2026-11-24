@@ -103,7 +103,8 @@ class PoseGraph {
   void Dispatch();
   void RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept;
   void DeliverQuery(std::shared_ptr<LoopTaskResult> payload) noexcept;
-  WorkItem CompletionWork(std::shared_ptr<const LoopTaskResult> result);
+  WorkItem CompletionWork(std::shared_ptr<const LoopTaskResult> result,
+                          std::chrono::steady_clock::time_point ready);
   void Complete(std::shared_ptr<const LoopTaskResult> result);
   LoopDisposition Classify(const LoopTaskResult& result);
   void RecordDisposition(LoopDisposition disposition);
@@ -143,6 +144,7 @@ class PoseGraph {
   LoopSessionStats published_stats_;
   std::size_t queued_keyframes_ = 0;
   std::size_t peak_queued_keyframes_ = 0;
+  std::chrono::steady_clock::time_point standalone_ready_, publication_time_;
   bool standalone_polling_ = false;
   bool standalone_abandoned_ = false;
   bool awaiting_delivery_ = false;

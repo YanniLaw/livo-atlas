@@ -13,6 +13,7 @@
 #include "loop_closure/loop_internal.h"
 #include "loop_closure/loop_selection.h"
 #include "common/rotation_projection.h"
+#include "common/timing.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -261,7 +262,8 @@ LoopAdmissionResult PrepareLoopAdmission(
 
 LoopAdmissionResult FinishLoopAdmission(
     const LoopAdmissionInput& input, const LoopGeometryReader& reader,
-    const LoopAdmissionOptions& options, LoopAdmissionResult result) {
+    const LoopAdmissionOptions& options, LoopAdmissionResult result,
+    bool stage_timing) {
   if (result.candidates.empty()) return result;
   const auto& query = FindInfo(input.submaps, input.query_id);
   std::vector<LoopHypothesis> hypotheses;
@@ -328,20 +330,24 @@ LoopAdmissionResult FinishLoopAdmission(
     result.status = LoopAdmissionStatus::kPoseCorrection;
     return result;
   }
+  const auto recheck_start = StartTiming(stage_timing);
   const auto preview =
       MakePoseSnapshot(trial.update, input.poses, input.raw_poses);
   for (const auto& accepted : input.accepted_loops) {
     if (!CheckGeometry(accepted, false, preview, reader, options,
                        &result.geometry_checks)) {
+      LogStageTiming("loop_geometry_recheck", recheck_start);
       result.status = LoopAdmissionStatus::kGeometryChanged;
       return result;
     }
   }
   if (!CheckGeometry(chosen.loop, true, preview, reader, options,
                      &result.geometry_checks)) {
+    LogStageTiming("loop_geometry_recheck", recheck_start);
     result.status = LoopAdmissionStatus::kGeometryChanged;
     return result;
   }
+  LogStageTiming("loop_geometry_recheck", recheck_start);
   result.status = LoopAdmissionStatus::kProposed;
   result.proposal = {std::move(chosen.loop),
                      std::move(chosen.report.verification),

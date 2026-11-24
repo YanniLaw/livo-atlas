@@ -23,7 +23,8 @@ LoopAdmissionResult PrepareLoopTask(const LoopTask& task,
 void ScheduleLoopQuery(
     std::shared_ptr<LoopTaskResult> payload, LoopAdmissionOptions options,
     LoopAdmissionResult prepared, ThreadPoolInterface& pool, int num_threads,
-    std::function<void(std::shared_ptr<LoopTaskResult>)> completion);
+    std::function<void(std::shared_ptr<LoopTaskResult>)> completion,
+    bool stage_timing = false);
 
 }  // namespace livo_atlas
 

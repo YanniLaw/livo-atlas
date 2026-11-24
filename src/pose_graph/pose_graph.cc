@@ -219,6 +219,7 @@ void PoseGraph::Publish(ArchiveCommit commit, bool appended_keyframe) {
     if (appended_keyframe) --queued_keyframes_;
     publication_.emplace(std::move(commit));
     awaiting_delivery_ = true;
+    publication_time_ = StartTiming(stage_timing_);
     published_stats_ = stats_;
   }
   condition_.notify_all();
@@ -230,9 +231,15 @@ ArchiveProgress PoseGraph::TakeProgress() {
 }
 
 void PoseGraph::AcknowledgeCommit() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  awaiting_delivery_ = false;
-  ScheduleDrainLocked();
+  SteadyClock::time_point published;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    published = publication_time_;
+    publication_time_ = {};
+    awaiting_delivery_ = false;
+    ScheduleDrainLocked();
+  }
+  LogStageTiming("archive_publication_wait", published);
 }
 
 std::optional<std::exception_ptr> PoseGraph::CheckControl(
@@ -433,7 +440,9 @@ void PoseGraph::RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
   }
   try {
     if (!runner_) {
+      const auto prepare_start = StartTiming(stage_timing_);
       auto prepared = PrepareLoopTask(payload->task, options_);
+      LogStageTiming("loop_query_prepare", prepare_start);
       std::lock_guard<std::mutex> lock(mutex_);
       if (stopping_ || failure_ || standalone_abandoned_) return;
       // Register the full DAG before Stop can begin destroying the pool.
@@ -441,7 +450,7 @@ void PoseGraph::RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
       ScheduleLoopQuery(payload, options_, std::move(prepared), *thread_pool_,
                         num_background_threads_, [this](auto result) {
                           DeliverQuery(std::move(result));
-                        });
+                        }, stage_timing_);
       return;
     }
     payload->admission = runner_(payload->task);
@@ -453,14 +462,16 @@ void PoseGraph::RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
 
 void PoseGraph::DeliverQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
   try {
+    const auto ready = StartTiming(stage_timing_);
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (stopping_ || failure_ || standalone_abandoned_) return;
       if (standalone_) {
+        standalone_ready_ = ready;
         standalone_result_ = std::move(payload);
       } else {
         // The completion follows earlier frames even on a full input queue.
-        queue_.push_back(CompletionWork(std::move(payload)));
+        queue_.push_back(CompletionWork(std::move(payload), ready));
         ScheduleDrainLocked();
       }
     }
@@ -471,9 +482,13 @@ void PoseGraph::DeliverQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
 }
 
 WorkItem PoseGraph::CompletionWork(
-    std::shared_ptr<const LoopTaskResult> result) {
-  return {{}, [this, result = std::move(result)]() mutable {
+    std::shared_ptr<const LoopTaskResult> result,
+    SteadyClock::time_point ready) {
+  return {{}, [this, result = std::move(result), ready]() mutable {
+            LogStageTiming("loop_result_queue_wait", ready);
+            const auto start = StartTiming(stage_timing_);
             Complete(std::move(result));
+            LogStageTiming("loop_result_acceptance", start);
             return WorkItem::Result::kDoNotRunOptimization;
           }};
 }
@@ -482,7 +497,8 @@ void PoseGraph::PollStandalone() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (failure_) std::rethrow_exception(failure_);
   if (standalone_result_) {
-    queue_.push_back(CompletionWork(std::move(standalone_result_)));
+    queue_.push_back(
+        CompletionWork(std::move(standalone_result_), standalone_ready_));
     ScheduleDrainLocked();
   } else if (!standalone_polling_) {
     standalone_polling_ = true;

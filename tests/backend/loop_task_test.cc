@@ -132,6 +132,51 @@ class ManualThreadPool : public ThreadPoolInterface {
   std::vector<std::shared_ptr<livo_atlas::Task>> ready_;
 };
 
+TEST_F(LoopTaskTest, FailedQueryDoesNotTimeSkippedBatches) {
+  for (std::uint64_t id = 4; id < 9; ++id) Append(id);
+  auto task = Task(9);
+  task.input.query_id = 7;
+  fs::remove(root_ / "frames/5/cloud.pcd");
+  const auto options = loop_test::NearbyOptions();
+  ManualThreadPool pool;
+  auto payload = std::make_shared<LoopTaskResult>(
+      LoopTaskResult{task, {}, {}});
+  testing::internal::CaptureStderr();
+  ScheduleLoopQuery(payload, options, PrepareLoopTask(task, options), pool, 4,
+                    [](auto) {}, true);
+  while (pool.ready_count()) pool.RunLastReady();
+  const auto log = testing::internal::GetCapturedStderr();
+  ASSERT_TRUE(payload->error);
+  const std::string stage = "stage=loop_verification_batch seconds=";
+  const auto first = log.find(stage);
+  ASSERT_NE(first, std::string::npos);
+  EXPECT_EQ(log.find(stage, first + stage.size()), std::string::npos);
+}
+
+TEST_F(LoopTaskTest, QueryStageTimingIsOptIn) {
+  const auto task = Task();
+  const auto options = loop_test::NearbyOptions();
+  for (const bool enabled : {false, true}) {
+    ManualThreadPool pool;
+    auto payload = std::make_shared<LoopTaskResult>(
+        LoopTaskResult{task, {}, {}});
+    testing::internal::CaptureStderr();
+    ScheduleLoopQuery(payload, options, PrepareLoopTask(task, options), pool,
+                      4, [](auto) {}, enabled);
+    while (pool.ready_count()) pool.RunLastReady();
+    const auto log = testing::internal::GetCapturedStderr();
+    ASSERT_FALSE(payload->error);
+    for (const auto* stage : {"loop_geometry_read", "loop_geometry_build",
+                              "loop_cloud_read", "loop_geometry_snapshot",
+                              "loop_prepare_batch", "loop_candidate",
+                              "loop_verification_batch", "loop_admission",
+                              "loop_query_compute", "loop_geometry_recheck"}) {
+      const auto found = log.find(std::string("stage=") + stage + " seconds=");
+      EXPECT_EQ(found != std::string::npos, enabled) << stage;
+    }
+  }
+}
+
 TEST_F(LoopTaskTest, ParallelCandidatesRespectBudgetAndSearchOrder) {
   for (std::uint64_t id = 4; id < 9; ++id) Append(id);
   auto task = Task(9);
