@@ -25,6 +25,9 @@ FrontendMode SystemOptions::frontend_mode() const {
 
 SystemOptions PrepareSystemOptions(SystemOptions options) {
   const auto mode = options.frontend_mode();
+  if (options.frontend.openmp_threads <= 0) {
+    throw std::invalid_argument("frontend.openmp_threads must be positive");
+  }
   if (options.num_background_threads <= 0) {
     throw std::invalid_argument(
         "pose_graph.num_background_threads must be positive");

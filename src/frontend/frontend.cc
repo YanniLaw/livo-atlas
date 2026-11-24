@@ -24,6 +24,7 @@ which is included as part of this source code package.
 #include <vector>
 
 #include "livo_atlas/camera/camera_factory.h"
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/frontend/imu/imu_processor.h"
 #include "livo_atlas/frontend/vision/vio.h"
 
@@ -33,10 +34,18 @@ Frontend::Frontend(const FrontendOptions& options)
     : options_(options),
       imu_(new ImuProcessor),
       camera_(CreateCamera(options.calibration.camera)),
-      visual_(new VIOManager) {
+      visual_(new VIOManager(options.openmp_threads)) {
   if (!camera_) throw std::invalid_argument("Invalid camera calibration");
   std::unordered_map<VOXEL_LOCATION, VoxelOctreeNode*> empty_map;
-  map_.reset(new VoxelMapManager(options_.voxel_map, empty_map));
+  map_.reset(new VoxelMapManager(options_.voxel_map, empty_map,
+                                options_.openmp_threads));
+#ifdef LIVO_ATLAS_HAS_OPENMP
+  LOG(INFO) << "frontend.openmp_threads=" << options_.openmp_threads
+            << " openmp_available=true";
+#else
+  LOG(INFO) << "frontend.openmp_threads=" << options_.openmp_threads
+            << " openmp_available=false, using one thread";
+#endif
   const auto& extrinsics = options_.calibration.imu_from_lidar;
   map_->extT_ = extrinsics.translation;
   map_->extR_ = extrinsics.rotation;

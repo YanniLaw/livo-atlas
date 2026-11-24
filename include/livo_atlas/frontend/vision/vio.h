@@ -139,7 +139,7 @@ class VIOManager {
 
   enum CellType { TYPE_MAP = 1, TYPE_POINTCLOUD, TYPE_UNKNOWN };
 
-  VIOManager();
+  explicit VIOManager(int openmp_threads = 2);
   ~VIOManager();
   void UpdateStateInverse(cv::Mat img, int level);
   void UpdateState(cv::Mat img, int level);
@@ -197,6 +197,9 @@ class VIOManager {
 
   // PointCloudXYZI::Ptr pg_down;
   // pcl::VoxelGrid<PointType> downSizeFilter;
+
+ private:
+  const int openmp_threads_;
 };
 
 }  // namespace livo_atlas

@@ -41,6 +41,8 @@ struct FrontendOptions {
   double surface_filter_size = 0.5;
   bool align_gravity = false;
   bool dense_cloud = false;
+  // Per-instance budget; builds without OpenMP execute these loops serially.
+  int openmp_threads = 2;
 };
 
 }  // namespace livo_atlas

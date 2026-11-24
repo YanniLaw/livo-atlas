@@ -1,3 +1,7 @@
+frontend:
+  # Independent from the asynchronous pose-graph thread pool.
+  openmp_threads: 2
+
 common:
   img_topic: "/left/image_raw"
   lid_topic: "/os1_cloud_node1/points"

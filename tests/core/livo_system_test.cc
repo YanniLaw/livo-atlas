@@ -93,7 +93,9 @@ TEST(SystemTest, StageTimingTracksStartupPeaksBeforeLidarAnchor) {
 }
 
 TEST(SystemOptionsTest, RejectsInvalidDirectOptionsBeforeTouchingOutput) {
-  const std::array<std::function<void(SystemOptions&)>, 14> corrupt = {
+  const std::array<std::function<void(SystemOptions&)>, 16> corrupt = {
+      [](auto& options) { options.frontend.openmp_threads = 0; },
+      [](auto& options) { options.frontend.openmp_threads = -1; },
       [](auto& options) { options.lidar_enabled = false; },
       [](auto& options) {
         options.image_enabled = true;

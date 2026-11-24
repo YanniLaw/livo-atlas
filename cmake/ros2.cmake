@@ -49,7 +49,7 @@ install(DIRECTORY include/livo_atlas/ros2 include/livo_atlas/ros_common
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 
 set(LIVO_ATLAS_CONFIG_OPENMP FALSE)
-if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
+if(LIVO_ATLAS_OPENMP_AVAILABLE)
   set(LIVO_ATLAS_CONFIG_OPENMP TRUE)
 endif()
 configure_file(cmake/ros2_dependencies.cmake.in

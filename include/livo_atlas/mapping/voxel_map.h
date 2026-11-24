@@ -15,6 +15,7 @@ which is included as part of this source code package.
 
 #include <Eigen/Core>
 #include <cstdint>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -188,8 +189,14 @@ class VoxelMapManager {
 
   VoxelMapManager(
       VoxelMapOptions &config_setting,
-      std::unordered_map<VOXEL_LOCATION, VoxelOctreeNode *> &voxel_map)
-      : config_setting_(config_setting), voxel_map_(voxel_map) {
+      std::unordered_map<VOXEL_LOCATION, VoxelOctreeNode *> &voxel_map,
+      int openmp_threads = 2)
+      : config_setting_(config_setting),
+        voxel_map_(voxel_map),
+        openmp_threads_(openmp_threads) {
+    if (openmp_threads_ <= 0) {
+      throw std::invalid_argument("frontend.openmp_threads must be positive");
+    }
     current_frame_id_ = 0;
     feats_undistort_.reset(new PointCloud());
     feats_down_body_.reset(new PointCloud());
@@ -222,6 +229,8 @@ class VoxelMapManager {
                            const int &z_min);
 
  private:
+  const int openmp_threads_ = 2;
+
   void GetUpdatePlane(const VoxelOctreeNode *current_octo,
                       int pub_max_voxel_layer,
                       std::vector<VoxelPlane> &plane_list) const;

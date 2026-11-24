@@ -4,7 +4,7 @@ add_message_files(FILES TrajectoryKeyframe.msg KeyframeTrajectory.msg
 generate_messages(DEPENDENCIES std_msgs geometry_msgs sensor_msgs)
 
 set(livo_atlas_runtime_libraries ${CMAKE_THREAD_LIBS_INIT})
-if(LIVO_ATLAS_USE_OPENMP AND OpenMP_CXX_FOUND)
+if(LIVO_ATLAS_OPENMP_AVAILABLE)
   list(APPEND livo_atlas_runtime_libraries ${OpenMP_CXX_LIBRARIES})
 endif()
 # External catkin projects receive library files, not the original targets.

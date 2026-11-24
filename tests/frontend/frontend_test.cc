@@ -2,6 +2,12 @@
 
 #include <gtest/gtest.h>
 
+#include <stdexcept>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "installed_consumer/scenario.h"
 
 namespace livo_atlas {
@@ -17,6 +23,28 @@ FrontendOptions MakeOptions() {
   options.calibration.camera.cx = 256;
   options.calibration.camera.cy = 256;
   return options;
+}
+
+TEST(FrontendTest, RejectsNonpositiveOpenmpBudget) {
+  for (const int threads : {0, -1}) {
+    auto options = MakeOptions();
+    options.openmp_threads = threads;
+    EXPECT_THROW((void)Frontend(options), std::invalid_argument);
+  }
+}
+
+TEST(FrontendTest, DifferentInstanceBudgetsPreserveOpenmpDefaults) {
+#ifdef _OPENMP
+  const int previous = omp_get_max_threads();
+#endif
+  for (const int threads : {1, 4, 2, 1}) {
+    SCOPED_TRACE(threads);
+    EXPECT_TRUE(test_data::RunFrontendScenario(
+        FrontendMode::kLidarInertialVisual, 4, threads));
+#ifdef _OPENMP
+    EXPECT_EQ(omp_get_max_threads(), previous);
+#endif
+  }
 }
 
 TEST(FrontendTest, OrdinaryCallerRunsRepeatedLidarOnlyWithoutPublisher) {

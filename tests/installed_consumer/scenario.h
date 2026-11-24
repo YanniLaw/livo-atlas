@@ -8,10 +8,12 @@
 namespace livo_atlas::test_data {
 
 // An ordinary caller exercises repeated updates without any publisher or ROS.
-inline bool RunFrontendScenario(FrontendMode mode, int frame_count = 4) {
+inline bool RunFrontendScenario(FrontendMode mode, int frame_count = 4,
+                                int openmp_threads = 2) {
   const bool inertial = mode != FrontendMode::kLidarOnly;
   const bool visual = mode == FrontendMode::kLidarInertialVisual;
   FrontendOptions options;
+  options.openmp_threads = openmp_threads;
   options.calibration.camera = {"Pinhole", 512, 512, 1, 200, 200, 256, 256, {}};
   options.imu.enabled = inertial;
   options.imu.initialization_frames = 1;

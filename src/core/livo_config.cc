@@ -164,6 +164,8 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   ValidateGaussianRenderOutputOptions(gaussian_output, global.map_frame);
   auto& options = config.system;
   auto& front = options.frontend;
+  front.openmp_threads =
+      reader.Integer("frontend.openmp_threads", front.openmp_threads);
   auto& visual = front.visual;
   auto& imu = front.imu;
   auto& pre = options.preprocess;

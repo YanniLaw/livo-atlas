@@ -13,7 +13,8 @@ C++17 库。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Hu
   `glog_DIR` 或 `CMAKE_PREFIX_PATH` 提供 CMake 配置。
 - 兼容 `sophus/se3.h` 的旧版 Sophus（原工程所用的非模板版本）。通过
   `Sophus_DIR` 或 `CMAKE_PREFIX_PATH` 指定实际安装配置；不硬编码库名。
-- OpenMP 可选。`LIVO_ATLAS_USE_OPENMP=OFF` 同时关闭编译选项和并行宏。
+- OpenMP 可选。`LIVO_ATLAS_USE_OPENMP=AUTO` 为默认值，按目标工具链探测；
+  `ON` 要求提供 C++ OpenMP，`OFF` 关闭相关编译及链接依赖。
 - GTSAM 4.2。非标准安装通过 `GTSAM_DIR` 或 `CMAKE_PREFIX_PATH` 指定。
 - Linux 目标包含 Gaussian C++ 桥接库。ROS 启动时通过 `gaussian.enabled` 选择是否使用。
 - GTest 仅测试需要。`BUILD_TESTING=OFF` 构建独立库、数据集检查工具及离线导出工具。
@@ -39,6 +40,12 @@ cmake --install build-core
 
 静态库增加 `-DBUILD_SHARED_LIBS=OFF`。无需 OpenMP 时增加
 `-DLIVO_ATLAS_USE_OPENMP=OFF`。构建入口不会在 mode 0 查找 catkin 或 vikit。
+前端预算由传感器 YAML 的 `frontend.openmp_threads` 配置，默认 2，正整数，1 为串行。
+SDK 使用 `FrontendOptions::openmp_threads`。LIO 和 VIO 均按输入顺序归并结果，
+VIO 的误差汇总顺序保持串行 EKF 终止行为。预算属于各个实例，不更改 OpenMP 默认设置；
+`OMP_THREAD_LIMIT` 和运行库动态调度仍可能缩小实际团队。无 OpenMP 的工具链接受相同参数，
+通过 GLOG 记录串行回退。此预算独立于 `pose_graph.num_background_threads`。
+
 SDK 安装前缀可以在同一平台移动；系统依赖仍需可用，旧 Sophus 的非标准库目录
 会由配置记录为运行搜索路径。跨平台应在目标平台重新编译和验证。
 

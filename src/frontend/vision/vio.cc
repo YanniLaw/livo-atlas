@@ -24,10 +24,6 @@ which is included as part of this source code package.
 #include <utility>
 #include <vector>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
 
@@ -35,7 +31,12 @@ which is included as part of this source code package.
 
 namespace livo_atlas {
 
-VIOManager::VIOManager() : visual_submap(nullptr) {}
+VIOManager::VIOManager(int openmp_threads)
+    : visual_submap(nullptr), openmp_threads_(openmp_threads) {
+  if (openmp_threads_ <= 0) {
+    throw std::invalid_argument("frontend.openmp_threads must be positive");
+  }
+}
 
 VIOManager::~VIOManager() {
   delete visual_submap;
@@ -1500,10 +1501,14 @@ void VIOManager::UpdateState(cv::Mat img, int level) {
   const int H_DIM = total_points * patch_size_total;
   z.resize(H_DIM);
   H_sub.resize(H_DIM, 7);
+  std::vector<float> patch_errors(total_points);
+  std::vector<int> patch_measurements(total_points);
 
   for (int iteration = 0; iteration < max_iterations; iteration++) {
     z.setZero();
     H_sub.setZero();
+    std::fill(patch_errors.begin(), patch_errors.end(), 0.0f);
+    std::fill(patch_measurements.begin(), patch_measurements.end(), 0);
 
     Matrix3d Rwi(state->rot_end);
     Vector3d Pwi(state->pos_end);
@@ -1513,13 +1518,8 @@ void VIOManager::UpdateState(cv::Mat img, int level) {
 
     float error = 0.0;
     int n_meas = 0;
-    // int max_threads = omp_get_max_threads();
-    // int desired_threads = std::min(max_threads, total_points);
-    // omp_set_num_threads(desired_threads);
-
-#ifdef MP_EN
-    omp_set_num_threads(MP_PROC_NUM);
-#pragma omp parallel for reduction(+ : error, n_meas)
+#ifdef LIVO_ATLAS_HAS_OPENMP
+#pragma omp parallel for num_threads(openmp_threads_) if(openmp_threads_ > 1)
 #endif
     for (int i = 0; i < total_points; i++) {
       Eigen::Matrix<double, (1), (2)> Jimg;
@@ -1609,7 +1609,6 @@ void VIOManager::UpdateState(cv::Mat img, int level) {
           z(i * patch_size_total + x * patch_size + y) = res;
 
           patch_error += res * res;
-          n_meas += 1;
 
           if (exposure_estimate_en) {
             H_sub.block<1, 7>(i * patch_size_total + x * patch_size + y, 0)
@@ -1623,7 +1622,14 @@ void VIOManager::UpdateState(cv::Mat img, int level) {
         }
       }
       visual_submap->errors[i] = patch_error;
-      error += patch_error;
+      patch_errors[i] = patch_error;
+      patch_measurements[i] = patch_size_total;
+    }
+    // The error controls EKF termination. Sum in observation order so worker
+    // scheduling and team size cannot change the selected state or loop map.
+    for (int i = 0; i < total_points; ++i) {
+      error += patch_errors[i];
+      n_meas += patch_measurements[i];
     }
 
     if (n_meas == 0) break;

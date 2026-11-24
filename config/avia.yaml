@@ -1,3 +1,7 @@
+frontend:
+  # Independent from the asynchronous pose-graph thread pool.
+  openmp_threads: 2
+
 common:
   img_topic: "/left_camera/image"
   lid_topic: "/livox/lidar"

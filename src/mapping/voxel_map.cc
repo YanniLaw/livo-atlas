@@ -16,12 +16,7 @@ which is included as part of this source code package.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <mutex>
 #include <vector>
-
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 
 namespace livo_atlas {
 
@@ -659,20 +654,14 @@ void VoxelMapManager::BuildResidualListOMP(
   int max_layer = config_setting_.max_layer_;
   double voxel_size = config_setting_.max_voxel_size_;
   double sigma_num = config_setting_.sigma_num_;
-  std::mutex mylock;
   ptpl_list.clear();
   std::vector<PointPlaneMatch> all_ptpl_list(pv_list.size());
-  std::vector<bool> useful_ptpl(pv_list.size());
-  std::vector<std::size_t> index(pv_list.size());
-  for (std::size_t i = 0; i < index.size(); ++i) {
-    index[i] = i;
-    useful_ptpl[i] = false;
-  }
-#ifdef MP_EN
-  omp_set_num_threads(MP_PROC_NUM);
-#pragma omp parallel for
+  // Independent bytes permit parallel writes without a shared lock.
+  std::vector<std::uint8_t> useful_ptpl(pv_list.size(), 0);
+#ifdef LIVO_ATLAS_HAS_OPENMP
+#pragma omp parallel for num_threads(openmp_threads_) if(openmp_threads_ > 1)
 #endif
-  for (int i = 0; i < index.size(); i++) {
+  for (std::size_t i = 0; i < pv_list.size(); ++i) {
     PointWithCovariance &pv = pv_list[i];
     float loc_xyz[3];
     for (int j = 0; j < 3; j++) {
@@ -720,14 +709,8 @@ void VoxelMapManager::BuildResidualListOMP(
         }
       }
       if (is_sucess) {
-        mylock.lock();
-        useful_ptpl[i] = true;
+        useful_ptpl[i] = 1;
         all_ptpl_list[i] = single_ptpl;
-        mylock.unlock();
-      } else {
-        mylock.lock();
-        useful_ptpl[i] = false;
-        mylock.unlock();
       }
     }
   }
