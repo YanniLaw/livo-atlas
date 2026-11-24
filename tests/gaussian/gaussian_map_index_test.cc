@@ -71,6 +71,85 @@ GaussianAssetReference Asset(const GaussianContentId& content,
   return result;
 }
 
+TEST(GaussianMapIndexTest, DeltaMatchesFullAcrossRolloverAndOptimization) {
+  GaussianMapIndex full(kSession);
+  GaussianMapIndex delta(kSession);
+  const auto append = [&](const PoseSnapshot& poses,
+                          const std::vector<OnlineSubmap>& revisions) {
+    auto frame = std::make_shared<Keyframe>();
+    frame->id = poses.frame_count - 1;
+    full.Observe({frame, revisions, std::make_shared<PoseSnapshot>(poses), {}});
+    delta.ObserveDelta({frame, revisions, poses.frontier(), {}, {},
+                        poses.poses.back().map_from_body});
+  };
+  const auto commit = [&](const PoseSnapshot& poses) {
+    Observe(full, poses);
+    delta.ObserveDelta({{}, {}, poses.frontier(),
+                        std::make_shared<PoseSnapshot>(poses), {}, {}});
+  };
+  append(Poses(1), {Group(0, 0, 1)});
+  append(Poses(2), {Group(0, 0, 2)});
+  const auto first = delta.GetPoseSnapshot();
+  for (auto* index : {&full, &delta}) {
+    index->RecordConfirmed(index->MakeTarget(0, 1), GaussianOperation::kView, 1,
+                           {0, 1}, 2);
+    ASSERT_TRUE(index->RecordCheckpoint(Asset({kSession, 0, 1, 1})));
+  }
+
+  auto second_group = Group(1, 2, 1);
+  second_group.support_keyframe_ids = {0};
+  auto frame = std::make_shared<Keyframe>();
+  frame->id = 2;
+  const auto rolled = Poses(3);
+  EXPECT_THROW(delta.ObserveDelta({frame, {Group(0, 0, 2, true), second_group},
+                                   rolled.frontier(), {}, {},
+                                   rolled.poses.back().map_from_body}),
+               std::invalid_argument);
+  EXPECT_EQ(delta.GetPoseSnapshot(), first);
+  EXPECT_EQ(delta.Snapshot().entries.front().group.state,
+            OnlineSubmapState::kActive);
+  second_group.support_keyframe_ids = {1};
+  append(rolled, {Group(0, 0, 2, true), second_group});
+  commit(Poses(3, 1, true));
+  EXPECT_TRUE(delta.Snapshot().entries.front().asset_current);
+
+  auto extended = Poses(4, 1, true);
+  extended.optimized_frame_count = 3;
+  second_group.primary.keyframe_ids.push_back(3);
+  ++second_group.membership_revision;
+  append(extended, {second_group});
+  const auto current = delta.GetPoseSnapshot();
+  ASSERT_EQ(current->poses.size(), 4u);
+  EXPECT_EQ(first->frame_count, 2u);
+  EXPECT_TRUE(current->frontier() == extended.frontier());
+  EXPECT_EQ(delta.Snapshot().entries.front().binding.frame_count, 4u);
+  EXPECT_EQ(delta.MakeTarget(0, 7).frame_count, 4u);
+  auto invalid_prefix = extended;
+  invalid_prefix.poses[3].map_from_body.translation.x() += 1;
+  EXPECT_THROW(Observe(delta, invalid_prefix), std::invalid_argument);
+
+  auto repaired = Poses(4, 2, true);
+  repaired.poses[1].map_from_body.translation.x() += 1;
+  commit(repaired);
+  const auto before = full.Snapshot();
+  const auto after = delta.Snapshot();
+  EXPECT_EQ(after.map_sequence, before.map_sequence);
+  ASSERT_EQ(after.entries.size(), 2u);
+  for (std::size_t id = 0; id < after.entries.size(); ++id) {
+    const auto& a = after.entries[id];
+    const auto& b = before.entries[id];
+    EXPECT_EQ(a.group.primary.keyframe_ids, b.group.primary.keyframe_ids);
+    EXPECT_EQ(a.asset_current, b.asset_current);
+    EXPECT_EQ(a.availability, b.availability);
+    EXPECT_EQ(a.binding.frame_count, b.binding.frame_count);
+    EXPECT_TRUE(a.binding.parent_from_submap.translation.isApprox(
+        b.binding.parent_from_submap.translation));
+  }
+  EXPECT_EQ(after.entries.front().availability,
+            GaussianAvailability::kNeedsRebuild);
+  EXPECT_EQ(delta.NextRepair(), 0u);
+}
+
 TEST(GaussianMapIndexTest, MetadataFollowsConfirmedContentAndRigidReuse) {
   GaussianMapIndex index(kSession);
   Populate(index, 3);

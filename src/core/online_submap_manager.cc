@@ -106,13 +106,10 @@ void OnlineSubmapManager::Notify(OnlineSubmapDelta update, bool pose_commit) {
   if (pose_commit || callback_) {
     poses = GetPoseSnapshot();
   }
-  std::optional<RigidTransform> new_pose;
   if (update.keyframe) {
-    if (!poses) {
-      new_pose = pose_math::MaterializeAppendedPose(frozen_, raw_poses_);
-    } else if (geometry_) {
-      new_pose = poses->poses.back().map_from_body;
-    }
+    update.appended_pose =
+        poses ? poses->poses.back().map_from_body
+              : pose_math::MaterializeAppendedPose(frozen_, raw_poses_);
   }
   if (pose_commit) update.poses = poses;
   if (geometry_) {
@@ -121,7 +118,8 @@ void OnlineSubmapManager::Notify(OnlineSubmapDelta update, bool pose_commit) {
     } else {
       geometry_->UpdateDelta(update.revisions, update.frontier,
                              update.keyframe.get(),
-                             new_pose ? &*new_pose : nullptr);
+                             update.appended_pose ? &*update.appended_pose
+                                                  : nullptr);
     }
     const auto total =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)

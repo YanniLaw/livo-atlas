@@ -252,6 +252,30 @@ TEST_F(GaussianFinalizationTest, FinalPoseIncludesBackendTail) {
   EXPECT_EQ(result.optimized_frame_count, 3u);
 }
 
+TEST_F(GaussianFinalizationTest, IncrementalObservationsPreserveFinalization) {
+  system_->SetOnlineSubmapCallback({});
+  system_->SetOnlineSubmapDeltaCallback(
+      [&](const auto& update) { mapper_->ObserveDelta(update); });
+  Populate(2);
+  const auto original = mapper_->GetMapSnapshot()->entries.front().content;
+  ASSERT_TRUE(original);
+  Correct(/*deform=*/false);
+  Append();
+  Confirm();
+  const auto current = mapper_->GetMapSnapshot();
+  EXPECT_EQ(current->pose_version, 1u);
+  EXPECT_EQ(current->frame_count, 3u);
+  EXPECT_EQ(current->entries.front().content, original);
+  EXPECT_TRUE(current->entries.front().asset_current);
+
+  Correct();
+  const auto result = Finalize();
+  ExpectSuccess(result, 2);
+  EXPECT_EQ(result.pose_version, 2u);
+  EXPECT_EQ(result.frame_count, 3u);
+  EXPECT_EQ(result.after.rebuilds - result.before.rebuilds, 1u);
+}
+
 TEST_F(GaussianFinalizationTest, EmptyAndMissingStayExplicit) {
   const auto result = Finalize();
   ExpectSuccess(result, 0);

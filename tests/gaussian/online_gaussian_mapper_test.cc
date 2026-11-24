@@ -410,6 +410,26 @@ TEST_F(OnlineGaussianMapperTest,
   EXPECT_GE(preview->latency_seconds, 0);
 }
 
+TEST_F(OnlineGaussianMapperTest, IncrementalPreviewUsesCoalescedFrontier) {
+  Start();
+  OnlineSubmap group;
+  for (std::uint64_t id = 0; id < 3; ++id) {
+    group.membership_revision = id + 1;
+    group.primary.keyframe_ids.push_back(id);
+    const auto poses = Poses(id);
+    mapper_->ObserveDelta({Frame(id), {group}, poses->frontier(), {}, {},
+                           poses->poses.back().map_from_body});
+  }
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().accepted == 1; }));
+  const auto preview = mapper_->GetLatestPreview();
+  ASSERT_TRUE(preview);
+  EXPECT_EQ(preview->frame_count, 3u);
+  EXPECT_EQ(preview->membership_revision, 3u);
+  EXPECT_EQ(preview->frame_ids, (std::vector<std::uint64_t>{2}));
+  EXPECT_EQ(mapper_->GetStats().coalesced, 2u);
+  EXPECT_EQ(mapper_->GetRenderSnapshot().map_sequence, 0u);
+}
+
 TEST_F(OnlineGaussianMapperTest,
        PoseChangeAfterAcceptNeverPublishesOldConfirmation) {
   peer_->HoldConfirmation();

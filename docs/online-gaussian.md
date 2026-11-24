@@ -9,6 +9,11 @@
 与 ROS2 Humble 的区别仍在接入和参数表示；分别使用 `/` 和 `.` 分隔参数。实际 GPU
 覆盖在 Noetic 主机，Humble 验证构建、配置、安装消费及真实入口与受控 socket peer。
 
+共享入口用 `SetOnlineSubmapDeltaCallback` 将观测交给 `OnlineGaussianMapper::ObserveDelta`。
+追加传入新关键帧的修正位姿和本轮成员修订，封存传入最后一次成员修订。派发训练或联合渲染时
+取得与任务一致的只读位姿快照。位姿优化提交携带新版本的完整快照，索引据此更新各块绑定，并
+用训练时及归档时的相对位姿判断是否需要重建。SDK 也可通过 `Observe` 接收完整通知。
+
 这里保存的是每块最近至多 10 个视图的稀疏工作集。Gaussian 不向前端或后端反馈定位测量，
 在线联合渲染读取已确认的最多两块；densification、跨块联合训练和整套 SLAM session 恢复属于后续工作。
 

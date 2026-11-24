@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_GAUSSIAN_GAUSSIAN_MAP_INDEX_H_
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -18,6 +19,10 @@ class GaussianMapIndex {
   explicit GaussianMapIndex(std::string session_id);
 
   void Observe(const OnlineSubmapUpdate& update);
+  void ObserveDelta(const OnlineSubmapDelta& update);
+  PoseFrontier frontier() const { return poses_.frontier(); }
+  std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
+  const GaussianSubmapEntry* LastEntry() const;
   GaussianTarget MakeTarget(std::uint64_t submap_id,
                             std::uint64_t generation) const;
   bool CanTrain(std::uint64_t submap_id) const;
@@ -41,10 +46,14 @@ class GaussianMapIndex {
 
  private:
   void Reclassify();
+  void ReclassifyEntry(GaussianSubmapEntry& entry,
+                       const PoseSnapshot& poses) const;
 
   const std::string session_id_;
-  std::shared_ptr<const PoseSnapshot> poses_;
-  std::vector<GaussianSubmapEntry> entries_;
+  PoseSnapshot poses_;
+  mutable std::shared_ptr<const PoseSnapshot> pose_snapshot_;
+  std::deque<GaussianSubmapEntry> entries_;
+  bool has_capacity_ = true;
   std::uint64_t sequence_ = 0;
   std::uint64_t repair_sequence_ = 0;
   std::uint64_t last_asset_id_ = 0;

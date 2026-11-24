@@ -144,8 +144,8 @@ OnlineGaussian::OnlineGaussian(RosNode& node, LivoSystem& system,
   }
 }
 
-void OnlineGaussian::Observe(const OnlineSubmapUpdate& update) {
-  if (mapper_) mapper_->Observe(update);
+void OnlineGaussian::ObserveDelta(const OnlineSubmapDelta& update) {
+  if (mapper_) mapper_->ObserveDelta(update);
 }
 
 void OnlineGaussian::Poll() {
@@ -300,7 +300,7 @@ void OnlineGaussian::ValidateConfig(const LivoConfig& config) {
 
 OnlineGaussian::OnlineGaussian(RosNode&, LivoSystem&, const LivoConfig&) {}
 
-void OnlineGaussian::Observe(const OnlineSubmapUpdate&) {}
+void OnlineGaussian::ObserveDelta(const OnlineSubmapDelta&) {}
 
 void OnlineGaussian::Poll() {}
 

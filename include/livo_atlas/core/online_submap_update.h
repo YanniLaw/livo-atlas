@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_CORE_ONLINE_SUBMAP_UPDATE_H_
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "livo_atlas/mapping/keyframe.h"
@@ -18,14 +19,15 @@ struct OnlineSubmapUpdate {
   std::vector<SubmapPoseChange> pose_changes;
 };
 
-// An owning notification of a committed change. Only a pose commit includes
-// a full snapshot, so append and seal notifications stay small.
+// An owning notification of a committed change. An append includes its
+// resolved pose and a pose commit includes the full snapshot.
 struct OnlineSubmapDelta {
   std::shared_ptr<const Keyframe> keyframe;
   std::vector<OnlineSubmap> revisions;
   PoseFrontier frontier;
   std::shared_ptr<const PoseSnapshot> poses;
   std::vector<SubmapPoseChange> pose_changes;
+  std::optional<RigidTransform> appended_pose = std::nullopt;
 };
 }  // namespace livo_atlas
 #endif  // LIVO_ATLAS_CORE_ONLINE_SUBMAP_UPDATE_H_

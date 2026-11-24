@@ -19,32 +19,10 @@ std::vector<std::uint64_t> AssetIds(const GaussianMapSnapshot& map) {
 
 }  // namespace
 
-void OnlineGaussianMapper::ObserveSubmaps(const OnlineSubmapUpdate& update) {
-  map_index_.Observe(update);
-  const auto map = map_index_.Snapshot();
-  poses_ = update.poses;
-  if (!map.entries.empty()) submap_ = map.entries.back().group;
-  if (update.keyframe) {
-    ++stats_.observed;
-    if (pending_) ++stats_.coalesced;
-    pending_ = Source{update.keyframe, poses_, *submap_, 0, 0, Clock::now()};
-    stats_.pending = stats_.peak_pending = 1;
-  }
-  if (ready_ && (!submap_ || ready_->submap_id != submap_->primary.id ||
-                 ready_->pose_version != poses_->version ||
-                 map.entries[ready_->submap_id].availability !=
-                     GaussianAvailability::kCurrent))
-    Invalidate();
-  stats_.has_submap = submap_.has_value();
-  stats_.submap_id = submap_ ? submap_->primary.id : 0;
-  stats_.pose_version = poses_->version;
-  ++state_sequence_;
-  RefreshRenderDemand();
-}
-
 bool OnlineGaussianMapper::CurrentTarget(const GaussianTarget& target) const {
-  if (!poses_ || target.pose_version != poses_->version ||
-      target.frame_count > poses_->frame_count)
+  const auto frontier = map_index_.frontier();
+  if (target.pose_version != frontier.version ||
+      target.frame_count > frontier.frame_count)
     return false;
   const auto current =
       map_index_.MakeTarget(target.group.primary.id, target.generation);
@@ -139,6 +117,7 @@ void OnlineGaussianMapper::EndSubmapWork(bool retry) {
 }
 
 void OnlineGaussianMapper::DispatchSubmaps() {
+  const auto pose_version = map_index_.frontier().version;
   Command command;
   if (awaiting_decision_) {
     command = *candidate_command_;
@@ -162,7 +141,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     command.asset_id = *prune_asset_;
     command.state_sequence = acknowledged_map_;
     command.generation = generation_;
-    command.pose_version = poses_ ? poses_->version : 0;
+    command.pose_version = pose_version;
     QueueSubmapCommand(std::move(command));
     return;
   }
@@ -212,7 +191,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
       }
     } else if (!repairing && resident != map.entries.end() &&
                (!remote_target_ ||
-                remote_target_->pose_version != poses_->version)) {
+                remote_target_->pose_version != pose_version)) {
       command.kind = CommandKind::kActivate;
       command.target = map_index_.MakeTarget(resident->group.primary.id, 0);
       command.source.observed_at = Clock::now();
@@ -225,7 +204,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     const auto id = submap_work_->target.group.primary.id;
     activate = submap_work_->kind == CommandKind::kActivate ||
                !remote_target_ || remote_target_->group.primary.id != id ||
-               remote_target_->pose_version != poses_->version;
+               remote_target_->pose_version != pose_version;
   }
   // A stale empty activation has no candidate/decision to end the work. Yield
   // at this safe boundary too, before another prerequisite can consume time.
@@ -272,7 +251,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     command = {};
     command.kind = CommandKind::kStatus;
     command.generation = generation_;
-    command.pose_version = poses_ ? poses_->version : 0;
+    command.pose_version = pose_version;
     command.state_sequence = state_sequence_;
     if (submap_) command.submap_id = submap_->primary.id;
     command.ready = ready_ && !saved_preview_name_.empty();
@@ -320,7 +299,6 @@ void OnlineGaussianMapper::DispatchSubmaps() {
   } else {
     command.kind = CommandKind::kView;
     command.operation = GaussianOperation::kView;
-    command.source.poses = poses_;
     command.source.submap = entry.group;
     command.frame_ids = entry.frame_ids;
     if (std::find(command.frame_ids.begin(), command.frame_ids.end(),
@@ -331,6 +309,7 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     command.frame_ids.push_back(command.source.keyframe->id);
     if (command.frame_ids.size() > 10)
       command.frame_ids.erase(command.frame_ids.begin());
+    command.source.poses = map_index_.GetPoseSnapshot();
   }
   QueueSubmapCommand(std::move(command));
 }

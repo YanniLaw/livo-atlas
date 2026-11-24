@@ -79,6 +79,7 @@ class OnlineGaussianMapper {
   OnlineGaussianMapper& operator=(const OnlineGaussianMapper&) = delete;
 
   void Observe(const OnlineSubmapUpdate& update) noexcept;
+  void ObserveDelta(const OnlineSubmapDelta& update) noexcept;
   void Poll() noexcept;
   void Finish() noexcept;
   // Terminal owner-thread operation after the source and its backend finish.
@@ -101,6 +102,7 @@ class OnlineGaussianMapper {
     OnlineSubmap submap;
     std::uint64_t generation = 0, job_id = 0;
     Clock::time_point observed_at;
+    PoseFrontier frontier;
   };
 
   enum class CommandKind {
@@ -168,7 +170,8 @@ class OnlineGaussianMapper {
   };
 
   void Run() noexcept;
-  void ObserveSubmaps(const OnlineSubmapUpdate& update);
+  void ObserveUpdate(const OnlineSubmapUpdate* full,
+                     const OnlineSubmapDelta* delta) noexcept;
   void DispatchSubmaps();
   void HandleSubmapReply(Reply reply);
   Reply RunSubmapCommand(int fd, const Command& command);
@@ -199,7 +202,6 @@ class OnlineGaussianMapper {
   const OnlineGaussianOptions options_;
   const std::string session_id_;
   std::optional<OnlineSubmap> submap_;
-  std::shared_ptr<const PoseSnapshot> poses_;
   std::shared_ptr<const Keyframe> latest_keyframe_;
   std::optional<Source> pending_, in_flight_;
   std::shared_ptr<GaussianPreview> candidate_;
@@ -235,7 +237,6 @@ class OnlineGaussianMapper {
   bool checkpoint_needs_map_ = false;
   enum class FinalizationPhase { kNone, kQuiescing, kRepairing };
   FinalizationPhase finalization_phase_ = FinalizationPhase::kNone;
-  std::shared_ptr<const PoseSnapshot> final_poses_;
   Clock::time_point finalization_deadline_;
   std::optional<GaussianFinalizationResult> finalization_result_;
   std::atomic<bool> stop_acknowledged_{false};

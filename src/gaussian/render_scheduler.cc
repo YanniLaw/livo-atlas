@@ -11,9 +11,9 @@ void OnlineGaussianMapper::RefreshRenderDemand() {
   if (!options_.joint_render_enabled || failed_ || finished_ || finishing_ ||
       finalization_phase_ != FinalizationPhase::kNone || render_stats_.disabled)
     return;
-  const auto map = map_index_.Snapshot();
-  if (map.map_sequence == render_sequence_) return;
-  render_sequence_ = map.map_sequence;
+  const auto sequence = map_index_.sequence();
+  if (sequence == render_sequence_) return;
+  render_sequence_ = sequence;
   latest_render_.reset();
   if (render_pending_) ++render_stats_.coalesced;
   render_pending_ = true;
@@ -23,7 +23,7 @@ void OnlineGaussianMapper::RefreshRenderDemand() {
 bool OnlineGaussianMapper::DispatchRender(const GaussianMapSnapshot& map) {
   if (!options_.joint_render_enabled || !render_pending_ ||
       render_stats_.disabled || finishing_ || failed_ || finished_ ||
-      finalization_phase_ != FinalizationPhase::kNone || !poses_)
+      finalization_phase_ != FinalizationPhase::kNone)
     return false;
   // An unavailable source cannot change without advancing this owner index.
   // Keep the demand, but avoid revalidating every canonical pose on each Poll.
@@ -45,10 +45,11 @@ bool OnlineGaussianMapper::DispatchRender(const GaussianMapSnapshot& map) {
       [](const auto& entry) { return entry.resident; });
   const bool content = pending_ || map_index_.NextRepair() ||
       (resident && (!remote_target_ ||
-                    remote_target_->pose_version != poses_->version));
+                    remote_target_->pose_version != map.pose_version));
   std::string reason;
-  auto request = SelectGaussianRender(map, *poses_, generation_,
-                                      options_.joint_render_policy, &reason);
+  auto request = SelectGaussianRender(map, *map_index_.GetPoseSnapshot(),
+                                      generation_, options_.joint_render_policy,
+                                      &reason);
   if (!request) {
     render_unavailable_reason_ = reason;
     SetRenderWait(reason, map.map_sequence);
@@ -109,9 +110,10 @@ void OnlineGaussianMapper::HandleRenderReply(Reply reply) {
     return;
   }
   if (failed_ || finished_ || finishing_ ||
-      finalization_phase_ != FinalizationPhase::kNone || !poses_ ||
+      finalization_phase_ != FinalizationPhase::kNone ||
+      reply.render->request.map_sequence != map_index_.sequence() ||
       !IsCurrentGaussianRender(reply.render->request, map_index_.Snapshot(),
-                                *poses_)) {
+                                *map_index_.GetPoseSnapshot())) {
     ++render_stats_.stale;
     return;
   }

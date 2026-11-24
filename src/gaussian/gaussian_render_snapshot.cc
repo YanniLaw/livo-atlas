@@ -110,14 +110,13 @@ GaussianRenderSnapshot OnlineGaussianMapper::GetRenderSnapshot() const {
   GaussianRenderSnapshot result;
   result.session_id = session_id_;
   result.generation = generation_;
-  result.map_sequence = map_index_.sequence();
+  result.map_sequence = options_.persist_submaps ? map_index_.sequence() : 0;
   result.policy = options_.joint_render_policy;
-  if (poses_) {
-    result.pose_version = poses_->version;
-    result.frame_count = poses_->frame_count;
-    result.optimized_frame_count = poses_->optimized_frame_count;
-    result.parent_frame = poses_->parent_frame;
-  }
+  const auto frontier = map_index_.frontier();
+  result.pose_version = frontier.version;
+  result.frame_count = frontier.frame_count;
+  result.optimized_frame_count = frontier.optimized_frame_count;
+  result.parent_frame = frontier.parent_frame;
   // Derive lifecycle from current owner state, never from the last wait log.
   const bool disabled = !options_.enabled || !options_.joint_render_enabled ||
                         render_stats_.disabled;

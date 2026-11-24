@@ -19,7 +19,7 @@ class LivoSystem;
 class OnlineGaussianMapper;
 struct LivoConfig;
 struct OnlineGaussianOptions;
-struct OnlineSubmapUpdate;
+struct OnlineSubmapDelta;
 
 namespace ros1 {
 class GaussianRenderPublisher;
@@ -50,7 +50,7 @@ class OnlineGaussian {
   OnlineGaussian(const OnlineGaussian&) = delete;
   OnlineGaussian& operator=(const OnlineGaussian&) = delete;
 
-  void Observe(const OnlineSubmapUpdate& update);
+  void ObserveDelta(const OnlineSubmapDelta& update);
   void Poll();
   void FinishPublication();
   bool Finish(const OnlineGaussianOptions& options);

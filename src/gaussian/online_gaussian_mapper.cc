@@ -68,61 +68,6 @@ double Seconds(Clock::time_point start) {
   return std::chrono::duration<double>(Clock::now() - start).count();
 }
 
-void ValidateRevision(const OnlineSubmap& revision, const PoseSnapshot& poses) {
-  ValidateSubmap(revision.primary);
-  const bool sealed = revision.state == OnlineSubmapState::kSealed;
-  const auto& members = revision.primary.keyframe_ids;
-  if ((revision.state != OnlineSubmapState::kActive && !sealed) ||
-      members.size() > kMaxFrames || members.back() >= poses.frame_count ||
-      revision.membership_revision != members.size() + (sealed ? 1 : 0))
-    throw std::invalid_argument("Invalid Gaussian submap revision");
-}
-
-void ApplyRevision(std::optional<OnlineSubmap>* current,
-                   const OnlineSubmap& revision) {
-  const auto& members = revision.primary.keyframe_ids;
-  if (!*current) {
-    if (revision.primary.id != 0 || members != std::vector<std::uint64_t>{0} ||
-        revision.state != OnlineSubmapState::kActive ||
-        !revision.support_keyframe_ids.empty())
-      throw std::invalid_argument("Invalid initial Gaussian submap");
-    *current = revision;
-    return;
-  }
-  const auto& previous = **current;
-  const auto& old = previous.primary.keyframe_ids;
-  if (revision.primary.id == previous.primary.id + 1) {
-    const auto& support = revision.support_keyframe_ids;
-    if (previous.state != OnlineSubmapState::kSealed || members.size() != 1 ||
-        members.front() != old.back() + 1 ||
-        revision.state != OnlineSubmapState::kActive ||
-        support.size() > old.size() ||
-        !std::equal(support.begin(), support.end(), old.end() - support.size()))
-      throw std::invalid_argument("Invalid Gaussian submap boundary");
-    *current = revision;
-    return;
-  }
-  if (revision.primary.id != previous.primary.id ||
-      revision.primary.anchor_keyframe_id !=
-          previous.primary.anchor_keyframe_id ||
-      revision.support_keyframe_ids != previous.support_keyframe_ids)
-    throw std::invalid_argument("Invalid Gaussian submap identity");
-  const bool same =
-      revision.membership_revision == previous.membership_revision &&
-      revision.state == previous.state && members == old;
-  if (same) return;
-  const bool append = members.size() == old.size() + 1 &&
-                      revision.state == OnlineSubmapState::kActive;
-  const bool seal =
-      members == old && revision.state == OnlineSubmapState::kSealed;
-  if (previous.state != OnlineSubmapState::kActive ||
-      revision.membership_revision != previous.membership_revision + 1 ||
-      (!append && !seal) ||
-      !std::equal(old.begin(), old.end(), members.begin()))
-    throw std::invalid_argument("Invalid Gaussian membership revision");
-  *current = revision;
-}
-
 }  // namespace
 
 OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
@@ -137,15 +82,16 @@ OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
   if (!options_.enabled) return;
   const auto camera_error = ValidateCameraConfig(camera_);
   if (!camera_error.empty()) throw std::invalid_argument(camera_error);
-  poses_ = system.GetPoseSnapshot();
+  OnlineSubmapDelta initial;
+  initial.frontier = system.GetPoseFrontier();
   const auto view = system.GetKeyframeReadView();
-  if (!poses_ || poses_->frame_count || view.frame_count())
+  if (initial.frontier.frame_count || view.frame_count())
     throw std::invalid_argument(
         "Gaussian mapper requires a new keyframe session");
   ValidateOnlineGaussianPaths(options_, view.directory());
+  map_index_.ObserveDelta(initial);
   if (!fs::create_directory(options_.output_directory))
     throw std::runtime_error("Could not create Gaussian output directory");
-  if (options_.persist_submaps) map_index_.Observe({{}, {}, poses_, {}});
   state_sequence_ = 1;
   thread_ = std::thread(&OnlineGaussianMapper::Run, this);
 }
@@ -196,11 +142,22 @@ void OnlineGaussianMapper::Fail(const std::string& message) noexcept {
 bool OnlineGaussianMapper::IsCurrent(std::uint64_t generation,
                                      std::uint64_t submap_id,
                                      std::uint64_t pose_version) const {
-  return submap_ && poses_ && generation == generation_ &&
-         submap_id == submap_->primary.id && pose_version == poses_->version;
+  return submap_ && generation == generation_ &&
+         submap_id == submap_->primary.id &&
+         pose_version == map_index_.frontier().version;
 }
 
 void OnlineGaussianMapper::Observe(const OnlineSubmapUpdate& update) noexcept {
+  ObserveUpdate(&update, nullptr);
+}
+
+void OnlineGaussianMapper::ObserveDelta(
+    const OnlineSubmapDelta& update) noexcept {
+  ObserveUpdate(nullptr, &update);
+}
+
+void OnlineGaussianMapper::ObserveUpdate(
+    const OnlineSubmapUpdate* full, const OnlineSubmapDelta* delta) noexcept {
   if (!options_.enabled || finished_ || failed_) return;
   if (finalization_result_) {
     Fail("Observation after Gaussian finalization admission");
@@ -208,80 +165,57 @@ void OnlineGaussianMapper::Observe(const OnlineSubmapUpdate& update) noexcept {
   }
   const auto start = Clock::now();
   try {
-    if (options_.persist_submaps) {
-      ObserveSubmaps(update);
-      stats_.max_observe_seconds =
-          std::max(stats_.max_observe_seconds, Seconds(start));
-      return;
-    }
-    if (!update.poses)
+    if (full && !full->poses)
       throw std::invalid_argument("Missing Gaussian pose snapshot");
-    const auto& next = *update.poses;
-    if (next.frame_count > kMaxFrames) {
+    const auto& keyframe = full ? full->keyframe : delta->keyframe;
+    const auto& poses = full ? full->poses : delta->poses;
+    const auto next = full ? poses->frontier() : delta->frontier;
+    if (next.frame_count > kMaxFrames && !options_.persist_submaps) {
       ++stats_.resource_limited;
       Invalidate();
       Fail("Gaussian pose frontier exceeds 512 frames");
       return;
     }
-    ValidatePoseSnapshot(next);
-    if (poses_ && (next.version < poses_->version ||
-                   next.frame_count < poses_->frame_count ||
-                   next.optimized_frame_count < poses_->optimized_frame_count))
-      throw std::invalid_argument("Gaussian pose snapshot moved backwards");
-    if (poses_ && next.version == poses_->version) {
-      if (next.optimized_frame_count != poses_->optimized_frame_count)
-        throw std::invalid_argument(
-            "Gaussian pose frontier changed within a version");
-      for (std::size_t i = 0; i < poses_->poses.size(); ++i) {
-        if (!pose_math::Equal(poses_->poses[i].map_from_body,
-                              next.poses[i].map_from_body))
-          throw std::invalid_argument("Gaussian pose changed within a version");
-      }
-    }
-    if (update.revisions.size() > 2)
-      throw std::invalid_argument("Too many Gaussian submap revisions");
-    auto group = submap_;
-    bool found_keyframe = false;
-    for (const auto& revision : update.revisions) {
-      ValidateRevision(revision, next);
-      ApplyRevision(&group, revision);
-      const bool contains =
-          update.keyframe && !revision.primary.keyframe_ids.empty() &&
-          revision.primary.keyframe_ids.back() == update.keyframe->id;
-      if (contains) found_keyframe = true;
-    }
-    if (update.keyframe &&
-        (!found_keyframe || update.keyframe->id + 1 != next.frame_count))
-      throw std::invalid_argument(
-          "Gaussian keyframe is not the primary committed tail");
+    const bool changed_pose = next.version != map_index_.frontier().version;
+    if (full)
+      map_index_.Observe(*full);
+    else
+      map_index_.ObserveDelta(*delta);
+    const auto* entry = map_index_.LastEntry();
     const bool changed_group =
-        group && (!submap_ || group->primary.id != submap_->primary.id);
-    const bool changed_pose = poses_ && next.version != poses_->version;
-    if (changed_group || changed_pose) {
+        entry && (!submap_ || entry->group.primary.id != submap_->primary.id);
+    const bool reset =
+        !options_.persist_submaps && (changed_group || changed_pose);
+    if (reset) {
       if (generation_ == std::numeric_limits<std::uint64_t>::max())
         throw std::overflow_error("Gaussian generation overflow");
       ++generation_;
       Invalidate();
       if (changed_group) latest_keyframe_.reset();
     }
-    poses_ = update.poses;
-    submap_ = std::move(group);
-    if (update.keyframe) {
+    if (entry) submap_ = entry->group;
+    if (keyframe) {
       ++stats_.observed;
-      latest_keyframe_ = update.keyframe;
+      if (!options_.persist_submaps) latest_keyframe_ = keyframe;
     }
-    if ((update.keyframe || changed_pose || changed_group) &&
-        latest_keyframe_ && submap_) {
+    const auto& source = keyframe ? keyframe : latest_keyframe_;
+    if ((keyframe || reset) && source && submap_) {
       if (pending_) ++stats_.coalesced;
-      pending_ = Source{latest_keyframe_, poses_, *submap_,
-                        generation_,      0,      Clock::now()};
+      pending_ = Source{source, poses, *submap_, generation_, 0, Clock::now(),
+                        next};
       stats_.pending = stats_.peak_pending = 1;
     }
+    if (options_.persist_submaps && ready_ &&
+        (!entry || ready_->submap_id != entry->group.primary.id ||
+         ready_->pose_version != next.version ||
+         entry->availability != GaussianAvailability::kCurrent))
+      Invalidate();
     stats_.has_submap = submap_.has_value();
-    if (submap_) stats_.submap_id = submap_->primary.id;
+    stats_.submap_id = submap_ ? submap_->primary.id : 0;
     stats_.generation = generation_;
-    stats_.pose_version = poses_->version;
+    stats_.pose_version = next.version;
     ++state_sequence_;
+    RefreshRenderDemand();
   } catch (const std::exception& error) {
     Fail(error.what());
   } catch (...) {
@@ -411,7 +345,7 @@ void OnlineGaussianMapper::Dispatch() {
   } else if (!remote_known_ || remote_generation_ != generation_) {
     command.kind = CommandKind::kReset;
     command.generation = generation_;
-    command.pose_version = poses_ ? poses_->version : 0;
+    command.pose_version = map_index_.frontier().version;
     if (submap_) command.submap_id = submap_->primary.id;
   } else if (unsaved_) {
     command.kind = CommandKind::kSave;
@@ -419,7 +353,7 @@ void OnlineGaussianMapper::Dispatch() {
   } else if (state_sequence_ > saved_status_sequence_) {
     command.kind = CommandKind::kStatus;
     command.generation = generation_;
-    command.pose_version = poses_ ? poses_->version : 0;
+    command.pose_version = map_index_.frontier().version;
     command.state_sequence = state_sequence_;
     if (submap_) command.submap_id = submap_->primary.id;
     command.ready = ready_ && !saved_preview_name_.empty();
@@ -427,6 +361,12 @@ void OnlineGaussianMapper::Dispatch() {
   } else if (pending_) {
     command.kind = CommandKind::kView;
     command.source = *pending_;
+    if (!command.source.poses) {
+      command.source.poses = map_index_.GetPoseSnapshot();
+      if (!(command.source.poses->frontier() == command.source.frontier))
+        throw std::invalid_argument(
+            "Gaussian view frontier changed before dispatch");
+    }
     command.source.job_id = next_job_;
   } else {
     return;
@@ -930,7 +870,7 @@ void OnlineGaussianMapper::Run() noexcept {
                if (options_.persist_submaps) {
                  Id(out, "job_id", next_job_);
                  Id(out, "generation", generation_);
-                 Id(out, "pose_version", poses_ ? poses_->version : 0);
+                 Id(out, "pose_version", stats_.pose_version);
                  Id(out, "map_sequence", acknowledged_map_);
                  out << "incomplete"
                      << static_cast<int>(stats_.incomplete_shutdown);
@@ -945,8 +885,7 @@ void OnlineGaussianMapper::Run() noexcept {
           if (static_cast<int>(confirmation["schema"]) != 2 ||
               ReadId(confirmation["job_id"]) != next_job_ ||
               ReadId(confirmation["generation"]) != generation_ ||
-              ReadId(confirmation["pose_version"]) !=
-                  (poses_ ? poses_->version : 0) ||
+              ReadId(confirmation["pose_version"]) != stats_.pose_version ||
               ReadId(confirmation["map_sequence"]) != acknowledged_map_ ||
               static_cast<int>(confirmation["incomplete"]) !=
                   static_cast<int>(stats_.incomplete_shutdown))

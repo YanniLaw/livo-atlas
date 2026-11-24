@@ -91,6 +91,7 @@ GaussianFinalizationResult OnlineGaussianMapper::Finalize(
     rejected.reason = "invalid_budget";
     return rejected;
   }
+  PoseFrontier final_frontier;
   try {
     if (!system_.IsFinished()) {
       rejected.reason = "source_not_finished";
@@ -98,7 +99,7 @@ GaussianFinalizationResult OnlineGaussianMapper::Finalize(
     }
     const auto final = system_.GetPoseSnapshot();
     const auto map = map_index_.Snapshot();
-    if (!poses_ || !SamePoses(*final, *poses_) ||
+    if (!SamePoses(*final, *map_index_.GetPoseSnapshot()) ||
         map.frame_count != final->frame_count ||
         map.pose_version != final->version) {
       rejected.reason = "source_mismatch";
@@ -117,6 +118,7 @@ GaussianFinalizationResult OnlineGaussianMapper::Finalize(
       rejected.reason = "source_frontier_incomplete";
       return rejected;
     }
+    final_frontier = final->frontier();
   } catch (const std::exception& error) {
     rejected.reason = std::string(error.what()).substr(0, 1024);
     return rejected;
@@ -127,15 +129,14 @@ GaussianFinalizationResult OnlineGaussianMapper::Finalize(
 
   const auto started = Clock::now();
   finalization_deadline_ = started + timeout;
-  final_poses_ = poses_;
   finalization_result_ = rejected;
   auto& result = *finalization_result_;
   result.reason.clear();
   result.target_valid = true;
-  result.pose_version = final_poses_->version;
-  result.frame_count = final_poses_->frame_count;
-  result.optimized_frame_count = final_poses_->optimized_frame_count;
-  result.parent_frame = final_poses_->parent_frame;
+  result.pose_version = final_frontier.version;
+  result.frame_count = final_frontier.frame_count;
+  result.optimized_frame_count = final_frontier.optimized_frame_count;
+  result.parent_frame = final_frontier.parent_frame;
   result.before = Counters(stats_);
   pending_.reset();
   stats_.pending = 0;
@@ -146,7 +147,7 @@ GaussianFinalizationResult OnlineGaussianMapper::Finalize(
   try {
     for (;;) {
       if (failed_) break;
-      if (!system_.IsFinished() || !SamePoses(*final_poses_, *poses_))
+      if (!system_.IsFinished() || !(final_frontier == map_index_.frontier()))
         throw std::runtime_error("Finalization source changed");
       if (Clock::now() >= finalization_deadline_) {
         timed_out = true;

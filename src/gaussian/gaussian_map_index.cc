@@ -42,12 +42,13 @@ void ValidateGroup(const OnlineSubmap& group, std::uint64_t frontier) {
     throw std::invalid_argument("Invalid Gaussian support membership");
 }
 
-void ApplyRevision(std::vector<GaussianSubmapEntry>* entries,
-                   const OnlineSubmap& group) {
+void ApplyRevision(std::deque<GaussianSubmapEntry>* entries,
+                   const OnlineSubmap& group, std::size_t first_id = 0) {
   const auto id = group.primary.id;
   const auto& ids = group.primary.keyframe_ids;
-  if (id == entries->size()) {
-    if (entries->size() == kMaxFrames || ids.size() != 1 ||
+  const auto end_id = first_id + entries->size();
+  if (id == end_id) {
+    if (end_id == kMaxFrames || ids.size() != 1 ||
         group.state != OnlineSubmapState::kActive)
       throw std::invalid_argument("Invalid new Gaussian submap");
     if (entries->empty()) {
@@ -69,7 +70,7 @@ void ApplyRevision(std::vector<GaussianSubmapEntry>* entries,
     entries->push_back(std::move(entry));
     return;
   }
-  if (entries->empty() || id != entries->size() - 1)
+  if (entries->empty() || id != end_id - 1)
     throw std::invalid_argument("Gaussian revision is not the current group");
   auto& previous = entries->back().group;
   const auto& old = previous.primary.keyframe_ids;
@@ -181,20 +182,17 @@ void GaussianMapIndex::Observe(const OnlineSubmapUpdate& update) {
     throw std::invalid_argument("Gaussian observation exceeds metadata limits");
   const auto& next = *update.poses;
   ValidatePoseSnapshot(next);
-  if (poses_) {
-    if (next.version < poses_->version ||
-        next.frame_count < poses_->frame_count ||
-        next.optimized_frame_count < poses_->optimized_frame_count)
-      throw std::invalid_argument("Gaussian pose frontier moved backwards");
-    if (next.version == poses_->version) {
-      if (next.optimized_frame_count != poses_->optimized_frame_count)
-        throw std::invalid_argument(
-            "Gaussian optimized frontier changed within a version");
-      for (std::size_t i = 0; i < poses_->poses.size(); ++i)
-        if (!pose_math::Equal(poses_->poses[i].map_from_body,
+  if (next.version < poses_.version || next.frame_count < poses_.frame_count ||
+      next.optimized_frame_count < poses_.optimized_frame_count)
+    throw std::invalid_argument("Gaussian pose frontier moved backwards");
+  if (next.version == poses_.version) {
+    if (next.optimized_frame_count != poses_.optimized_frame_count)
+      throw std::invalid_argument(
+          "Gaussian optimized frontier changed within a version");
+    for (std::size_t i = 0; i < poses_.poses.size(); ++i)
+      if (!pose_math::Equal(poses_.poses[i].map_from_body,
                               next.poses[i].map_from_body))
-          throw std::invalid_argument("Gaussian pose changed within a version");
-    }
+        throw std::invalid_argument("Gaussian pose changed within a version");
   }
   auto entries = entries_;
   bool found = false;
@@ -209,25 +207,98 @@ void GaussianMapIndex::Observe(const OnlineSubmapUpdate& update) {
       (!found || update.keyframe->id + 1 != next.frame_count))
     throw std::invalid_argument(
         "Gaussian observation is not the committed primary tail");
+  for (auto& entry : entries) ReclassifyEntry(entry, next);
+  // Keep room for subsequent native appends at this version.
+  poses_.poses.reserve(kMaxFrames);
   Advance(&sequence_);
-  entries_ = std::move(entries);
-  poses_ = update.poses;
-  Reclassify();
+  poses_ = next;
+  entries_.swap(entries);
+  pose_snapshot_ = update.poses;
+}
+
+void GaussianMapIndex::ObserveDelta(const OnlineSubmapDelta& update) {
+  if (update.poses) {
+    if (!(update.poses->frontier() == update.frontier) || update.keyframe ||
+        update.appended_pose || !update.revisions.empty() ||
+        update.frontier.version <= poses_.version ||
+        update.frontier.base_version != poses_.version ||
+        update.frontier.frame_count != poses_.frame_count)
+      throw std::invalid_argument("Invalid Gaussian pose commit");
+    Observe({{}, {}, update.poses, {}});
+    return;
+  }
+
+  const auto prior = poses_.frame_count;
+  auto expected = poses_.frontier();
+  if (update.keyframe) ++expected.frame_count;
+  if (!(update.frontier == expected) || expected.frame_count > kMaxFrames ||
+      update.revisions.size() > 2 ||
+      bool(update.keyframe) != update.appended_pose.has_value() ||
+      (update.keyframe && update.keyframe->id != prior))
+    throw std::invalid_argument("Invalid Gaussian append or seal frontier");
+  if (update.appended_pose)
+    pose_math::ValidateSnapshotPose(*update.appended_pose,
+                                    update.frontier.tail_policy);
+
+  const auto first_id = entries_.empty() ? 0 : entries_.size() - 1;
+  std::deque<GaussianSubmapEntry> tail;
+  if (!entries_.empty()) tail.push_back(entries_.back());
+  for (const auto& revision : update.revisions) {
+    ValidateGroup(revision, expected.frame_count);
+    ApplyRevision(&tail, revision, first_id);
+  }
+  const auto covered =
+      tail.empty() ? 0 : tail.back().group.primary.keyframe_ids.back() + 1;
+  if (covered != expected.frame_count)
+    throw std::invalid_argument("Gaussian membership does not cover poses");
+
+  auto next_sequence = sequence_;
+  Advance(&next_sequence);
+  if (update.appended_pose) {
+    // The existing frame limit bounds the reservation and avoids history
+    // copies when the pose vector grows by one.
+    poses_.poses.reserve(kMaxFrames);
+    poses_.poses.push_back({prior, *update.appended_pose});
+    poses_.frame_count = expected.frame_count;
+  }
+  try {
+    for (auto& entry : tail) ReclassifyEntry(entry, poses_);
+    entries_.resize(first_id + tail.size());
+  } catch (...) {
+    if (update.appended_pose) {
+      poses_.poses.pop_back();
+      poses_.frame_count = prior;
+    }
+    throw;
+  }
+  for (std::size_t i = 0; i < tail.size(); ++i)
+    entries_[first_id + i] = std::move(tail[i]);
+  if (update.appended_pose) pose_snapshot_.reset();
+  sequence_ = next_sequence;
+}
+
+std::shared_ptr<const PoseSnapshot> GaussianMapIndex::GetPoseSnapshot() const {
+  if (!pose_snapshot_) pose_snapshot_ = std::make_shared<PoseSnapshot>(poses_);
+  return pose_snapshot_;
+}
+
+const GaussianSubmapEntry* GaussianMapIndex::LastEntry() const {
+  return entries_.empty() ? nullptr : &entries_.back();
 }
 
 GaussianTarget GaussianMapIndex::MakeTarget(std::uint64_t submap_id,
                                             std::uint64_t generation) const {
-  if (!poses_ || submap_id >= entries_.size())
+  if (submap_id >= entries_.size())
     throw std::invalid_argument("Unknown Gaussian target group");
-  return Target(session_id_, entries_[submap_id].group, *poses_, generation);
+  auto target = entries_[submap_id].binding;
+  target.frame_count = poses_.frame_count;
+  target.generation = generation;
+  return target;
 }
 
 bool GaussianMapIndex::CanTrain(std::uint64_t submap_id) const {
-  if (submap_id >= entries_.size()) return false;
-  if (entries_[submap_id].content) return true;
-  return std::count_if(entries_.begin(), entries_.end(), [](const auto& entry) {
-           return entry.content.has_value();
-         }) < static_cast<int>(kMaxSubmaps);
+  return submap_id < entries_.size() &&
+         (has_capacity_ || entries_[submap_id].content.has_value());
 }
 
 void GaussianMapIndex::RecordConfirmed(
@@ -245,9 +316,9 @@ void GaussianMapIndex::RecordConfirmed(
     const std::optional<GaussianRenderMetadata>& render_metadata) {
   ValidateGaussianTarget(target);
   const auto id = target.group.primary.id;
-  if (target.session_id != session_id_ || !poses_ || id >= entries_.size() ||
-      target.frame_count > poses_->frame_count ||
-      target.pose_version > poses_->version ||
+  if (target.session_id != session_id_ || id >= entries_.size() ||
+      target.frame_count > poses_.frame_count ||
+      target.pose_version > poses_.version ||
       !Prefix(target.group.primary.keyframe_ids,
               entries_[id].group.primary.keyframe_ids) ||
       !job_id || job_id <= entries_[id].binding_job_id || frame_ids.empty() ||
@@ -356,38 +427,41 @@ void GaussianMapIndex::MarkRepairAttempt(std::uint64_t submap_id) {
 }
 
 void GaussianMapIndex::Reclassify() {
-  const bool has_capacity =
+  has_capacity_ =
       std::count_if(entries_.begin(), entries_.end(), [](const auto& entry) {
         return entry.content.has_value();
       }) < static_cast<int>(kMaxSubmaps);
-  for (auto& entry : entries_) {
-    entry.binding =
-        Target(session_id_, entry.group, *poses_, entry.binding.generation);
-    if (!entry.content) {
-      entry.availability = GaussianAvailability::kMissing;
-      entry.reason = has_capacity ? "untrained" : "resource_limit";
-      continue;
-    }
-    const bool current = Unchanged(entry.content_target, *poses_);
-    entry.availability = current ? GaussianAvailability::kCurrent
-                                 : GaussianAvailability::kNeedsRebuild;
-    entry.reason = current ? "" : "primary_pose_changed";
-    entry.dirty = !entry.asset || entry.asset->content != *entry.content;
-    entry.asset_current = entry.asset && Unchanged(entry.asset_source, *poses_);
+  for (auto& entry : entries_) ReclassifyEntry(entry, poses_);
+}
+
+void GaussianMapIndex::ReclassifyEntry(GaussianSubmapEntry& entry,
+                                       const PoseSnapshot& poses) const {
+  entry.binding =
+      Target(session_id_, entry.group, poses, entry.binding.generation);
+  if (!entry.content) {
+    entry.availability = GaussianAvailability::kMissing;
+    entry.reason = has_capacity_ ? "untrained" : "resource_limit";
+    return;
   }
+  const bool current = Unchanged(entry.content_target, poses);
+  entry.availability = current ? GaussianAvailability::kCurrent
+                               : GaussianAvailability::kNeedsRebuild;
+  entry.reason = current ? "" : "primary_pose_changed";
+  entry.dirty = !entry.asset || entry.asset->content != *entry.content;
+  entry.asset_current = entry.asset && Unchanged(entry.asset_source, poses);
 }
 
 GaussianMapSnapshot GaussianMapIndex::Snapshot() const {
   GaussianMapSnapshot result;
   result.session_id = session_id_;
   result.map_sequence = sequence_;
-  if (poses_) {
-    result.pose_version = poses_->version;
-    result.frame_count = poses_->frame_count;
-    result.optimized_frame_count = poses_->optimized_frame_count;
-    result.parent_frame = poses_->parent_frame;
-  }
-  result.entries = entries_;
+  result.pose_version = poses_.version;
+  result.frame_count = poses_.frame_count;
+  result.optimized_frame_count = poses_.optimized_frame_count;
+  result.parent_frame = poses_.parent_frame;
+  result.entries.assign(entries_.begin(), entries_.end());
+  for (auto& entry : result.entries)
+    entry.binding.frame_count = result.frame_count;
   return result;
 }
 

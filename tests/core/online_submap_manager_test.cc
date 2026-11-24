@@ -122,6 +122,15 @@ TEST_F(OnlineSubmapManagerTest, DeltasCarryPosesOnlyAtPoseCommits) {
       EXPECT_FALSE(delta.poses);
       EXPECT_TRUE(delta.pose_changes.empty());
     }
+    if (delta.keyframe) {
+      ASSERT_TRUE(delta.appended_pose);
+      const auto& pose = full[i].poses->poses.back().map_from_body;
+      EXPECT_TRUE(delta.appended_pose->rotation.isApprox(pose.rotation));
+      EXPECT_TRUE(
+          delta.appended_pose->translation.isApprox(pose.translation));
+    } else {
+      EXPECT_FALSE(delta.appended_pose);
+    }
   }
   EXPECT_TRUE(deltas[0].keyframe);
   EXPECT_TRUE(deltas[1].keyframe);
