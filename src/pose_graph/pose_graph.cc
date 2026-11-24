@@ -1,13 +1,15 @@
 #include "pose_graph/pose_graph.h"
 
 #include <algorithm>
-#include <limits>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 
 #include "common/thread_pool.h"
 #include "common/timing.h"
+#include "livo_atlas/core/system_options.h"
 #include "pose_graph/loop_commit.h"
+#include "pose_graph/online_submap_archive.h"
 
 namespace livo_atlas::pose_graph {
 namespace {
@@ -20,29 +22,47 @@ void Require(bool condition, const char* message) {
 
 }  // namespace
 
-PoseGraph::PoseGraph(LoopAdmissionOptions options, LoopTaskRunner runner,
-                     bool stage_timing)
-    : options_(std::move(options)),
-      runner_(std::move(runner)),
-      stage_timing_(stage_timing),
+PoseGraph::PoseGraph(const SystemOptions& options)
+    : keyframes_(options.exporter.directory / "keyframes",
+                 options.frontend.calibration),
+      groups_(options.submaps.max_keyframes),
+      stage_timing_(options.stage_timing),
       thread_pool_(std::make_unique<ThreadPool>(1)) {
-  Require(static_cast<bool>(runner_), "Missing loop task runner");
+  if (options.max_pending_keyframes)
+    options_.max_pending_keyframes = *options.max_pending_keyframes;
+  if (!options.submaps.enabled) return;
+  const auto directory = options.exporter.directory / "keyframes";
+  if (options.submap_mode == SubmapMode::kOnline) {
+    online_ = std::make_unique<OnlineSubmapArchive>(
+        directory / "online_submaps", keyframes_,
+        options.submaps.max_keyframes, options.online_submaps);
+  } else {
+    group_store_ = std::make_unique<SubmapStore>(
+        directory / "submaps", keyframes_,
+        options.submaps.max_keyframes);
+  }
 }
 
 PoseGraph::~PoseGraph() { Stop(); }
 
-void PoseGraph::CheckInputCapacity() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (progress_.failure) std::rethrow_exception(progress_.failure);
-  if (stopping_) throw std::logic_error("Pose graph has stopped");
-  if (queued_keyframes_ >= options_.max_pending_keyframes)
-    throw std::overflow_error("pose_graph.max_pending_keyframes exceeded");
+KeyframeReadView PoseGraph::InitialReadView() const {
+  return keyframes_.CaptureReadView();
+}
+
+void PoseGraph::EnableLoops(LoopAdmissionOptions options, LoopTaskRunner runner,
+                            bool standalone) {
+  // Registration precedes the first queued archive operation.
+  Require(static_cast<bool>(runner), "Missing loop task runner");
+  journal_ = std::make_unique<LoopClosureStore>(InitialReadView(), options);
+  options_ = std::move(options);
+  runner_ = std::move(runner);
+  standalone_ = standalone;
 }
 
 void PoseGraph::Enqueue(WorkItem item, bool keyframe) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (progress_.failure) std::rethrow_exception(progress_.failure);
-  if (stopping_) return;
+  if (failure_) std::rethrow_exception(failure_);
+  if (stopping_) throw std::logic_error("Pose graph has stopped");
   if (keyframe && queued_keyframes_ >= options_.max_pending_keyframes)
     throw std::overflow_error("pose_graph.max_pending_keyframes exceeded");
   queue_.push_back(std::move(item));
@@ -51,35 +71,89 @@ void PoseGraph::Enqueue(WorkItem item, bool keyframe) {
     peak_queued_keyframes_ =
         std::max(peak_queued_keyframes_, queued_keyframes_);
   }
+  idle_ = false;
   ScheduleDrainLocked();
 }
 
-void PoseGraph::AddObservation(Observation observation) {
-  const bool keyframe = observation.keyframe.has_value();
+void PoseGraph::AddKeyframe(std::shared_ptr<const Keyframe> keyframe) {
   Enqueue({StartTiming(stage_timing_),
-           [this, observation = std::move(observation)] {
-             if (observation.keyframe) {
-               std::lock_guard<std::mutex> lock(mutex_);
-               --queued_keyframes_;
-             }
-             RecordObservation(observation);
+           [this, keyframe = std::move(keyframe)]() mutable {
+             Append(std::move(keyframe));
              return WorkItem::Result::kDoNotRunOptimization;
            }},
-          keyframe);
+          /*keyframe=*/true);
 }
 
-void PoseGraph::SetReadView(KeyframeReadView view) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (progress_.failure || stopping_ ||
-      (read_view_ && read_view_->frame_count() == view.frame_count()))
-    return;
-  read_view_ = std::move(view);
-  view_changed_ = true;
-  ScheduleDrainLocked();
+std::shared_ptr<const ControlReceipt> PoseGraph::EnqueueControl(
+    std::function<std::exception_ptr()> task) {
+  auto receipt = std::make_shared<ControlReceipt>();
+  Enqueue({{}, [this, task = std::move(task), receipt] {
+             auto rejection = task();
+             {
+               std::lock_guard<std::mutex> lock(mutex_);
+               receipt->rejection_ = std::move(rejection);
+               receipt->done_ = true;
+             }
+             condition_.notify_all();
+             return WorkItem::Result::kDoNotRunOptimization;
+           }},
+          /*keyframe=*/false);
+  return receipt;
+}
+
+std::shared_ptr<const ControlReceipt> PoseGraph::SealInput() {
+  return EnqueueControl([this]() -> std::exception_ptr {
+    if (online_) {
+      auto view = keyframes_.CaptureReadView();
+      if (auto update = online_->SealInput()) {
+        RecordMembership(update->revisions);
+        Publish({std::move(view), std::move(update), online_->correction()});
+      }
+    } else if (group_store_) {
+      if (const auto tail = groups_.Finish()) group_store_->Append(*tail);
+    }
+    return {};
+  });
+}
+
+std::shared_ptr<const ControlReceipt> PoseGraph::ApplyPoseUpdate(
+    PoseUpdate update) {
+  return EnqueueControl(
+      [this, update = std::move(update)]() -> std::exception_ptr {
+        const auto start = StartTiming(stage_timing_);
+        std::shared_ptr<const PoseSnapshot> candidate;
+        try {
+          candidate = std::make_shared<const PoseSnapshot>(
+              online_->PreparePoseUpdate(update));
+        } catch (const std::invalid_argument&) {
+          // A stale or malformed external proposal leaves the writer open.
+          return std::current_exception();
+        } catch (const std::overflow_error&) {
+          return std::current_exception();
+        }
+        auto view = keyframes_.CaptureReadView();
+        auto delta = online_->WritePoses(std::move(candidate));
+        Publish({std::move(view), std::move(delta), online_->correction()});
+        LogStageTiming("pose_commit", start);
+        return {};
+      });
+}
+
+std::shared_ptr<const ControlReceipt> PoseGraph::FinishArchive() {
+  return EnqueueControl([this]() -> std::exception_ptr {
+    if (journal_ && !standalone_abandoned_) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stats_.peak_queued_keyframes = peak_queued_keyframes_;
+      }
+      journal_->Finish(stats_);
+    }
+    return {};
+  });
 }
 
 void PoseGraph::ScheduleDrainLocked() {
-  if (drain_scheduled_ || stopping_ || progress_.failure) return;
+  if (drain_scheduled_ || awaiting_delivery_ || stopping_ || failure_) return;
   auto task = std::make_unique<Task>();
   task->SetWorkItem([this] { Drain(); });
   thread_pool_->Schedule(std::move(task));
@@ -89,48 +163,78 @@ void PoseGraph::ScheduleDrainLocked() {
 
 void PoseGraph::Drain() noexcept {
   try {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      view_changed_ = false;
-    }
     for (int count = 0; count < kMaxWorkItemsPerDrain; ++count) {
       WorkItem item;
       {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (queue_.empty() || stopping_ || progress_.failure) break;
-        item = std::move(queue_.front());
-        queue_.pop_front();
+        if (standalone_abandoned_) {
+          pending_.reset();
+          active_query_.reset();
+        }
+        if (awaiting_delivery_ || stopping_ || failure_) break;
+        if (!query_report_) {
+          if (queue_.empty()) break;
+          item = std::move(queue_.front());
+          queue_.pop_front();
+        }
       }
-      LogStageTiming("pose_graph_queue_wait", item.time);
-      item.task();
+      if (item.task) {
+        LogStageTiming("pose_graph_queue_wait", item.time);
+        item.task();
+      } else {
+        WriteQueryReport();
+      }
+      WriteLoopEvents();
     }
     Dispatch();
     {
       std::lock_guard<std::mutex> lock(mutex_);
       published_stats_ = stats_;
       drain_scheduled_ = false;
-      if (!queue_.empty() || view_changed_) ScheduleDrainLocked();
-      idle_ = !drain_scheduled_ && !active_query_ && !pending_;
+      if (standalone_abandoned_) {
+        pending_.reset();
+        active_query_.reset();
+      }
+      // A delivery acknowledgement or first standalone poll can arrive
+      // after Dispatch checked its conditions and before this drain exits.
+      if (!queue_.empty() || query_report_ || CanDispatchLocked())
+        ScheduleDrainLocked();
+      idle_ = !drain_scheduled_ && !awaiting_delivery_ && !active_query_ &&
+              !pending_;
     }
     condition_.notify_all();
   } catch (...) {
-    RecordFailure(std::current_exception());
+    Cancel(std::current_exception());
   }
 }
 
-void PoseGraph::RecordFailure(std::exception_ptr error) noexcept {
+void PoseGraph::Publish(ArchiveCommit commit, bool appended_keyframe) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!progress_.failure) progress_.failure = std::move(error);
+    if (appended_keyframe) --queued_keyframes_;
+    publication_.emplace(std::move(commit));
+    awaiting_delivery_ = true;
+    published_stats_ = stats_;
   }
   condition_.notify_all();
 }
 
-Progress PoseGraph::TakeProgress() {
+ArchiveProgress PoseGraph::TakeProgress() {
   std::lock_guard<std::mutex> lock(mutex_);
-  return {std::exchange(progress_.coalesced, std::nullopt),
-          std::exchange(progress_.limit, std::nullopt),
-          std::exchange(progress_.completion, std::nullopt), progress_.failure};
+  return {std::exchange(publication_, std::nullopt), failure_};
+}
+
+void PoseGraph::AcknowledgeCommit() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  awaiting_delivery_ = false;
+  ScheduleDrainLocked();
+}
+
+std::optional<std::exception_ptr> PoseGraph::CheckControl(
+    const ControlReceipt& receipt) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!receipt.done_) return std::nullopt;
+  return receipt.rejection_;
 }
 
 LoopSessionStats PoseGraph::GetStats() const {
@@ -142,16 +246,31 @@ LoopSessionStats PoseGraph::GetStats() const {
 
 bool PoseGraph::Drained() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return idle_ && !progress_.coalesced && !progress_.limit &&
-         !progress_.completion && !progress_.failure;
+  return idle_ && !failure_;
 }
 
-void PoseGraph::Wait() {
+void PoseGraph::Wait(const ControlReceipt* receipt, bool poll_standalone) {
   std::unique_lock<std::mutex> lock(mutex_);
-  condition_.wait(lock, [this] {
-    return idle_ || stopping_ || progress_.failure || progress_.coalesced ||
-           progress_.limit || progress_.completion;
+  condition_.wait(lock, [this, receipt, poll_standalone] {
+    return idle_ || stopping_ || failure_ || publication_ ||
+           (receipt && receipt->done_) ||
+           (poll_standalone && standalone_result_);
   });
+}
+
+void PoseGraph::RethrowFailure() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (failure_) std::rethrow_exception(failure_);
+}
+
+std::exception_ptr PoseGraph::Cancel(std::exception_ptr error) noexcept {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!failure_) failure_ = std::move(error);
+    error = failure_;
+  }
+  condition_.notify_all();
+  return error;
 }
 
 void PoseGraph::Stop() {
@@ -163,100 +282,70 @@ void PoseGraph::Stop() {
   }
   condition_.notify_all();
   pool.reset();
+  // Finish can still take a durable publication after a terminal error.
+  queue_.clear();
+  standalone_result_.reset();
+  query_report_.reset();
+  if (journal_ && failure_ && !failure_written_) {
+    journal_->WriteFailure(failure_);
+    failure_written_ = true;
+  }
 }
 
-void PoseGraph::RecordObservation(const Observation& observation) {
-  const auto& frontier = observation.frontier;
-  const auto& keyframe = observation.keyframe;
-  const auto count = stats_.frame_count + (keyframe ? 1 : 0);
-  Require(frontier.frame_count == count &&
-              frontier.version == stats_.pose_version,
-          "Pose graph observations are not consecutive");
-  stats_.frame_count = count;
-  for (const auto& group : observation.revisions) {
+void PoseGraph::Append(std::shared_ptr<const Keyframe> keyframe) {
+  if (journal_) {
+    Require(!stats_.frame_count || keyframe->timestamp >= latest_timestamp_,
+            "Observed raw keyframes are not ordered");
+    latest_timestamp_ = keyframe->timestamp;
+    if (!budget_stopped_) timestamps_.push_back(keyframe->timestamp);
+  }
+  const auto write_start = StartTiming(stage_timing_);
+  keyframes_.Append(*keyframe);
+  auto view = keyframes_.CaptureReadView();
+  LogStageTiming("keyframe_write", write_start);
+  std::optional<OnlineSubmapDelta> update;
+  if (online_) {
+    update = online_->Append(std::move(keyframe));
+  } else if (group_store_) {
+    if (const auto group = groups_.AddKeyframe(keyframe->id))
+      group_store_->Append(*group);
+  }
+  stats_.frame_count = view.frame_count();
+  const auto correction = online_ ? online_->correction() : std::nullopt;
+  if (update) {
+    // These bounded revisions also update the loop candidate index.
+    RecordMembership(update->revisions);
+  }
+  Publish({std::move(view), std::move(update), correction},
+          /*appended_keyframe=*/true);
+}
+
+void PoseGraph::RecordMembership(const std::vector<OnlineSubmap>& revisions) {
+  if (!journal_) return;
+  for (const auto& group : revisions) {
     if (group.state == OnlineSubmapState::kSealed)
       latest_query_ = group.primary.id;
   }
-  if (count > options_.max_keyframes || stats_.accepted >= options_.max_loops)
-    StopDispatch();
+  if (stats_.frame_count > options_.max_keyframes) StopDispatch();
   if (budget_stopped_) return;
-
-  if (observation.poses) {
-    ValidatePoseSnapshot(*observation.poses);
-    Require(observation.poses->frontier() == frontier,
-            "Observed pose snapshot does not match its frontier");
-    poses_ = *observation.poses;
-  } else {
-    auto expected = poses_.frontier();
-    expected.frame_count = count;
-    Require(frontier == expected, "Pose graph append changed the version");
-    if (keyframe) {
-      Require(keyframe->parent_from_body.has_value(),
-              "Missing resolved keyframe pose");
-      poses_.poses.push_back({keyframe->id, *keyframe->parent_from_body});
-      poses_.frame_count = count;
+  for (const auto& group : revisions) {
+    const auto id = group.primary.id;
+    if (id == submaps_.size()) {
+      submaps_.push_back(group);
+    } else {
+      submaps_.back() = group;
     }
+    if (group.state == OnlineSubmapState::kSealed) QueueQuery(id);
   }
-  if (keyframe) {
-    raw_poses_.push_back(keyframe->odom_from_body);
-    timestamps_.push_back(keyframe->timestamp);
-  }
-  for (const auto& group : observation.revisions) RecordMembership(group);
-}
-
-void PoseGraph::RecordMembership(const OnlineSubmap& group) {
-  ValidateSubmap(group.primary);
-  const auto id = group.primary.id;
-  Require(id <= submaps_.size() &&
-              group.primary.keyframe_ids.size() <= kMaxGeometryKeyframes &&
-              group.primary.keyframe_ids.back() < stats_.frame_count &&
-              group.support_keyframe_ids.size() <= kMaxGeometryKeyframes &&
-              (group.state == OnlineSubmapState::kActive ||
-               group.state == OnlineSubmapState::kSealed),
-          "Invalid observed online membership");
-  if (id == submaps_.size()) {
-    Require(group.membership_revision == 1 &&
-                group.state == OnlineSubmapState::kActive &&
-                group.primary.keyframe_ids.size() == 1 &&
-                (submaps_.empty()
-                     ? group.primary.keyframe_ids.front() == 0
-                     : submaps_.back().state == OnlineSubmapState::kSealed &&
-                           group.primary.keyframe_ids.front() ==
-                               submaps_.back().primary.keyframe_ids.back() + 1),
-            "Observed new submap does not extend the sealed prefix");
-    submaps_.push_back(group);
-  } else {
-    auto& previous = submaps_[id];
-    Require(id + 1 == submaps_.size() &&
-                previous.state == OnlineSubmapState::kActive &&
-                previous.membership_revision !=
-                    std::numeric_limits<std::uint64_t>::max() &&
-                group.membership_revision == previous.membership_revision + 1 &&
-                group.primary.anchor_keyframe_id ==
-                    previous.primary.anchor_keyframe_id &&
-                group.support_keyframe_ids == previous.support_keyframe_ids,
-            "Observed membership revision changed sealed history");
-    const auto& old = previous.primary.keyframe_ids;
-    const auto& next = group.primary.keyframe_ids;
-    Require(group.state == OnlineSubmapState::kSealed
-                ? old == next
-                : next.size() == old.size() + 1 &&
-                      std::equal(old.begin(), old.end(), next.begin()),
-            "Observed membership revision does not append or seal");
-    previous = group;
-  }
-  if (group.state == OnlineSubmapState::kSealed) QueueQuery(id);
 }
 
 void PoseGraph::QueueQuery(std::uint64_t query_id) {
   if (budget_stopped_) return;
   if (pending_ && *pending_ != query_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto& skipped = progress_.coalesced;
-    if (!skipped) skipped = CoalescedQueries{*pending_, *pending_, 0};
-    skipped->first = std::min(skipped->first, *pending_);
-    skipped->last = std::max(skipped->last, *pending_);
-    ++skipped->count;
+    if (!coalesced_) coalesced_ = CoalescedQueries{*pending_, *pending_, 0};
+    coalesced_->first = std::min(coalesced_->first, *pending_);
+    coalesced_->last = std::max(coalesced_->last, *pending_);
+    ++coalesced_->count;
     ++stats_.skipped;
   }
   pending_ = query_id;
@@ -268,52 +357,60 @@ void PoseGraph::StopDispatch() {
   budget_stopped_ = true;
   pending_.reset();
   ++stats_.resource_limited;
-  std::lock_guard<std::mutex> lock(mutex_);
-  progress_.limit = ResourceLimit{latest_query_, stats_.frame_count};
+  resource_limit_query_ = latest_query_;
+}
+
+void PoseGraph::WriteLoopEvents() {
+  if (coalesced_) {
+    journal_->WriteCoalesced(coalesced_->first, coalesced_->last,
+                             coalesced_->count);
+    coalesced_.reset();
+  }
+  if (resource_limit_query_) {
+    journal_->WriteResourceLimit(*resource_limit_query_, stats_.frame_count);
+    resource_limit_query_.reset();
+  }
 }
 
 LoopAdmissionInput PoseGraph::CurrentInput(std::uint64_t query_id) const {
-  Require(poses_.frame_count == stats_.frame_count &&
-              poses_.version == stats_.pose_version &&
-              raw_poses_.size() == stats_.frame_count &&
-              timestamps_.size() == stats_.frame_count,
-          "Pose graph is missing committed frames");
   LoopAdmissionInput input;
   input.query_id = query_id;
-  input.poses = poses_;
-  input.raw_poses = raw_poses_;
+  input.poses = online_->MaterializePoses();
+  input.raw_poses = online_->raw_poses();
   input.accepted_loops = accepted_loops_;
   for (const auto& group : submaps_) {
     if (group.state != OnlineSubmapState::kSealed) break;
     input.submaps.push_back(
         {group, timestamps_.at(group.primary.keyframe_ids.front()),
          timestamps_.at(group.primary.keyframe_ids.back()),
-         poses_.poses.at(group.primary.anchor_keyframe_id).map_from_body,
-         poses_.version, poses_.frame_count, poses_.optimized_frame_count});
+         input.poses.poses.at(group.primary.anchor_keyframe_id).map_from_body,
+         input.poses.version, input.poses.frame_count,
+         input.poses.optimized_frame_count});
   }
   Require(query_id < input.submaps.size(), "Unknown pending loop query");
   return input;
 }
 
+bool PoseGraph::CanDispatchLocked() const {
+  return pending_ && !active_query_ && !query_report_ && !stopping_ &&
+         !failure_ && !awaiting_delivery_ && queue_.empty() &&
+         !standalone_abandoned_ && (!standalone_ || standalone_polling_);
+}
+
 void PoseGraph::Dispatch() {
-  if (!pending_ || active_query_) return;
-  std::optional<KeyframeReadView> view;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopping_ || !queue_.empty() || !read_view_ ||
-        read_view_->frame_count() != stats_.frame_count)
-      return;
-    view = read_view_;
+    if (!CanDispatchLocked()) return;
   }
   LoopTask query{stats_.submitted + 1, CurrentInput(*pending_), timestamps_,
-                 std::move(*view)};
+                 keyframes_.CaptureReadView()};
   auto payload = std::make_shared<LoopTaskResult>(
       LoopTaskResult{std::move(query), {}, {}});
   auto task = std::make_unique<Task>();
   task->SetWorkItem([this, payload] { RunQuery(payload); });
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopping_) return;
+    if (!CanDispatchLocked()) return;
     thread_pool_->Schedule(std::move(task));
   }
   dispatch_time_ = StartTiming(stage_timing_);
@@ -326,7 +423,7 @@ void PoseGraph::Dispatch() {
 void PoseGraph::RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopping_ || progress_.failure) return;
+    if (stopping_ || failure_ || standalone_abandoned_) return;
   }
   try {
     payload->admission = runner_(payload->task);
@@ -334,24 +431,84 @@ void PoseGraph::RunQuery(std::shared_ptr<LoopTaskResult> payload) noexcept {
     payload->error = std::current_exception();
   }
   try {
-    // A completion follows already queued observations even on a full queue.
-    Enqueue({{},
-             [this, payload = std::move(payload)] {
-               Complete(payload);
-               return WorkItem::Result::kDoNotRunOptimization;
-             }},
-            /*keyframe=*/false);
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (stopping_ || failure_ || standalone_abandoned_) return;
+      if (standalone_) {
+        standalone_result_ = std::move(payload);
+      } else {
+        // The completion follows earlier frames even on a full input queue.
+        queue_.push_back(CompletionWork(std::move(payload)));
+        ScheduleDrainLocked();
+      }
+    }
+    condition_.notify_all();
   } catch (...) {
-    RecordFailure(std::current_exception());
+    Cancel(std::current_exception());
+  }
+}
+
+WorkItem PoseGraph::CompletionWork(
+    std::shared_ptr<const LoopTaskResult> result) {
+  return {{}, [this, result = std::move(result)]() mutable {
+            Complete(std::move(result));
+            return WorkItem::Result::kDoNotRunOptimization;
+          }};
+}
+
+void PoseGraph::PollStandalone() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (failure_) std::rethrow_exception(failure_);
+  if (standalone_result_) {
+    queue_.push_back(CompletionWork(std::move(standalone_result_)));
+    ScheduleDrainLocked();
+  } else if (!standalone_polling_) {
+    standalone_polling_ = true;
+    ScheduleDrainLocked();
+  }
+}
+
+void PoseGraph::AbandonStandalone() noexcept {
+  try {
+    std::lock_guard<std::mutex> lock(mutex_);
+    standalone_abandoned_ = true;
+    standalone_result_.reset();
+    ScheduleDrainLocked();
+  } catch (...) {
+    Cancel(std::current_exception());
   }
 }
 
 void PoseGraph::Complete(std::shared_ptr<const LoopTaskResult> result) {
+  if (!active_query_) return;
   const auto disposition = Classify(*result);
-  std::lock_guard<std::mutex> lock(mutex_);
-  Require(active_query_ && !progress_.completion,
-          "Pose graph has no slot for a loop completion");
-  progress_.completion = Completion{std::move(result), disposition};
+  if (disposition == LoopDisposition::kFailed) {
+    try {
+      journal_->WriteQuery(*result, disposition, stats_.pose_version,
+                           stats_.frame_count);
+    } catch (...) {
+      // The original worker exception owns terminal failure.
+    }
+    std::rethrow_exception(result->error);
+  }
+  if (disposition == LoopDisposition::kAccepted) {
+    const auto start = StartTiming(stage_timing_);
+    auto view = keyframes_.CaptureReadView();
+    auto candidate = std::make_shared<const PoseSnapshot>(
+        online_->PreparePoseUpdate(result->admission->proposal->update));
+    journal_->WritePrepared(*result, *candidate);
+    auto delta = online_->WritePoses(std::move(candidate));
+    stats_.pose_version = delta.frontier.version;
+    RecordDisposition(disposition);
+    // Keep the accepted version available if delivery or reporting fails.
+    query_report_ = QueryReport{std::move(result), disposition};
+    Publish({std::move(view), std::move(delta), online_->correction()});
+    LogStageTiming("pose_commit", start);
+  } else {
+    journal_->WriteQuery(*result, disposition, stats_.pose_version,
+                         stats_.frame_count);
+    RecordDisposition(disposition);
+  }
 }
 
 LoopDisposition PoseGraph::Classify(const LoopTaskResult& result) {
@@ -404,31 +561,11 @@ LoopDisposition PoseGraph::Classify(const LoopTaskResult& result) {
   return LoopDisposition::kAccepted;
 }
 
-void PoseGraph::Acknowledge(LoopDisposition disposition,
-                            std::shared_ptr<const PoseSnapshot> poses) {
-  Enqueue({{},
-           [this, disposition, poses = std::move(poses)] {
-             ApplyAcknowledgement(disposition, poses);
-             return WorkItem::Result::kDoNotRunOptimization;
-           }},
-          /*keyframe=*/false);
-}
-
-void PoseGraph::ApplyAcknowledgement(
-    LoopDisposition disposition,
-    const std::shared_ptr<const PoseSnapshot>& poses) {
-  Require(active_query_.has_value(), "Unexpected pose graph acknowledgement");
+void PoseGraph::RecordDisposition(LoopDisposition disposition) {
   switch (disposition) {
     case LoopDisposition::kAccepted:
-      Require(poses && poses->frame_count == stats_.frame_count &&
-                  poses->version == stats_.pose_version + 1 &&
-                  next_loops_.size() == accepted_loops_.size() + 1,
-              "Published loop poses do not match the graph frontier");
-      poses_ = *poses;
-      stats_.pose_version = poses->version;
       accepted_loops_.swap(next_loops_);
       ++stats_.accepted;
-      if (stats_.accepted >= options_.max_loops) StopDispatch();
       break;
     case LoopDisposition::kStale:
       ++stats_.stale;
@@ -444,11 +581,18 @@ void PoseGraph::ApplyAcknowledgement(
       ++stats_.detected;
       break;
     case LoopDisposition::kFailed:
-      throw std::logic_error("Cannot acknowledge a failed loop task");
+      throw std::logic_error("Cannot record a failed loop task");
   }
   next_loops_.clear();
   ++stats_.completed;
   active_query_.reset();
+}
+
+void PoseGraph::WriteQueryReport() {
+  journal_->WriteQuery(*query_report_->result, query_report_->disposition,
+                       stats_.pose_version, stats_.frame_count);
+  query_report_.reset();
+  if (stats_.accepted >= options_.max_loops) StopDispatch();
 }
 
 }  // namespace livo_atlas::pose_graph

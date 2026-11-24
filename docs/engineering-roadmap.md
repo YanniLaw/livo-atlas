@@ -28,11 +28,11 @@ C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在�
 [共用主入口](../src/app/livo_main.cc) · [Humble 节点](../src/ros2/livo_node.cc) ·
 [回环所有权与停止](online-loop-backend.md#sdk-所有权与停止)
 
-回环使用 Cartographer 2.0.0 的 `ThreadPool`、`Task` 和 `WorkQueue`。位姿图的单线程执行线
-依序登记观测、调度回环和验收提案。几何验证和 GTSAM 试算在交接锁外执行。
-`LoopBackend::Poll()` 在系统所有者线程写入 `prepared` 和正式位姿，再把发布结果交回位姿图。
+位姿图使用 Cartographer 2.0.0 的 `ThreadPool`、`Task` 和 `WorkQueue`。单线程执行线
+依序写入观测及成员修订、调度回环、验收提案并提交正式位姿。几何验证、GTSAM 试算和写入在交接锁外执行。
+`LivoSystem` 收取已提交前沿并向 SDK、轨迹、几何地图和高斯输出交付。
 [Cartographer 来源与许可](cartographer-scheduler.md) ·
-[位姿图队列与提案验收](../src/pose_graph/pose_graph.cc) · [系统发布边界](../src/pose_graph/loop_backend.cc)
+[位姿图与归档](../src/pose_graph/pose_graph.cc) · [系统发布边界](../src/core/livo_system.cc)
 
 线程池和日志迁移后，Noetic 完整回放的轨迹、前端数值输出和原始关键帧与 C4c 均匀采样侧一致。
 13 次回环查询均完成，接纳 2 次，位姿版本为 2，13 个高斯子地图完成封口。工作区记录位于

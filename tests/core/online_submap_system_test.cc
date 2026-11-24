@@ -203,6 +203,7 @@ TEST(OnlineSubmapSystemTest, FailedRevisionPublishesNoPartialEvent) {
     EXPECT_THROW(Feed(system, 4), std::runtime_error);
     EXPECT_EQ(events, committed_events);
     EXPECT_EQ(system.GetPoseSnapshot()->frame_count, last->frame_count);
+    EXPECT_EQ(system.GetKeyframeReadView().frame_count(), last->frame_count);
     EXPECT_THROW(system.Finish(), std::runtime_error);
   }
   fs::remove_all(options.exporter.directory);

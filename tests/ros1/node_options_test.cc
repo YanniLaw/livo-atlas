@@ -280,6 +280,8 @@ TEST_F(Ros1ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
 
 TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   EXPECT_FALSE(ReadNodeOptions(*node_).livo.system.loop_closure);
+  node_->setParam("pose_graph/max_pending_keyframes", 4);
+  EXPECT_EQ(ReadNodeOptions(*node_).livo.system.max_pending_keyframes, 4u);
   node_->setParam("loop_closure/options_file", "/nonexistent/ignored-loop.yml");
   EXPECT_NO_THROW(ReadNodeOptions(*node_));
   node_->deleteParam("loop_closure/options_file");
@@ -290,7 +292,6 @@ TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   node_->setParam("submaps/mode", "online");
   node_->setParam("submaps/max_keyframes", 64);
   node_->setParam("loop_closure/search/search_radius_m", 12.5);
-  node_->setParam("pose_graph/max_pending_keyframes", 4);
   const auto config = ReadNodeOptions(*node_).livo;
   ASSERT_TRUE(config.system.loop_closure);
   EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);

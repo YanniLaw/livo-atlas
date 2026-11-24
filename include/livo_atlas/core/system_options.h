@@ -1,6 +1,7 @@
 #ifndef LIVO_ATLAS_CORE_SYSTEM_OPTIONS_H_
 #define LIVO_ATLAS_CORE_SYSTEM_OPTIONS_H_
 
+#include <cstddef>
 #include <optional>
 
 #include "livo_atlas/backend/loop_admission.h"
@@ -60,6 +61,9 @@ struct SystemOptions {
   std::optional<LoopAdmissionOptions> loop_closure;
   SensorBufferOptions sensor_buffer;
   bool stage_timing = false;
+  // Applies to all keyframe archives. An unset value uses the loop options
+  // when present, or the default queue capacity otherwise.
+  std::optional<std::size_t> max_pending_keyframes;
 };
 
 // Validates configuration and fills derived output mode/calibration without

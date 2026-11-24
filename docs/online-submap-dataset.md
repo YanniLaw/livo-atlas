@@ -78,6 +78,9 @@ stored_frame_count=3、frame_count=4、optimized_frame_count=2。
 records/ID/REVISION.yml 保存不可变成员修订，poses/VERSION.yml 保存冻结优化快照。
 原始关键帧、旧 submaps/ 和旧 poses/ 的 schema 与用途保持。
 
+在线会话的原始帧、成员修订和正式位姿由位姿图串行写入。`ProcessNext()` 返回前端进度，
+SDK 的读取视图与回调随已提交前沿推进。`Finish()` 等待存档和必要交付完成。
+
 修订采用 checked-close 和同目录 rename。原始帧与多个索引文件之间没有跨文件事务，
 也没有断电 fsync 保证。读者忽略 pending 文件，报告仍活动的组及未索引尾部；不恢复追加，
 不自动补组或封存。成功检查表示已提交前缀一致，不表示上次运行正常结束。

@@ -249,7 +249,7 @@ class GlobalNodeTest : public GlobalOutputTest {
     system_ = std::make_unique<LivoSystem>(parameters.livo.system);
     mapper_ = std::make_unique<LivoNode>(*node_, parameters, *system_, [this] {
       ++polls_;
-      if (pending_shift_ != 0) {
+      if (pending_shift_ != 0 && system_->GetPoseFrontier().frame_count > 0) {
         Commit(pending_shift_);
         pending_shift_ = 0;
       }
@@ -303,6 +303,11 @@ TEST_F(GlobalNodeTest, GlobalOutputTracksOnlyCommittedOwnerVersion) {
   EXPECT_DOUBLE_EQ(transforms_[0].transforms[0].transform.translation.x, 0);
   EXPECT_NEAR(global_[0].pose.position.x, odometry_[0].pose.pose.position.x,
               1e-9);
+  ASSERT_TRUE(Wait([&] {
+    if (pending_shift_ != 0)
+      EXPECT_EQ(mapper_->ProcessNext(), SyncStatus::kWaiting);
+    return pending_shift_ == 0;
+  }));
   EXPECT_EQ(system_->GetMapCorrection().pose_version, 1u);
   Sample(1);
   ASSERT_FALSE(HasFatalFailure());

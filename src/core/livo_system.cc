@@ -8,18 +8,19 @@
 #include <exception>
 #include <iomanip>
 #include <limits>
+#include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
 
 #include "common/timing.h"
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/frontend/imu/imu_propagation.h"
 #include "livo_atlas/frontend/vision/image_options.h"
-#include "livo_atlas/io/keyframe_store.h"
-#include "livo_atlas/io/submap_store.h"
+#include "livo_atlas/mapping/geometry_mapper.h"
 #include "livo_atlas/sensor/lidar_preprocessor.h"
 #include "livo_atlas/sensor/synchronizer.h"
-#include "online_submap_manager.h"
+#include "pose_graph/pose_graph.h"
 
 namespace livo_atlas {
 namespace {
@@ -107,41 +108,42 @@ LivoSystem::LivoSystem(SystemOptions options)
       frontend_(options_.frontend),
       colorizer_(options_.colorizer),
       keyframe_selector_(options_.frontend_mode(), options_.keyframes),
-      keyframe_store_(options_.keyframes.enabled
-                          ? std::make_unique<KeyframeStore>(
-                                options_.exporter.directory / "keyframes",
-                                options_.frontend.calibration)
-                          : nullptr),
-      submap_builder_(options_.submaps.max_keyframes),
-      submap_store_(options_.submaps.enabled &&
-                            options_.submap_mode == SubmapMode::kKeyframeGroups
-                        ? std::make_unique<SubmapStore>(
-                              options_.exporter.directory / "keyframes/submaps",
-                              *keyframe_store_, options_.submaps.max_keyframes)
-                        : nullptr),
-      online_(
-          options_.submaps.enabled &&
-                  options_.submap_mode == SubmapMode::kOnline
-              ? std::make_unique<OnlineSubmapManager>(
-                    options_.exporter.directory / "keyframes/online_submaps",
-                    *keyframe_store_, options_.submaps.max_keyframes,
-                    options_.online_submaps, options_.geometry)
-              : nullptr),
+      pose_graph_(options_.keyframes.enabled
+                      ? std::make_unique<pose_graph::PoseGraph>(options_)
+                      : nullptr),
       writer_(options_.exporter) {
   const auto& pre = options_.preprocess;
   preprocess_.Configure(pre.features, pre.lidar_type, pre.blind,
                         pre.point_filter);
   preprocess_.N_SCANS = pre.scan_lines;
+  if (pose_graph_) committed_keyframes_ = pose_graph_->InitialReadView();
+  if (options_.submaps.enabled && options_.submap_mode == SubmapMode::kOnline)
+    frozen_poses_ = std::make_shared<const PoseSnapshot>();
+  if (options_.geometry.enabled) {
+    geometry_ = std::make_unique<GeometryMapper>(
+        options_.geometry, [this](std::uint64_t id) {
+          return committed_keyframes_->ReadBodyCloud(
+              id, options_.geometry.max_points_per_keyframe);
+        });
+  }
   if (options_.loop_closure) {
-    loop_backend_ =
-        std::make_unique<LoopBackend>(*this, *options_.loop_closure);
-    Online().SetLoopBackend(*loop_backend_);
+    const auto& loop = *options_.loop_closure;
+    EnableLoops(loop, [closure = LoopClosure(loop)](const LoopTask& task) {
+      return closure.Run(task);
+    }, nullptr);
   }
 }
 
-void LivoSystem::CheckInputOpen() const {
+void LivoSystem::CheckInputOpen() {
   if (session_error_) std::rethrow_exception(session_error_);
-  if (online_) online_->CheckRunning();
+  if (pose_graph_) {
+    try {
+      pose_graph_->RethrowFailure();
+    } catch (...) {
+      PumpArchive();
+      throw;
+    }
+  }
   if (input_sealed_) throw std::logic_error("System input has been sealed");
 }
 
@@ -159,7 +161,7 @@ void LivoSystem::CheckBufferLimit(const char* name,
           << " queued=" << buffer.size() << " max_count=" << max_count
           << " oldest_timestamp=" << oldest << " new_timestamp=" << timestamp
           << " span_s=" << span << " max_span_s=" << max_span;
-  session_error_ = std::make_exception_ptr(std::overflow_error(message.str()));
+  RecordFailure(std::make_exception_ptr(std::overflow_error(message.str())));
   std::rethrow_exception(session_error_);
 }
 
@@ -426,9 +428,8 @@ bool LivoSystem::WouldExceedInputLimit(const TimedImage& image) const {
 }
 
 SyncStatus LivoSystem::ProcessNext(const ResultCallback& callback) {
-  const auto status = ProcessMeasurement(callback);
-  if (loop_backend_) loop_backend_->Poll();
-  return status;
+  PumpArchive();
+  return ProcessMeasurement(callback);
 }
 
 SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
@@ -450,25 +451,13 @@ SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
   }
   const auto colored_cloud = colorizer_.Process(result);
   writer_.Write(result, colored_cloud);
-  if (keyframe_store_ && keyframe_selector_.Select(result)) {
-    if (online_) {
-      try {
-        AppendOnlineKeyframe(std::make_shared<const Keyframe>(
-            CaptureKeyframe(next_keyframe_id_, result)));
-      } catch (...) {
-        RecordFailure(std::current_exception());
-        throw;
-      }
-    } else {
-      const auto keyframe = CaptureKeyframe(next_keyframe_id_, result);
-      const auto write_start = StartTiming(options_.stage_timing);
-      keyframe_store_->Append(keyframe);
-      LogStageTiming("keyframe_write", write_start);
-      if (submap_store_) {
-        if (const auto submap = submap_builder_.AddKeyframe(next_keyframe_id_))
-          AppendSubmap(*submap);
-      }
-      ++next_keyframe_id_;
+  if (pose_graph_ && keyframe_selector_.Select(result)) {
+    try {
+      AppendKeyframe(std::make_shared<const Keyframe>(
+          CaptureKeyframe(next_keyframe_id_, result)));
+    } catch (...) {
+      RecordFailure(std::current_exception());
+      throw;
     }
   }
   if (result.updated && callback) callback(result, colored_cloud, elapsed);
@@ -478,51 +467,91 @@ SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
 void LivoSystem::ProcessAvailable(const ResultCallback& callback) {
   while (ProcessNext(callback) != SyncStatus::kWaiting) {
   }
+  WaitForKeyframes();
+}
+
+void LivoSystem::WaitForKeyframes() {
+  if (!pose_graph_) return;
+  while (committed_keyframes_->frame_count() < next_keyframe_id_) {
+    PumpArchive();
+    if (committed_keyframes_->frame_count() < next_keyframe_id_)
+      pose_graph_->Wait();
+  }
+}
+
+std::exception_ptr LivoSystem::WaitForControl(
+    const pose_graph::ControlReceipt& receipt) {
+  for (;;) {
+    PumpArchive();
+    if (auto result = pose_graph_->CheckControl(receipt)) {
+      // The receipt may have arrived just after the first publication check.
+      PumpArchive();
+      return *result;
+    }
+    pose_graph_->Wait(&receipt);
+  }
 }
 
 void LivoSystem::SealInput() {
-  if (session_error_) std::rethrow_exception(session_error_);
-  if (online_) online_->RethrowFailure();
+  PumpArchive();
   if (input_sealed_) return;
   try {
-    if (online_) online_->SealInput();
-    if (submap_store_) {
-      if (const auto tail = submap_builder_.Finish()) AppendSubmap(*tail);
-    }
+    if (pose_graph_) WaitForControl(*pose_graph_->SealInput());
     if (last_lidar_ < 0) {
       startup_imu_.clear();
       buffers_.images.clear();
     }
     input_sealed_ = true;
   } catch (...) {
-    session_error_ = std::current_exception();
+    RecordFailure(std::current_exception());
+    PumpArchive();
     throw;
   }
 }
 
 void LivoSystem::Finish() {
   if (IsFinished()) return;
-  if (!session_error_ && active_loop_backend_ &&
-      active_loop_backend_ != loop_backend_.get())
+  if (!session_error_ && active_loop_backend_)
     throw std::logic_error(
         "Finish the standalone backend with LoopBackend::Finish");
-  FinishSession(loop_backend_.get());
+  FinishSession(nullptr);
 }
 
 void LivoSystem::FinishSession(LoopBackend* backend) {
   try {
-    if (session_error_) std::rethrow_exception(session_error_);
-    if (online_) online_->RethrowFailure();
-    if (backend) backend->Drain();
-    writer_.Finish();
+    PumpArchive();
+    if (!loop_pose_updates_claimed_) writer_.Finish();
     SealInput();
-    if (online_) online_->Finish();
-    if (backend) backend->FinishJournal();
+    if (pose_graph_) {
+      for (;;) {
+        if (backend) {
+          backend->Poll();
+        } else {
+          PumpArchive();
+        }
+        if (pose_graph_->Drained()) break;
+        pose_graph_->Wait(nullptr, backend != nullptr);
+      }
+    }
+    if (loop_pose_updates_claimed_) writer_.Finish();
+    if (pose_graph_) {
+      WaitForControl(*pose_graph_->FinishArchive());
+      pose_graph_->Stop();
+    }
     ReportBufferPeaks();
     finished_ = true;
   } catch (...) {
-    if (!session_error_) session_error_ = std::current_exception();
-    if (backend) backend->StopOnFailure(session_error_);
+    RecordFailure(std::current_exception());
+    if (pose_graph_) {
+      pose_graph_->Stop();
+      // A write that was already running when the owner failed can finish.
+      // Keep its committed view and preserve the first exception.
+      try {
+        auto progress = pose_graph_->TakeProgress();
+        if (progress.commit) DeliverArchiveCommit(std::move(*progress.commit));
+      } catch (...) {
+      }
+    }
     std::rethrow_exception(session_error_);
   }
 }
@@ -531,90 +560,169 @@ bool LivoSystem::IsFinished() const noexcept {
   return finished_ && !session_error_;
 }
 
-void LivoSystem::AppendOnlineKeyframe(
-    std::shared_ptr<const Keyframe> keyframe) {
+void LivoSystem::AppendKeyframe(std::shared_ptr<const Keyframe> keyframe) {
   try {
-    // Only the system owner admits keyframes. Between this check and the
-    // observation, the graph can release existing slots but cannot add one.
-    if (active_loop_backend_) active_loop_backend_->CheckInputCapacity();
-    const auto write_start = StartTiming(options_.stage_timing);
-    keyframe_store_->Append(*keyframe);
-    LogStageTiming("keyframe_write", write_start);
-    Online().AppendCommittedKeyframe(std::move(keyframe));
+    pose_graph_->AddKeyframe(std::move(keyframe));
     ++next_keyframe_id_;
+  } catch (...) {
+    RecordFailure(std::current_exception());
+    PumpArchive();
+    throw;
+  }
+}
+
+void LivoSystem::CheckOnlineMapping() const {
+  if (!frozen_poses_) throw std::logic_error("Online submaps are not enabled");
+}
+
+void LivoSystem::CheckCallbackRegistration() {
+  CheckInputOpen();
+  if (next_keyframe_id_)
+    throw std::logic_error("Register online callback before processing frames");
+}
+
+void LivoSystem::SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
+  CheckOnlineMapping();
+  if (callback) CheckCallbackRegistration();
+  submap_callback_ = std::move(callback);
+}
+
+void LivoSystem::SetOnlineSubmapDeltaCallback(
+    OnlineSubmapDeltaCallback callback) {
+  CheckOnlineMapping();
+  if (callback) CheckCallbackRegistration();
+  submap_delta_callback_ = std::move(callback);
+}
+
+void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
+  PumpArchive();
+  CheckOnlineMapping();
+  if (finished_) throw std::logic_error("Online mapping has finished");
+  if (loop_pose_updates_claimed_)
+    throw std::logic_error("Online loop backend owns pose updates");
+  std::exception_ptr rejection;
+  try {
+    rejection = WaitForControl(*pose_graph_->ApplyPoseUpdate(update));
+  } catch (...) {
+    RecordFailure(std::current_exception());
+    PumpArchive();
+    throw;
+  }
+  if (rejection) std::rethrow_exception(rejection);
+}
+
+void LivoSystem::EnableLoops(LoopAdmissionOptions options,
+                            LoopTaskRunner runner, LoopBackend* backend) {
+  CheckInputOpen();
+  CheckOnlineMapping();
+  if (loop_pose_updates_claimed_ || next_keyframe_id_ ||
+      committed_frontier_.version)
+    throw std::logic_error("Loop backend requires a new unclaimed session");
+  if (options_.max_pending_keyframes) {
+    options.max_pending_keyframes = *options_.max_pending_keyframes;
+  }
+  pose_graph_->EnableLoops(std::move(options), std::move(runner),
+                           backend != nullptr);
+  loop_pose_updates_claimed_ = true;
+  active_loop_backend_ = backend;
+}
+
+void LivoSystem::ClearLoopBackend(const LoopBackend& backend) noexcept {
+  if (active_loop_backend_ != &backend) return;
+  active_loop_backend_ = nullptr;
+  if (!finished_) pose_graph_->AbandonStandalone();
+}
+
+void LivoSystem::RecordFailure(std::exception_ptr error) noexcept {
+  if (!session_error_ && error) {
+    session_error_ = pose_graph_ ? pose_graph_->Cancel(std::move(error))
+                                 : std::move(error);
+  }
+}
+
+void LivoSystem::PumpArchive() {
+  try {
+    if (pose_graph_) {
+      auto progress = pose_graph_->TakeProgress();
+      if (progress.failure) RecordFailure(std::move(progress.failure));
+      if (progress.commit) DeliverArchiveCommit(std::move(*progress.commit));
+    }
+    if (session_error_) std::rethrow_exception(session_error_);
+  } catch (...) {
+    RecordFailure(std::current_exception());
+    std::rethrow_exception(session_error_);
+  }
+}
+
+void LivoSystem::DeliverArchiveCommit(pose_graph::ArchiveCommit commit) {
+  if (commit.submaps) {
+    auto& update = *commit.submaps;
+    if (update.keyframe) {
+      appended_poses_.push_back({update.keyframe->id, *update.appended_pose});
+    } else if (update.poses) {
+      frozen_poses_ = update.poses;
+      appended_poses_.clear();
+    }
+    committed_frontier_ = update.frontier;
+    map_correction_ = commit.correction;
+    for (const auto& revision : update.revisions) {
+      submap_count_ = std::max(submap_count_, revision.primary.id + 1);
+    }
+  }
+  committed_keyframes_ = std::move(commit.keyframes);
+  if (commit.submaps) {
+    auto& update = *commit.submaps;
+    if (geometry_) UpdateGeometry(update);
+    if (submap_delta_callback_) submap_delta_callback_(update);
+    if (submap_callback_) {
+      auto poses = GetPoseSnapshot();
+      submap_callback_({std::move(update.keyframe), std::move(update.revisions),
+                        std::move(poses), std::move(update.pose_changes)});
+    }
+  }
+  pose_graph_->AcknowledgeCommit();
+}
+
+void LivoSystem::UpdateGeometry(const OnlineSubmapDelta& update) {
+  const auto start = std::chrono::steady_clock::now();
+  if (update.poses) {
+    geometry_->Update(update.revisions, update.poses);
+  } else {
+    geometry_->UpdateDelta(update.revisions, update.frontier,
+                           update.keyframe.get(),
+                           update.appended_pose ? &*update.appended_pose
+                                                : nullptr);
+  }
+  const auto total =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+          .count();
+  const auto stats = geometry_->GetStats();
+  std::ostringstream message;
+  message.imbue(std::locale::classic());
+  message << std::setprecision(17) << "geometry_total_seconds=" << total
+          << " geometry_update_seconds=" << stats.last_update_seconds
+          << " geometry_cloud_read_seconds=" << stats.last_cloud_read_seconds
+          << " geometry_full_build_seconds=" << stats.last_full_build_seconds
+          << " geometry_snapshot_seconds=" << stats.last_snapshot_seconds;
+  LOG(INFO) << message.str();
+}
+
+GeometrySubmap LivoSystem::GetGeometrySubmap(std::uint64_t id) {
+  if (session_error_) std::rethrow_exception(session_error_);
+  if (!geometry_) throw std::logic_error("Geometry submaps are not enabled");
+  if (id >= submap_count_)
+    throw std::out_of_range("Unknown geometry submap ID");
+  try {
+    return geometry_->GetSubmap(id);
   } catch (...) {
     RecordFailure(std::current_exception());
     throw;
   }
 }
 
-void LivoSystem::AppendSubmap(const Submap& submap) {
-  try {
-    submap_store_->Append(submap);
-  } catch (...) {
-    session_error_ = std::current_exception();
-    throw;
-  }
-}
-
-void LivoSystem::SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
-  if (callback && session_error_) std::rethrow_exception(session_error_);
-  Online().SetCallback(std::move(callback));
-}
-
-void LivoSystem::SetOnlineSubmapDeltaCallback(
-    OnlineSubmapDeltaCallback callback) {
-  if (callback && session_error_) std::rethrow_exception(session_error_);
-  Online().SetDeltaCallback(std::move(callback));
-}
-
-void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
-  if (session_error_) std::rethrow_exception(session_error_);
-  if (loop_pose_updates_claimed_)
-    throw std::logic_error("Online loop backend owns pose updates");
-  const auto start = StartTiming(options_.stage_timing);
-  Online().ApplyPoseUpdate(update);
-  LogStageTiming("pose_commit", start);
-}
-
-void LivoSystem::ClaimLoopPoseUpdates(LoopBackend& backend) {
-  CheckInputOpen();
-  if (loop_pose_updates_claimed_ || next_keyframe_id_ ||
-      Online().GetPoseFrontier().version)
-    throw std::logic_error("Loop backend requires a new unclaimed session");
-  loop_pose_updates_claimed_ = true;
-  active_loop_backend_ = &backend;
-}
-
-void LivoSystem::ClearLoopBackend(const LoopBackend& backend) noexcept {
-  if (active_loop_backend_ == &backend) active_loop_backend_ = nullptr;
-}
-
-void LivoSystem::ApplyLoopPoseUpdate(const PoseUpdate& update) {
-  if (session_error_) std::rethrow_exception(session_error_);
-  if (!loop_pose_updates_claimed_)
-    throw std::logic_error("Loop backend has not claimed pose updates");
-  const auto start = StartTiming(options_.stage_timing);
-  Online().ApplyPoseUpdate(update);
-  LogStageTiming("pose_commit", start);
-}
-
-void LivoSystem::RecordFailure(std::exception_ptr error) noexcept {
-  if (!session_error_) session_error_ = std::move(error);
-}
-
-GeometrySubmap LivoSystem::GetGeometrySubmap(std::uint64_t id) {
-  if (session_error_) std::rethrow_exception(session_error_);
-  return Online().GetGeometrySubmap(id);
-}
-
 GeometryCacheStats LivoSystem::GetGeometryStats() const {
-  return Online().GetGeometryStats();
-}
-
-OnlineSubmapManager& LivoSystem::Online() const {
-  if (!online_) throw std::logic_error("Online submaps are not enabled");
-  return *online_;
+  if (!geometry_) throw std::logic_error("Geometry submaps are not enabled");
+  return geometry_->GetStats();
 }
 
 std::optional<PropagationResult> LivoSystem::PropagateLatest() {
@@ -643,32 +751,57 @@ void LivoSystem::Propagate(const Imu& measurement) {
 }
 
 LivoSystem::~LivoSystem() {
-  if (loop_backend_ && session_error_) {
-    loop_backend_->StopOnFailure(session_error_);
-  }
+  if (pose_graph_) pose_graph_->Stop();
 }
 
 PoseFrontier LivoSystem::GetPoseFrontier() const {
-  return Online().GetPoseFrontier();
+  CheckOnlineMapping();
+  return committed_frontier_;
 }
 
 std::shared_ptr<const PoseSnapshot> LivoSystem::GetPoseSnapshot() const {
-  return Online().GetPoseSnapshot();
+  CheckOnlineMapping();
+  if (appended_poses_.empty()) return frozen_poses_;
+  auto snapshot = std::make_shared<PoseSnapshot>(*frozen_poses_);
+  snapshot->poses.insert(snapshot->poses.end(), appended_poses_.begin(),
+                         appended_poses_.end());
+  snapshot->frame_count = committed_frontier_.frame_count;
+  return snapshot;
 }
 
 MapCorrection LivoSystem::GetMapCorrection() const {
-  return Online().GetMapCorrection();
+  CheckOnlineMapping();
+  if (!map_correction_)
+    throw std::invalid_argument(
+        "Map correction requires a projected optimized anchor");
+  if (!map_correction_->map_from_odom.rotation.allFinite() ||
+      !map_correction_->map_from_odom.translation.allFinite())
+    throw std::invalid_argument("Derived map correction must be finite");
+  return *map_correction_;
 }
 
 KeyframeReadView LivoSystem::GetKeyframeReadView() const {
-  if (!keyframe_store_)
+  if (!committed_keyframes_)
     throw std::logic_error("Keyframe storage is not enabled");
-  return keyframe_store_->CaptureReadView();
+  return *committed_keyframes_;
+}
+
+LoopSessionStats LivoSystem::LoopStats() const {
+  auto stats = pose_graph_->GetStats();
+  // A durable pose can be waiting for delivery while the owner reads the
+  // previous snapshot. Expose the counts of that same delivered frontier.
+  if (stats.accepted > committed_frontier_.version) {
+    stats.completed -= stats.accepted - committed_frontier_.version;
+    stats.accepted = committed_frontier_.version;
+  }
+  stats.pose_version = committed_frontier_.version;
+  stats.frame_count = committed_frontier_.frame_count;
+  return stats;
 }
 
 std::optional<LoopSessionStats> LivoSystem::GetLoopStats() const {
-  if (!loop_backend_) return std::nullopt;
-  return loop_backend_->GetStats();
+  if (!options_.loop_closure) return std::nullopt;
+  return LoopStats();
 }
 
 }  // namespace livo_atlas

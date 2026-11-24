@@ -174,6 +174,7 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
     } else {
       params.emplace_back("loop_closure.options_file",
                           "/nonexistent/ignored-loop.yml");
+      params.emplace_back("pose_graph.max_pending_keyframes", 4);
     }
     if (variant >= 2) {
       params.emplace_back("keyframes.enabled", true);
@@ -188,6 +189,7 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
     } else {
       const auto config = ReadNodeOptions(node).livo;
       EXPECT_EQ(config.system.loop_closure.has_value(), variant == 2);
+      EXPECT_EQ(config.system.max_pending_keyframes, 4u);
       if (config.system.loop_closure) {
         EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);
         EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m, 12.5);

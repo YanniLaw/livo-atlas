@@ -46,6 +46,9 @@ SystemOptions PrepareSystemOptions(SystemOptions options) {
                                 options.online_submaps);
   if (options.submaps.enabled && !options.keyframes.enabled)
     throw std::invalid_argument("submaps.enabled requires keyframes.enabled");
+  if (options.max_pending_keyframes == 0)
+    throw std::invalid_argument(
+        "pose_graph.max_pending_keyframes must be positive");
   if (options.loop_closure) {
     if (!options.keyframes.enabled || !options.submaps.enabled ||
         options.submap_mode != SubmapMode::kOnline ||

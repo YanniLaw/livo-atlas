@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "core/fixtures.h"
-#include "core/online_submap_manager.h"
+#include "core/loop_backend_fixtures.h"
 #include "livo_atlas/mapping/map_correction.h"
 #include "mapping/keyframe_fixtures.h"
 
@@ -41,21 +41,17 @@ std::string Bytes(const fs::path& path) {
   return {std::istreambuf_iterator<char>(stream), {}};
 }
 
-class MapCorrectionManagerTest : public testing::Test {
+class CommittedMapCorrectionTest : public testing::Test {
  protected:
   void SetUp() override {
-    options_ = test::Options(FrontendMode::kLidarOnly);
+    options_ = loop_test::OnlineOptions();
+    options_.submaps.max_keyframes = 2;
     root_ = options_.exporter.directory / "keyframes";
-    frames_ =
-        std::make_unique<KeyframeStore>(root_, options_.frontend.calibration);
-    manager_ = std::make_unique<OnlineSubmapManager>(
-        root_ / "online_submaps", *frames_, 2, OnlineSubmapOptions{},
-        GeometryOptions{});
+    system_ = std::make_unique<LivoSystem>(options_);
   }
 
   void TearDown() override {
-    manager_.reset();
-    frames_.reset();
+    system_.reset();
     fs::remove_all(options_.exporter.directory);
   }
 
@@ -67,19 +63,16 @@ class MapCorrectionManagerTest : public testing::Test {
     frame.odom_from_body.rotation = RawRotation();
     if (approximate) frame.odom_from_body.rotation(1, 1) = 1.000045;
     frame.odom_from_body.translation = {1000.0 * id, 0, 0};
-    auto owned = std::make_shared<const Keyframe>(std::move(frame));
-    frames_->Append(*owned);
-    manager_->AppendCommittedKeyframe(std::move(owned));
+    LoopBackendTestPeer::Append(*system_, std::move(frame));
   }
 
   SystemOptions options_;
   fs::path root_;
-  std::unique_ptr<KeyframeStore> frames_;
-  std::unique_ptr<OnlineSubmapManager> manager_;
+  std::unique_ptr<LivoSystem> system_;
 };
 
-TEST_F(MapCorrectionManagerTest, EmptyAndGrowingVersionZero) {
-  auto correction = manager_->GetMapCorrection();
+TEST_F(CommittedMapCorrectionTest, EmptyAndGrowingVersionZero) {
+  auto correction = system_->GetMapCorrection();
   EXPECT_EQ(correction.pose_version, 0u);
   EXPECT_EQ(correction.frame_count, 0u);
   EXPECT_EQ(correction.optimized_frame_count, 0u);
@@ -87,26 +80,26 @@ TEST_F(MapCorrectionManagerTest, EmptyAndGrowingVersionZero) {
   EXPECT_TRUE(correction.map_from_odom.translation.isZero());
   for (std::uint64_t id = 0; id < 3; ++id) {
     Append(id);
-    correction = manager_->GetMapCorrection();
+    correction = system_->GetMapCorrection();
     EXPECT_EQ(correction.pose_version, 0u);
     EXPECT_EQ(correction.frame_count, id + 1);
     EXPECT_EQ(correction.optimized_frame_count, 0u);
     EXPECT_TRUE(correction.map_from_odom.rotation.isIdentity());
     EXPECT_TRUE(correction.map_from_odom.translation.isZero());
   }
-  manager_->Finish();
+  system_->Finish();
 }
 
-TEST_F(MapCorrectionManagerTest, ProjectedAnchorMatchesMaterializedTail) {
+TEST_F(CommittedMapCorrectionTest, ProjectedAnchorMatchesMaterializedTail) {
   for (std::uint64_t id = 0; id < 3; ++id) Append(id);
-  const auto original = manager_->GetPoseSnapshot();
+  const auto original = system_->GetPoseSnapshot();
   const auto metadata = root_ / "frames/1/frame.yml";
   const auto before = Bytes(metadata);
-  manager_->ApplyPoseUpdate(ProjectedUpdate());
-  const auto frozen = manager_->GetPoseSnapshot();
+  system_->ApplyPoseUpdate(ProjectedUpdate());
+  const auto frozen = system_->GetPoseSnapshot();
   // Reading the correction must not need the corresponding frame file.
   fs::rename(metadata, metadata.string() + ".saved");
-  const auto correction = manager_->GetMapCorrection();
+  const auto correction = system_->GetMapCorrection();
   fs::rename(metadata.string() + ".saved", metadata);
   EXPECT_EQ(correction.pose_version, 1u);
   EXPECT_EQ(correction.frame_count, 3u);
@@ -124,7 +117,7 @@ TEST_F(MapCorrectionManagerTest, ProjectedAnchorMatchesMaterializedTail) {
   EXPECT_TRUE(global.translation.isApprox(
       frozen->poses[2].map_from_body.translation, 1e-12));
   Append(3);
-  const auto extended = manager_->GetMapCorrection();
+  const auto extended = system_->GetMapCorrection();
   EXPECT_EQ(extended.pose_version, 1u);
   EXPECT_EQ(extended.frame_count, 4u);
   EXPECT_EQ(extended.optimized_frame_count, 2u);
@@ -135,50 +128,50 @@ TEST_F(MapCorrectionManagerTest, ProjectedAnchorMatchesMaterializedTail) {
   EXPECT_DOUBLE_EQ(original->poses[1].map_from_body.rotation(1, 1), 1.000045);
   EXPECT_EQ(frozen->frame_count, 3u);
   EXPECT_EQ(Bytes(metadata), before);
-  manager_->Finish();
+  system_->Finish();
 }
 
-TEST_F(MapCorrectionManagerTest, ReadsAfterPublishedNotificationFailure) {
-  manager_->SetCallback([](const OnlineSubmapUpdate& update) {
+TEST_F(CommittedMapCorrectionTest, ReadsAfterPublishedNotificationFailure) {
+  system_->SetOnlineSubmapCallback([](const OnlineSubmapUpdate& update) {
     if (update.poses->version > 0)
       throw std::runtime_error("notification failed");
   });
   for (std::uint64_t id = 0; id < 3; ++id) Append(id);
-  EXPECT_THROW(manager_->ApplyPoseUpdate(ProjectedUpdate()),
+  EXPECT_THROW(system_->ApplyPoseUpdate(ProjectedUpdate()),
                std::runtime_error);
   const auto published = root_ / "online_submaps/poses/1.yml";
   ASSERT_TRUE(fs::is_regular_file(published));
   const auto bytes = Bytes(published);
-  const auto correction = manager_->GetMapCorrection();
+  const auto correction = system_->GetMapCorrection();
   EXPECT_EQ(correction.pose_version, 1u);
   EXPECT_EQ(correction.frame_count, 3u);
   EXPECT_EQ(correction.optimized_frame_count, 2u);
-  EXPECT_THROW(manager_->Finish(), std::runtime_error);
-  EXPECT_THROW(manager_->ApplyPoseUpdate(ProjectedUpdate()),
+  EXPECT_THROW(system_->Finish(), std::runtime_error);
+  EXPECT_THROW(system_->ApplyPoseUpdate(ProjectedUpdate()),
                std::runtime_error);
   EXPECT_EQ(Bytes(published), bytes);
 }
 
-TEST_F(MapCorrectionManagerTest, RejectsLegacyPositiveVersion) {
+TEST_F(CommittedMapCorrectionTest, RejectsLegacyPositiveVersion) {
   for (std::uint64_t id = 0; id < 3; ++id) Append(id, false);
   auto update = ProjectedUpdate();
   update.tail_policy = PoseTailPolicy::kLegacyLastOptimizedAnchor;
-  manager_->ApplyPoseUpdate(update);
-  EXPECT_THROW(manager_->GetMapCorrection(), std::invalid_argument);
-  EXPECT_EQ(manager_->GetPoseSnapshot()->version, 1u);
-  EXPECT_NO_THROW(manager_->Finish());
+  system_->ApplyPoseUpdate(update);
+  EXPECT_THROW(system_->GetMapCorrection(), std::invalid_argument);
+  EXPECT_EQ(system_->GetPoseSnapshot()->version, 1u);
+  EXPECT_NO_THROW(system_->Finish());
 }
 
-TEST_F(MapCorrectionManagerTest, InvalidAnchorUpdateLeavesCorrectionUnchanged) {
+TEST_F(CommittedMapCorrectionTest, InvalidAnchorLeavesCorrectionUnchanged) {
   for (std::uint64_t id = 0; id < 3; ++id) Append(id);
   auto update = ProjectedUpdate();
   update.optimized_frame_count = 4;
-  EXPECT_THROW(manager_->ApplyPoseUpdate(update), std::invalid_argument);
-  EXPECT_EQ(manager_->GetMapCorrection().pose_version, 0u);
-  EXPECT_EQ(manager_->GetMapCorrection().frame_count, 3u);
-  manager_->ApplyPoseUpdate(ProjectedUpdate());
-  EXPECT_EQ(manager_->GetMapCorrection().pose_version, 1u);
-  manager_->Finish();
+  EXPECT_THROW(system_->ApplyPoseUpdate(update), std::invalid_argument);
+  EXPECT_EQ(system_->GetMapCorrection().pose_version, 0u);
+  EXPECT_EQ(system_->GetMapCorrection().frame_count, 3u);
+  system_->ApplyPoseUpdate(ProjectedUpdate());
+  EXPECT_EQ(system_->GetMapCorrection().pose_version, 1u);
+  system_->Finish();
 }
 
 TEST(MapCorrectionSystemTest, RejectsNononlineSystem) {

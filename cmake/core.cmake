@@ -93,7 +93,7 @@ target_include_directories(livo_atlas_io PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_io PUBLIC livo_atlas_geometry livo_atlas_keyframes livo_atlas_camera Eigen3::Eigen
   pcl_io pcl_filters opencv_core opencv_imgcodecs)
 livo_atlas_library(core src/common/task.cc src/common/thread_pool.cc
-  src/core/online_submap_manager.cc src/core/livo_system.cc
+  src/core/livo_system.cc
   src/core/system_options.cc src/core/livo_config.cc src/core/global_output_options.cc
   src/core/trajectory_output.cc src/core/geometry_map_output.cc
   src/core/online_gaussian_options.cc src/core/gaussian_render_output_options.cc)

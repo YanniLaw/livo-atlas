@@ -1,10 +1,10 @@
 # 在线回环接纳
 
-`LivoSystem` 管理前端、封存子地图和回环后端的生命周期。后端默认关闭。
+`LivoSystem` 管理前端、子地图归档和回环的生命周期。回环默认关闭。
 启用图优化时，`LoopClosure` 计算候选和约束，`Optimizer` 试算位姿，`PoseGraph` 检查提案来源。
-系统所有者保存 `prepared`、发布位姿并交回回执，位姿图随后接纳约束。
 ROS1 Noetic 与 ROS2 Humble 使用同一个 `src/app/livo_main.cc`。
-位姿图通过 `WorkQueue` 和单线程 `ThreadPool` 依序登记关键帧、调度回环和处理完成结果。
+启用关键帧归档时，位姿图通过 `WorkQueue` 和单线程 `ThreadPool` 保存关键帧与成员修订。
+接纳优化结果时，同一执行线先写 `prepared`，再写正式位姿并更新已接纳的约束。
 [线程池来源与许可](cartographer-scheduler.md)
 它仍使用批量 GTSAM LM 试算，当前不包含 iSAM2、全局描述子、全局 TF 发布或 Gaussian 训练。
 
@@ -48,7 +48,7 @@ worker 使用 `loop_closure.geometry` 指定的独立几何参数，默认体素
 ## SDK 所有权与停止
 
 SDK 链接 `livo_atlas::core`。启用在线关键帧和子地图后，把 `LoopAdmissionOptions` 交给 `SystemOptions::loop_closure`。已有导出目标 `livo_atlas::online_backend` 仍可链接。
-独立构造的 `LoopBackend` 持有该会话的提交权，由调用方通过 `LoopBackend::Finish()` 收尾。
+独立构造的 `LoopBackend` 持有该会话的提交权，沿用 `Observe()`、`Poll()` 和显式 `Finish()`，写入由同一位姿图执行。
 
 ```cpp
 system_options.loop_closure = LoopAdmissionOptions{};
@@ -58,11 +58,10 @@ system.Finish();
 const auto stats = system.GetLoopStats();
 ```
 
-系统在 `ProcessNext()` 中收取后端结果，包括等待输入的周期。外部消费者可注册 `SetOnlineSubmapDeltaCallback()` 接收增量，或使用 `SetOnlineSubmapCallback()` 读取完整快照。回调应只接收数据。启用后端的会话由系统独占位姿提交。
+`ProcessNext()` 报告前端进度，并在等待输入的周期继续收取已提交前沿。`ProcessAvailable()` 在返回前交付本次已入队的关键帧。调用方可以注册 `SetOnlineSubmapDeltaCallback()` 接收增量，或使用 `SetOnlineSubmapCallback()` 读取每次提交的完整快照。系统调用线程在锁外执行回调。回调可以读取当前前沿，后续处理在回调返回后继续。
 
-正常停止顺序为封存输入、排空登记、回环与提交回执、join、系统 Finish、写 complete 摘要。
-SealInput 后输入与处理停止，位姿提交仍可继续到最终 Finish。
-析构只停线程并 join，丢弃未接纳结果。失败会阻止后续变更并保留原始异常；只读位姿快照仍可诊断。
+`SealInput()` 通过位姿图封存输入，授权的 `ApplyPoseUpdate()` 等待正式位姿交付。正常停止依次封存、排空回环和交付回执、完成导出、写 `complete=1` 并加入工作线程。显式封存后仍允许位姿提交。
+析构停止并加入工作线程。必要写入或回调失败时，会话保留首个异常与已交付的只读前沿。回环归档的完成摘要保留 `complete=0`。
 两端使用壁钟推进处理。暂停仿真时钟时仍可收取在途结果。
 
 ## 前沿、预算和原始结果
@@ -76,8 +75,8 @@ SealInput 后输入与处理停止，位姿提交仍可继续到最终 Finish。
 后端位姿通过 `OnlineSubmapDelta` 通知轨迹、几何和高斯消费者，SDK 完整回调也收到该版本的快照。
 
 任务与结果共享一个载荷槽，另有一个最新待查 ID。新封存查询可以合并旧待查查询，并记录 skipped。
-`pose_graph.max_pending_keyframes` 限制待登记关键帧，默认 64。内置后端在满载时拒收新关键帧，
-保留已提交资产并终止会话。封存、完成及回执可以随时入队。`peak_queued_keyframes` 记录待登记峰值。
+`pose_graph.max_pending_keyframes` 限制待写关键帧，默认 64，适用于所有关键帧归档模式。
+SDK 可以通过 `SystemOptions::max_pending_keyframes` 设置同一上限。满载时拒收新关键帧、保留已提交前沿并终止会话。控制请求和交付回执仍可推进。`peak_queued_keyframes` 记录待写峰值。
 `GetLoopStats()` 的帧数、位姿版本和已接纳回环数反映系统发布进度，后台拒绝及待查等计数随队列推进。
 默认预算为 5000 帧、200 条回环；超过帧预算后停止复制后端历史元信息，也拒绝接纳在途提案。
 达到回环预算后停止派发，前端资产仍继续保存。没有以裁剪帧替代完整派发图。
@@ -92,7 +91,7 @@ SealInput 后输入与处理停止，位姿提交仍可继续到最终 Finish。
 | --- | --- |
 | session.yml | 固定回环求解选项、几何/坐标约定及原 dataset.yml 字节，元信息上限 64 KiB |
 | prepared/VERSION.yml | 任务 N、接纳 M、原始 N 帧矩阵和时间戳、成员、约束、诊断、更新及预期 M 帧位姿 |
-| queries/TASK_ID.yml | 引擎状态和所有者处置；同一查询重算使用新的 task_id |
+| queries/TASK_ID.yml | 引擎状态及接纳处置，同一查询重算使用新的 task_id |
 | events/SEQ.yml | 合并跳过范围和资源停止 |
 | summary.yml | 初始 complete=0，正常排空和系统 Finish 成功后原子替换为 complete=1 |
 | failure.yml | 尽力写入的失败原因 |

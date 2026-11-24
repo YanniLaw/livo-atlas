@@ -8,7 +8,6 @@
 
 #include "backend/loop_dataset_fixtures.h"
 #include "core/fixtures.h"
-#include "core/online_submap_manager.h"
 #include "livo_atlas/core/loop_backend.h"
 #include "livo_atlas/io/online_submap_store.h"
 
@@ -30,21 +29,26 @@ class LoopBackendTestPeer {
         new LoopBackend(system, std::move(options), std::move(runner)));
   }
 
-  static LoopBackend& InstallManaged(LivoSystem& system,
-                                      LoopAdmissionOptions options,
-                                      LoopTaskRunner runner) {
-    system.loop_backend_ =
-        Create(system, std::move(options), std::move(runner));
-    system.Online().SetLoopBackend(*system.loop_backend_);
-    return *system.loop_backend_;
+  static void InstallManaged(LivoSystem& system, LoopAdmissionOptions options,
+                             LoopTaskRunner runner) {
+    system.EnableLoops(options, std::move(runner), nullptr);
+    system.options_.loop_closure = std::move(options);
   }
 
   static void Append(LivoSystem& system, Keyframe frame) {
+    Enqueue(system, std::move(frame));
+    FlushKeyframes(system);
+  }
+
+  static void Enqueue(LivoSystem& system, Keyframe frame) {
     system.CheckInputOpen();
     if (frame.id != system.next_keyframe_id_)
-      throw std::invalid_argument("Fixture frame is not the next committed ID");
-    system.AppendOnlineKeyframe(
-        std::make_shared<const Keyframe>(std::move(frame)));
+      throw std::invalid_argument("Fixture frame is not the next keyframe ID");
+    system.AppendKeyframe(std::make_shared<const Keyframe>(std::move(frame)));
+  }
+
+  static void FlushKeyframes(LivoSystem& system) {
+    system.WaitForKeyframes();
   }
 };
 

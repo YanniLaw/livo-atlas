@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "livo_atlas/common/filter_state.h"
 #include "livo_atlas/core/loop_backend.h"
@@ -30,10 +31,13 @@
 
 namespace livo_atlas {
 
-class KeyframeStore;
-class OnlineSubmapManager;
-class SubmapStore;
+class GeometryMapper;
 class LoopBackendTestPeer;
+namespace pose_graph {
+struct ArchiveCommit;
+class ControlReceipt;
+class PoseGraph;
+}  // namespace pose_graph
 
 struct PropagationResult {
   double timestamp = 0;
@@ -66,8 +70,9 @@ class LivoSystem {
   using OnlineSubmapCallback = std::function<void(const OnlineSubmapUpdate&)>;
   using OnlineSubmapDeltaCallback =
       std::function<void(const OnlineSubmapDelta&)>;
-  // Register before the first frame; callbacks only enqueue, never reenter or
-  // throw.
+  // Register before the first queued frame. The system owner calls consumers
+  // in commit order. Callbacks may read committed views and must not reenter
+  // processing. An exception stops the session after retaining the commit.
   void SetOnlineSubmapCallback(OnlineSubmapCallback callback);
   void SetOnlineSubmapDeltaCallback(OnlineSubmapDeltaCallback callback);
   // Read the committed metadata without materializing the pose history.
@@ -99,7 +104,9 @@ class LivoSystem {
   bool WouldExceedInputLimit(const LidarScan& scan) const;
   bool WouldExceedInputLimit(const Imu& imu) const;
   bool WouldExceedInputLimit(const TimedImage& image) const;
+  // Reports front-end progress. Read views reflect delivered archive commits.
   SyncStatus ProcessNext(const ResultCallback& callback);
+  // Drain the current sensor batch and deliver its keyframe writes.
   void ProcessAvailable(const ResultCallback& callback);
   std::optional<PropagationResult> PropagateLatest();
   // Close input and seal the tail while keeping pose updates available.
@@ -122,11 +129,12 @@ class LivoSystem {
 
   friend class LoopBackend;
   friend class LoopBackendTestPeer;
-  void ClaimLoopPoseUpdates(LoopBackend& backend);
+  void EnableLoops(LoopAdmissionOptions options, LoopTaskRunner runner,
+                   LoopBackend* backend);
   void ClearLoopBackend(const LoopBackend& backend) noexcept;
-  void ApplyLoopPoseUpdate(const PoseUpdate& update);
   void FinishSession(LoopBackend* backend);
-  void CheckInputOpen() const;
+  LoopSessionStats LoopStats() const;
+  void CheckInputOpen();
   SyncStatus ProcessMeasurement(const ResultCallback& callback);
   template <typename Sample>
   void CheckBufferLimit(const char* name, const std::deque<Sample>& buffer,
@@ -141,9 +149,14 @@ class LivoSystem {
                                             Imu* measurement) const;
   void BufferImu(const Imu& measurement, bool propagate, std::deque<Imu>* imu,
                  std::deque<Imu>* propagation);
-  void AppendSubmap(const Submap& submap);
-  void AppendOnlineKeyframe(std::shared_ptr<const Keyframe> keyframe);
-  OnlineSubmapManager& Online() const;
+  void AppendKeyframe(std::shared_ptr<const Keyframe> keyframe);
+  void CheckOnlineMapping() const;
+  void CheckCallbackRegistration();
+  void PumpArchive();
+  void DeliverArchiveCommit(pose_graph::ArchiveCommit commit);
+  void UpdateGeometry(const OnlineSubmapDelta& update);
+  void WaitForKeyframes();
+  std::exception_ptr WaitForControl(const pose_graph::ControlReceipt& receipt);
   void Propagate(const Imu& measurement);
 
   SystemOptions options_;
@@ -154,11 +167,17 @@ class LivoSystem {
   Frontend frontend_;
   CloudColorizer colorizer_;
   KeyframeSelector keyframe_selector_;
-  std::unique_ptr<KeyframeStore> keyframe_store_;
-  SubmapBuilder submap_builder_;
-  std::unique_ptr<SubmapStore> submap_store_;
   std::exception_ptr session_error_;
-  std::unique_ptr<OnlineSubmapManager> online_;
+  std::optional<KeyframeReadView> committed_keyframes_;
+  PoseFrontier committed_frontier_;
+  std::shared_ptr<const PoseSnapshot> frozen_poses_;
+  std::vector<KeyframePose> appended_poses_;
+  std::optional<MapCorrection> map_correction_{MapCorrection{}};
+  std::unique_ptr<GeometryMapper> geometry_;
+  std::uint64_t submap_count_ = 0;
+  OnlineSubmapCallback submap_callback_;
+  OnlineSubmapDeltaCallback submap_delta_callback_;
+  std::unique_ptr<pose_graph::PoseGraph> pose_graph_;
   LivoExporter writer_;
   std::uint64_t next_keyframe_id_ = 0;
   bool have_first_lidar_ = false;
@@ -177,8 +196,6 @@ class LivoSystem {
   bool new_imu_ = false, state_updated_ = false, have_estimate_ = false;
   FilterState latest_state_, propagated_;
   double latest_time_ = 0, last_from_end_ = 0;
-  // Join background work before destroying the stores it reads.
-  std::unique_ptr<LoopBackend> loop_backend_;
 };
 
 }  // namespace livo_atlas

@@ -69,14 +69,11 @@ TEST(PoseGraphSystemTest, DelayedUpdateRebuildsGeometryAndPreservesFrontend) {
 
       const auto feed = [&](int frame) {
         EXPECT_TRUE(system.AddLidar(test::Scan(100 + frame * 0.25)));
-        for (;;) {
-          const auto status = system.ProcessNext(collect);
-          if (pending) {
-            graph.AddKeyframe(pending->first, pending->second);
-            raw.push_back(pending->second);
-            pending.reset();
-          }
-          if (status == SyncStatus::kWaiting) break;
+        system.ProcessAvailable(collect);
+        if (pending) {
+          graph.AddKeyframe(pending->first, pending->second);
+          raw.push_back(pending->second);
+          pending.reset();
         }
       };
 

@@ -62,11 +62,19 @@ class LoopBackendTest : public testing::Test {
     cloud_ = loop_test::DenseCloud();
   }
 
-  void TearDown() override { fs::remove_all(options_.exporter.directory); }
+  void TearDown() override {
+    system_.reset();
+    fs::remove_all(options_.exporter.directory);
+  }
 
   void Append(std::uint64_t first, std::uint64_t end) {
+    Enqueue(first, end);
+    LoopBackendTestPeer::FlushKeyframes(*system_);
+  }
+
+  void Enqueue(std::uint64_t first, std::uint64_t end) {
     for (auto id = first; id < end; ++id)
-      LoopBackendTestPeer::Append(*system_, loop_test::DenseFrame(id, cloud_));
+      LoopBackendTestPeer::Enqueue(*system_, loop_test::DenseFrame(id, cloud_));
   }
 
   void Observe(LoopBackend& backend) {
@@ -108,7 +116,7 @@ TEST_F(LoopBackendTest, LatestOnlyButCompleteMetadata) {
   ASSERT_TRUE(gate.Wait());
   EXPECT_EQ(gate.frontier(), 4u);
   for (std::uint64_t id = 4; id < 8; ++id) {
-    Append(id, id + 1);
+    Enqueue(id, id + 1);
     backend->Poll();
   }
   gate.Release();
@@ -142,7 +150,7 @@ TEST_F(LoopBackendTest, FullQueueCanDeliverAResultAndSealInput) {
   ReleaseOnExit release{gate};
   auto options = loop_test::NearbyOptions();
   options.max_pending_keyframes = 4;
-  auto& backend = LoopBackendTestPeer::InstallManaged(
+  LoopBackendTestPeer::InstallManaged(
       *system_, options, [&](const auto& task) {
         gate.Enter(task);
         return RunLoopTask(task, options);
@@ -151,16 +159,16 @@ TEST_F(LoopBackendTest, FullQueueCanDeliverAResultAndSealInput) {
   EXPECT_EQ(system_->ProcessNext({}), SyncStatus::kWaiting);
   ASSERT_TRUE(gate.Wait());
   EXPECT_EQ(gate.frontier(), 4u);
-  Append(4, 8);
+  Enqueue(4, 8);
   EXPECT_EQ(system_->ProcessNext({}), SyncStatus::kWaiting);
-  EXPECT_EQ(backend.GetStats().peak_queued_keyframes, 4u);
-  system_->SealInput();
+  EXPECT_EQ(system_->GetLoopStats()->peak_queued_keyframes, 4u);
   gate.Release();
+  system_->SealInput();
   system_->Finish();
 
-  EXPECT_EQ(backend.GetStats().frame_count, 8u);
-  EXPECT_GT(backend.GetStats().accepted, 0u);
-  EXPECT_GT(backend.GetStats().skipped, 0u);
+  EXPECT_EQ(system_->GetLoopStats()->frame_count, 8u);
+  EXPECT_GT(system_->GetLoopStats()->accepted, 0u);
+  EXPECT_GT(system_->GetLoopStats()->skipped, 0u);
   const auto report = InspectLoopDataset(Dataset());
   EXPECT_EQ(report.status, LoopRecoveryStatus::kConsistent)
       << testing::PrintToString(report.issues);
@@ -178,9 +186,11 @@ TEST_F(LoopBackendTest, OverflowPreservesOnlyTheCommittedPrefix) {
   Append(0, 4);
   EXPECT_EQ(system_->ProcessNext({}), SyncStatus::kWaiting);
   ASSERT_TRUE(gate.Wait());
-  Append(4, 8);
-  EXPECT_THROW(Append(8, 9), std::overflow_error);
-  EXPECT_EQ(system_->GetKeyframeReadView().frame_count(), 8u);
+  Enqueue(4, 8);
+  EXPECT_THROW(Enqueue(8, 9), std::overflow_error);
+  EXPECT_EQ(system_->GetKeyframeReadView().frame_count(), 4u);
+  EXPECT_EQ(system_->GetPoseFrontier().frame_count, 4u);
+  EXPECT_FALSE(fs::exists(Dataset() / "frames/4"));
   EXPECT_FALSE(fs::exists(Dataset() / "frames/8"));
   EXPECT_THROW(system_->ProcessNext({}), std::overflow_error);
   gate.Release();
@@ -190,6 +200,42 @@ TEST_F(LoopBackendTest, OverflowPreservesOnlyTheCommittedPrefix) {
   EXPECT_EQ(report.status, LoopRecoveryStatus::kIncomplete)
       << testing::PrintToString(report.issues);
   EXPECT_EQ(report.committed_version, 0u);
+}
+
+TEST_F(LoopBackendTest, FrontendContinuesWhileArchiveWriterIsBusy) {
+  const auto gate = std::make_shared<Gate>();
+  ReleaseOnExit release{*gate};
+  const auto options = loop_test::NearbyOptions();
+  LoopBackendTestPeer::InstallManaged(
+      *system_, options, [gate, options](const auto& task) {
+        gate->Enter(task);
+        return RunLoopTask(task, options);
+      });
+  const auto owner = std::this_thread::get_id();
+  system_->SetOnlineSubmapCallback([this, owner](const auto& update) {
+    EXPECT_EQ(std::this_thread::get_id(), owner);
+    EXPECT_EQ(system_->GetKeyframeReadView().frame_count(),
+              update.poses->frame_count);
+    EXPECT_EQ(system_->GetMapCorrection().pose_version, update.poses->version);
+  });
+  Append(0, 4);
+  ASSERT_TRUE(gate->Wait());
+  const auto before = system_->GetKeyframeReadView();
+  int estimates = 0;
+  const auto collect = [&](const auto&, const auto&, double) { ++estimates; };
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_TRUE(system_->AddLidar(test::Scan(100 + .25 * i)));
+    while (system_->ProcessNext(collect) != SyncStatus::kWaiting) {
+    }
+  }
+  EXPECT_GT(estimates, 0);
+  EXPECT_EQ(system_->GetPoseFrontier().frame_count, 4u);
+  EXPECT_FALSE(fs::exists(Dataset() / "frames/4"));
+
+  gate->Release();
+  system_->Finish();
+  EXPECT_GT(system_->GetKeyframeReadView().frame_count(), 4u);
+  EXPECT_THROW(before.ReadTimestamp(4), std::out_of_range);
 }
 
 TEST_F(LoopBackendTest, DetectionOnlyFinishesWithoutPublishingAPoseUpdate) {
@@ -227,7 +273,7 @@ TEST_F(LoopBackendTest, CrossedBudgetDoesNotCommit) {
   Append(0, 4);
   backend->Poll();
   ASSERT_TRUE(gate.Wait());
-  Append(4, 6);
+  Enqueue(4, 6);
   gate.Release();
   backend->Finish();
   EXPECT_EQ(system_->GetPoseSnapshot()->version, 0u);
