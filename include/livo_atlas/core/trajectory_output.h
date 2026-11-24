@@ -48,6 +48,7 @@ class TrajectoryOutput {
   TrajectoryOutput& operator=(const TrajectoryOutput&) = delete;
 
   void Observe(const OnlineSubmapUpdate& update) noexcept;
+  void ObserveDelta(const OnlineSubmapDelta& update) noexcept;
   void Poll();
   void Finish();
   TrajectoryOutputStats GetStats() const;
@@ -67,6 +68,9 @@ class TrajectoryOutput {
   };
 
   void Poll(bool force);
+  void ObserveFrontier(
+      std::optional<PoseFrontier> frontier,
+      const std::shared_ptr<const PoseSnapshot>& poses) noexcept;
   void Run();
   void Stop();
   void RecordFailure(const std::string& error);

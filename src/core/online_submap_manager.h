@@ -14,7 +14,10 @@ class OnlineSubmapManager {
   void AppendCommittedKeyframe(std::shared_ptr<const Keyframe> keyframe);
   void SetLoopBackend(LoopBackend& backend);
   void SetCallback(LivoSystem::OnlineSubmapCallback callback);
+  void SetDeltaCallback(LivoSystem::OnlineSubmapDeltaCallback callback);
+  PoseFrontier GetPoseFrontier() const;
   std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
+  PoseSnapshot MaterializePoses() const;
   MapCorrection GetMapCorrection() const;
   void ApplyPoseUpdate(const PoseUpdate& update);
   GeometrySubmap GetGeometrySubmap(std::uint64_t id);
@@ -25,7 +28,8 @@ class OnlineSubmapManager {
   void RethrowFailure() const;
 
  private:
-  void Notify(OnlineSubmapUpdate update);
+  void CheckCallbackRegistration() const;
+  void Notify(OnlineSubmapDelta update, bool pose_commit = false);
   OnlineSubmapBuilder builder_;
   OnlineSubmapStore store_;
   std::unique_ptr<GeometryMapper> geometry_;
@@ -33,6 +37,7 @@ class OnlineSubmapManager {
   PoseSnapshot frozen_;
   LoopBackend* loop_backend_ = nullptr;
   LivoSystem::OnlineSubmapCallback callback_;
+  LivoSystem::OnlineSubmapDeltaCallback delta_callback_;
   std::exception_ptr failure_;
   bool input_sealed_ = false;
   bool finished_ = false;

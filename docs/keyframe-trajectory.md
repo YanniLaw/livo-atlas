@@ -94,16 +94,17 @@ Header 使用最后一个关键帧的采集时间；空状态和非 Ready 为 0�
 `PoseSnapshot` 和按 ID 排序的完整时间数组，返回普通拥有数据的结果。
 调用者负责为纯构建结果指定 producer/revision；无效来源抛 `invalid_argument`。
 
-[TrajectoryOutput](../include/livo_atlas/core/trajectory_output.h) 连接已运行的 `LivoSystem`。
-系统所有者线程调用 `Observe`、`Poll`、`Finish`；一个 worker 读取固定的
+[TrajectoryOutput](../include/livo_atlas/core/trajectory_output.h) 连接 `LivoSystem`。
+共享 `main` 在输入第一帧之前用 `SetOnlineSubmapDeltaCallback` 注册
+`ObserveDelta`。使用完整快照的 SDK 调用方可继续调用 `Observe`。
+系统所有者负责通知、`Poll` 和 `Finish`。工作线程读取固定的
 `KeyframeReadView`、缓存时间并调用消费者。消费者在调用期间借用 `const TrajectorySnapshot&`，
-需要保留时自行复制，不能重入活系统。
-系统只有一个 online callback，需要像共同 main 一样将后端与轨迹 `Observe` 组合在其中。
+需要保留时自行复制，回调只处理已交付的结果。
 
-最多一个执行任务和一个合并待处理状态。当前完整结果即使被更新状态赶上也会交付，
-随后再处理最新待处理状态。超预算只保留头部，不持有新增完整位姿快照，也不读取时间文件。
-这约束的是本组件的任务数量和有效帧数：原有 `Notify()` 仍会物化 O(M) 的完整位姿快照，
-原始存储、前端地图及调用者保留的副本不包含在此预算内。
+最多一个执行任务和一个合并待处理状态。当前完整结果交付后，再处理最新待处理状态。
+初始化、追加与收尾先读位姿前沿，正常任务派发时才捕获对应的完整位姿和固定读取视图。
+超预算时只交付头部和状态。预算覆盖本组件的任务数量和有效帧数。
+启用完整快照回调、局部几何或在线 3DGS 的会话还会为相应消费者提供位姿历史。
 
 正常停止先停止节点处理，再 `LoopBackend::Finish()` 或 `LivoSystem::Finish()`，
 最后 `TrajectoryOutput::Finish()` 排空最终状态并 join。Finish 幂等。

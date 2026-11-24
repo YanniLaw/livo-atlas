@@ -48,29 +48,89 @@ class OnlineSubmapManagerTest : public testing::Test {
 };
 
 TEST_F(OnlineSubmapManagerTest, LegacyTailFailurePreservesCommittedData) {
-  KeyframeStore frames(root_, options_.frontend.calibration);
-  OnlineSubmapManager manager(root_ / "online_submaps", frames, 2, {}, {});
-  manager.SetCallback([](const auto&) {});
-  auto first = std::make_shared<Keyframe>(ApproximateFrame(0));
-  frames.Append(*first);
-  manager.AppendCommittedKeyframe(first);
-  PoseUpdate update;
-  update.optimized_frame_count = 1;
-  update.poses.push_back({0, {}});
-  manager.ApplyPoseUpdate(update);
-  const auto pose_file = root_ / "online_submaps/poses/1.yml";
-  const auto bytes = ReadBytes(pose_file);
+  for (const bool incremental : {false, true}) {
+    SCOPED_TRACE(incremental);
+    const auto directory = root_ / (incremental ? "delta" : "full");
+    KeyframeStore frames(directory, options_.frontend.calibration);
+    OnlineSubmapManager manager(directory / "online_submaps", frames, 2, {},
+                                {});
+    int notifications = 0;
+    if (incremental) {
+      manager.SetDeltaCallback([&](const auto&) { ++notifications; });
+    } else {
+      manager.SetCallback([&](const auto&) { ++notifications; });
+    }
+    auto first = std::make_shared<Keyframe>(ApproximateFrame(0));
+    frames.Append(*first);
+    manager.AppendCommittedKeyframe(first);
+    PoseUpdate update;
+    update.optimized_frame_count = 1;
+    update.poses.push_back({0, {}});
+    manager.ApplyPoseUpdate(update);
+    const auto pose_file = directory / "online_submaps/poses/1.yml";
+    const auto bytes = ReadBytes(pose_file);
 
-  auto second = std::make_shared<Keyframe>(ApproximateFrame(1));
-  frames.Append(*second);
-  EXPECT_THROW(manager.AppendCommittedKeyframe(second), std::invalid_argument);
-  EXPECT_THROW(manager.Finish(), std::invalid_argument);
-  EXPECT_EQ(ReadBytes(pose_file), bytes);
-  EXPECT_DOUBLE_EQ(frames.ReadRawBodyPose(1).rotation(0, 0), 1.000045);
-  const OnlineSubmapStore reader(root_ / "online_submaps", frames);
-  EXPECT_EQ(reader.indexed_frame_count(), 2u);
-  EXPECT_EQ(reader.ReadPoseSnapshot(1).frame_count, 1u);
-  EXPECT_THROW(reader.MaterializePoseSnapshot(1, 2), std::invalid_argument);
+    auto second = std::make_shared<Keyframe>(ApproximateFrame(1));
+    frames.Append(*second);
+    EXPECT_THROW(manager.AppendCommittedKeyframe(second),
+                 std::invalid_argument);
+    EXPECT_EQ(notifications, 2);
+    EXPECT_THROW(manager.Finish(), std::invalid_argument);
+    EXPECT_EQ(ReadBytes(pose_file), bytes);
+    EXPECT_DOUBLE_EQ(frames.ReadRawBodyPose(1).rotation(0, 0), 1.000045);
+    const OnlineSubmapStore reader(directory / "online_submaps", frames);
+    EXPECT_EQ(reader.indexed_frame_count(), 2u);
+    EXPECT_EQ(reader.ReadPoseSnapshot(1).frame_count, 1u);
+    EXPECT_THROW(reader.MaterializePoseSnapshot(1, 2), std::invalid_argument);
+  }
+}
+
+TEST_F(OnlineSubmapManagerTest, DeltasCarryPosesOnlyAtPoseCommits) {
+  KeyframeStore frames(root_, options_.frontend.calibration);
+  OnlineSubmapOptions options;
+  options.translation_threshold = 2000;
+  OnlineSubmapManager manager(root_ / "online_submaps", frames, 4, options, {});
+  std::vector<OnlineSubmapDelta> deltas;
+  std::vector<OnlineSubmapUpdate> full;
+  manager.SetDeltaCallback(
+      [&](const auto& update) { deltas.push_back(update); });
+  manager.SetCallback([&](const auto& update) { full.push_back(update); });
+  for (std::uint64_t id = 0; id < 2; ++id) {
+    auto frame = std::make_shared<Keyframe>(ApproximateFrame(id));
+    frames.Append(*frame);
+    manager.AppendCommittedKeyframe(frame);
+  }
+  manager.SealInput();
+  const auto previous = manager.GetPoseSnapshot();
+  const PoseUpdate update{0, previous->frame_count, previous->poses,
+                          PoseTailPolicy::kProjectedLastOptimizedAnchor};
+  manager.ApplyPoseUpdate(update);
+  manager.Finish();
+
+  ASSERT_EQ(deltas.size(), 4u);
+  ASSERT_EQ(full.size(), deltas.size());
+  for (std::size_t i = 0; i < deltas.size(); ++i) {
+    SCOPED_TRACE(i);
+    const auto& delta = deltas[i];
+    ASSERT_TRUE(full[i].poses);
+    EXPECT_EQ(delta.frontier.version, full[i].poses->version);
+    EXPECT_EQ(delta.frontier.frame_count, i == 0 ? 1u : 2u);
+    EXPECT_EQ(delta.frontier.frame_count, full[i].poses->frame_count);
+    EXPECT_EQ(delta.keyframe, full[i].keyframe);
+    EXPECT_EQ(delta.revisions.size(), full[i].revisions.size());
+    if (i < 3) {
+      EXPECT_FALSE(delta.poses);
+      EXPECT_TRUE(delta.pose_changes.empty());
+    }
+  }
+  EXPECT_TRUE(deltas[0].keyframe);
+  EXPECT_TRUE(deltas[1].keyframe);
+  EXPECT_FALSE(deltas[2].keyframe);
+  ASSERT_EQ(deltas[2].revisions.size(), 1u);
+  EXPECT_EQ(deltas[2].revisions[0].state, OnlineSubmapState::kSealed);
+  EXPECT_EQ(deltas.back().poses, full.back().poses);
+  EXPECT_EQ(deltas.back().frontier.version, 1u);
+  ASSERT_EQ(deltas.back().pose_changes.size(), 1u);
 }
 
 TEST_F(OnlineSubmapManagerTest, ProjectedTailContinuesAndReloads) {

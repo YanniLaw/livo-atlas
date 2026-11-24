@@ -14,6 +14,7 @@
 namespace livo_atlas {
 class LivoSystem;
 class LoopBackendTestPeer;
+class OnlineSubmapManager;
 
 // All methods run on the system owner. Only the worker's owned task values
 // cross threads; Observe collects metadata without I/O or reentering the
@@ -33,10 +34,16 @@ class LoopBackend {
  private:
   friend class LivoSystem;
   friend class LoopBackendTestPeer;
+  friend class OnlineSubmapManager;
   LoopBackend(LivoSystem& system, LoopAdmissionOptions options,
               LoopTaskRunner runner);
   static LoopAdmissionOptions ValidateSession(LivoSystem& system,
                                               LoopAdmissionOptions options);
+  void ObserveDelta(const OnlineSubmapDelta& update) noexcept;
+  void ObserveFrontier(const Keyframe* keyframe,
+                       const std::vector<OnlineSubmap>& revisions,
+                       const PoseFrontier& frontier,
+                       const std::shared_ptr<const PoseSnapshot>& poses);
   LoopAdmissionInput CurrentInput(std::uint64_t query_id) const;
   void RecordMembership(const OnlineSubmap& group);
   void QueueQuery(std::uint64_t query_id);

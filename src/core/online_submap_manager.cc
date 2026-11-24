@@ -43,21 +43,38 @@ void OnlineSubmapManager::SetLoopBackend(LoopBackend& backend) {
   loop_backend_ = &backend;
 }
 
+void OnlineSubmapManager::CheckCallbackRegistration() const {
+  CheckRunning();
+  if (input_sealed_ || !raw_poses_.empty()) {
+    throw std::logic_error("Register online callback before processing frames");
+  }
+}
+
 void OnlineSubmapManager::SetCallback(
     LivoSystem::OnlineSubmapCallback callback) {
-  if (callback) {
-    CheckRunning();
-    if (input_sealed_ || !raw_poses_.empty())
-      throw std::logic_error(
-          "Register online callback before processing frames");
-  }
+  if (callback) CheckCallbackRegistration();
   callback_ = std::move(callback);
+}
+
+void OnlineSubmapManager::SetDeltaCallback(
+    LivoSystem::OnlineSubmapDeltaCallback callback) {
+  if (callback) CheckCallbackRegistration();
+  delta_callback_ = std::move(callback);
+}
+
+PoseFrontier OnlineSubmapManager::GetPoseFrontier() const {
+  auto frontier = frozen_.frontier();
+  frontier.frame_count = raw_poses_.size();
+  return frontier;
 }
 
 std::shared_ptr<const PoseSnapshot> OnlineSubmapManager::GetPoseSnapshot()
     const {
-  return std::make_shared<const PoseSnapshot>(
-      MaterializePoseSnapshot(frozen_, raw_poses_, raw_poses_.size()));
+  return std::make_shared<const PoseSnapshot>(MaterializePoses());
+}
+
+PoseSnapshot OnlineSubmapManager::MaterializePoses() const {
+  return MaterializePoseSnapshot(frozen_, raw_poses_, raw_poses_.size());
 }
 
 MapCorrection OnlineSubmapManager::GetMapCorrection() const {
@@ -81,12 +98,19 @@ MapCorrection OnlineSubmapManager::GetMapCorrection() const {
   return correction;
 }
 
-void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {
-  if (!loop_backend_ && !callback_ && !geometry_) return;
+void OnlineSubmapManager::Notify(OnlineSubmapDelta update, bool pose_commit) {
+  if (!loop_backend_ && !delta_callback_ && !callback_ && !geometry_) return;
   const auto start = std::chrono::steady_clock::now();
-  update.poses = GetPoseSnapshot();
+  update.frontier = GetPoseFrontier();
+  std::shared_ptr<const PoseSnapshot> poses;
+  if (pose_commit || callback_ || geometry_) {
+    poses = GetPoseSnapshot();
+  } else if (update.keyframe) {
+    pose_math::ValidateAppendedPose(frozen_, raw_poses_);
+  }
+  if (pose_commit) update.poses = poses;
   if (geometry_) {
-    geometry_->Update(update.revisions, update.poses, update.keyframe.get());
+    geometry_->Update(update.revisions, poses, update.keyframe.get());
     const auto total =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
             .count();
@@ -100,8 +124,12 @@ void OnlineSubmapManager::Notify(OnlineSubmapUpdate update) {
             << " geometry_snapshot_seconds=" << stats.last_snapshot_seconds;
     LOG(INFO) << message.str();
   }
-  if (loop_backend_) loop_backend_->Observe(update);
-  if (callback_) callback_(update);
+  if (loop_backend_) loop_backend_->ObserveDelta(update);
+  if (delta_callback_) delta_callback_(update);
+  if (callback_) {
+    callback_({std::move(update.keyframe), std::move(update.revisions),
+               std::move(poses), std::move(update.pose_changes)});
+  }
 }
 
 GeometrySubmap OnlineSubmapManager::GetGeometrySubmap(std::uint64_t id) {
@@ -136,7 +164,7 @@ void OnlineSubmapManager::AppendCommittedKeyframe(
     raw_poses_.push_back(keyframe->odom_from_body);
     for (const auto& revision : revisions) store_.AppendRevision(revision);
     committed = true;
-    Notify({std::move(keyframe), std::move(revisions), {}, {}});
+    Notify({std::move(keyframe), std::move(revisions), {}, {}, {}});
   } catch (...) {
     if (!committed) raw_poses_.resize(previous_count);
     failure_ = std::current_exception();
@@ -158,7 +186,7 @@ void OnlineSubmapManager::ApplyPoseUpdate(const PoseUpdate& update) {
     }
     store_.WritePoseSnapshot(candidate);
     frozen_ = std::move(candidate);
-    Notify({{}, {}, {}, std::move(changes)});
+    Notify({{}, {}, {}, {}, std::move(changes)}, /*pose_commit=*/true);
   } catch (...) {
     failure_ = std::current_exception();
     throw;
@@ -172,7 +200,7 @@ void OnlineSubmapManager::SealInput() {
     auto revisions = builder_.Finish();
     for (const auto& revision : revisions) store_.AppendRevision(revision);
     input_sealed_ = true;
-    if (!revisions.empty()) Notify({{}, std::move(revisions), {}, {}});
+    if (!revisions.empty()) Notify({{}, std::move(revisions), {}, {}, {}});
   } catch (...) {
     failure_ = std::current_exception();
     throw;

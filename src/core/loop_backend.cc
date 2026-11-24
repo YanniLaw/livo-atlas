@@ -8,6 +8,7 @@
 
 #include "common/timing.h"
 #include "core/loop_commit.h"
+#include "core/online_submap_manager.h"
 #include "io/loop_admission_io.h"
 #include "livo_atlas/core/livo_system.h"
 
@@ -31,7 +32,7 @@ LoopAdmissionOptions LoopBackend::ValidateSession(
           "members");
   if (system.loop_pose_updates_claimed_ || system.next_keyframe_id_ ||
       system.GetKeyframeReadView().frame_count() ||
-      system.GetPoseSnapshot()->version)
+      system.GetPoseFrontier().version)
     throw std::logic_error("Loop backend requires a new unclaimed session");
   return options;
 }
@@ -46,8 +47,7 @@ LoopBackend::LoopBackend(LivoSystem& system, LoopAdmissionOptions options,
     : system_(system),
       options_(ValidateSession(system, std::move(options))),
       store_(system.GetKeyframeReadView(), options_),
-      worker_(std::move(runner)),
-      poses_(system.GetPoseSnapshot()) {
+      worker_(std::move(runner)) {
   // All allocations, files and the worker are ready before the sticky claim.
   system_.ClaimLoopPoseUpdates();
 }
@@ -121,50 +121,76 @@ void LoopBackend::StopDispatch() {
 void LoopBackend::Observe(const OnlineSubmapUpdate& update) noexcept {
   if (failure_) return;
   try {
-    Require(!finished_ && bool(update.poses),
+    Require(bool(update.poses),
             "Missing observed pose snapshot or closed backend");
-    const auto previous_count = stats_.frame_count;
-    const auto count = previous_count + (update.keyframe ? 1 : 0);
-    Require(update.poses->frame_count == count &&
-                (update.poses->version == stats_.pose_version ||
-                 (!update.keyframe && update.revisions.empty() &&
-                  update.poses->version == stats_.pose_version + 1)),
-            "Observed pose frontier or version is not consecutive");
-    if (update.keyframe) {
-      const auto& frame = *update.keyframe;
-      Require(frame.id == previous_count && std::isfinite(frame.timestamp) &&
-                  (!previous_count || frame.timestamp >= latest_timestamp_),
-              "Observed raw keyframes are not consecutive and ordered");
-      latest_timestamp_ = frame.timestamp;
-    }
-    stats_.frame_count = count;
-    stats_.pose_version = update.poses->version;
-    for (const auto& group : update.revisions)
-      if (group.state == OnlineSubmapState::kSealed)
-        latest_query_ = group.primary.id;
-    if (count > options_.max_keyframes || stats_.accepted >= options_.max_loops)
-      StopDispatch();
-    if (budget_stopped_) return;
-    ValidatePoseSnapshot(*update.poses);
-    if (update.keyframe) {
-      raw_poses_.push_back(update.keyframe->odom_from_body);
-      timestamps_.push_back(update.keyframe->timestamp);
-    }
-    poses_ = update.poses;
-    for (const auto& group : update.revisions) RecordMembership(group);
+    ObserveFrontier(update.keyframe.get(), update.revisions,
+                    update.poses->frontier(), update.poses);
   } catch (...) {
     failure_ = std::current_exception();
   }
 }
 
+void LoopBackend::ObserveDelta(const OnlineSubmapDelta& update) noexcept {
+  if (failure_) return;
+  try {
+    ObserveFrontier(update.keyframe.get(), update.revisions, update.frontier,
+                    update.poses);
+  } catch (...) {
+    failure_ = std::current_exception();
+  }
+}
+
+void LoopBackend::ObserveFrontier(
+    const Keyframe* keyframe, const std::vector<OnlineSubmap>& revisions,
+    const PoseFrontier& frontier,
+    const std::shared_ptr<const PoseSnapshot>& poses) {
+  Require(!finished_, "Missing observed pose snapshot or closed backend");
+  const auto previous_count = stats_.frame_count;
+  const auto count = previous_count + (keyframe ? 1 : 0);
+  Require(frontier.frame_count == count &&
+              (frontier.version == stats_.pose_version ||
+               (poses && !keyframe && revisions.empty() &&
+                frontier.version == stats_.pose_version + 1)),
+          "Observed pose frontier or version is not consecutive");
+  if (keyframe) {
+    Require(keyframe->id == previous_count &&
+                std::isfinite(keyframe->timestamp) &&
+                (!previous_count || keyframe->timestamp >= latest_timestamp_),
+            "Observed raw keyframes are not consecutive and ordered");
+    latest_timestamp_ = keyframe->timestamp;
+  }
+  stats_.frame_count = count;
+  stats_.pose_version = frontier.version;
+  for (const auto& group : revisions) {
+    if (group.state == OnlineSubmapState::kSealed)
+      latest_query_ = group.primary.id;
+  }
+  if (count > options_.max_keyframes || stats_.accepted >= options_.max_loops)
+    StopDispatch();
+  if (budget_stopped_) return;
+  if (poses) {
+    ValidatePoseSnapshot(*poses);
+    Require(poses->frontier() == frontier,
+            "Observed pose snapshot does not match its frontier");
+  }
+  if (keyframe) {
+    raw_poses_.push_back(keyframe->odom_from_body);
+    timestamps_.push_back(keyframe->timestamp);
+  }
+  poses_ = poses;
+  for (const auto& group : revisions) RecordMembership(group);
+}
+
 LoopAdmissionInput LoopBackend::CurrentInput(std::uint64_t query_id) const {
-  Require(poses_ && poses_->frame_count == stats_.frame_count &&
+  LoopAdmissionInput input;
+  input.query_id = query_id;
+  input.poses = poses_ ? *poses_ : system_.Online().MaterializePoses();
+  const auto& poses = input.poses;
+  Require(poses.frame_count == stats_.frame_count &&
+              poses.version == stats_.pose_version &&
               raw_poses_.size() == stats_.frame_count &&
               timestamps_.size() == stats_.frame_count,
           "Loop observer did not receive the full committed prefix");
-  LoopAdmissionInput input;
-  input.query_id = query_id;
-  input.poses = *poses_;
   input.raw_poses = raw_poses_;
   input.accepted_loops = accepted_loops_;
   for (const auto& group : submaps_) {
@@ -172,8 +198,8 @@ LoopAdmissionInput LoopBackend::CurrentInput(std::uint64_t query_id) const {
     input.submaps.push_back(
         {group, timestamps_.at(group.primary.keyframe_ids.front()),
          timestamps_.at(group.primary.keyframe_ids.back()),
-         poses_->poses.at(group.primary.anchor_keyframe_id).map_from_body,
-         poses_->version, poses_->frame_count, poses_->optimized_frame_count});
+         poses.poses.at(group.primary.anchor_keyframe_id).map_from_body,
+         poses.version, poses.frame_count, poses.optimized_frame_count});
   }
   Require(query_id < input.submaps.size(), "Unknown pending loop query");
   return input;

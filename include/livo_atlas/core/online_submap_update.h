@@ -17,5 +17,15 @@ struct OnlineSubmapUpdate {
   std::shared_ptr<const PoseSnapshot> poses;
   std::vector<SubmapPoseChange> pose_changes;
 };
+
+// An owning notification of a committed change. Only a pose commit includes
+// a full snapshot, so append and seal notifications stay small.
+struct OnlineSubmapDelta {
+  std::shared_ptr<const Keyframe> keyframe;
+  std::vector<OnlineSubmap> revisions;
+  PoseFrontier frontier;
+  std::shared_ptr<const PoseSnapshot> poses;
+  std::vector<SubmapPoseChange> pose_changes;
+};
 }  // namespace livo_atlas
 #endif  // LIVO_ATLAS_CORE_ONLINE_SUBMAP_UPDATE_H_

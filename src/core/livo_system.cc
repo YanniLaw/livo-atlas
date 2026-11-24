@@ -544,6 +544,12 @@ void LivoSystem::SetOnlineSubmapCallback(OnlineSubmapCallback callback) {
   Online().SetCallback(std::move(callback));
 }
 
+void LivoSystem::SetOnlineSubmapDeltaCallback(
+    OnlineSubmapDeltaCallback callback) {
+  if (callback && session_error_) std::rethrow_exception(session_error_);
+  Online().SetDeltaCallback(std::move(callback));
+}
+
 void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
   if (session_error_) std::rethrow_exception(session_error_);
   if (loop_pose_updates_claimed_)
@@ -556,7 +562,7 @@ void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
 void LivoSystem::ClaimLoopPoseUpdates() {
   CheckInputOpen();
   if (loop_pose_updates_claimed_ || next_keyframe_id_ ||
-      Online().GetPoseSnapshot()->version)
+      Online().GetPoseFrontier().version)
     throw std::logic_error("Loop backend requires a new unclaimed session");
   loop_pose_updates_claimed_ = true;
 }
@@ -617,6 +623,10 @@ LivoSystem::~LivoSystem() {
   if (loop_backend_ && session_error_) {
     loop_backend_->StopOnFailure(session_error_);
   }
+}
+
+PoseFrontier LivoSystem::GetPoseFrontier() const {
+  return Online().GetPoseFrontier();
 }
 
 std::shared_ptr<const PoseSnapshot> LivoSystem::GetPoseSnapshot() const {

@@ -72,12 +72,18 @@ int main(int argc, char** argv) {
             publisher->Publish(snapshot);
           });
     }
-    if (trajectory || geometry || parameters.livo.gaussian.enabled) {
+    if (trajectory) {
+      system.SetOnlineSubmapDeltaCallback([&trajectory](const auto& update) {
+        trajectory->ObserveDelta(update);
+      });
+    }
+    if (geometry || parameters.livo.gaussian.enabled) {
       system.SetOnlineSubmapCallback([&](const auto& update) {
-        if (trajectory) trajectory->Observe(update);
         if (geometry) geometry->Observe(update);
         gaussian.Observe(update);
       });
+    }
+    if (trajectory || geometry || parameters.livo.gaussian.enabled) {
       // Outputs can have pending work while sensor synchronization is waiting.
       poll_background_outputs = [&] {
         if (trajectory) trajectory->Poll();

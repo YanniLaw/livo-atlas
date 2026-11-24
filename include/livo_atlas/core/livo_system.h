@@ -64,9 +64,14 @@ class LivoSystem {
   using ResultCallback = std::function<void(
       const FrontendResult&, const ColoredCloud::ConstPtr&, double)>;
   using OnlineSubmapCallback = std::function<void(const OnlineSubmapUpdate&)>;
+  using OnlineSubmapDeltaCallback =
+      std::function<void(const OnlineSubmapDelta&)>;
   // Register before the first frame; callbacks only enqueue, never reenter or
   // throw.
   void SetOnlineSubmapCallback(OnlineSubmapCallback callback);
+  void SetOnlineSubmapDeltaCallback(OnlineSubmapDeltaCallback callback);
+  // Read the committed metadata without materializing the pose history.
+  PoseFrontier GetPoseFrontier() const;
   std::shared_ptr<const PoseSnapshot> GetPoseSnapshot() const;
   // Constant-size derived view; safe for read-only diagnostics after a
   // committed publication failure, without materializing the full trajectory.

@@ -41,7 +41,41 @@ bool EqualProjectedPose(const RigidTransform& a, const RigidTransform& b) {
          (a.translation - b.translation).norm() <= 1e-9;
 }
 
+RigidTransform TailCorrection(const PoseSnapshot& frozen,
+                              const std::vector<RigidTransform>& raw_poses) {
+  if (!frozen.version) return {};
+  const auto anchor = frozen.optimized_frame_count - 1;
+  const auto& map_anchor = frozen.poses[anchor].map_from_body;
+  const auto& raw_anchor = raw_poses[anchor];
+  return IsProjected(frozen.tail_policy)
+             ? pose_math::ProjectedCorrection(map_anchor, raw_anchor)
+             : pose_math::Compose(map_anchor, pose_math::Inverse(raw_anchor));
+}
+
+RigidTransform MaterializeTailPose(const RigidTransform& correction,
+                                   const RigidTransform& raw,
+                                   PoseTailPolicy policy) {
+  return pose_math::Compose(
+      correction, IsProjected(policy) ? pose_math::ProjectPose(raw) : raw);
+}
+
+void ValidateSnapshotPose(const RigidTransform& pose, PoseTailPolicy policy) {
+  pose_math::Validate(pose);
+  if (IsProjected(policy) && !IsRigidRotation(pose.rotation)) {
+    throw std::invalid_argument("Projected pose rotation must be rigid");
+  }
+}
+
 }  // namespace
+
+void pose_math::ValidateAppendedPose(
+    const PoseSnapshot& frozen, const std::vector<RigidTransform>& raw_poses) {
+  const auto& raw = raw_poses.back();
+  Validate(raw);
+  ValidateSnapshotPose(MaterializeTailPose(TailCorrection(frozen, raw_poses),
+                                           raw, frozen.tail_policy),
+                       frozen.tail_policy);
+}
 
 void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
   if ((snapshot.tail_policy != PoseTailPolicy::kLegacyLastOptimizedAnchor &&
@@ -63,11 +97,7 @@ void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
       throw std::invalid_argument(
           "Pose snapshot IDs must be a complete ordered prefix");
     }
-    pose_math::Validate(snapshot.poses[i].map_from_body);
-    if (IsProjected(snapshot.tail_policy) &&
-        !IsRigidRotation(snapshot.poses[i].map_from_body.rotation)) {
-      throw std::invalid_argument("Projected pose rotation must be rigid");
-    }
+    ValidateSnapshotPose(snapshot.poses[i].map_from_body, snapshot.tail_policy);
   }
 }
 
@@ -80,20 +110,11 @@ PoseSnapshot MaterializePoseSnapshot(
     throw std::invalid_argument("Requested pose frontier is out of range");
   }
   for (const auto& pose : raw_poses) pose_math::Validate(pose);
-  RigidTransform correction;
+  const auto correction = TailCorrection(frozen, raw_poses);
   if (frozen.version) {
-    const auto anchor = frozen.optimized_frame_count - 1;
-    correction =
-        IsProjected(frozen.tail_policy)
-            ? pose_math::ProjectedCorrection(frozen.poses[anchor].map_from_body,
-                                             raw_poses[anchor])
-            : pose_math::Compose(frozen.poses[anchor].map_from_body,
-                                 pose_math::Inverse(raw_poses[anchor]));
     for (auto i = frozen.optimized_frame_count; i < frozen.frame_count; ++i) {
-      const auto raw = IsProjected(frozen.tail_policy)
-                           ? pose_math::ProjectPose(raw_poses[i])
-                           : raw_poses[i];
-      const auto expected = pose_math::Compose(correction, raw);
+      const auto expected =
+          MaterializeTailPose(correction, raw_poses[i], frozen.tail_policy);
       const bool equal =
           IsProjected(frozen.tail_policy)
               ? EqualProjectedPose(frozen.poses[i].map_from_body, expected)
@@ -115,10 +136,8 @@ PoseSnapshot MaterializePoseSnapshot(
   if (!frozen.version) result.poses.clear();
   result.poses.reserve(frame_count);
   for (auto i = result.poses.size(); i < frame_count; ++i) {
-    const auto raw = IsProjected(frozen.tail_policy)
-                         ? pose_math::ProjectPose(raw_poses[i])
-                         : raw_poses[i];
-    result.poses.push_back({i, pose_math::Compose(correction, raw)});
+    result.poses.push_back(
+        {i, MaterializeTailPose(correction, raw_poses[i], frozen.tail_policy)});
   }
   ValidatePoseSnapshot(result);
   return result;

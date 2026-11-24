@@ -20,6 +20,23 @@ struct KeyframePose {
 
 enum class PoseFrame { kOdom, kMap };
 
+struct PoseFrontier {
+  std::uint64_t version = 0;
+  std::uint64_t base_version = 0;
+  std::uint64_t frame_count = 0;
+  std::uint64_t optimized_frame_count = 0;
+  PoseFrame parent_frame = PoseFrame::kOdom;
+  PoseTailPolicy tail_policy = PoseTailPolicy::kLegacyLastOptimizedAnchor;
+
+  bool operator==(const PoseFrontier& other) const {
+    return version == other.version && base_version == other.base_version &&
+           frame_count == other.frame_count &&
+           optimized_frame_count == other.optimized_frame_count &&
+           parent_frame == other.parent_frame &&
+           tail_policy == other.tail_policy;
+  }
+};
+
 struct PoseUpdate {
   std::uint64_t base_version = 0;
   std::uint64_t optimized_frame_count = 0;
@@ -37,6 +54,11 @@ struct PoseSnapshot {
   PoseFrame parent_frame = PoseFrame::kOdom;
   std::vector<KeyframePose> poses;
   PoseTailPolicy tail_policy = PoseTailPolicy::kLegacyLastOptimizedAnchor;
+
+  PoseFrontier frontier() const {
+    return {version,      base_version, frame_count, optimized_frame_count,
+            parent_frame, tail_policy};
+  }
 };
 void ValidatePoseSnapshot(const PoseSnapshot& snapshot);
 PoseSnapshot MaterializePoseSnapshot(

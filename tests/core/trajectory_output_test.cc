@@ -32,14 +32,18 @@ class TrajectoryOutputTest : public testing::Test {
 
   void TearDown() override {
     Release();
-    if (system_) system_->SetOnlineSubmapCallback({});
+    if (system_) {
+      system_->SetOnlineSubmapCallback({});
+      system_->SetOnlineSubmapDeltaCallback({});
+    }
     output_.reset();
     if (system_) EXPECT_NO_THROW(system_->Finish());
     system_.reset();
     std::filesystem::remove_all(options_.exporter.directory);
   }
 
-  void Start(int limit = 20, TrajectoryOutput::Consumer consumer = {}) {
+  void Start(int limit = 20, TrajectoryOutput::Consumer consumer = {},
+             bool incremental = false) {
     TrajectoryOutputOptions options;
     options.enabled = true;
     options.max_frequency_hz = 10;
@@ -56,8 +60,13 @@ class TrajectoryOutputTest : public testing::Test {
       };
     }
     output_ = std::make_unique<TrajectoryOutput>(*system_, options, consumer);
-    system_->SetOnlineSubmapCallback(
-        [this](const auto& update) { output_->Observe(update); });
+    if (incremental) {
+      system_->SetOnlineSubmapDeltaCallback(
+          [this](const auto& update) { output_->ObserveDelta(update); });
+    } else {
+      system_->SetOnlineSubmapCallback(
+          [this](const auto& update) { output_->Observe(update); });
+    }
   }
 
   void FeedTo(std::uint64_t count) {
@@ -118,6 +127,42 @@ class TrajectoryOutputTest : public testing::Test {
   bool entered_ = false;
   int scan_ = 0;
 };
+
+TEST_F(TrajectoryOutputTest, CapturesTheLatestIncrementalFrontierOnDispatch) {
+  Start(20, {}, /*incremental=*/true);
+  FeedTo(1);
+  Optimize();
+  FeedTo(3);
+  ASSERT_TRUE(WaitForSize(1));
+  const auto delivered = Snapshot(0);
+  const auto current = system_->GetPoseSnapshot();
+  EXPECT_EQ(delivered.status, TrajectoryStatus::kReady);
+  EXPECT_EQ(delivered.pose_version, 1u);
+  EXPECT_EQ(delivered.optimized_frame_count, 1u);
+  EXPECT_EQ(delivered.frame_count, 3u);
+  ASSERT_EQ(delivered.keyframes.size(), current->poses.size());
+  for (std::size_t i = 0; i < delivered.keyframes.size(); ++i) {
+    EXPECT_TRUE(delivered.keyframes[i].parent_from_body.translation.isApprox(
+        current->poses[i].map_from_body.translation));
+  }
+  EXPECT_GT(output_->GetStats().coalesced, 0u);
+}
+
+TEST_F(TrajectoryOutputTest, RejectsAnIncrementalFrontierWithoutMatchingPoses) {
+  Start(20, {}, /*incremental=*/true);
+  FeedTo(1);
+  OnlineSubmapDelta update;
+  update.frontier = {1,
+                     0,
+                     1,
+                     1,
+                     PoseFrame::kMap,
+                     PoseTailPolicy::kProjectedLastOptimizedAnchor};
+  output_->ObserveDelta(update);
+  ASSERT_TRUE(WaitForSize(1));
+  EXPECT_EQ(Snapshot(0).status, TrajectoryStatus::kError);
+  EXPECT_TRUE(Snapshot(0).keyframes.empty());
+}
 
 TEST_F(TrajectoryOutputTest, EmptyThenGrowingAndOptimizedAtTheSameSensorTime) {
   Start();
