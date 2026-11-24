@@ -1,6 +1,8 @@
 #include "loop_closure/loop_internal.h"
 
 #include <cmath>
+#include <string>
+#include <utility>
 
 #include <gtest/gtest.h>
 
@@ -31,6 +33,38 @@ TEST(LoopQualityTest, DuplicateSourcePointsCannotInflateCorrespondences) {
       loop_internal::EvaluateMetrics(*target.data, source, {}, {});
   EXPECT_EQ(metrics.inliers, 1u);
   EXPECT_NEAR(metrics.source_coverage, 1.0 / 3, 1e-12);
+}
+
+TEST(LoopQualityTest, ReusesReciprocalQueryForRepeatedTarget) {
+  const auto target = loop_test::Scene();
+  auto source = *target.data;
+  for (auto voxel : target.data->voxels) {
+    voxel.centroid.x() += 0.001;
+    source.voxels.push_back(std::move(voxel));
+  }
+  testing::internal::CaptureStderr();
+  const auto metrics =
+      loop_internal::EvaluateMetrics(*target.data, source, {}, {}, true);
+  const auto log = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(metrics.inliers, target.data->voxels.size());
+  EXPECT_DOUBLE_EQ(metrics.source_coverage, 0.5);
+  EXPECT_DOUBLE_EQ(metrics.target_coverage, 1);
+  ASSERT_TRUE(metrics.rmse_m);
+  EXPECT_DOUBLE_EQ(*metrics.rmse_m, 0);
+  EXPECT_NE(log.find("reverse_queries=300 source_points=600"),
+            std::string::npos);
+}
+
+TEST(LoopQualityTest, EmptyMetricsHaveNoCorrespondences) {
+  const auto scene = loop_test::Scene();
+  for (const bool empty_target : {false, true}) {
+    const auto metrics = loop_internal::EvaluateMetrics(
+        empty_target ? GeometryData{} : *scene.data,
+        empty_target ? *scene.data : GeometryData{}, {}, {});
+    EXPECT_EQ(metrics.inliers, 0u);
+    EXPECT_FALSE(metrics.rmse_m);
+    EXPECT_FALSE(metrics.eigenvalue_ratio);
+  }
 }
 
 TEST(LoopQualityTest, UsesMetersAndNearestRankPercentile) {

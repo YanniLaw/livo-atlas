@@ -10,10 +10,21 @@ namespace livo_atlas::loop_internal {
 
 void ValidateLoopSubmapInfo(const LoopSubmapInfo& info);
 
+// Internal timed entries preserve the public synchronous SDK signatures.
+LoopVerification VerifyLoop(const GeometrySubmap& target,
+                            const GeometrySubmap& source,
+                            const LoopRegistrationOptions& options,
+                            bool stage_timing);
+LoopGeometryCheck EvaluateLoopGeometry(
+    const GeometrySubmap& target, const GeometrySubmap& source,
+    const RigidTransform& target_from_source,
+    const LoopRegistrationOptions& options, bool stage_timing);
+
 LoopMetrics EvaluateMetrics(const GeometryData& target,
                             const GeometryData& source,
                             const RigidTransform& target_from_source,
-                            const LoopRegistrationOptions& options);
+                            const LoopRegistrationOptions& options,
+                            bool stage_timing = false);
 // Target cycle, source cycle, forward correction, reverse correction.
 std::array<LoopTransformError, 4> TransformErrors(
     const RigidTransform& initial, const RigidTransform& forward,

@@ -13,6 +13,7 @@
 #include "common/timing.h"
 #include "livo_atlas/mapping/geometry_mapper.h"
 #include "loop_closure/loop_admission.h"
+#include "loop_closure/loop_internal.h"
 
 namespace livo_atlas {
 namespace {
@@ -139,8 +140,9 @@ void VerifyCandidate(LoopQueryState& query, std::size_t index) {
   if (query.error || !query.targets[index]) return;
   const auto start = StartTiming(query.stage_timing);
   try {
-    query.admission.candidates[index].verification = VerifyLoop(
-        *query.targets[index], *query.source, query.options.registration);
+    query.admission.candidates[index].verification = loop_internal::VerifyLoop(
+        *query.targets[index], *query.source, query.options.registration,
+        query.stage_timing);
   } catch (...) {
     query.errors[index] = std::current_exception();
   }

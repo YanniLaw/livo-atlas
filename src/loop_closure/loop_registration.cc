@@ -13,6 +13,7 @@
 
 #include "loop_closure/loop_internal.h"
 #include "common/rotation_projection.h"
+#include "common/timing.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -271,8 +272,11 @@ void ValidateTransformedVoxels(const GeometryData& data,
 
 LoopVerification Solve(const GeometrySubmap& target,
                        const GeometrySubmap& source,
-                       const LoopRegistrationOptions& options) {
+                       const LoopRegistrationOptions& options,
+                       bool stage_timing) {
+  auto start = StartTiming(stage_timing);
   const auto prepared = PrepareGeometry(target, source, options);
+  LogStageTiming("loop_input_prepare", start);
   LoopVerification result;
   result.target = Provenance(target);
   result.source = Provenance(source);
@@ -295,22 +299,32 @@ LoopVerification Solve(const GeometrySubmap& target,
       InitialGuess(*source_cloud, result.initial_target_from_source);
   const auto reverse_guess = InitialGuess(
       *target_cloud, pose_math::Inverse(result.initial_target_from_source));
+  start = StartTiming(stage_timing);
   result.forward = Align(target_cloud, source_cloud, forward_guess, options);
+  LogStageTiming("loop_gicp_forward", start);
   if (result.forward.iterations >= options.max_iterations) {
     result.status = LoopStatus::kIterationLimit;
     return result;
   }
   if (!result.forward.transform) return result;
+  start = StartTiming(stage_timing);
   result.reverse = Align(source_cloud, target_cloud, reverse_guess, options);
+  LogStageTiming("loop_gicp_reverse", start);
   if (result.reverse.iterations >= options.max_iterations) {
     result.status = LoopStatus::kIterationLimit;
     return result;
   }
   if (!result.reverse.transform) return result;
+  start = StartTiming(stage_timing);
   result.forward.metrics = loop_internal::EvaluateMetrics(
-      *target.data, *source.data, *result.forward.transform, options);
+      *target.data, *source.data, *result.forward.transform, options,
+      stage_timing);
+  LogStageTiming("loop_quality_forward", start);
+  start = StartTiming(stage_timing);
   result.reverse.metrics = loop_internal::EvaluateMetrics(
-      *source.data, *target.data, *result.reverse.transform, options);
+      *source.data, *target.data, *result.reverse.transform, options,
+      stage_timing);
+  LogStageTiming("loop_quality_reverse", start);
   result.transform_errors = loop_internal::TransformErrors(
       result.initial_target_from_source, *result.forward.transform,
       *result.reverse.transform);
@@ -345,23 +359,25 @@ void ValidateLoopRegistrationOptions(const LoopRegistrationOptions& o) {
   }
 }
 
-LoopVerification VerifyLoop(const GeometrySubmap& target,
-                            const GeometrySubmap& source,
-                            const LoopRegistrationOptions& options) {
+LoopVerification loop_internal::VerifyLoop(
+    const GeometrySubmap& target, const GeometrySubmap& source,
+    const LoopRegistrationOptions& options, bool stage_timing) {
   const auto start = std::chrono::steady_clock::now();
-  auto result = Solve(target, source, options);
+  auto result = Solve(target, source, options, stage_timing);
   result.elapsed_seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
           .count();
   return result;
 }
 
-LoopGeometryCheck EvaluateLoopGeometry(const GeometrySubmap& target,
-                                       const GeometrySubmap& source,
-                                       const RigidTransform& target_from_source,
-                                       const LoopRegistrationOptions& options) {
+LoopGeometryCheck loop_internal::EvaluateLoopGeometry(
+    const GeometrySubmap& target, const GeometrySubmap& source,
+    const RigidTransform& target_from_source,
+    const LoopRegistrationOptions& options, bool stage_timing) {
   const auto transform = Projected(target_from_source);
+  auto start = StartTiming(stage_timing);
   const auto prepared = PrepareGeometry(target, source, options);
+  LogStageTiming("loop_recheck_prepare", start);
   LoopGeometryCheck result;
   result.status = prepared.status;
   if (result.status != LoopStatus::kVerified) return result;
@@ -370,13 +386,31 @@ LoopGeometryCheck EvaluateLoopGeometry(const GeometrySubmap& target,
   // not just the downsampled means, before any float nearest-neighbor search.
   ValidateTransformedVoxels(*source.data, transform);
   ValidateTransformedVoxels(*target.data, inverse);
-  result.forward = loop_internal::EvaluateMetrics(*target.data, *source.data,
-                                                  transform, options);
-  result.reverse = loop_internal::EvaluateMetrics(*source.data, *target.data,
-                                                  inverse, options);
+  start = StartTiming(stage_timing);
+  result.forward = loop_internal::EvaluateMetrics(
+      *target.data, *source.data, transform, options, stage_timing);
+  LogStageTiming("loop_recheck_quality_forward", start);
+  start = StartTiming(stage_timing);
+  result.reverse = loop_internal::EvaluateMetrics(
+      *source.data, *target.data, inverse, options, stage_timing);
+  LogStageTiming("loop_recheck_quality_reverse", start);
   result.status = loop_internal::ClassifyQuality(result.forward, result.reverse,
                                                  std::nullopt, options);
   return result;
+}
+
+LoopVerification VerifyLoop(const GeometrySubmap& target,
+                            const GeometrySubmap& source,
+                            const LoopRegistrationOptions& options) {
+  return loop_internal::VerifyLoop(target, source, options, false);
+}
+
+LoopGeometryCheck EvaluateLoopGeometry(
+    const GeometrySubmap& target, const GeometrySubmap& source,
+    const RigidTransform& target_from_source,
+    const LoopRegistrationOptions& options) {
+  return loop_internal::EvaluateLoopGeometry(target, source, target_from_source,
+                                             options, false);
 }
 
 const char* LoopStatusName(LoopStatus status) {

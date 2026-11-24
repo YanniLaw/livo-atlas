@@ -8,6 +8,7 @@
 #include <Eigen/Eigenvalues>
 #include <pcl/kdtree/kdtree_flann.h>
 
+#include "common/timing.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas::loop_internal {
@@ -44,7 +45,9 @@ std::array<LoopTransformError, 4> TransformErrors(
 LoopMetrics EvaluateMetrics(const GeometryData& target,
                             const GeometryData& source,
                             const RigidTransform& target_from_source,
-                            const LoopRegistrationOptions& options) {
+                            const LoopRegistrationOptions& options,
+                            bool stage_timing) {
+  auto start = StartTiming(stage_timing);
   LoopMetrics result;
   if (target.voxels.empty() || source.voxels.empty()) return result;
   Cloud::Ptr target_cloud(new Cloud), source_cloud(new Cloud);
@@ -60,6 +63,13 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
   pcl::KdTreeFLANN<pcl::PointXYZ> target_tree, source_tree;
   target_tree.setInputCloud(target_cloud);
   source_tree.setInputCloud(source_cloud);
+  // Both clouds and the transform stay fixed for this call. A target point
+  // has the same reverse nearest neighbor for every source that selects it.
+  constexpr int kUnqueried = -2;
+  std::vector<int> nearest_source(target_cloud->size(), kUnqueried);
+  LogStageTiming("loop_metric_prepare", start);
+  start = StartTiming(stage_timing);
+  std::size_t reverse_queries = 0;
   std::vector<int> index(1), reverse_index(1);
   std::vector<float> distance(1), reverse_distance(1);
   std::vector<double> residuals;
@@ -71,11 +81,15 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
     if (!target_tree.nearestKSearch((*source_cloud)[i], 1, index, distance))
       continue;
     const auto j = static_cast<std::size_t>(index[0]);
-    if (!source_tree.nearestKSearch((*target_cloud)[j], 1, reverse_index,
-                                    reverse_distance) ||
-        reverse_index[0] != static_cast<int>(i)) {
-      continue;
+    auto& reciprocal = nearest_source[j];
+    if (reciprocal == kUnqueried) {
+      ++reverse_queries;
+      reciprocal = source_tree.nearestKSearch((*target_cloud)[j], 1,
+                                               reverse_index, reverse_distance)
+                       ? reverse_index[0]
+                       : -1;
     }
+    if (reciprocal != static_cast<int>(i)) continue;
     const double squared =
         (transformed[i] - target.voxels[j].centroid).squaredNorm();
     if (squared > radius_squared) continue;
@@ -85,6 +99,13 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
       planes.emplace_back(transformed[i], *target.voxels[j].normal);
     }
   }
+  LogStageTiming("loop_metric_search", start);
+  if (stage_timing) {
+    LOG(INFO) << "livo_atlas loop_quality reverse_queries=" << reverse_queries
+              << " source_points=" << source.voxels.size()
+              << " target_points=" << target.voxels.size();
+  }
+  start = StartTiming(stage_timing);
   result.inliers = residuals.size();
   result.normal_pairs = planes.size();
   result.source_coverage =
@@ -98,7 +119,10 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
         residuals[static_cast<std::size_t>(std::ceil(0.95 * residuals.size())) -
                   1];
   }
-  if (planes.size() < options.min_normal_pairs) return result;
+  if (planes.size() < options.min_normal_pairs) {
+    LogStageTiming("loop_metric_statistics", start);
+    return result;
+  }
   Eigen::Vector3d center = Eigen::Vector3d::Zero();
   for (const auto& pair : planes) center += pair.first;
   center /= planes.size();
@@ -120,6 +144,7 @@ LoopMetrics EvaluateMetrics(const GeometryData& target,
     result.eigenvalue_ratio =
         std::max(0.0, solver.eigenvalues()[0]) / solver.eigenvalues()[5];
   }
+  LogStageTiming("loop_metric_statistics", start);
   return result;
 }
 

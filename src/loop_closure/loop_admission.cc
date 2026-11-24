@@ -183,20 +183,21 @@ bool CheckGeometry(const AcceptedLoop& loop, bool new_constraint,
                    const PoseSnapshot& preview,
                    const LoopGeometryReader& reader,
                    const LoopAdmissionOptions& options,
-                   std::vector<LoopGeometryReport>* reports) {
+                   std::vector<LoopGeometryReport>* reports,
+                   bool stage_timing) {
   const auto target = ReadGeometry(loop.target, preview, reader);
   const auto source = ReadGeometry(loop.source, preview, reader);
   reports->push_back({loop.target.primary.id, loop.source.primary.id,
                       new_constraint, std::nullopt, std::nullopt});
   auto& report = reports->back();
-  report.measurement = EvaluateLoopGeometry(
+  report.measurement = loop_internal::EvaluateLoopGeometry(
       target, source, loop.constraint.from_body_from_to_body,
-      options.registration);
+      options.registration, stage_timing);
   if (report.measurement->status != LoopStatus::kVerified) return false;
   const auto prediction = pose_math::Compose(
       pose_math::Inverse(target.parent_from_submap), source.parent_from_submap);
-  report.prediction =
-      EvaluateLoopGeometry(target, source, prediction, options.registration);
+  report.prediction = loop_internal::EvaluateLoopGeometry(
+      target, source, prediction, options.registration, stage_timing);
   return report.prediction->status == LoopStatus::kVerified;
 }
 
@@ -335,14 +336,14 @@ LoopAdmissionResult FinishLoopAdmission(
       MakePoseSnapshot(trial.update, input.poses, input.raw_poses);
   for (const auto& accepted : input.accepted_loops) {
     if (!CheckGeometry(accepted, false, preview, reader, options,
-                       &result.geometry_checks)) {
+                       &result.geometry_checks, stage_timing)) {
       LogStageTiming("loop_geometry_recheck", recheck_start);
       result.status = LoopAdmissionStatus::kGeometryChanged;
       return result;
     }
   }
   if (!CheckGeometry(chosen.loop, true, preview, reader, options,
-                     &result.geometry_checks)) {
+                     &result.geometry_checks, stage_timing)) {
     LogStageTiming("loop_geometry_recheck", recheck_start);
     result.status = LoopAdmissionStatus::kGeometryChanged;
     return result;

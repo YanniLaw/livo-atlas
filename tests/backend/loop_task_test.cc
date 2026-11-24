@@ -170,7 +170,10 @@ TEST_F(LoopTaskTest, QueryStageTimingIsOptIn) {
                               "loop_cloud_read", "loop_geometry_snapshot",
                               "loop_prepare_batch", "loop_candidate",
                               "loop_verification_batch", "loop_admission",
-                              "loop_query_compute", "loop_geometry_recheck"}) {
+                              "loop_query_compute", "loop_geometry_recheck",
+                              "loop_input_prepare", "loop_gicp_forward",
+                              "loop_gicp_reverse", "loop_quality_forward",
+                              "loop_quality_reverse"}) {
       const auto found = log.find(std::string("stage=") + stage + " seconds=");
       EXPECT_EQ(found != std::string::npos, enabled) << stage;
     }
