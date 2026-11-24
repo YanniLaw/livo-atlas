@@ -1,12 +1,15 @@
 #include "core/online_submap_manager.h"
 
+#include <gtest/gtest.h>
+
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <stdexcept>
 #include <string>
-
-#include <gtest/gtest.h>
+#include <vector>
 
 #include "core/fixtures.h"
 #include "mapping/keyframe_fixtures.h"
@@ -31,7 +34,7 @@ Keyframe ApproximateFrame(std::uint64_t id) {
   return frame;
 }
 
-class OnlineSubmapManagerTailTest : public testing::Test {
+class OnlineSubmapManagerTest : public testing::Test {
  protected:
   void SetUp() override {
     options_ = test::Options(FrontendMode::kLidarOnly);
@@ -44,7 +47,7 @@ class OnlineSubmapManagerTailTest : public testing::Test {
   fs::path root_;
 };
 
-TEST_F(OnlineSubmapManagerTailTest, LegacyTailFailurePreservesCommittedData) {
+TEST_F(OnlineSubmapManagerTest, LegacyTailFailurePreservesCommittedData) {
   KeyframeStore frames(root_, options_.frontend.calibration);
   OnlineSubmapManager manager(root_ / "online_submaps", frames, 2, {}, {});
   manager.SetCallback([](const auto&) {});
@@ -70,7 +73,7 @@ TEST_F(OnlineSubmapManagerTailTest, LegacyTailFailurePreservesCommittedData) {
   EXPECT_THROW(reader.MaterializePoseSnapshot(1, 2), std::invalid_argument);
 }
 
-TEST_F(OnlineSubmapManagerTailTest, ProjectedTailContinuesAndReloads) {
+TEST_F(OnlineSubmapManagerTest, ProjectedTailContinuesAndReloads) {
   KeyframeStore frames(root_, options_.frontend.calibration);
   OnlineSubmapManager manager(root_ / "online_submaps", frames, 2, {}, {});
   int delivered = 0;
@@ -107,6 +110,84 @@ TEST_F(OnlineSubmapManagerTailTest, ProjectedTailContinuesAndReloads) {
   EXPECT_EQ(reloaded.tail_policy, live->tail_policy);
   EXPECT_NEAR(reloaded.poses[1].map_from_body.translation.x(), 1000, 1e-10);
   EXPECT_DOUBLE_EQ(frames.ReadRawBodyPose(1).rotation(0, 0), 1.000045);
+}
+
+TEST_F(OnlineSubmapManagerTest, PoseCommitReportsChangesAcrossSubmaps) {
+  constexpr std::uint64_t kFrameCount = 64;
+  for (const int submap_count : {2, 8, 32}) {
+    SCOPED_TRACE(submap_count);
+    const int frames_per_submap = kFrameCount / submap_count;
+    const auto directory = root_ / std::to_string(submap_count);
+    KeyframeStore frames(directory, options_.frontend.calibration);
+    OnlineSubmapOptions options;
+    options.translation_threshold = 100;
+    options.time_threshold = 100;
+    options.support_keyframes = 1;
+    const auto submaps = directory / "online_submaps";
+    OnlineSubmapManager manager(submaps, frames, frames_per_submap, options,
+                                {});
+    OnlineSubmapUpdate notification;
+    int notification_count = 0;
+    manager.SetCallback([&](const OnlineSubmapUpdate& update) {
+      ++notification_count;
+      if (!update.pose_changes.empty()) notification = update;
+    });
+    for (std::uint64_t id = 0; id < kFrameCount; ++id) {
+      auto frame = std::make_shared<Keyframe>(ApproximateFrame(id));
+      frame->odom_from_body.rotation.setIdentity();
+      frame->odom_from_body.translation.x() = id;
+      frames.Append(*frame);
+      manager.AppendCommittedKeyframe(frame);
+    }
+
+    const auto before = manager.GetPoseSnapshot();
+    PoseUpdate update{before->version, kFrameCount, before->poses,
+                      PoseTailPolicy::kProjectedLastOptimizedAnchor};
+    const Eigen::Vector3d offset(10, -3, 2);
+    for (auto& pose : update.poses) pose.map_from_body.translation += offset;
+    const std::uint64_t changed_id = frames_per_submap - 1;
+    update.poses[changed_id].map_from_body.translation.y() += 2;
+
+    auto invalid = update;
+    invalid.poses.back().id = 0;
+    const auto previous_notifications = notification_count;
+    EXPECT_THROW(manager.ApplyPoseUpdate(invalid), std::invalid_argument);
+    EXPECT_EQ(manager.GetPoseSnapshot()->version, 0u);
+    EXPECT_FALSE(fs::exists(submaps / "poses/1.yml"));
+    EXPECT_EQ(notification_count, previous_notifications);
+
+    manager.ApplyPoseUpdate(update);
+    EXPECT_EQ(notification_count, previous_notifications + 1);
+    ASSERT_TRUE(notification.poses);
+    EXPECT_EQ(notification.poses->version, 1u);
+    EXPECT_EQ(notification.poses->frame_count, kFrameCount);
+    ASSERT_EQ(notification.pose_changes.size(), submap_count);
+    for (int id = 0; id < submap_count; ++id) {
+      SCOPED_TRACE(id);
+      const auto& change = notification.pose_changes[id];
+      EXPECT_EQ(change.submap_id, id);
+      EXPECT_EQ(change.old_version, 0u);
+      EXPECT_EQ(change.new_version, 1u);
+      const Eigen::Vector3d anchor(id * frames_per_submap, 0, 0);
+      EXPECT_TRUE(change.old_parent_from_submap.translation.isApprox(anchor));
+      EXPECT_TRUE(
+          change.new_parent_from_submap.translation.isApprox(anchor + offset));
+      EXPECT_TRUE(change.old_parent_from_submap.rotation.isIdentity());
+      EXPECT_TRUE(change.new_parent_from_submap.rotation.isIdentity());
+      if (id < 2) {
+        EXPECT_EQ(change.changed_keyframe_ids,
+                  (std::vector<std::uint64_t>{changed_id}));
+      } else {
+        EXPECT_TRUE(change.changed_keyframe_ids.empty());
+      }
+    }
+    manager.Finish();
+    const OnlineSubmapStore reader(submaps, frames);
+    const auto stored = reader.ReadPoseSnapshot(1);
+    ASSERT_EQ(stored.frame_count, kFrameCount);
+    EXPECT_TRUE(stored.poses[changed_id].map_from_body.translation.isApprox(
+        notification.poses->poses[changed_id].map_from_body.translation));
+  }
 }
 
 }  // namespace

@@ -78,6 +78,24 @@ TEST(SubmapPoseChangeTest, SkippedMembershipInitializesOnlyNewObservations) {
   EXPECT_EQ(CompareSubmapPoses(existing, old, latest).changed_keyframe_ids,
             (std::vector<std::uint64_t>{2}));
 }
+
+TEST(SubmapPoseChangeTest, ValidatesSnapshotsBeyondSubmapMembers) {
+  const std::vector<RigidTransform> raw_poses(3);
+  const auto poses = MaterializePoseSnapshot({}, raw_poses, raw_poses.size());
+  OnlineSubmap group;
+  group.primary = {0, 0, {0, 1}};
+
+  auto invalid = poses;
+  invalid.poses[2].id = 1;
+  EXPECT_THROW(CompareSubmapPoses(group, invalid, poses),
+               std::invalid_argument);
+  EXPECT_THROW(CompareSubmapPoses(group, poses, invalid),
+               std::invalid_argument);
+  const auto shorter = MaterializePoseSnapshot({}, raw_poses, 2);
+  EXPECT_THROW(CompareSubmapPoses(group, shorter, poses),
+               std::invalid_argument);
+}
+
 TEST(SubmapPoseChangeTest, CameraRelativePoseSurvivesCorrection) {
   const auto frame = CaptureKeyframe(0, test_data::KeyframeResult());
   auto corrected = frame.odom_from_body;

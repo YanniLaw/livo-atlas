@@ -10,6 +10,7 @@
 
 #include "livo_atlas/common/logging.h"
 #include "mapping/pose_math.h"
+#include "mapping/submap_pose_comparison.h"
 
 namespace livo_atlas {
 OnlineSubmapManager::OnlineSubmapManager(const std::filesystem::path& directory,
@@ -148,11 +149,13 @@ void OnlineSubmapManager::ApplyPoseUpdate(const PoseUpdate& update) {
   // Invalid/stale backend inputs do not poison the running writer.
   auto candidate = MakePoseSnapshot(update, frozen_, raw_poses_);
   const auto previous = GetPoseSnapshot();
-  std::vector<SubmapPoseChange> changes;
   try {
-    for (std::size_t i = 0; i < store_.size(); ++i)
-      changes.push_back(
-          CompareSubmapPoses(store_.Read(i), *previous, candidate));
+    const SubmapPoseComparison comparison(*previous, candidate);
+    std::vector<SubmapPoseChange> changes;
+    changes.reserve(store_.size());
+    for (std::size_t i = 0; i < store_.size(); ++i) {
+      changes.push_back(comparison.Compare(store_.Read(i)));
+    }
     store_.WritePoseSnapshot(candidate);
     frozen_ = std::move(candidate);
     Notify({{}, {}, {}, std::move(changes)});
