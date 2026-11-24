@@ -26,6 +26,7 @@ struct LoopSessionStats {
   std::uint64_t stale = 0, skipped = 0, resource_limited = 0;
   std::uint64_t peak_work_payloads = 0, peak_pending = 0;
   std::uint64_t detected = 0;
+  std::uint64_t peak_queued_keyframes = 0;
 };
 
 enum class LoopRecoveryStatus { kConsistent, kIncomplete, kInconsistent };

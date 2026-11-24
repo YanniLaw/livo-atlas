@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_CORE_LOOP_COMMIT_H_
-#define LIVO_ATLAS_SRC_CORE_LOOP_COMMIT_H_
+#ifndef LIVO_ATLAS_SRC_POSE_GRAPH_LOOP_COMMIT_H_
+#define LIVO_ATLAS_SRC_POSE_GRAPH_LOOP_COMMIT_H_
 
 #include <optional>
 #include <vector>
@@ -14,10 +14,15 @@ struct LoopCommitCheck {
   std::optional<PoseSnapshot> poses;
 };
 
+LoopCommitStatus ValidateLoopCommit(
+    const LoopTask& task, const LoopAdmissionResult& result,
+    const LoopAdmissionInput& current,
+    const std::vector<double>& current_timestamps);
+
 LoopCommitCheck CheckLoopCommit(const LoopTask& task,
                                 const LoopAdmissionResult& result,
                                 const LoopAdmissionInput& current,
                                 const std::vector<double>& current_timestamps);
 }  // namespace livo_atlas
 
-#endif  // LIVO_ATLAS_SRC_CORE_LOOP_COMMIT_H_
+#endif  // LIVO_ATLAS_SRC_POSE_GRAPH_LOOP_COMMIT_H_

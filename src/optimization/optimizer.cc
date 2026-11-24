@@ -1,4 +1,4 @@
-#include "livo_atlas/backend/pose_graph.h"
+#include "livo_atlas/optimization/optimizer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -8,6 +8,8 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
+
+#include "livo_atlas/backend/pose_graph.h"
 
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/linear/LossFunctions.h>
@@ -83,7 +85,7 @@ FactorResidual Residual(const gtsam::BetweenFactor<gtsam::Pose3>& factor,
 
 }  // namespace
 
-PoseGraph::PoseGraph(PoseGraphOptions options) : options_(options) {
+Optimizer::Optimizer(PoseGraphOptions options) : options_(options) {
   if (!ValidSigma(options.prior_rotation_sigma_rad) ||
       !ValidSigma(options.prior_translation_sigma_m) ||
       !ValidSigma(options.odometry_rotation_sigma_rad) ||
@@ -94,7 +96,7 @@ PoseGraph::PoseGraph(PoseGraphOptions options) : options_(options) {
   }
 }
 
-void PoseGraph::AddKeyframe(std::uint64_t id,
+void Optimizer::AddKeyframe(std::uint64_t id,
                             const RigidTransform& odom_from_body) {
   if (id != raw_poses_.size()) {
     throw std::invalid_argument("Keyframe IDs must be contiguous from zero");
@@ -103,7 +105,7 @@ void PoseGraph::AddKeyframe(std::uint64_t id,
   raw_poses_.push_back(odom_from_body);
 }
 
-void PoseGraph::AddLoopConstraint(const LoopConstraint& constraint) {
+void Optimizer::AddLoopConstraint(const LoopConstraint& constraint) {
   if (constraint.from_id >= constraint.to_id ||
       constraint.to_id >= raw_poses_.size() ||
       constraint.to_id - constraint.from_id <= 1 ||
@@ -121,7 +123,7 @@ void PoseGraph::AddLoopConstraint(const LoopConstraint& constraint) {
   constraints_.push_back(constraint);
 }
 
-PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
+PoseGraphResult Optimizer::Optimize(const PoseSnapshot& current) const {
   ValidatePoseSnapshot(current);
   const auto count = raw_poses_.size();
   if (count == 0 || count > current.frame_count ||
@@ -237,6 +239,21 @@ PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
                  constraints_[i].translation_sigma_m));
   }
   return result;
+}
+
+PoseGraph::PoseGraph(PoseGraphOptions options) : optimizer_(options) {}
+
+void PoseGraph::AddKeyframe(std::uint64_t id,
+                            const RigidTransform& odom_from_body) {
+  optimizer_.AddKeyframe(id, odom_from_body);
+}
+
+void PoseGraph::AddLoopConstraint(const LoopConstraint& constraint) {
+  optimizer_.AddLoopConstraint(constraint);
+}
+
+PoseGraphResult PoseGraph::Optimize(const PoseSnapshot& current) const {
+  return optimizer_.Optimize(current);
 }
 
 }  // namespace livo_atlas

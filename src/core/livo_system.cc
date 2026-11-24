@@ -133,7 +133,8 @@ LivoSystem::LivoSystem(SystemOptions options)
                         pre.point_filter);
   preprocess_.N_SCANS = pre.scan_lines;
   if (options_.loop_closure) {
-    loop_backend_.emplace(*this, *options_.loop_closure);
+    loop_backend_ =
+        std::make_unique<LoopBackend>(*this, *options_.loop_closure);
     Online().SetLoopBackend(*loop_backend_);
   }
 }
@@ -452,14 +453,10 @@ SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
   if (keyframe_store_ && keyframe_selector_.Select(result)) {
     if (online_) {
       try {
-        auto keyframe = std::make_shared<const Keyframe>(
-            CaptureKeyframe(next_keyframe_id_, result));
-        const auto write_start = StartTiming(options_.stage_timing);
-        keyframe_store_->Append(*keyframe);
-        LogStageTiming("keyframe_write", write_start);
-        online_->AppendCommittedKeyframe(std::move(keyframe));
+        AppendOnlineKeyframe(std::make_shared<const Keyframe>(
+            CaptureKeyframe(next_keyframe_id_, result)));
       } catch (...) {
-        session_error_ = std::current_exception();
+        RecordFailure(std::current_exception());
         throw;
       }
     } else {
@@ -467,12 +464,12 @@ SyncStatus LivoSystem::ProcessMeasurement(const ResultCallback& callback) {
       const auto write_start = StartTiming(options_.stage_timing);
       keyframe_store_->Append(keyframe);
       LogStageTiming("keyframe_write", write_start);
+      if (submap_store_) {
+        if (const auto submap = submap_builder_.AddKeyframe(next_keyframe_id_))
+          AppendSubmap(*submap);
+      }
+      ++next_keyframe_id_;
     }
-    if (submap_store_) {
-      if (const auto submap = submap_builder_.AddKeyframe(next_keyframe_id_))
-        AppendSubmap(*submap);
-    }
-    ++next_keyframe_id_;
   }
   if (result.updated && callback) callback(result, colored_cloud, elapsed);
   return status;
@@ -505,7 +502,11 @@ void LivoSystem::SealInput() {
 
 void LivoSystem::Finish() {
   if (IsFinished()) return;
-  FinishSession(loop_backend_ ? &*loop_backend_ : nullptr);
+  if (!session_error_ && active_loop_backend_ &&
+      active_loop_backend_ != loop_backend_.get())
+    throw std::logic_error(
+        "Finish the standalone backend with LoopBackend::Finish");
+  FinishSession(loop_backend_.get());
 }
 
 void LivoSystem::FinishSession(LoopBackend* backend) {
@@ -528,6 +529,23 @@ void LivoSystem::FinishSession(LoopBackend* backend) {
 
 bool LivoSystem::IsFinished() const noexcept {
   return finished_ && !session_error_;
+}
+
+void LivoSystem::AppendOnlineKeyframe(
+    std::shared_ptr<const Keyframe> keyframe) {
+  try {
+    // Only the system owner admits keyframes. Between this check and the
+    // observation, the graph can release existing slots but cannot add one.
+    if (active_loop_backend_) active_loop_backend_->CheckInputCapacity();
+    const auto write_start = StartTiming(options_.stage_timing);
+    keyframe_store_->Append(*keyframe);
+    LogStageTiming("keyframe_write", write_start);
+    Online().AppendCommittedKeyframe(std::move(keyframe));
+    ++next_keyframe_id_;
+  } catch (...) {
+    RecordFailure(std::current_exception());
+    throw;
+  }
 }
 
 void LivoSystem::AppendSubmap(const Submap& submap) {
@@ -559,12 +577,17 @@ void LivoSystem::ApplyPoseUpdate(const PoseUpdate& update) {
   LogStageTiming("pose_commit", start);
 }
 
-void LivoSystem::ClaimLoopPoseUpdates() {
+void LivoSystem::ClaimLoopPoseUpdates(LoopBackend& backend) {
   CheckInputOpen();
   if (loop_pose_updates_claimed_ || next_keyframe_id_ ||
       Online().GetPoseFrontier().version)
     throw std::logic_error("Loop backend requires a new unclaimed session");
   loop_pose_updates_claimed_ = true;
+  active_loop_backend_ = &backend;
+}
+
+void LivoSystem::ClearLoopBackend(const LoopBackend& backend) noexcept {
+  if (active_loop_backend_ == &backend) active_loop_backend_ = nullptr;
 }
 
 void LivoSystem::ApplyLoopPoseUpdate(const PoseUpdate& update) {

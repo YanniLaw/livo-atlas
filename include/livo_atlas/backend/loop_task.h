@@ -24,6 +24,15 @@ struct LoopTaskResult {
   std::exception_ptr error;
 };
 
+class LoopClosure {
+ public:
+  explicit LoopClosure(LoopAdmissionOptions options);
+  LoopAdmissionResult Run(const LoopTask& task) const;
+
+ private:
+  const LoopAdmissionOptions options_;
+};
+
 // Uses only owned task data, committed assets and a private geometry cache.
 LoopAdmissionResult RunLoopTask(const LoopTask& task,
                                 const LoopAdmissionOptions& options);

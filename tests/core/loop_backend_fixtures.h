@@ -30,14 +30,21 @@ class LoopBackendTestPeer {
         new LoopBackend(system, std::move(options), std::move(runner)));
   }
 
+  static LoopBackend& InstallManaged(LivoSystem& system,
+                                      LoopAdmissionOptions options,
+                                      LoopTaskRunner runner) {
+    system.loop_backend_ =
+        Create(system, std::move(options), std::move(runner));
+    system.Online().SetLoopBackend(*system.loop_backend_);
+    return *system.loop_backend_;
+  }
+
   static void Append(LivoSystem& system, Keyframe frame) {
     system.CheckInputOpen();
     if (frame.id != system.next_keyframe_id_)
       throw std::invalid_argument("Fixture frame is not the next committed ID");
-    auto owned = std::make_shared<const Keyframe>(std::move(frame));
-    system.keyframe_store_->Append(*owned);
-    system.Online().AppendCommittedKeyframe(std::move(owned));
-    ++system.next_keyframe_id_;
+    system.AppendOnlineKeyframe(
+        std::make_shared<const Keyframe>(std::move(frame)));
   }
 };
 

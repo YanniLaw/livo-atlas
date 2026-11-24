@@ -49,6 +49,7 @@ struct LoopAdmissionOptions {
   std::size_t max_loops = 200;
   bool pose_graph_enabled = true;
   GeometryOptions geometry;
+  std::size_t max_pending_keyframes = 64;
 };
 
 enum class LoopAdmissionStatus {

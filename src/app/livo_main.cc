@@ -127,7 +127,8 @@ int main(int argc, char** argv) {
                 << " stale=" << s.stale << " skipped=" << s.skipped
                 << " resource_limited=" << s.resource_limited
                 << " peak_work_payloads=" << s.peak_work_payloads
-                << " peak_pending=" << s.peak_pending;
+                << " peak_pending=" << s.peak_pending
+                << " peak_queued_keyframes=" << s.peak_queued_keyframes;
       if (!parameters.livo.system.loop_closure->pose_graph_enabled) {
         LOG(INFO) << "livo_atlas loop detection: detected=" << s.detected;
       }

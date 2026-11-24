@@ -21,19 +21,18 @@ C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在�
 
 ## ROS 执行器与后端线程
 
-当前两端共用 `src/app/livo_main.cc`。Noetic 在主循环用 `ros::spinOnce()` 和 `ProcessNext()`，
-Humble 用 `SingleThreadedExecutor` 处理订阅与处理定时器。前端状态由这条串行执行线持有。
-启用相关功能后，`LoopWorker`、`OnlineGaussianMapper`、Gaussian 预览输出、轨迹和几何地图输出
+当前两端共用 `src/app/livo_main.cc`。Noetic 用 `ros::AsyncSpinner` 接收消息，主循环调用
+`ProcessNext()`。Humble 使用 `MultiThreadedExecutor`，处理定时器串行持有前端状态。
+启用相关功能后，`PoseGraph`、`OnlineGaussianMapper`、Gaussian 预览输出、轨迹和几何地图输出
 各有后台线程。GPU 训练另由 Python worker 进程执行。编译支持时，LIO 和 VIO 内部还会并行计算。
 [共用主入口](../src/app/livo_main.cc) · [Humble 节点](../src/ros2/livo_node.cc) ·
 [回环所有权与停止](online-loop-backend.md#sdk-所有权与停止)
 
-回环使用 Cartographer 2.0.0 的 `ThreadPool` 和 `Task`。原有就绪队列和任务依赖由 C++17
-标准库同步。每个 `LoopWorker` 使用池内一个线程，读取已封存几何、逐个验证候选，再用私有
-GTSAM 图试算。计算在队列与结果交接的临界区之外运行。
-`LoopBackend::Poll()` 在系统所有者线程校验提案前沿和位姿版本，按当前持久事务顺序接纳位姿。
+回环使用 Cartographer 2.0.0 的 `ThreadPool`、`Task` 和 `WorkQueue`。位姿图的单线程执行线
+依序登记观测、调度回环和验收提案。几何验证和 GTSAM 试算在交接锁外执行。
+`LoopBackend::Poll()` 在系统所有者线程写入 `prepared` 和正式位姿，再把发布结果交回位姿图。
 [Cartographer 来源与许可](cartographer-scheduler.md) ·
-[回环 worker](../src/backend/loop_worker.cc) · [提案接纳](../src/core/loop_backend.cc)
+[位姿图队列与提案验收](../src/pose_graph/pose_graph.cc) · [系统发布边界](../src/pose_graph/loop_backend.cc)
 
 线程池和日志迁移后，Noetic 完整回放的轨迹、前端数值输出和原始关键帧与 C4c 均匀采样侧一致。
 13 次回环查询均完成，接纳 2 次，位姿版本为 2，13 个高斯子地图完成封口。工作区记录位于
@@ -43,7 +42,7 @@ C4c 的 Retail_Street 完整均匀侧有 13 次查询，其中 4 次的候选数
 5 个候选验证耗时合计约 809 ms，GTSAM 求解约 6.8 ms。候选并行的收益需要按端到端延迟、
 前端负载和内存复测。原始记录位于工作区的
 `validation/P6-03c4c-20261122/full-uniform/keyframes/loop_closure/queries/12.yml`。
-[候选验证与优化](../src/backend/loop_admission.cc)
+[候选验证与优化](../src/loop_closure/loop_admission.cc)
 
 ### 后续候选并行
 

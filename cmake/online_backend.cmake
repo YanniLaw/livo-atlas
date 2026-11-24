@@ -1,6 +1,7 @@
-target_sources(livo_atlas_core PRIVATE src/core/loop_backend.cc
-  src/core/loop_backend_options.cc src/core/loop_commit.cc src/backend/loop_task.cc
-  src/backend/loop_worker.cc src/io/loop_closure_store.cc
+target_sources(livo_atlas_core PRIVATE src/pose_graph/loop_backend.cc
+  src/pose_graph/pose_graph.cc
+  src/core/loop_backend_options.cc src/pose_graph/loop_commit.cc src/loop_closure/loop_task.cc
+  src/pose_graph/loop_worker.cc src/io/loop_closure_store.cc
   src/io/loop_admission_io.cc src/io/loop_options.cc src/io/loop_diagnostics.cc)
 target_link_libraries(livo_atlas_core PUBLIC livo_atlas_loop_backend)
 

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "livo_atlas/mapping/geometry_mapper.h"
@@ -38,11 +39,13 @@ void ValidateTask(const LoopTask& task) {
 
 }  // namespace
 
-LoopAdmissionResult RunLoopTask(const LoopTask& task,
-                                const LoopAdmissionOptions& options) {
-  ValidateLoopAdmissionOptions(options);
+LoopClosure::LoopClosure(LoopAdmissionOptions options)
+    : options_(std::move(options)) {}
+
+LoopAdmissionResult LoopClosure::Run(const LoopTask& task) const {
+  ValidateLoopAdmissionOptions(options_);
   ValidateTask(task);
-  const auto& geometry = options.geometry;
+  const auto& geometry = options_.geometry;
   std::unique_ptr<GeometryMapper> mapper;
   std::shared_ptr<const PoseSnapshot> view;
   const LoopGeometryReader reader = [&](auto id, const auto& poses) {
@@ -68,7 +71,12 @@ LoopAdmissionResult RunLoopTask(const LoopTask& task,
     }
     return mapper->GetSubmap(id);
   };
-  return ProposeLoopUpdate(task.input, reader, options);
+  return ProposeLoopUpdate(task.input, reader, options_);
+}
+
+LoopAdmissionResult RunLoopTask(const LoopTask& task,
+                                const LoopAdmissionOptions& options) {
+  return LoopClosure(options).Run(task);
 }
 
 }  // namespace livo_atlas

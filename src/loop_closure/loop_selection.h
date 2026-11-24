@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_BACKEND_LOOP_SELECTION_H_
-#define LIVO_ATLAS_SRC_BACKEND_LOOP_SELECTION_H_
+#ifndef LIVO_ATLAS_SRC_LOOP_CLOSURE_LOOP_SELECTION_H_
+#define LIVO_ATLAS_SRC_LOOP_CLOSURE_LOOP_SELECTION_H_
 
 #include <cstddef>
 #include <optional>
@@ -27,4 +27,4 @@ LoopSelection SelectLoopCandidate(const std::vector<LoopHypothesis>& hypotheses,
 
 }  // namespace livo_atlas::loop_internal
 
-#endif  // LIVO_ATLAS_SRC_BACKEND_LOOP_SELECTION_H_
+#endif  // LIVO_ATLAS_SRC_LOOP_CLOSURE_LOOP_SELECTION_H_

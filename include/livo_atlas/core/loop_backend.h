@@ -1,7 +1,6 @@
 #ifndef LIVO_ATLAS_CORE_LOOP_BACKEND_H_
 #define LIVO_ATLAS_CORE_LOOP_BACKEND_H_
 
-#include <chrono>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -15,9 +14,12 @@ namespace livo_atlas {
 class LivoSystem;
 class LoopBackendTestPeer;
 class OnlineSubmapManager;
+namespace pose_graph {
+class PoseGraph;
+}  // namespace pose_graph
 
-// All methods run on the system owner. Only the worker's owned task values
-// cross threads; Observe collects metadata without I/O or reentering the
+// The system owner publishes graph results and writes the loop journal.
+// Observe hands owned metadata to the serial graph without reentering the
 // system.
 class LoopBackend {
  public:
@@ -29,7 +31,7 @@ class LoopBackend {
   void Poll();
   void Finish();
 
-  LoopSessionStats GetStats() const { return stats_; }
+  LoopSessionStats GetStats() const;
 
  private:
   friend class LivoSystem;
@@ -43,40 +45,26 @@ class LoopBackend {
   void ObserveFrontier(const Keyframe* keyframe,
                        const std::vector<OnlineSubmap>& revisions,
                        const PoseFrontier& frontier,
-                       const std::shared_ptr<const PoseSnapshot>& poses);
-  LoopAdmissionInput CurrentInput(std::uint64_t query_id) const;
-  void RecordMembership(const OnlineSubmap& group);
-  void QueueQuery(std::uint64_t query_id);
-  void StopDispatch();
-  void FlushEvents();
-  void Complete(LoopTaskResult result);
+                       const std::shared_ptr<const PoseSnapshot>& poses,
+                       const std::optional<RigidTransform>& appended_pose);
+  void CheckInputCapacity() const;
+  void Complete(std::shared_ptr<const LoopTaskResult> result,
+                LoopDisposition disposition);
   void Drain();
   void FinishJournal();
   void StopOnFailure(std::exception_ptr error) noexcept;
   [[noreturn]] void Fail(std::exception_ptr error);
 
-  struct Coalesced {
-    std::uint64_t first = 0, last = 0, count = 0;
-  };
-
   LivoSystem& system_;
   const LoopAdmissionOptions options_;
   LoopClosureStore store_;
-  LoopWorker worker_;
-  std::vector<RigidTransform> raw_poses_;
-  std::vector<double> timestamps_;
-  std::vector<OnlineSubmap> submaps_;
-  std::vector<AcceptedLoop> accepted_loops_;
-  std::shared_ptr<const PoseSnapshot> poses_;
-  std::optional<std::uint64_t> pending_;
-  std::optional<Coalesced> coalesced_;
-  std::chrono::steady_clock::time_point dispatch_time_;
-  LoopSessionStats stats_;
+  std::unique_ptr<pose_graph::PoseGraph> graph_;
+  PoseFrontier observed_;
+  std::shared_ptr<const PoseSnapshot> published_poses_;
   std::exception_ptr failure_;
-  std::uint64_t latest_query_ = 0;
+  std::uint64_t published_loops_ = 0;
   double latest_timestamp_ = 0;
-  bool budget_stopped_ = false;
-  bool limit_event_pending_ = false;
+  bool publishing_ = false;
   bool finished_ = false;
 };
 }  // namespace livo_atlas

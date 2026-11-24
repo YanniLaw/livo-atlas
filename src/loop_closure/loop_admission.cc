@@ -9,8 +9,8 @@
 
 #include <Eigen/Geometry>
 
-#include "backend/loop_internal.h"
-#include "backend/loop_selection.h"
+#include "loop_closure/loop_internal.h"
+#include "loop_closure/loop_selection.h"
 #include "common/rotation_projection.h"
 #include "mapping/pose_math.h"
 
@@ -206,7 +206,7 @@ void ValidateLoopAdmissionOptions(const LoopAdmissionOptions& o) {
   ValidateGeometryOptions(o.geometry);
   if (!o.geometry.enabled)
     throw std::invalid_argument("Loop geometry must be enabled");
-  (void)PoseGraph(o.graph);
+  (void)Optimizer(o.graph);
   if (o.search.max_candidates > 5 || !Positive(o.graph.loop_huber_delta) ||
       !Sigma(o.loop_translation_sigma_m) || !Sigma(o.loop_rotation_sigma_rad) ||
       !Positive(o.max_hypothesis_translation_m) ||
@@ -216,7 +216,7 @@ void ValidateLoopAdmissionOptions(const LoopAdmissionOptions& o) {
       o.max_accepted_residual_increase < 0 ||
       !Positive(o.max_pose_correction_m) ||
       !Positive(o.max_pose_correction_deg) || o.max_pose_correction_deg > 180 ||
-      !o.max_keyframes || !o.max_loops ||
+      !o.max_keyframes || !o.max_loops || !o.max_pending_keyframes ||
       o.registration.min_points > o.registration.max_voxels ||
       o.registration.min_inliers > o.registration.max_voxels ||
       o.registration.min_normal_pairs > o.registration.max_voxels) {
@@ -280,7 +280,7 @@ LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
     return result;
   }
   const auto build_start = std::chrono::steady_clock::now();
-  PoseGraph graph(options.graph);
+  Optimizer graph(options.graph);
   for (std::size_t i = 0; i < input.raw_poses.size(); ++i)
     graph.AddKeyframe(i, input.raw_poses[i]);
   for (const auto& accepted : input.accepted_loops)

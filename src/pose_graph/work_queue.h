@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#ifndef LIVO_ATLAS_SRC_BACKEND_WORK_QUEUE_H_
-#define LIVO_ATLAS_SRC_BACKEND_WORK_QUEUE_H_
+#ifndef LIVO_ATLAS_SRC_POSE_GRAPH_WORK_QUEUE_H_
+#define LIVO_ATLAS_SRC_POSE_GRAPH_WORK_QUEUE_H_
 
 #include <chrono>
 #include <deque>
@@ -38,4 +38,4 @@ using WorkQueue = std::deque<WorkItem>;
 
 }  // namespace livo_atlas
 
-#endif  // LIVO_ATLAS_SRC_BACKEND_WORK_QUEUE_H_
+#endif  // LIVO_ATLAS_SRC_POSE_GRAPH_WORK_QUEUE_H_

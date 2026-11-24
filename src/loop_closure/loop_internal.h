@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_BACKEND_LOOP_INTERNAL_H_
-#define LIVO_ATLAS_SRC_BACKEND_LOOP_INTERNAL_H_
+#ifndef LIVO_ATLAS_SRC_LOOP_CLOSURE_LOOP_INTERNAL_H_
+#define LIVO_ATLAS_SRC_LOOP_CLOSURE_LOOP_INTERNAL_H_
 
 #include <array>
 #include <optional>
@@ -25,4 +25,4 @@ LoopStatus ClassifyQuality(
 
 }  // namespace livo_atlas::loop_internal
 
-#endif  // LIVO_ATLAS_SRC_BACKEND_LOOP_INTERNAL_H_
+#endif  // LIVO_ATLAS_SRC_LOOP_CLOSURE_LOOP_INTERNAL_H_

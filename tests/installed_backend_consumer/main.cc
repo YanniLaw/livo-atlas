@@ -1,3 +1,7 @@
+namespace livo_atlas {
+class PoseGraph;
+}  // namespace livo_atlas
+
 #include "livo_atlas/backend/pose_graph.h"
 
 #include <cmath>

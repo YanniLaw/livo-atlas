@@ -7,7 +7,7 @@
 #include <string>
 #include <type_traits>
 
-#include "backend/loop_option_fields.h"
+#include "pose_graph/loop_option_fields.h"
 #include "io/dataset_metadata.h"
 #include "io/loop_diagnostics.h"
 #include "io/loop_options.h"

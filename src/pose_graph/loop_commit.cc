@@ -1,4 +1,4 @@
-#include "core/loop_commit.h"
+#include "pose_graph/loop_commit.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -61,10 +61,10 @@ void ValidateProposal(const LoopTask& task, const LoopAdmissionResult& result) {
 }
 }  // namespace
 
-LoopCommitCheck CheckLoopCommit(const LoopTask& task,
-                                const LoopAdmissionResult& result,
-                                const LoopAdmissionInput& current,
-                                const std::vector<double>& current_timestamps) {
+LoopCommitStatus ValidateLoopCommit(
+    const LoopTask& task, const LoopAdmissionResult& result,
+    const LoopAdmissionInput& current,
+    const std::vector<double>& current_timestamps) {
   ValidateProposal(task, result);
   const auto& previous = task.input;
   const auto& a = previous.poses;
@@ -78,7 +78,7 @@ LoopCommitCheck CheckLoopCommit(const LoopTask& task,
       current_timestamps.size() != b.frame_count ||
       current.submaps.size() < previous.submaps.size() ||
       current.accepted_loops.size() != previous.accepted_loops.size())
-    return {};
+    return LoopCommitStatus::kStale;
   for (std::size_t id = 0; id < n; ++id) {
     if (current_timestamps[id] != task.timestamps[id] ||
         (current.raw_poses[id].rotation.array() !=
@@ -89,7 +89,7 @@ LoopCommitCheck CheckLoopCommit(const LoopTask& task,
             .any() ||
         b.poses[id].id != a.poses[id].id ||
         !SamePose(b.poses[id].map_from_body, a.poses[id].map_from_body))
-      return {};
+      return LoopCommitStatus::kStale;
   }
   for (std::size_t i = 0; i < previous.submaps.size(); ++i) {
     const auto& old = previous.submaps[i];
@@ -100,11 +100,21 @@ LoopCommitCheck CheckLoopCommit(const LoopTask& task,
         now.pose_version != b.version || now.frame_count != b.frame_count ||
         now.optimized_frame_count != b.optimized_frame_count ||
         !SamePose(old.parent_from_submap, now.parent_from_submap))
-      return {};
+      return LoopCommitStatus::kStale;
   }
   for (std::size_t i = 0; i < previous.accepted_loops.size(); ++i)
     if (!SameLoop(previous.accepted_loops[i], current.accepted_loops[i]))
-      return {};
+      return LoopCommitStatus::kStale;
+  return LoopCommitStatus::kEligible;
+}
+
+LoopCommitCheck CheckLoopCommit(const LoopTask& task,
+                                const LoopAdmissionResult& result,
+                                const LoopAdmissionInput& current,
+                                const std::vector<double>& current_timestamps) {
+  if (ValidateLoopCommit(task, result, current, current_timestamps) ==
+      LoopCommitStatus::kStale)
+    return {};
   return {LoopCommitStatus::kEligible,
           MakePoseSnapshot(result.proposal->update, current.poses,
                            current.raw_poses)};

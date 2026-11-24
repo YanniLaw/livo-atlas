@@ -9,9 +9,10 @@ Source from Cartographer 2.0.0 at commit
   Cartographer's ready queue and task dependencies with C++17 mutexes, a
   condition variable and standard containers. Workers on Linux lower their
   priority when permitted.
-- `src/backend/work_queue.h` defines the upstream work-item and work-queue
-  types for serial pose-graph work. `LoopWorker` schedules its tasks on
-  the ready queue inside `ThreadPool`.
+- `src/pose_graph/work_queue.h` defines the upstream work-item and work-queue
+  types. `PoseGraph` drains a bounded batch of ordered observations on a pool
+  task, runs a query on a separate task, and queues its completion on the same
+  serial execution line.
 
 The upstream copyright notices and the Apache 2.0 license apply to these
 files. The livo-atlas root license declares GPLv2. Review the terms before

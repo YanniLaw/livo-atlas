@@ -290,11 +290,16 @@ TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   node_->setParam("submaps/mode", "online");
   node_->setParam("submaps/max_keyframes", 64);
   node_->setParam("loop_closure/search/search_radius_m", 12.5);
+  node_->setParam("pose_graph/max_pending_keyframes", 4);
   const auto config = ReadNodeOptions(*node_).livo;
   ASSERT_TRUE(config.system.loop_closure);
   EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);
   EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m, 12.5);
+  EXPECT_EQ(config.system.loop_closure->max_pending_keyframes, 4u);
   EXPECT_FALSE(config.system.geometry.enabled);
+  node_->setParam("pose_graph/max_pending_keyframes", 0);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("pose_graph/max_pending_keyframes", 4);
   node_->setParam("submaps/max_keyframes", 65);
   EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
   EXPECT_FALSE(std::filesystem::exists(directory_));

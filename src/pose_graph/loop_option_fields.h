@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_BACKEND_LOOP_OPTION_FIELDS_H_
-#define LIVO_ATLAS_SRC_BACKEND_LOOP_OPTION_FIELDS_H_
+#ifndef LIVO_ATLAS_SRC_POSE_GRAPH_LOOP_OPTION_FIELDS_H_
+#define LIVO_ATLAS_SRC_POSE_GRAPH_LOOP_OPTION_FIELDS_H_
 
 #include "livo_atlas/backend/loop_admission.h"
 
@@ -77,4 +77,4 @@ void GeometryFields(GeometryOptions& o, Visit visit) {
 
 }  // namespace livo_atlas::loop_option_fields
 
-#endif  // LIVO_ATLAS_SRC_BACKEND_LOOP_OPTION_FIELDS_H_
+#endif  // LIVO_ATLAS_SRC_POSE_GRAPH_LOOP_OPTION_FIELDS_H_

@@ -5,7 +5,7 @@
 #include <set>
 #include <stdexcept>
 
-#include "backend/loop_internal.h"
+#include "loop_closure/loop_internal.h"
 
 namespace livo_atlas {
 namespace loop_internal {

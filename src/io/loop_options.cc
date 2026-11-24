@@ -1,6 +1,6 @@
 #include "io/loop_options.h"
 
-#include "backend/loop_option_fields.h"
+#include "pose_graph/loop_option_fields.h"
 
 namespace livo_atlas::loop_options {
 using loop_option_fields::RegistrationFields;

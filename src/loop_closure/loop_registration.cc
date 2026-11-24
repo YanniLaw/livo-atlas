@@ -11,7 +11,7 @@
 #include <Eigen/Eigenvalues>
 #include <pcl/registration/gicp.h>
 
-#include "backend/loop_internal.h"
+#include "loop_closure/loop_internal.h"
 #include "common/rotation_projection.h"
 #include "mapping/pose_math.h"
 

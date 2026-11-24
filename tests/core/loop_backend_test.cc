@@ -137,6 +137,61 @@ TEST_F(LoopBackendTest, WaitingPumpAcceptsResult) {
   backend.Finish();
 }
 
+TEST_F(LoopBackendTest, FullQueueCanDeliverAResultAndSealInput) {
+  Gate gate;
+  ReleaseOnExit release{gate};
+  auto options = loop_test::NearbyOptions();
+  options.max_pending_keyframes = 4;
+  auto& backend = LoopBackendTestPeer::InstallManaged(
+      *system_, options, [&](const auto& task) {
+        gate.Enter(task);
+        return RunLoopTask(task, options);
+      });
+  Append(0, 4);
+  EXPECT_EQ(system_->ProcessNext({}), SyncStatus::kWaiting);
+  ASSERT_TRUE(gate.Wait());
+  EXPECT_EQ(gate.frontier(), 4u);
+  Append(4, 8);
+  EXPECT_EQ(system_->ProcessNext({}), SyncStatus::kWaiting);
+  EXPECT_EQ(backend.GetStats().peak_queued_keyframes, 4u);
+  system_->SealInput();
+  gate.Release();
+  system_->Finish();
+
+  EXPECT_EQ(backend.GetStats().frame_count, 8u);
+  EXPECT_GT(backend.GetStats().accepted, 0u);
+  EXPECT_GT(backend.GetStats().skipped, 0u);
+  const auto report = InspectLoopDataset(Dataset());
+  EXPECT_EQ(report.status, LoopRecoveryStatus::kConsistent)
+      << testing::PrintToString(report.issues);
+}
+
+TEST_F(LoopBackendTest, OverflowPreservesOnlyTheCommittedPrefix) {
+  Gate gate;
+  ReleaseOnExit release{gate};
+  auto options = loop_test::NearbyOptions();
+  options.max_pending_keyframes = 4;
+  LoopBackendTestPeer::InstallManaged(*system_, options, [&](const auto& task) {
+    gate.Enter(task);
+    return RunLoopTask(task, options);
+  });
+  Append(0, 4);
+  EXPECT_EQ(system_->ProcessNext({}), SyncStatus::kWaiting);
+  ASSERT_TRUE(gate.Wait());
+  Append(4, 8);
+  EXPECT_THROW(Append(8, 9), std::overflow_error);
+  EXPECT_EQ(system_->GetKeyframeReadView().frame_count(), 8u);
+  EXPECT_FALSE(fs::exists(Dataset() / "frames/8"));
+  EXPECT_THROW(system_->ProcessNext({}), std::overflow_error);
+  gate.Release();
+  EXPECT_THROW(system_->Finish(), std::overflow_error);
+
+  const auto report = InspectLoopDataset(Dataset());
+  EXPECT_EQ(report.status, LoopRecoveryStatus::kIncomplete)
+      << testing::PrintToString(report.issues);
+  EXPECT_EQ(report.committed_version, 0u);
+}
+
 TEST_F(LoopBackendTest, DetectionOnlyFinishesWithoutPublishingAPoseUpdate) {
   auto options = loop_test::NearbyOptions();
   options.pose_graph_enabled = false;
@@ -207,6 +262,18 @@ TEST_F(LoopBackendTest, TrueProposalCommitsBeforeFinalFinish) {
       << testing::PrintToString(report.issues);
 }
 
+TEST_F(LoopBackendTest, LiveStandaloneBackendOwnsFinalization) {
+  LoopBackend backend(*system_, loop_test::NearbyOptions());
+  Observe(backend);
+  Append(0, 4);
+  EXPECT_THROW(system_->Finish(), std::logic_error);
+  EXPECT_FALSE(system_->IsFinished());
+  backend.Finish();
+  EXPECT_TRUE(system_->IsFinished());
+  EXPECT_GT(backend.GetStats().accepted, 0u);
+  EXPECT_NO_THROW(system_->Finish());
+}
+
 TEST_F(LoopBackendTest, SystemOwnsBackendWithOrWithoutAnObserver) {
   auto options = options_;
   options.exporter.directory /= "managed";
@@ -223,12 +290,12 @@ TEST_F(LoopBackendTest, SystemOwnsBackendWithOrWithoutAnObserver) {
   }
   EXPECT_EQ(keyframes, 4);
   EXPECT_EQ(system.ProcessNext({}), SyncStatus::kWaiting);
-  EXPECT_GT(system.GetLoopStats()->submitted, 0u);
   system.SetOnlineSubmapCallback({});
   system.Finish();
   system.Finish();
   EXPECT_TRUE(system.IsFinished());
   const auto stats = system.GetLoopStats();
+  EXPECT_GT(stats->submitted, 0u);
   EXPECT_GE(stats->accepted, 1u);
   EXPECT_EQ(system.GetPoseSnapshot()->version, stats->accepted);
   const auto report = InspectLoopDataset(options.exporter.directory / "keyframes");
@@ -270,6 +337,10 @@ TEST_F(LoopBackendTest, PostPublicationFailureIsCommittedAndTerminal) {
     }
     ASSERT_FALSE(error.empty());
     EXPECT_EQ(system.GetPoseSnapshot()->version, 1u);
+    if (variant == 1) {
+      EXPECT_EQ(backend.GetStats().accepted, 1u);
+      EXPECT_EQ(backend.GetStats().completed, 1u);
+    }
     const auto report = InspectLoopDataset(dataset);
     EXPECT_EQ(report.status, LoopRecoveryStatus::kIncomplete)
         << testing::PrintToString(report.issues);

@@ -1,6 +1,6 @@
 find_package(GTSAM 4.2 CONFIG REQUIRED)
 
-livo_atlas_library(backend src/backend/pose_graph.cc)
+livo_atlas_library(backend src/optimization/optimizer.cc)
 target_include_directories(livo_atlas_backend PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_backend PUBLIC livo_atlas_keyframes PRIVATE gtsam)
 

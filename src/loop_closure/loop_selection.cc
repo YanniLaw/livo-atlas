@@ -1,4 +1,4 @@
-#include "backend/loop_selection.h"
+#include "loop_closure/loop_selection.h"
 
 #include <algorithm>
 #include <cmath>

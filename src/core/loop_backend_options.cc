@@ -4,7 +4,7 @@
 #include <string>
 #include <type_traits>
 
-#include "backend/loop_option_fields.h"
+#include "pose_graph/loop_option_fields.h"
 
 namespace livo_atlas {
 namespace {

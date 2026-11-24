@@ -93,6 +93,7 @@ loop_closure:
 pose_graph:
   # Defaults to loop_closure.enabled when omitted. Set false for detection only.
   # enabled: false
+  max_pending_keyframes: 64
   prior_rotation_sigma_rad: 0.001
   prior_translation_sigma_m: 0.001
   odometry_rotation_sigma_rad: 0.05

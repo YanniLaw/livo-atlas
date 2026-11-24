@@ -182,10 +182,15 @@ void OnlineSubmapManager::AppendCommittedKeyframe(
   }
 }
 
-void OnlineSubmapManager::ApplyPoseUpdate(const PoseUpdate& update) {
+PoseSnapshot OnlineSubmapManager::PreparePoseUpdate(
+    const PoseUpdate& update) const {
   CheckRunning();
+  return MakePoseSnapshot(update, frozen_, raw_poses_);
+}
+
+void OnlineSubmapManager::ApplyPoseUpdate(const PoseUpdate& update) {
   // Invalid/stale backend inputs do not poison the running writer.
-  auto candidate = MakePoseSnapshot(update, frozen_, raw_poses_);
+  auto candidate = PreparePoseUpdate(update);
   const auto previous = GetPoseSnapshot();
   try {
     const SubmapPoseComparison comparison(*previous, candidate);

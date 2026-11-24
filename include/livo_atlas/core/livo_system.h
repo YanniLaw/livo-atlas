@@ -122,7 +122,8 @@ class LivoSystem {
 
   friend class LoopBackend;
   friend class LoopBackendTestPeer;
-  void ClaimLoopPoseUpdates();
+  void ClaimLoopPoseUpdates(LoopBackend& backend);
+  void ClearLoopBackend(const LoopBackend& backend) noexcept;
   void ApplyLoopPoseUpdate(const PoseUpdate& update);
   void FinishSession(LoopBackend* backend);
   void CheckInputOpen() const;
@@ -141,6 +142,7 @@ class LivoSystem {
   void BufferImu(const Imu& measurement, bool propagate, std::deque<Imu>* imu,
                  std::deque<Imu>* propagation);
   void AppendSubmap(const Submap& submap);
+  void AppendOnlineKeyframe(std::shared_ptr<const Keyframe> keyframe);
   OnlineSubmapManager& Online() const;
   void Propagate(const Imu& measurement);
 
@@ -163,6 +165,7 @@ class LivoSystem {
   bool input_sealed_ = false;
   bool finished_ = false;
   bool loop_pose_updates_claimed_ = false;
+  LoopBackend* active_loop_backend_ = nullptr;
   double last_lidar_ = -1, last_imu_ = -1, last_image_ = -1;
   std::uint64_t image_count_ = 0;
   std::deque<Imu> startup_imu_;
@@ -175,7 +178,7 @@ class LivoSystem {
   FilterState latest_state_, propagated_;
   double latest_time_ = 0, last_from_end_ = 0;
   // Join background work before destroying the stores it reads.
-  std::optional<LoopBackend> loop_backend_;
+  std::unique_ptr<LoopBackend> loop_backend_;
 };
 
 }  // namespace livo_atlas

@@ -56,6 +56,14 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
                                      ? ReadOnlineLoopOptions(reader)
                                      : ReadLoopAdmissionOptions(legacy_file);
     config.system.loop_closure->pose_graph_enabled = graph_enabled;
+    const auto limit = reader.Integer(
+        "pose_graph.max_pending_keyframes",
+        static_cast<int>(config.system.loop_closure->max_pending_keyframes));
+    if (limit <= 0)
+      throw std::invalid_argument(
+          "pose_graph.max_pending_keyframes must be positive");
+    config.system.loop_closure->max_pending_keyframes =
+        static_cast<std::size_t>(limit);
   }
   auto& gaussian = config.gaussian;
   gaussian.enabled = reader.Boolean("gaussian.enabled", false);

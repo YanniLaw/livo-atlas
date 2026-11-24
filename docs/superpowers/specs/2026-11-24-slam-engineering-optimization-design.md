@@ -129,11 +129,11 @@ sensor_buffer:
 
 ### 3.2 工作队列与约束计算
 
-`LivoSystem` 按现有规则选择关键帧，把自有观测交给 `PoseGraph::AddKeyframe()` 排队。位姿图使用已迁入项目的 Cartographer `WorkItem`、`WorkQueue`、`Task` 和 `ThreadPool`。`WorkQueue` 按 FIFO 处理关键帧与子地图登记和优化触发。同一时刻只有一个队列执行者修改图状态。每次只取有界数量的工作项，留出线程池处理已调度任务的机会。标准 C++ 短锁保护入队、出队和执行者标志，配准、求解、文件写入在这些锁之外执行。 [Cartographer 入队](https://github.com/cartographer-project/cartographer/blob/2.0.0/cartographer/mapping/internal/3d/pose_graph_3d.cc#L151) · [本工程队列定义](../../../src/backend/work_queue.h)
+`LivoSystem` 按现有规则选择关键帧，把自有观测交给 `PoseGraph::AddObservation()` 排队。位姿图使用已迁入项目的 Cartographer `WorkItem`、`WorkQueue`、`Task` 和 `ThreadPool`。`WorkQueue` 按 FIFO 处理关键帧与子地图登记和优化触发。同一时刻只有一个队列执行者修改图状态。每次只取有界数量的工作项，留出线程池处理已调度任务的机会。标准 C++ 短锁保护入队、出队和执行者标志，配准、求解、文件写入在这些锁之外执行。 [Cartographer 入队](https://github.com/cartographer-project/cartographer/blob/2.0.0/cartographer/mapping/internal/3d/pose_graph_3d.cc#L151) · [本工程队列定义](../../../src/pose_graph/work_queue.h)
 
-`LoopClosure` 复用现有候选搜索和几何配准，只读取派发时捕获的观测与位姿。需要等约束结果时，队列执行者让出线程。任务执行边界把成功和异常都交回同一完成槽。完成通知调度同一条执行线，处理当前结果后恢复普通 FIFO，终止错误进入统一收尾路径。暂按现有的一个在途回环查询和一个最新待查查询执行，合并只作用于待查回环，已接收的关键帧保持顺序。`config/backend.yaml` 中的 `pose_graph.max_pending_keyframes` 限制待处理关键帧，满载采用阶段 1 的失败语义。完成结果和停止请求由固定大小的状态交接，单线程池在普通队列满载时仍可推进收尾。 [Cartographer 队列续跑](https://github.com/cartographer-project/cartographer/blob/2.0.0/cartographer/mapping/internal/3d/pose_graph_3d.cc#L474) · [现有待查合并](../../../src/core/loop_backend.cc#L272)
+`LoopClosure` 复用现有候选搜索和几何配准，只读取派发时捕获的观测与位姿。需要等约束结果时，队列执行者让出线程。任务执行边界把成功和异常都交回同一完成槽。完成通知调度同一条执行线，处理当前结果后恢复普通 FIFO，终止错误进入统一收尾路径。暂按现有的一个在途回环查询和一个最新待查查询执行，合并只作用于待查回环，已接收的关键帧保持顺序。`config/backend.yaml` 中的 `pose_graph.max_pending_keyframes` 限制待处理关键帧，满载采用阶段 1 的失败语义。完成结果和停止请求由固定大小的状态交接，单线程池在普通队列满载时仍可推进收尾。 [Cartographer 队列续跑](https://github.com/cartographer-project/cartographer/blob/2.0.0/cartographer/mapping/internal/3d/pose_graph_3d.cc#L474) · [现有待查合并](../../../src/pose_graph/pose_graph.cc)
 
-当工作项触发优化，`PoseGraph` 将约束和基准位姿交给 `Optimizer`。该组件复用现有 GTSAM 批量求解。几何复核、残差判定和版本检查仍用于确认提案，试算成功后才变更已接纳的图状态。候选并行之前先验证 `Task` 依赖生命周期与单线程池的完成路径，完成结果按候选原有顺序归并。 [现有约束与求解](../../../src/backend/loop_admission.cc#L248) · [Cartographer 求解边界](https://github.com/cartographer-project/cartographer/blob/2.0.0/cartographer/mapping/internal/3d/pose_graph_3d.cc#L800)
+当工作项触发优化，`PoseGraph` 将约束和基准位姿交给 `Optimizer`。该组件复用现有 GTSAM 批量求解。几何复核、残差判定和版本检查仍用于确认提案，试算成功后才变更已接纳的图状态。候选并行之前先验证 `Task` 依赖生命周期与单线程池的完成路径，完成结果按候选原有顺序归并。 [现有约束与求解](../../../src/loop_closure/loop_admission.cc) · [Cartographer 求解边界](https://github.com/cartographer-project/cartographer/blob/2.0.0/cartographer/mapping/internal/3d/pose_graph_3d.cc#L800)
 
 ### 3.3 提交、发布与迁移
 
@@ -145,7 +145,7 @@ sensor_buffer:
 
 1. 将候选搜索、配准与质量检查迁入 `src/loop_closure/`，由 `LoopClosure` 组织。把现有 GTSAM 求解提取到 `src/optimization/optimizer.cc`，由 `Optimizer` 提供。用现有测试核对提案与残差。
 2. 将图状态、`WorkQueue` 与 `LoopBackend` 的协调职责归入 `src/pose_graph/` 中的 `PoseGraph` 模块。在迁移存档前，以现行提交路径验证后台调度与关闭。随后把关键帧、子地图成员和位姿的写入职责作为一批迁到位姿图，按同一已提交前沿发布结果。
-3. SDK 的主要装配入口为 `LivoSystem(SystemOptions)`。`pose_graph.h` 的原有求解构造与方法兼容调用同一个 `Optimizer`，`livo_atlas::online_backend` 作为已安装工程的过渡链接名。旧 `LoopBackend` 入口在迁移期共用同一后端实现，独立使用时仍通过其显式 `Finish()` 收尾。独立实例持有提交权时，直接调用 `LivoSystem::Finish()` 报出结束入口的冲突。存档字段和检查工具按现有格式读取。 [现有求解接口](../../../include/livo_atlas/backend/pose_graph.h#L64) · [现有系统停止](../../../src/core/livo_system.cc#L258)
+3. SDK 的主要装配入口为 `LivoSystem(SystemOptions)`。`pose_graph.h` 的原有求解构造与方法兼容调用同一个 `Optimizer`，`livo_atlas::online_backend` 作为已安装工程的过渡链接名。旧 `LoopBackend` 入口在迁移期共用同一后端实现，独立使用时仍通过其显式 `Finish()` 收尾。独立实例持有提交权时，直接调用 `LivoSystem::Finish()` 报出结束入口的冲突。存档字段和检查工具按现有格式读取。 [现有求解接口](../../../include/livo_atlas/backend/pose_graph.h) · [现有系统停止](../../../src/core/livo_system.cc#L258)
 
 同步迁移三组目录的源码、头文件路径和 CMake 源码清单。`loop_admission.cc` 中的筛选、求解与接纳按上述职责归位，`online_submap_manager.cc` 与相关存储和输出按提交前沿交接。用单线程池及故意放慢的后台任务验证前端仍能推进，测试队列上限、过期提案和提交失败。 [回环生命周期测试](../../../tests/core/loop_backend_test.cc)
 

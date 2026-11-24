@@ -1,5 +1,5 @@
-livo_atlas_library(loop_closure src/backend/loop_closure.cc
-  src/backend/loop_registration.cc src/backend/loop_quality.cc)
+livo_atlas_library(loop_closure src/loop_closure/loop_closure.cc
+  src/loop_closure/loop_registration.cc src/loop_closure/loop_quality.cc)
 target_include_directories(livo_atlas_loop_closure PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_loop_closure PUBLIC livo_atlas_geometry
   PRIVATE pcl_registration pcl_kdtree)

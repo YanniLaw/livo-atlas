@@ -164,11 +164,13 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
       ("c2b-loop-options-" +
        std::to_string(
            std::chrono::steady_clock::now().time_since_epoch().count()));
-  for (int variant = 0; variant < 4; ++variant) {
+  for (int variant = 0; variant < 5; ++variant) {
     auto params = test::Parameters(directory.string());
     if (variant) {
       params.emplace_back("loop_closure.enabled", true);
       params.emplace_back("loop_closure.search.search_radius_m", 12.5);
+      params.emplace_back("pose_graph.max_pending_keyframes",
+                          variant == 4 ? 0 : 4);
     } else {
       params.emplace_back("loop_closure.options_file",
                           "/nonexistent/ignored-loop.yml");
@@ -181,7 +183,7 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
     }
     rclcpp::Node node("c2b_loop_parameters",
                       rclcpp::NodeOptions().parameter_overrides(params));
-    if (variant == 1 || variant == 3) {
+    if (variant == 1 || variant >= 3) {
       EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
     } else {
       const auto config = ReadNodeOptions(node).livo;
@@ -189,6 +191,7 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
       if (config.system.loop_closure) {
         EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);
         EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m, 12.5);
+        EXPECT_EQ(config.system.loop_closure->max_pending_keyframes, 4u);
       }
       EXPECT_FALSE(config.system.geometry.enabled);
     }

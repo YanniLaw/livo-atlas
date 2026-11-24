@@ -1,4 +1,4 @@
-#include "core/loop_commit.h"
+#include "pose_graph/loop_commit.h"
 
 #include <gtest/gtest.h>
 
