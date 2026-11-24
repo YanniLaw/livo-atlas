@@ -38,7 +38,7 @@ ReconstructionView MakeReconstructionView(const CameraConfig& camera,
   if (keyframe.id >= poses.frame_count) {
     throw std::invalid_argument("Pose snapshot does not cover keyframe");
   }
-  const auto& parent_from_body = poses.poses[keyframe.id].map_from_body;
+  const auto& parent_from_body = poses.poses[keyframe.id].parent_from_body();
   if (poses.version == 0 &&
       !pose_math::Equal(parent_from_body, keyframe.odom_from_body)) {
     throw std::invalid_argument("Version zero must use the raw keyframe pose");

@@ -48,7 +48,7 @@ std::vector<FramePose> SelectFrames(const KeyframeStore& keyframes,
   auto ids = keyframes.ids();
   if (version) {
     for (const auto& pose : keyframes.ReadPoses(version))
-      poses.emplace(pose.id, pose.map_from_body);
+      poses.emplace(pose.id, pose.parent_from_body());
     ids.clear();
     for (const auto& pose : poses) ids.push_back(pose.first);
   }

@@ -4,11 +4,11 @@
 #include <memory>
 #include <utility>
 
+#include "gaussian_mapping.h"
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/geometry_map_output.h"
 #include "livo_atlas/core/livo_system.h"
 #include "livo_atlas/core/trajectory_output.h"
-#include "online_gaussian.h"
 #if LIVO_ATLAS_ROS_VERSION == 1
 #include <ros/spinner.h>
 
@@ -41,10 +41,10 @@ int main(int argc, char** argv) {
     auto node = std::make_shared<rclcpp::Node>("laserMapping");
 #endif
     const auto parameters = ros_integration::ReadNodeOptions(*node);
-    livo_atlas::app::OnlineGaussian::ValidateConfig(parameters.livo);
+    livo_atlas::app::GaussianMapping::ValidateConfig(parameters.livo);
     livo_atlas::LivoSystem system(parameters.livo.system);
     std::function<void()> poll_background_outputs;
-    livo_atlas::app::OnlineGaussian gaussian(*node, system, parameters.livo);
+    livo_atlas::app::GaussianMapping gaussian(*node, system, parameters.livo);
     // The worker joins before its captured publisher handles are destroyed.
     std::unique_ptr<ros_integration::KeyframeTrajectoryPublisher>
         trajectory_publisher;

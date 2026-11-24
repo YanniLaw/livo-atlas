@@ -19,7 +19,8 @@ bool SamePoses(const PoseSnapshot& a, const PoseSnapshot& b) {
     return false;
   for (std::size_t i = 0; i < a.poses.size(); ++i)
     if (a.poses[i].id != b.poses[i].id ||
-        !pose_math::Equal(a.poses[i].map_from_body, b.poses[i].map_from_body))
+        !pose_math::Equal(a.poses[i].parent_from_body(),
+                          b.poses[i].parent_from_body()))
       return false;
   return true;
 }

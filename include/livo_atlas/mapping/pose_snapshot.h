@@ -15,7 +15,10 @@ enum class PoseTailPolicy {
 
 struct KeyframePose {
   std::uint64_t id = 0;
+  // Legacy storage name. The containing snapshot defines the parent frame.
   RigidTransform map_from_body;
+
+  const RigidTransform& parent_from_body() const { return map_from_body; }
 };
 
 enum class PoseFrame { kOdom, kMap };

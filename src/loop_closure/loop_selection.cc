@@ -51,7 +51,8 @@ auto Rank(const LoopHypothesis& hypothesis) {
 
 RigidTransform HypothesisPose(const LoopHypothesis& hypothesis,
                               const PoseSnapshot& poses) {
-  auto anchor = poses.poses[hypothesis.loop.constraint.from_id].map_from_body;
+  auto anchor =
+      poses.poses[hypothesis.loop.constraint.from_id].parent_from_body();
   anchor.rotation = ProjectRotation(anchor.rotation);
   return pose_math::Compose(anchor,
                             hypothesis.loop.constraint.from_body_from_to_body);

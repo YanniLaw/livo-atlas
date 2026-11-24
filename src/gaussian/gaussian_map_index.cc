@@ -101,21 +101,22 @@ GaussianTarget Target(const std::string& session, const OnlineSubmap& group,
   result.optimized_frame_count = poses.optimized_frame_count;
   result.parent_frame = poses.parent_frame;
   result.parent_from_submap =
-      poses.poses.at(group.primary.anchor_keyframe_id).map_from_body;
+      poses.poses.at(group.primary.anchor_keyframe_id).parent_from_body();
   const auto inverse = pose_math::Inverse(result.parent_from_submap);
   for (const auto id : group.primary.keyframe_ids)
     result.submap_from_body.push_back(
-        pose_math::Compose(inverse, poses.poses.at(id).map_from_body));
+        pose_math::Compose(inverse, poses.poses.at(id).parent_from_body()));
   return result;
 }
 
 bool Unchanged(const GaussianTarget& source, const PoseSnapshot& poses) {
   const auto anchor = source.group.primary.anchor_keyframe_id;
-  const auto inverse = pose_math::Inverse(poses.poses.at(anchor).map_from_body);
+  const auto inverse =
+      pose_math::Inverse(poses.poses.at(anchor).parent_from_body());
   const auto& ids = source.group.primary.keyframe_ids;
   for (std::size_t i = 0; i < ids.size(); ++i) {
     const auto local =
-        pose_math::Compose(inverse, poses.poses.at(ids[i]).map_from_body);
+        pose_math::Compose(inverse, poses.poses.at(ids[i]).parent_from_body());
     if (!pose_math::Equal(source.submap_from_body[i], local)) return false;
   }
   return true;
@@ -190,8 +191,8 @@ void GaussianMapIndex::Observe(const OnlineSubmapUpdate& update) {
       throw std::invalid_argument(
           "Gaussian optimized frontier changed within a version");
     for (std::size_t i = 0; i < poses_.poses.size(); ++i)
-      if (!pose_math::Equal(poses_.poses[i].map_from_body,
-                              next.poses[i].map_from_body))
+      if (!pose_math::Equal(poses_.poses[i].parent_from_body(),
+                            next.poses[i].parent_from_body()))
         throw std::invalid_argument("Gaussian pose changed within a version");
   }
   auto entries = entries_;

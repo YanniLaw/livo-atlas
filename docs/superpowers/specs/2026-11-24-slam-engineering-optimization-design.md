@@ -151,7 +151,7 @@ sensor_buffer:
 
 ## 4. 随职责迁移的命名
 
-| 当前名称 | 建议名称 | 随哪一步迁移 |
+| 迁移前名称 | 采用名称 | 随哪一步迁移 |
 | --- | --- | --- |
 | 依赖 `ExportOptions::mode` 取得系统模式 | `SystemOptions::frontend_mode()` | 阶段 1 统一模式选择，导出器按自己的配置使用模式 |
 | `Current Total Time` | `frontend_process_seconds` | 阶段 2 同步更新 GLOG 统计与回放解析 |
@@ -159,10 +159,10 @@ sensor_buffer:
 | 当前 `PoseGraph` 的求解部分 | `Optimizer`，`src/optimization/` | 复用 GTSAM 求解路径 |
 | 候选搜索与几何配准 | `LoopClosure`，`src/loop_closure/` | 组织检测与几何验证，输出约束提案 |
 | `KeyframePose::map_from_body` | `parent_from_body()` | 阶段 3 添加访问器并迁移内部读取，坐标由 `parent_frame` 指定，兼容原 SDK 字段和存档键 |
-| `app::OnlineGaussian` | `app::GaussianMappingOutput` | 应用层持有 `OnlineGaussianMapper` 与预览发布器，类名指明其接入和输出职责 |
+| `app::OnlineGaussian` | `app::GaussianMapping` | 应用层管理高斯建图器、结果轮询、预览发布和结束封存，类名概括高斯建图流程 |
 | `LIVO_ATLAS_ONLINE_GAUSSIAN` | `LIVO_ATLAS_HAS_LINUX_GAUSSIAN_BRIDGE` | 随应用层文件修改，宏表明平台构建能力，实际运行由 `gaussian.enabled` 配置 |
 
-应用层重命名涉及 `src/app/online_gaussian.{h,cc}`、`livo_main.cc` 和 `cmake/node.cmake`。同时用当前入口核对工程路线图中的 Noetic 和 Humble 执行器说明。 [高斯接入定义](../../../src/app/online_gaussian.h#L42) · [位姿坐标定义](../../../include/livo_atlas/mapping/pose_snapshot.h#L16)
+应用层使用 `GaussianMapping`，对应文件为 `src/app/gaussian_mapping.{h,cc}`，共享入口与节点 CMake 清单使用同一名称。`KeyframePose::parent_from_body()` 按包含它的快照坐标系读取位姿。 [高斯接入定义](../../../src/app/gaussian_mapping.h) · [位姿坐标定义](../../../include/livo_atlas/mapping/pose_snapshot.h#L16)
 
 ## 输出、故障与会话约定
 

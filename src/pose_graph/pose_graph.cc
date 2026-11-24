@@ -383,7 +383,8 @@ LoopAdmissionInput PoseGraph::CurrentInput(std::uint64_t query_id) const {
     input.submaps.push_back(
         {group, timestamps_.at(group.primary.keyframe_ids.front()),
          timestamps_.at(group.primary.keyframe_ids.back()),
-         input.poses.poses.at(group.primary.anchor_keyframe_id).map_from_body,
+         input.poses.poses.at(group.primary.anchor_keyframe_id)
+             .parent_from_body(),
          input.poses.version, input.poses.frame_count,
          input.poses.optimized_frame_count});
   }

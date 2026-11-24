@@ -65,7 +65,7 @@ inline void WriteOnlineFixtures(const std::filesystem::path& root) {
       if (const auto group = old_builder.AddKeyframe(id)) legacy.Append(*group);
     if (online) {
       const auto extended = online->MaterializePoseSnapshot(1, 4);
-      if (extended.poses.back().map_from_body.translation.x() != 13)
+      if (extended.poses.back().parent_from_body().translation.x() != 13)
         throw std::runtime_error("Unexpected materialized tail");
       frames.WritePoses(1, extended.poses);
       bool rejected = false;

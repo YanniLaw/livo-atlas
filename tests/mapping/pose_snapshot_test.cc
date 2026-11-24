@@ -2,6 +2,7 @@
 
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
 
 #include <gtest/gtest.h>
 
@@ -23,6 +24,26 @@ PoseUpdate Update(std::uint64_t base, int count) {
     update.poses.push_back({static_cast<std::uint64_t>(i), pose});
   }
   return update;
+}
+
+TEST(PoseSnapshotTest, ParentPoseAccessorPreservesStorageAndCoordinates) {
+  static_assert(std::is_aggregate<KeyframePose>::value,
+                "SDK keyframe poses support aggregate initialization");
+  KeyframePose pose{7, {}};
+  pose.map_from_body.translation.x() = 3;
+  EXPECT_EQ(&pose.parent_from_body(), &pose.map_from_body);
+  EXPECT_DOUBLE_EQ(pose.parent_from_body().translation.x(), 3);
+
+  const auto raw = MaterializePoseSnapshot({}, Raw(3), 3);
+  EXPECT_EQ(raw.parent_frame, PoseFrame::kOdom);
+  EXPECT_DOUBLE_EQ(raw.poses[2].parent_from_body().translation.x(), 2);
+
+  const auto optimized = MakePoseSnapshot(Update(0, 2), {}, Raw(3));
+  EXPECT_EQ(optimized.parent_frame, PoseFrame::kMap);
+  EXPECT_EQ(&optimized.poses[0].parent_from_body(),
+            &optimized.poses[0].map_from_body);
+  EXPECT_DOUBLE_EQ(optimized.poses[0].parent_from_body().translation.x(), 10);
+  EXPECT_DOUBLE_EQ(optimized.poses[2].parent_from_body().translation.x(), 12);
 }
 
 TEST(PoseSnapshotTest, TailExtensionKeepsFrozenPrefix) {

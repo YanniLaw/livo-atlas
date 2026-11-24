@@ -55,10 +55,11 @@ void CheckHeader(const PoseFrontier& poses) {
 
 bool SamePose(const KeyframePose& a, const KeyframePose& b) {
   return a.id == b.id &&
-         (a.map_from_body.rotation.array() == b.map_from_body.rotation.array())
+         (a.parent_from_body().rotation.array() ==
+          b.parent_from_body().rotation.array())
              .all() &&
-         (a.map_from_body.translation.array() ==
-          b.map_from_body.translation.array())
+         (a.parent_from_body().translation.array() ==
+          b.parent_from_body().translation.array())
              .all();
 }
 

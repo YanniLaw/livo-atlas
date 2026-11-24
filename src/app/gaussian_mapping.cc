@@ -1,10 +1,10 @@
-#include "online_gaussian.h"
+#include "gaussian_mapping.h"
 
 #include <stdexcept>
 
 #include "livo_atlas/core/livo_config.h"
 
-#if LIVO_ATLAS_ONLINE_GAUSSIAN
+#if LIVO_ATLAS_HAS_LINUX_GAUSSIAN_BRIDGE
 #include <cstddef>
 #include <iomanip>
 #include <sstream>
@@ -22,7 +22,7 @@
 
 namespace livo_atlas::app {
 
-#if LIVO_ATLAS_ONLINE_GAUSSIAN
+#if LIVO_ATLAS_HAS_LINUX_GAUSSIAN_BRIDGE
 namespace {
 
 void ReportJointRender(const GaussianRender& r) {
@@ -119,15 +119,15 @@ void ReportFinalization(const GaussianFinalizationResult& r) {
 
 }  // namespace
 
-void OnlineGaussian::ValidateConfig(const LivoConfig& config) {
+void GaussianMapping::ValidateConfig(const LivoConfig& config) {
   if (config.gaussian.enabled) {
     ValidateOnlineGaussianPaths(config.gaussian,
                                 config.system.exporter.directory / "keyframes");
   }
 }
 
-OnlineGaussian::OnlineGaussian(RosNode& node, LivoSystem& system,
-                               const LivoConfig& config) {
+GaussianMapping::GaussianMapping(RosNode& node, LivoSystem& system,
+                                 const LivoConfig& config) {
   if (!config.gaussian.enabled) return;
 
   mapper_ = std::make_unique<OnlineGaussianMapper>(
@@ -144,11 +144,11 @@ OnlineGaussian::OnlineGaussian(RosNode& node, LivoSystem& system,
   }
 }
 
-void OnlineGaussian::ObserveDelta(const OnlineSubmapDelta& update) {
+void GaussianMapping::ObserveDelta(const OnlineSubmapDelta& update) {
   if (mapper_) mapper_->ObserveDelta(update);
 }
 
-void OnlineGaussian::Poll() {
+void GaussianMapping::Poll() {
   if (!mapper_) return;
 
   mapper_->Poll();
@@ -168,7 +168,7 @@ void OnlineGaussian::Poll() {
   if (publication_) publication_->Observe(mapper_->GetRenderSnapshot());
 }
 
-void OnlineGaussian::FinishPublication() {
+void GaussianMapping::FinishPublication() {
   if (!publication_) return;
 
   // A closed ROS context is counted as unavailable.
@@ -190,7 +190,7 @@ void OnlineGaussian::FinishPublication() {
   }
 }
 
-bool OnlineGaussian::Finish(const OnlineGaussianOptions& options) {
+bool GaussianMapping::Finish(const OnlineGaussianOptions& options) {
   if (!mapper_) return true;
 
   bool succeeded = true;
@@ -292,24 +292,24 @@ bool OnlineGaussian::Finish(const OnlineGaussianOptions& options) {
 }
 #else
 
-void OnlineGaussian::ValidateConfig(const LivoConfig& config) {
+void GaussianMapping::ValidateConfig(const LivoConfig& config) {
   if (config.gaussian.enabled) {
     throw std::invalid_argument("gaussian.enabled requires a Linux build");
   }
 }
 
-OnlineGaussian::OnlineGaussian(RosNode&, LivoSystem&, const LivoConfig&) {}
+GaussianMapping::GaussianMapping(RosNode&, LivoSystem&, const LivoConfig&) {}
 
-void OnlineGaussian::ObserveDelta(const OnlineSubmapDelta&) {}
+void GaussianMapping::ObserveDelta(const OnlineSubmapDelta&) {}
 
-void OnlineGaussian::Poll() {}
+void GaussianMapping::Poll() {}
 
-void OnlineGaussian::FinishPublication() {}
+void GaussianMapping::FinishPublication() {}
 
-bool OnlineGaussian::Finish(const OnlineGaussianOptions&) { return true; }
+bool GaussianMapping::Finish(const OnlineGaussianOptions&) { return true; }
 
 #endif
 
-OnlineGaussian::~OnlineGaussian() = default;
+GaussianMapping::~GaussianMapping() = default;
 
 }  // namespace livo_atlas::app

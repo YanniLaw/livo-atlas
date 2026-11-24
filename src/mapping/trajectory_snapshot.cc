@@ -26,7 +26,7 @@ TrajectorySnapshot BuildTrajectorySnapshot(
   for (std::size_t i = 0; i < poses.frame_count; ++i) {
     if (!std::isfinite(timestamps[i]))
       throw std::invalid_argument("Nonfinite trajectory timestamp");
-    const auto& pose = poses.poses[i].map_from_body;
+    const auto& pose = poses.poses[i].parent_from_body();
     result.keyframes.push_back(
         {i, timestamps[i],
          poses.version ? pose : pose_math::ProjectPose(pose)});

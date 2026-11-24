@@ -89,7 +89,7 @@ void ProposeLoopDataset(const fs::path& dataset, const fs::path& output,
     }
     input.poses = store.MaterializePoseSnapshot(0, frame_count);
     for (const auto& pose : input.poses.poses)
-      input.raw_poses.push_back(pose.map_from_body);
+      input.raw_poses.push_back(pose.parent_from_body());
     std::vector<OnlineSubmap> groups;
     for (std::size_t id = 0; id < submap_count; ++id) {
       const auto group = store.Read(id);
@@ -99,7 +99,8 @@ void ProposeLoopDataset(const fs::path& dataset, const fs::path& output,
       input.submaps.push_back(
           {group, timestamps.at(group.primary.keyframe_ids.front()),
            timestamps.at(group.primary.keyframe_ids.back()),
-           input.poses.poses.at(group.primary.anchor_keyframe_id).map_from_body,
+           input.poses.poses.at(group.primary.anchor_keyframe_id)
+               .parent_from_body(),
            0, frame_count, 0});
     }
     std::unique_ptr<GeometryMapper> mapper;
@@ -153,7 +154,7 @@ void ProposeLoopDataset(const fs::path& dataset, const fs::path& output,
         for (auto& info : input.submaps) {
           info.parent_from_submap =
               input.poses.poses[info.membership.primary.anchor_keyframe_id]
-                  .map_from_body;
+                  .parent_from_body();
           info.pose_version = input.poses.version;
           info.optimized_frame_count = input.poses.optimized_frame_count;
         }

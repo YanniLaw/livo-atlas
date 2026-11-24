@@ -36,13 +36,13 @@ bool CanonicalCurrent(const GaussianTarget& source, const PoseSnapshot& poses) {
       source.group.primary.anchor_keyframe_id >= poses.poses.size())
     return false;
   const auto inverse = pose_math::Inverse(
-      poses.poses[source.group.primary.anchor_keyframe_id].map_from_body);
+      poses.poses[source.group.primary.anchor_keyframe_id].parent_from_body());
   for (std::size_t i = 0; i < source.submap_from_body.size(); ++i) {
     const auto id = source.group.primary.keyframe_ids[i];
     if (id >= poses.poses.size() ||
         !pose_math::Equal(
             source.submap_from_body[i],
-            pose_math::Compose(inverse, poses.poses[id].map_from_body)))
+            pose_math::Compose(inverse, poses.poses[id].parent_from_body())))
       return false;
   }
   return true;
@@ -67,7 +67,7 @@ void ValidateBinding(const GaussianSubmapEntry& entry,
   Require(SameGroup(entry.group, entry.binding.group) &&
               CanonicalCurrent(entry.binding, poses) &&
               pose_math::Equal(entry.binding.parent_from_submap,
-                                poses.poses.at(anchor).map_from_body),
+                               poses.poses.at(anchor).parent_from_body()),
           "Render binding differs from the captured poses");
 }
 
@@ -327,7 +327,7 @@ std::optional<GaussianRenderRequest> SelectGaussianRender(
   result.query_submap_id = newest->group.primary.id;
   result.query_keyframe_id = newest->frame_ids.back();
   result.parent_from_body =
-      poses.poses.at(result.query_keyframe_id).map_from_body;
+      poses.poses.at(result.query_keyframe_id).parent_from_body();
   if (spatial) {
     SelectSpatialNeighbor(map, poses, *newest, &result);
     result.selection_seconds = std::chrono::duration<double>(

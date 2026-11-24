@@ -135,7 +135,7 @@ PoseGraphResult Optimizer::Optimize(const PoseSnapshot& current) const {
   }
   if (current.version == 0) {
     for (std::size_t i = 0; i < count; ++i) {
-      if (!SamePose(current.poses[i].map_from_body, raw_poses_[i])) {
+      if (!SamePose(current.poses[i].parent_from_body(), raw_poses_[i])) {
         throw std::invalid_argument("Version zero differs from raw poses");
       }
     }
@@ -148,7 +148,7 @@ PoseGraphResult Optimizer::Optimize(const PoseSnapshot& current) const {
   odometry.reserve(count);
   for (std::size_t i = 0; i < count; ++i) {
     odometry.push_back(ToGtsam(raw_poses_[i]));
-    initial.insert(i, ToGtsam(current.poses[i].map_from_body));
+    initial.insert(i, ToGtsam(current.poses[i].parent_from_body()));
   }
   graph.emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(
       0, odometry.front(),

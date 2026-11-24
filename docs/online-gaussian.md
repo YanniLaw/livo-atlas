@@ -45,10 +45,12 @@ source install/setup.bash
 ```
 
 Linux 目标包含 C++ 桥接层。节点每次启动读取 `gaussian.enabled`，默认 `false`。
+`GaussianMapping` 组织建图器、预览发布和封存，`LIVO_ATLAS_HAS_LINUX_GAUSSIAN_BRIDGE`
+由目标平台提供的桥接库决定。
 在 Linux 上可用同一二进制切换纯 LIVO 和在线 Gaussian。其他目标收到启用请求时，
 节点会在创建输出目录前报告平台要求。
 编译桥接层使用现有 C++ 依赖，Python/CUDA 环境在启动独立 worker 时使用。
-[节点装配](../src/app/online_gaussian.cc)
+[节点装配](../src/app/gaussian_mapping.cc)
 
 ## 启动 worker
 

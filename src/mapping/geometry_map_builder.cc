@@ -16,8 +16,8 @@ RigidTransform LocalPose(const OnlineSubmap& group, const PoseSnapshot& poses,
                          std::uint64_t id) {
   return pose_math::Compose(
       pose_math::Inverse(
-          poses.poses[group.primary.anchor_keyframe_id].map_from_body),
-      poses.poses[id].map_from_body);
+          poses.poses[group.primary.anchor_keyframe_id].parent_from_body()),
+      poses.poses[id].parent_from_body());
 }
 
 }  // namespace
@@ -180,7 +180,7 @@ GeometryMapSnapshot GeometryMapBuilder::Build(
     result.sources.push_back(info);
 
     const auto& parent =
-        poses->poses[group.primary.anchor_keyframe_id].map_from_body;
+        poses->poses[group.primary.anchor_keyframe_id].parent_from_body();
     const auto add = [&](const GeometryVoxelKey& key,
                          const Eigen::Vector3d& local, double intensity) {
       sampler.Add({group.primary.id,

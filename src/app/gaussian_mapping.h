@@ -1,5 +1,5 @@
-#ifndef LIVO_ATLAS_SRC_APP_ONLINE_GAUSSIAN_H_
-#define LIVO_ATLAS_SRC_APP_ONLINE_GAUSSIAN_H_
+#ifndef LIVO_ATLAS_SRC_APP_GAUSSIAN_MAPPING_H_
+#define LIVO_ATLAS_SRC_APP_GAUSSIAN_MAPPING_H_
 
 #include <cstdint>
 #include <memory>
@@ -39,16 +39,17 @@ using RosNode = rclcpp::Node;
 using GaussianRenderPublisher = ros2::GaussianRenderPublisher;
 #endif
 
-class OnlineGaussian {
+// Connects committed SLAM updates to Gaussian mapping and ROS previews.
+class GaussianMapping {
  public:
   // Check build support and paths before constructing the LIVO system.
   static void ValidateConfig(const LivoConfig& config);
 
-  OnlineGaussian(RosNode& node, LivoSystem& system, const LivoConfig& config);
-  ~OnlineGaussian();
+  GaussianMapping(RosNode& node, LivoSystem& system, const LivoConfig& config);
+  ~GaussianMapping();
 
-  OnlineGaussian(const OnlineGaussian&) = delete;
-  OnlineGaussian& operator=(const OnlineGaussian&) = delete;
+  GaussianMapping(const GaussianMapping&) = delete;
+  GaussianMapping& operator=(const GaussianMapping&) = delete;
 
   void ObserveDelta(const OnlineSubmapDelta& update);
   void Poll();
@@ -56,7 +57,7 @@ class OnlineGaussian {
   bool Finish(const OnlineGaussianOptions& options);
 
  private:
-#if LIVO_ATLAS_ONLINE_GAUSSIAN
+#if LIVO_ATLAS_HAS_LINUX_GAUSSIAN_BRIDGE
   std::unique_ptr<OnlineGaussianMapper> mapper_;
   // The publisher outlives the output worker, including stack unwinding.
   std::unique_ptr<GaussianRenderPublisher> publisher_;
@@ -69,4 +70,4 @@ class OnlineGaussian {
 }  // namespace app
 }  // namespace livo_atlas
 
-#endif  // LIVO_ATLAS_SRC_APP_ONLINE_GAUSSIAN_H_
+#endif  // LIVO_ATLAS_SRC_APP_GAUSSIAN_MAPPING_H_

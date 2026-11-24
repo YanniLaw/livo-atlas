@@ -180,7 +180,7 @@ void WriteProposal(cv::FileStorage& yaml, const LoopAdmissionInput& input,
   for (const auto& pose : proposal.update.poses) {
     yaml << "{"
          << "id" << std::to_string(pose.id);
-    WriteTransform(yaml, "map_from_body", pose.map_from_body);
+    WriteTransform(yaml, "map_from_body", pose.parent_from_body());
     yaml << "}";
   }
   yaml << "]"
@@ -264,7 +264,7 @@ void WritePoses(cv::FileStorage& yaml, const std::vector<KeyframePose>& poses) {
   for (const auto& pose : poses) {
     yaml << "{"
          << "id" << std::to_string(pose.id);
-    meta::WriteTransform(yaml, "map_from_body", pose.map_from_body);
+    meta::WriteTransform(yaml, "map_from_body", pose.parent_from_body());
     yaml << "}";
   }
   yaml << "]";
@@ -393,11 +393,12 @@ bool SameSnapshot(const PoseSnapshot& a, const PoseSnapshot& b) {
     return false;
   for (std::size_t i = 0; i < a.poses.size(); ++i) {
     if (a.poses[i].id != b.poses[i].id ||
-        (a.poses[i].map_from_body.rotation - b.poses[i].map_from_body.rotation)
+        (a.poses[i].parent_from_body().rotation -
+         b.poses[i].parent_from_body().rotation)
                 .cwiseAbs()
                 .maxCoeff() > 1e-9 ||
-        (a.poses[i].map_from_body.translation -
-         b.poses[i].map_from_body.translation)
+        (a.poses[i].parent_from_body().translation -
+         b.poses[i].parent_from_body().translation)
                 .cwiseAbs()
                 .maxCoeff() > 1e-9)
       return false;

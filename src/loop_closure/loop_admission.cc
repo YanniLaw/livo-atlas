@@ -66,7 +66,7 @@ void ValidateInput(const LoopAdmissionInput& input,
   if (input.poses.version == 0) {
     for (std::size_t i = 0; i < input.raw_poses.size(); ++i) {
       const auto& raw = input.raw_poses[i];
-      const auto& current = input.poses.poses[i].map_from_body;
+      const auto& current = input.poses.poses[i].parent_from_body();
       if ((raw.rotation.array() != current.rotation.array()).any() ||
           (raw.translation.array() != current.translation.array()).any()) {
         throw std::invalid_argument("Version zero differs from raw poses");
@@ -82,7 +82,7 @@ void ValidateInput(const LoopAdmissionInput& input,
         info.optimized_frame_count != input.poses.optimized_frame_count ||
         !SamePose(info.parent_from_submap,
                   input.poses.poses[info.membership.primary.anchor_keyframe_id]
-                      .map_from_body)) {
+                      .parent_from_body())) {
       throw std::invalid_argument("Loop metadata does not match the pose view");
     }
   }
@@ -114,7 +114,7 @@ GeometrySubmap ReadGeometry(const OnlineSubmap& membership,
                             const LoopGeometryReader& reader) {
   auto geometry = reader(membership.primary.id, poses);
   const auto& anchor =
-      poses.poses[membership.primary.anchor_keyframe_id].map_from_body;
+      poses.poses[membership.primary.anchor_keyframe_id].parent_from_body();
   if (!SameMembership(geometry.membership, membership) ||
       geometry.pose_version != poses.version ||
       geometry.frame_count != poses.frame_count ||
@@ -129,7 +129,7 @@ GeometrySubmap ReadGeometry(const OnlineSubmap& membership,
   for (std::size_t i = 0; i < geometry.data->sources.size(); ++i) {
     const auto id = membership.primary.keyframe_ids[i];
     const auto expected =
-        pose_math::Compose(inverse, poses.poses[id].map_from_body);
+        pose_math::Compose(inverse, poses.poses[id].parent_from_body());
     if (geometry.data->sources[i].keyframe_id != id ||
         !SamePose(geometry.data->sources[i].submap_from_body, expected)) {
       throw std::invalid_argument("Loop geometry contains stale source poses");
@@ -159,13 +159,13 @@ bool ResidualsPass(const PoseGraphResult& trial, std::size_t accepted_count,
 bool CorrectionsPass(const PoseUpdate& update, const PoseSnapshot& current,
                      const LoopAdmissionOptions& options) {
   for (const auto& pose : update.poses) {
-    const auto& before = current.poses[pose.id].map_from_body;
+    const auto& before = current.poses[pose.id].parent_from_body();
     const Eigen::Vector3d translation =
-        pose.map_from_body.translation - before.translation;
+        pose.parent_from_body().translation - before.translation;
     // Rounded frontend rotations must not scale a physical correction bound.
     const Eigen::Matrix3d rotation =
         ProjectRotation(before.rotation).transpose() *
-        pose.map_from_body.rotation;
+        pose.parent_from_body().rotation;
     const double angle = Eigen::AngleAxisd(rotation).angle();
     if (!translation.allFinite() || !std::isfinite(angle) ||
         translation.stableNorm() > options.max_pose_correction_m ||
@@ -240,7 +240,7 @@ LoopAdmissionResult ProposeLoopUpdate(const LoopAdmissionInput& input,
   for (auto& info : submaps) {
     info.parent_from_submap =
         input.poses.poses[info.membership.primary.anchor_keyframe_id]
-            .map_from_body;
+            .parent_from_body();
     info.pose_version = input.poses.version;
     info.frame_count = input.poses.frame_count;
     info.optimized_frame_count = input.poses.optimized_frame_count;

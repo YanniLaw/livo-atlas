@@ -88,7 +88,8 @@ LoopCommitStatus ValidateLoopCommit(
          previous.raw_poses[id].translation.array())
             .any() ||
         b.poses[id].id != a.poses[id].id ||
-        !SamePose(b.poses[id].map_from_body, a.poses[id].map_from_body))
+        !SamePose(b.poses[id].parent_from_body(),
+                  a.poses[id].parent_from_body()))
       return LoopCommitStatus::kStale;
   }
   for (std::size_t i = 0; i < previous.submaps.size(); ++i) {

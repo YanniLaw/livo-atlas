@@ -139,8 +139,8 @@ RigidTransform LocalPose(const OnlineSubmap& group, const PoseSnapshot& poses,
                          std::uint64_t id) {
   return pose_math::Compose(
       pose_math::Inverse(
-          poses.poses[group.primary.anchor_keyframe_id].map_from_body),
-      poses.poses[id].map_from_body);
+          poses.poses[group.primary.anchor_keyframe_id].parent_from_body()),
+      poses.poses[id].parent_from_body());
 }
 
 bool SamePoseExactly(const RigidTransform& a, const RigidTransform& b) {
@@ -167,7 +167,7 @@ void GeometryMapper::ResetTimings() {
 
 const RigidTransform& GeometryMapper::PoseAt(std::uint64_t id) const {
   const auto prefix = poses_ ? poses_->frame_count : 0;
-  if (id < prefix) return poses_->poses.at(id).map_from_body;
+  if (id < prefix) return poses_->poses.at(id).parent_from_body();
   return tail_poses_.at(id - prefix);
 }
 
@@ -196,7 +196,7 @@ void GeometryMapper::Update(const std::vector<OnlineSubmap>& revisions,
     if (!(poses->frontier() == expected))
       throw std::invalid_argument("Geometry pose version changed in place");
     for (std::uint64_t i = 0; i < frontier_.frame_count; ++i) {
-      if (!SamePoseExactly(PoseAt(i), poses->poses[i].map_from_body)) {
+      if (!SamePoseExactly(PoseAt(i), poses->poses[i].parent_from_body())) {
         throw std::invalid_argument("Geometry pose version changed in place");
       }
     }

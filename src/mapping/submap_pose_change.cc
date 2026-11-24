@@ -40,17 +40,17 @@ SubmapPoseChange SubmapPoseComparison::Compare(
   result.old_version = old_poses_.version;
   result.new_version = new_poses_.version;
   const auto anchor = existing_members.primary.anchor_keyframe_id;
-  result.old_parent_from_submap = old_poses_.poses[anchor].map_from_body;
-  result.new_parent_from_submap = new_poses_.poses[anchor].map_from_body;
+  result.old_parent_from_submap = old_poses_.poses[anchor].parent_from_body();
+  result.new_parent_from_submap = new_poses_.poses[anchor].parent_from_body();
   const auto old_submap_from_parent =
       pose_math::Inverse(result.old_parent_from_submap);
   const auto new_submap_from_parent =
       pose_math::Inverse(result.new_parent_from_submap);
   for (auto id : ids) {
     const auto old_local = pose_math::Compose(
-        old_submap_from_parent, old_poses_.poses[id].map_from_body);
+        old_submap_from_parent, old_poses_.poses[id].parent_from_body());
     const auto new_local = pose_math::Compose(
-        new_submap_from_parent, new_poses_.poses[id].map_from_body);
+        new_submap_from_parent, new_poses_.poses[id].parent_from_body());
     if (!pose_math::Equal(old_local, new_local))
       result.changed_keyframe_ids.push_back(id);
   }
@@ -72,7 +72,7 @@ RigidTransform CameraPose(const Keyframe& keyframe, const PoseSnapshot& poses) {
   pose_math::Validate(keyframe.odom_from_body);
   pose_math::Validate(*keyframe.camera_from_odom);
   return pose_math::Compose(
-      poses.poses[keyframe.id].map_from_body,
+      poses.poses[keyframe.id].parent_from_body(),
       pose_math::Compose(pose_math::Inverse(keyframe.odom_from_body),
                          pose_math::Inverse(*keyframe.camera_from_odom)));
 }

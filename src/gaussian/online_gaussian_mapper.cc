@@ -668,7 +668,7 @@ void OnlineGaussianMapper::Run() noexcept {
           } else {
             const auto anchor = source.submap.primary.anchor_keyframe_id;
             const auto parent_from_submap =
-                source.poses->poses.at(anchor).map_from_body;
+                source.poses->poses.at(anchor).parent_from_body();
             const auto camera_from_submap =
                 pose_math::Compose(view.camera_from_parent, parent_from_submap);
             GaussianMessage message;

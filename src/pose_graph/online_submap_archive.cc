@@ -64,8 +64,8 @@ OnlineSubmapDelta OnlineSubmapArchive::WritePoses(
     correction = MapCorrection{
         candidate->version, candidate->frame_count,
         candidate->optimized_frame_count,
-        pose_math::ProjectedCorrection(candidate->poses[anchor].map_from_body,
-                                       raw_poses_[anchor])};
+        pose_math::ProjectedCorrection(
+            candidate->poses[anchor].parent_from_body(), raw_poses_[anchor])};
   }
   store_.WritePoseSnapshot(*candidate);
   frozen_ = std::move(candidate);

@@ -45,7 +45,7 @@ RigidTransform TailCorrection(const PoseSnapshot& frozen,
                               const std::vector<RigidTransform>& raw_poses) {
   if (!frozen.version) return {};
   const auto anchor = frozen.optimized_frame_count - 1;
-  const auto& map_anchor = frozen.poses[anchor].map_from_body;
+  const auto& map_anchor = frozen.poses[anchor].parent_from_body();
   const auto& raw_anchor = raw_poses[anchor];
   return IsProjected(frozen.tail_policy)
              ? pose_math::ProjectedCorrection(map_anchor, raw_anchor)
@@ -99,7 +99,7 @@ void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
       throw std::invalid_argument(
           "Pose snapshot IDs must be a complete ordered prefix");
     }
-    pose_math::ValidateSnapshotPose(snapshot.poses[i].map_from_body,
+    pose_math::ValidateSnapshotPose(snapshot.poses[i].parent_from_body(),
                                     snapshot.tail_policy);
   }
 }
@@ -120,8 +120,8 @@ PoseSnapshot MaterializePoseSnapshot(
           MaterializeTailPose(correction, raw_poses[i], frozen.tail_policy);
       const bool equal =
           IsProjected(frozen.tail_policy)
-              ? EqualProjectedPose(frozen.poses[i].map_from_body, expected)
-              : pose_math::Equal(frozen.poses[i].map_from_body, expected);
+              ? EqualProjectedPose(frozen.poses[i].parent_from_body(), expected)
+              : pose_math::Equal(frozen.poses[i].parent_from_body(), expected);
       if (!equal) {
         throw std::invalid_argument(
             "Frozen pose tail does not follow its optimized anchor");
@@ -129,7 +129,7 @@ PoseSnapshot MaterializePoseSnapshot(
     }
   } else {
     for (std::size_t i = 0; i < frozen.poses.size(); ++i) {
-      if (!pose_math::Equal(frozen.poses[i].map_from_body, raw_poses[i])) {
+      if (!pose_math::Equal(frozen.poses[i].parent_from_body(), raw_poses[i])) {
         throw std::invalid_argument("Version zero must match raw poses");
       }
     }
@@ -173,7 +173,7 @@ PoseSnapshot MakePoseSnapshot(const PoseUpdate& update,
   optimized.tail_policy = update.tail_policy;
   if (IsProjected(optimized.tail_policy)) {
     for (auto& pose : optimized.poses) {
-      pose.map_from_body = pose_math::ProjectPose(pose.map_from_body);
+      pose.map_from_body = pose_math::ProjectPose(pose.parent_from_body());
     }
   }
   return MaterializePoseSnapshot(optimized, raw_poses, raw_poses.size());

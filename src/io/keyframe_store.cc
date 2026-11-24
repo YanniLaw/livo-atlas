@@ -246,7 +246,7 @@ void ValidatePoses(const std::vector<KeyframePose>& poses,
         !seen.insert(pose.id).second) {
       throw std::invalid_argument("Unknown or duplicate pose identifier");
     }
-    const auto error = ValidateExtrinsic(pose.map_from_body);
+    const auto error = ValidateExtrinsic(pose.parent_from_body());
     if (!error.empty()) throw std::invalid_argument(error);
   }
 }
@@ -500,7 +500,7 @@ void KeyframeStore::WritePoses(std::uint64_t version,
       for (const auto& pose : poses) {
         yaml << "{"
              << "id" << std::to_string(pose.id);
-        WriteTransform(yaml, "map_from_body", pose.map_from_body);
+        WriteTransform(yaml, "map_from_body", pose.parent_from_body());
         yaml << "}";
       }
       yaml << "]";

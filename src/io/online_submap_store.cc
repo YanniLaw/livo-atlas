@@ -394,7 +394,7 @@ void OnlineSubmapStore::WritePoseSnapshot(const PoseSnapshot& snapshot) {
       for (const auto& pose : snapshot.poses) {
         yaml << "{"
              << "id" << std::to_string(pose.id);
-        meta::WriteTransform(yaml, "map_from_body", pose.map_from_body);
+        meta::WriteTransform(yaml, "map_from_body", pose.parent_from_body());
         yaml << "}";
       }
       yaml << "]";

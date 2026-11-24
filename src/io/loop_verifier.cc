@@ -109,7 +109,8 @@ void VerifyLoopDataset(const fs::path& dataset, const fs::path& output,
       const auto first = group.primary.keyframe_ids.front(),
                  last = group.primary.keyframe_ids.back();
       infos.push_back({group, timestamps.at(first), timestamps.at(last),
-                       poses->poses.at(first).map_from_body, 0, frame_count,
+                       poses->poses.at(first).parent_from_body(), 0,
+                       frame_count,
                        0});
     }
     GeometryMapper mapper(geometry, [&](std::uint64_t id) {

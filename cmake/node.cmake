@@ -1,7 +1,7 @@
-add_executable(fastlivo_mapping src/app/livo_main.cc src/app/online_gaussian.cc)
+add_executable(fastlivo_mapping src/app/livo_main.cc src/app/gaussian_mapping.cc)
 target_compile_definitions(fastlivo_mapping PRIVATE
   LIVO_ATLAS_ROS_VERSION=${LIVO_ATLAS_ROS_VERSION}
-  LIVO_ATLAS_ONLINE_GAUSSIAN=$<TARGET_EXISTS:livo_atlas_online_gaussian>)
+  LIVO_ATLAS_HAS_LINUX_GAUSSIAN_BRIDGE=$<TARGET_EXISTS:livo_atlas_online_gaussian>)
 target_link_libraries(fastlivo_mapping PRIVATE livo_atlas::core
   $<TARGET_NAME_IF_EXISTS:livo_atlas::online_gaussian>)
 if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")

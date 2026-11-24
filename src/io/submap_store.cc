@@ -182,7 +182,7 @@ SubmapCloud SubmapStore::ReadCloud(std::uint64_t id,
     std::map<std::uint64_t, RigidTransform> poses;
     if (pose_version) {
       for (const auto& pose : keyframes_.ReadPoses(pose_version))
-        poses.emplace(pose.id, pose.map_from_body);
+        poses.emplace(pose.id, pose.parent_from_body());
       for (auto member : group.keyframe_ids)
         if (!poses.count(member))
           Fail(path, "Pose version does not cover submap members");

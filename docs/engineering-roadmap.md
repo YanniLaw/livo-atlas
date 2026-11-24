@@ -50,7 +50,7 @@ C4c 的 Retail_Street 完整均匀侧有 13 次查询，其中 4 次的候选数
    几何对象，每批的活跃对象和任务数受预算约束。
 2. 同一回环查询的独立 `VerifyLoop()` 可并行。完成结果按原候选顺序汇总，随后由后台执行线
    串行筛选、试算和复核。池内任务直接返回验证结果，等待批次结果发生在池外。
-3. `LoopBackend` 独占接受历史与位姿提交权。保留同一时刻一个在途查询和一个最新待查 ID 的
+3. `PoseGraph` 独占接受历史与位姿提交权。保留同一时刻一个在途查询和一个最新待查 ID 的
    背压合同，提交前重验来源版本与成员修订。结束时按现有封输入、排空、join 和提交顺序收尾。
 4. 单所有者持有的串行状态无需跨线程锁。任务队列和完成通知使用短临界区和条件变量，具体计算
    在锁外。若实测表明队列同步成为瓶颈，再评估具备明确单生产者、单消费者契约的方案。
@@ -72,7 +72,7 @@ CMake 根据目标平台选择接入代码和桥接库，YAML 选择本次会话
 | OpenMP | 工具链探测 C++ OpenMP，按目标链接 `OpenMP::OpenMP_CXX` | 用 `frontend.openmp_threads` 指定并行区预算，1 表示串行 |
 
 [当前 YAML 解析](../src/core/livo_config.cc) · [在线回环配置](online-loop-backend.md) ·
-[Gaussian 节点装配](../src/app/online_gaussian.cc)
+[Gaussian 节点装配](../src/app/gaussian_mapping.cc)
 
 建议 `LIVO_ATLAS_USE_OPENMP` 支持 `AUTO`、`ON`、`OFF`。`AUTO` 以目标工具链实际探测结果为
 准，`ON` 要求工具链提供 OpenMP，`OFF` 显式关闭。目标、测试和安装依赖应使用同一探测结果，
