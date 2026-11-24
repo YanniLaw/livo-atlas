@@ -136,6 +136,116 @@ TEST(GeometryMapperTest,
   EXPECT_EQ(a.data->input_point_count, 16u);
 }
 
+TEST(GeometryMapperTest, DeltasMatchFullUpdatesThroughCorrectionAndEviction) {
+  GeometryOptions options;
+  options.max_resident_submaps = 2;
+  const auto reader = [](std::uint64_t) { return Cloud(0); };
+  GeometryMapper full(options, reader);
+  GeometryMapper delta(options, reader);
+
+  const auto append = [&](std::uint64_t id, const PoseSnapshot& snapshot) {
+    const auto group_id = id / 2;
+    const auto first = group_id * 2;
+    std::vector<std::uint64_t> members{first};
+    if (id != first) members.push_back(id);
+    std::vector<std::uint64_t> support;
+    if (first) support.push_back(first - 1);
+    std::vector<OnlineSubmap> revisions{
+        Group(group_id, members, false, support)};
+    if (id != first)
+      revisions.push_back(Group(group_id, members, true, support));
+    Keyframe frame;
+    frame.id = id;
+    frame.cloud = Cloud(0);
+    full.Update(revisions, std::make_shared<const PoseSnapshot>(snapshot),
+                &frame);
+    delta.UpdateDelta(revisions, snapshot.frontier(), &frame,
+                      &snapshot.poses.back().map_from_body);
+  };
+  for (std::uint64_t id = 0; id < 4; ++id) append(id, *Poses(id + 1));
+  const auto initial = delta.GetSubmap(0);
+  full.GetSubmap(0);
+  auto corrected = std::make_shared<PoseSnapshot>(*Poses(4, 1));
+  corrected->tail_policy = PoseTailPolicy::kProjectedLastOptimizedAnchor;
+  const Eigen::Vector3d offset(3, 5, 0);
+  for (auto& pose : corrected->poses) pose.map_from_body.translation += offset;
+  for (auto* mapper : {&full, &delta}) mapper->Update({}, corrected);
+  EXPECT_EQ(delta.GetSubmap(0).data, initial.data);
+  full.GetSubmap(0);
+
+  auto grown = *corrected;
+  for (std::uint64_t id = 4; id < 6; ++id) {
+    RigidTransform pose;
+    pose.translation = offset + Eigen::Vector3d(id, 0, 0);
+    grown.poses.push_back({id, pose});
+    ++grown.frame_count;
+    append(id, grown);
+  }
+  EXPECT_EQ(delta.GetStats().resident_submaps, 2u);
+  EXPECT_EQ(delta.GetStats().evictions, 1u);
+
+  const auto before_relative = delta.GetSubmap(0);
+  full.GetSubmap(0);
+  auto relative = std::make_shared<PoseSnapshot>(grown);
+  relative->version = 2;
+  relative->base_version = 1;
+  relative->optimized_frame_count = grown.frame_count;
+  relative->poses[1].map_from_body.translation.y() += 0.4;
+  for (auto* mapper : {&full, &delta}) mapper->Update({}, relative);
+  EXPECT_NE(delta.GetSubmap(0).data, before_relative.data);
+  full.GetSubmap(0);
+
+  for (std::uint64_t id = 0; id < 3; ++id) {
+    SCOPED_TRACE(id);
+    const auto expected = full.GetSubmap(id);
+    const auto actual = delta.GetSubmap(id);
+    EXPECT_EQ(actual.pose_version, expected.pose_version);
+    EXPECT_EQ(actual.representation_revision, expected.representation_revision);
+    EXPECT_EQ(actual.data->input_point_count, expected.data->input_point_count);
+    EXPECT_TRUE(actual.parent_from_submap.translation.isApprox(
+        expected.parent_from_submap.translation));
+    ASSERT_EQ(actual.data->voxels.size(), expected.data->voxels.size());
+    for (std::size_t i = 0; i < actual.data->voxels.size(); ++i) {
+      const auto& a = actual.data->voxels[i];
+      const auto& b = expected.data->voxels[i];
+      EXPECT_TRUE(a.key == b.key);
+      EXPECT_TRUE(a.centroid.isApprox(b.centroid));
+      EXPECT_TRUE(a.spatial_covariance.isApprox(b.spatial_covariance));
+      EXPECT_EQ(a.keyframe_ids, b.keyframe_ids);
+    }
+  }
+  EXPECT_EQ(delta.GetStats().full_builds, full.GetStats().full_builds);
+  EXPECT_EQ(delta.GetStats().incremental_updates,
+            full.GetStats().incremental_updates);
+  EXPECT_EQ(delta.GetStats().cloud_reads, full.GetStats().cloud_reads);
+}
+
+TEST(GeometryMapperTest, InvalidDeltaDoesNotChangeMembershipOrPosePrefix) {
+  GeometryMapper mapper({}, [](std::uint64_t) { return Cloud(0); });
+  const auto first = Poses(1);
+  Keyframe frame;
+  frame.cloud = Cloud(0);
+  mapper.UpdateDelta({Group(0, {0}, false)}, first->frontier(), &frame,
+                     &first->poses[0].map_from_body);
+  const auto cached = mapper.GetSubmap(0);
+  const auto next = Poses(2);
+  frame.id = 1;
+  const auto append = Group(0, {0, 1}, false);
+  const auto wrong = Group(1, {1}, false, {0});
+  EXPECT_THROW(mapper.UpdateDelta({append, wrong}, next->frontier(), &frame,
+                                  &next->poses[1].map_from_body),
+               std::invalid_argument);
+  const auto still_cached = mapper.GetSubmap(0);
+  EXPECT_EQ(still_cached.data, cached.data);
+  EXPECT_EQ(still_cached.frame_count, 1u);
+  EXPECT_EQ(still_cached.membership.primary.keyframe_ids,
+            (std::vector<std::uint64_t>{0}));
+  mapper.UpdateDelta({append, Group(0, {0, 1}, true)}, next->frontier(), &frame,
+                     &next->poses[1].map_from_body);
+  EXPECT_EQ(mapper.GetSubmap(0).data->input_point_count, 16u);
+  EXPECT_EQ(mapper.GetStats().incremental_updates, 1u);
+}
+
 TEST(GeometryMapperTest,
      InvalidInputsDoNotAdvanceAndOldSnapshotsSurviveEviction) {
   GeometryOptions options;

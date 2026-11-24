@@ -2,6 +2,7 @@
 #define LIVO_ATLAS_MAPPING_GEOMETRY_MAPPER_H_
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -21,6 +22,12 @@ class GeometryMapper {
   void Update(const std::vector<OnlineSubmap>& revisions,
               std::shared_ptr<const PoseSnapshot> poses,
               const Keyframe* new_keyframe = nullptr);
+  // Append or seal at the current pose version. A new keyframe carries its
+  // resolved pose; a seal carries neither. Pose corrections use Update().
+  void UpdateDelta(const std::vector<OnlineSubmap>& revisions,
+                   const PoseFrontier& frontier,
+                   const Keyframe* new_keyframe = nullptr,
+                   const RigidTransform* new_pose = nullptr);
   GeometrySubmap GetSubmap(std::uint64_t id);
   GeometryCacheStats GetStats() const;
 
@@ -35,14 +42,22 @@ class GeometryMapper {
   };
 
   void ResetTimings();
+  const RigidTransform& PoseAt(std::uint64_t id) const;
+  RigidTransform SubmapFromBody(const OnlineSubmap& group,
+                                std::uint64_t id) const;
+  void UpdateNewKeyframe(const Keyframe& keyframe);
+  void ReleaseData(std::uint64_t id);
   void EvictFor(std::uint64_t id);
   void Build(std::uint64_t id, const Keyframe* new_keyframe);
   void Append(std::uint64_t id, const Keyframe& keyframe);
 
   GeometryOptions options_;
   CloudReader cloud_reader_;
-  std::vector<Entry> entries_;
+  std::deque<Entry> entries_;
+  std::vector<std::uint64_t> resident_ids_;
   std::shared_ptr<const PoseSnapshot> poses_;
+  std::deque<RigidTransform> tail_poses_;
+  PoseFrontier frontier_;
   GeometryCacheStats stats_;
   std::uint64_t access_clock_ = 0;
 };

@@ -59,22 +59,24 @@ RigidTransform MaterializeTailPose(const RigidTransform& correction,
       correction, IsProjected(policy) ? pose_math::ProjectPose(raw) : raw);
 }
 
-void ValidateSnapshotPose(const RigidTransform& pose, PoseTailPolicy policy) {
-  pose_math::Validate(pose);
+}  // namespace
+
+void pose_math::ValidateSnapshotPose(const RigidTransform& pose,
+                                     PoseTailPolicy policy) {
+  Validate(pose);
   if (IsProjected(policy) && !IsRigidRotation(pose.rotation)) {
     throw std::invalid_argument("Projected pose rotation must be rigid");
   }
 }
 
-}  // namespace
-
-void pose_math::ValidateAppendedPose(
+RigidTransform pose_math::MaterializeAppendedPose(
     const PoseSnapshot& frozen, const std::vector<RigidTransform>& raw_poses) {
   const auto& raw = raw_poses.back();
   Validate(raw);
-  ValidateSnapshotPose(MaterializeTailPose(TailCorrection(frozen, raw_poses),
-                                           raw, frozen.tail_policy),
-                       frozen.tail_policy);
+  auto pose = MaterializeTailPose(TailCorrection(frozen, raw_poses), raw,
+                                  frozen.tail_policy);
+  ValidateSnapshotPose(pose, frozen.tail_policy);
+  return pose;
 }
 
 void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
@@ -97,7 +99,8 @@ void ValidatePoseSnapshot(const PoseSnapshot& snapshot) {
       throw std::invalid_argument(
           "Pose snapshot IDs must be a complete ordered prefix");
     }
-    ValidateSnapshotPose(snapshot.poses[i].map_from_body, snapshot.tail_policy);
+    pose_math::ValidateSnapshotPose(snapshot.poses[i].map_from_body,
+                                    snapshot.tail_policy);
   }
 }
 

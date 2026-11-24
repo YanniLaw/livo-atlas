@@ -32,7 +32,10 @@ class GeometryMapOutputTest : public testing::Test {
 
   void TearDown() override {
     Release();
-    if (system_) system_->SetOnlineSubmapCallback({});
+    if (system_) {
+      system_->SetOnlineSubmapCallback({});
+      system_->SetOnlineSubmapDeltaCallback({});
+    }
     output_.reset();
     if (system_) EXPECT_NO_THROW(system_->Finish());
     system_.reset();
@@ -40,7 +43,8 @@ class GeometryMapOutputTest : public testing::Test {
   }
 
   void Start(int max_frames = 20, int max_bytes = 8388608,
-             GeometryMapOutput::Consumer consumer = {}) {
+             GeometryMapOutput::Consumer consumer = {},
+             bool incremental = false) {
     GeometryMapOutputOptions output_options;
     output_options.enabled = true;
     output_options.max_frequency_hz = 2;
@@ -58,8 +62,13 @@ class GeometryMapOutputTest : public testing::Test {
     }
     output_ = std::make_unique<GeometryMapOutput>(*system_, output_options,
                                                   options_.geometry, consumer);
-    system_->SetOnlineSubmapCallback(
-        [this](const auto& update) { output_->Observe(update); });
+    if (incremental) {
+      system_->SetOnlineSubmapDeltaCallback(
+          [this](const auto& update) { output_->ObserveDelta(update); });
+    } else {
+      system_->SetOnlineSubmapCallback(
+          [this](const auto& update) { output_->Observe(update); });
+    }
   }
 
   void FeedTo(std::uint64_t count) {
@@ -119,6 +128,42 @@ class GeometryMapOutputTest : public testing::Test {
   bool entered_ = false;
   int scan_ = 0;
 };
+
+TEST_F(GeometryMapOutputTest, DeltasCoalesceAndCaptureTheCommittedVersion) {
+  Start(20, 8388608, {}, /*incremental=*/true);
+  FeedTo(2);
+  Optimize();
+  FeedTo(3);
+  ASSERT_TRUE(WaitForSize(1));
+  const auto current = Snapshot(0);
+  EXPECT_EQ(current.status, GeometryMapStatus::kReady);
+  EXPECT_EQ(current.pose_version, 1u);
+  EXPECT_EQ(current.frame_count, 3u);
+  EXPECT_EQ(current.optimized_frame_count, 2u);
+  ASSERT_EQ(current.sources.size(), 2u);
+  EXPECT_EQ(current.sources[1].first_keyframe_id, 2u);
+  EXPECT_GT(output_->GetStats().coalesced, 0u);
+  system_->Finish();
+  output_->Finish();
+  ASSERT_EQ(output_->GetStats().delivered, 2u);
+  EXPECT_EQ(Snapshot(1).sources.back().state, OnlineSubmapState::kSealed);
+}
+
+TEST_F(GeometryMapOutputTest, RejectsADeltaWithoutMatchingCommittedPoses) {
+  Start(20, 8388608, {}, /*incremental=*/true);
+  FeedTo(1);
+  OnlineSubmapDelta delta;
+  delta.frontier = {1,
+                    0,
+                    1,
+                    1,
+                    PoseFrame::kMap,
+                    PoseTailPolicy::kProjectedLastOptimizedAnchor};
+  output_->ObserveDelta(delta);
+  ASSERT_TRUE(WaitForSize(1));
+  EXPECT_EQ(Snapshot(0).status, GeometryMapStatus::kError);
+  EXPECT_TRUE(Snapshot(0).sources.empty());
+}
 
 TEST_F(GeometryMapOutputTest, EmptyGrowthOptimizationAndFinalSeal) {
   Start();
@@ -203,7 +248,7 @@ TEST_F(GeometryMapOutputTest, ByteLimitClearsWithoutReading) {
 }
 
 TEST_F(GeometryMapOutputTest, FinalSealAdvancesResourceLimitedRevision) {
-  Start(1);
+  Start(1, 8388608, {}, /*incremental=*/true);
   FeedTo(3);
   ASSERT_TRUE(WaitForSize(1));
   const auto before = Snapshot(0);

@@ -103,14 +103,26 @@ void OnlineSubmapManager::Notify(OnlineSubmapDelta update, bool pose_commit) {
   const auto start = std::chrono::steady_clock::now();
   update.frontier = GetPoseFrontier();
   std::shared_ptr<const PoseSnapshot> poses;
-  if (pose_commit || callback_ || geometry_) {
+  if (pose_commit || callback_) {
     poses = GetPoseSnapshot();
-  } else if (update.keyframe) {
-    pose_math::ValidateAppendedPose(frozen_, raw_poses_);
+  }
+  std::optional<RigidTransform> new_pose;
+  if (update.keyframe) {
+    if (!poses) {
+      new_pose = pose_math::MaterializeAppendedPose(frozen_, raw_poses_);
+    } else if (geometry_) {
+      new_pose = poses->poses.back().map_from_body;
+    }
   }
   if (pose_commit) update.poses = poses;
   if (geometry_) {
-    geometry_->Update(update.revisions, poses, update.keyframe.get());
+    if (pose_commit) {
+      geometry_->Update(update.revisions, poses);
+    } else {
+      geometry_->UpdateDelta(update.revisions, update.frontier,
+                             update.keyframe.get(),
+                             new_pose ? &*new_pose : nullptr);
+    }
     const auto total =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
             .count();

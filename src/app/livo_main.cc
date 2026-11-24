@@ -72,16 +72,15 @@ int main(int argc, char** argv) {
             publisher->Publish(snapshot);
           });
     }
-    if (trajectory) {
-      system.SetOnlineSubmapDeltaCallback([&trajectory](const auto& update) {
-        trajectory->ObserveDelta(update);
+    if (trajectory || geometry) {
+      system.SetOnlineSubmapDeltaCallback([&](const auto& update) {
+        if (trajectory) trajectory->ObserveDelta(update);
+        if (geometry) geometry->ObserveDelta(update);
       });
     }
-    if (geometry || parameters.livo.gaussian.enabled) {
-      system.SetOnlineSubmapCallback([&](const auto& update) {
-        if (geometry) geometry->Observe(update);
-        gaussian.Observe(update);
-      });
+    if (parameters.livo.gaussian.enabled) {
+      system.SetOnlineSubmapCallback(
+          [&gaussian](const auto& update) { gaussian.Observe(update); });
     }
     if (trajectory || geometry || parameters.livo.gaussian.enabled) {
       // Outputs can have pending work while sensor synchronization is waiting.

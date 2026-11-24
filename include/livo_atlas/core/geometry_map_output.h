@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -51,6 +52,7 @@ class GeometryMapOutput {
   GeometryMapOutput& operator=(const GeometryMapOutput&) = delete;
 
   void Observe(const OnlineSubmapUpdate& update) noexcept;
+  void ObserveDelta(const OnlineSubmapDelta& update) noexcept;
   void Poll();
   void Finish();
   GeometryMapOutputStats GetStats() const;
@@ -70,7 +72,13 @@ class GeometryMapOutput {
     std::optional<KeyframeReadView> view;
   };
 
-  bool ApplyRevisions(const OnlineSubmapUpdate& update);
+  bool ApplyRevisions(const std::vector<OnlineSubmap>& revisions,
+                      const Keyframe* keyframe, std::uint64_t frame_count);
+  void ObserveFrontier(const std::vector<OnlineSubmap>& revisions,
+                       const Keyframe* keyframe,
+                       std::optional<PoseFrontier> frontier,
+                       const std::shared_ptr<const PoseSnapshot>& snapshot,
+                       bool full_observation = false) noexcept;
   void Poll(bool force);
   void Run();
   void Stop();
@@ -82,8 +90,8 @@ class GeometryMapOutput {
   const Consumer consumer_;
   std::string producer_id_;
   GeometryMapSnapshot latest_header_;
-  std::shared_ptr<const PoseSnapshot> latest_poses_;
-  std::vector<OnlineSubmap> groups_;
+  std::shared_ptr<const PoseSnapshot> latest_full_poses_;
+  std::deque<OnlineSubmap> groups_;
   std::optional<Observed> pending_;
   std::exception_ptr observe_error_;
   std::uint64_t revision_ = 0, submap_count_ = 0;

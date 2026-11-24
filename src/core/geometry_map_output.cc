@@ -38,12 +38,11 @@ std::string ErrorText(std::exception_ptr error) {
   }
 }
 
-void CheckHeader(const PoseSnapshot& poses) {
+void CheckHeader(const PoseFrontier& poses) {
   const bool projected =
       poses.tail_policy == PoseTailPolicy::kProjectedLastOptimizedAnchor;
   if ((poses.tail_policy != PoseTailPolicy::kLegacyLastOptimizedAnchor &&
        !projected) ||
-      poses.frame_count != poses.poses.size() ||
       (poses.version == 0
            ? poses.base_version != 0 || poses.optimized_frame_count != 0 ||
                  poses.parent_frame != PoseFrame::kOdom || projected
@@ -61,14 +60,6 @@ bool SamePose(const KeyframePose& a, const KeyframePose& b) {
          (a.map_from_body.translation.array() ==
           b.map_from_body.translation.array())
              .all();
-}
-
-bool SameGroup(const OnlineSubmap& a, const OnlineSubmap& b) {
-  return a.primary.id == b.primary.id &&
-         a.primary.anchor_keyframe_id == b.primary.anchor_keyframe_id &&
-         a.primary.keyframe_ids == b.primary.keyframe_ids &&
-         a.support_keyframe_ids == b.support_keyframe_ids &&
-         a.membership_revision == b.membership_revision && a.state == b.state;
 }
 
 double Seconds(std::chrono::steady_clock::time_point start) {
@@ -101,10 +92,9 @@ GeometryMapOutput::GeometryMapOutput(LivoSystem& system,
   if (!options_.enabled) return;
   if (!consumer_) throw std::invalid_argument("Missing geometry map consumer");
   ValidateGeometryOptions(geometry_options_);
-  const auto initial_poses = system_.GetPoseSnapshot();
+  const auto initial = system_.GetPoseFrontier();
   const auto initial_view = system_.GetKeyframeReadView();
-  if (!initial_poses || initial_poses->frame_count != 0 ||
-      initial_view.frame_count() != 0)
+  if (initial.frame_count != 0 || initial_view.frame_count() != 0)
     throw std::invalid_argument("Geometry map output requires a new session");
   producer_id_ = ProducerId();
   builder_ = std::make_unique<GeometryMapBuilder>(
@@ -117,91 +107,65 @@ GeometryMapOutput::GeometryMapOutput(LivoSystem& system,
                                     geometry_options_.max_points_per_keyframe);
       },
       [this] { return stopping_.load(); });
-  OnlineSubmapUpdate initial;
-  initial.poses = initial_poses;
-  Observe(initial);
+  ObserveFrontier({}, nullptr, initial, {});
   if (observe_error_) std::rethrow_exception(observe_error_);
   thread_ = std::thread(&GeometryMapOutput::Run, this);
 }
 
 GeometryMapOutput::~GeometryMapOutput() { Stop(); }
 
-bool GeometryMapOutput::ApplyRevisions(const OnlineSubmapUpdate& update) {
-  if (update.revisions.size() > 2)
-    throw std::invalid_argument("Too many geometry membership revisions");
-  bool changed = false;
-  for (const auto& group : update.revisions) {
-    geometry_detail::ValidateRevision(group, *update.poses);
-    const auto id = group.primary.id;
-    const auto& members = group.primary.keyframe_ids;
-    if (id > groups_.size() ||
-        (id < groups_.size() && id + 1 != groups_.size()))
-      throw std::invalid_argument("Invalid geometry membership ID");
-    if (id == groups_.size()) {
-      if (group.state != OnlineSubmapState::kActive || members.size() != 1 ||
-          group.membership_revision != 1)
-        throw std::invalid_argument("Invalid new geometry membership");
-      if (groups_.empty()) {
-        if (members.front() != 0 || !group.support_keyframe_ids.empty())
-          throw std::invalid_argument("Invalid first geometry membership");
-      } else {
-        const auto& previous = groups_.back();
-        const auto& prior = previous.primary.keyframe_ids;
-        const auto& support = group.support_keyframe_ids;
-        if (previous.state != OnlineSubmapState::kSealed ||
-            members.front() != prior.back() + 1 ||
-            support.size() > prior.size() ||
-            !std::equal(support.begin(), support.end(),
-                        prior.end() - support.size()))
-          throw std::invalid_argument("Invalid geometry membership boundary");
-      }
-      groups_.push_back(group);
-      changed = true;
-      continue;
-    }
-    auto& old = groups_.back();
-    if (SameGroup(old, group)) continue;
-    const auto& before = old.primary.keyframe_ids;
-    const bool appended = members.size() == before.size() + 1 &&
-                          group.state == OnlineSubmapState::kActive;
-    const bool sealed = members.size() == before.size() &&
-                        group.state == OnlineSubmapState::kSealed;
-    if (old.state != OnlineSubmapState::kActive ||
-        old.membership_revision == std::numeric_limits<std::uint64_t>::max() ||
-        group.membership_revision != old.membership_revision + 1 ||
-        group.primary.anchor_keyframe_id != old.primary.anchor_keyframe_id ||
-        group.support_keyframe_ids != old.support_keyframe_ids ||
-        (!appended && !sealed) ||
-        !std::equal(before.begin(), before.end(), members.begin()))
-      throw std::invalid_argument("Invalid geometry membership revision");
-    old = group;
-    changed = true;
-  }
-  if ((groups_.empty() && update.poses->frame_count != 0) ||
-      (!groups_.empty() && groups_.back().primary.keyframe_ids.back() !=
-                               update.poses->frame_count - 1))
-    throw std::invalid_argument("Geometry membership does not cover poses");
-  if (update.keyframe && (!update.poses->frame_count ||
-                          update.keyframe->id != update.poses->frame_count - 1))
+bool GeometryMapOutput::ApplyRevisions(
+    const std::vector<OnlineSubmap>& revisions, const Keyframe* keyframe,
+    std::uint64_t frame_count) {
+  if (keyframe && (!frame_count || keyframe->id != frame_count - 1))
     throw std::invalid_argument("Geometry keyframe is not the committed tail");
-  submap_count_ = groups_.size();
-  if (!groups_.empty()) {
-    last_membership_revision_ = groups_.back().membership_revision;
-    last_membership_state_ = groups_.back().state;
+  const auto* previous = groups_.empty() ? nullptr : &groups_.back();
+  auto tail =
+      geometry_detail::ReviseSubmapTail(previous, revisions, frame_count);
+  if (tail.empty() ||
+      (previous && tail.size() == 1 &&
+       geometry_detail::SameMembership(*previous, tail.front()))) {
+    return false;
   }
-  return changed;
+  if (previous) groups_.back() = std::move(tail.front());
+  for (std::size_t i = previous ? 1 : 0; i < tail.size(); ++i)
+    groups_.push_back(std::move(tail[i]));
+  submap_count_ = groups_.size();
+  last_membership_revision_ = groups_.back().membership_revision;
+  last_membership_state_ = groups_.back().state;
+  return true;
 }
 
 void GeometryMapOutput::Observe(const OnlineSubmapUpdate& update) noexcept {
+  const auto frontier =
+      update.poses ? std::optional<PoseFrontier>(update.poses->frontier())
+                   : std::nullopt;
+  ObserveFrontier(update.revisions, update.keyframe.get(), frontier,
+                  update.poses, /*full_observation=*/true);
+}
+
+void GeometryMapOutput::ObserveDelta(const OnlineSubmapDelta& update) noexcept {
+  ObserveFrontier(update.revisions, update.keyframe.get(), update.frontier,
+                  update.poses);
+}
+
+void GeometryMapOutput::ObserveFrontier(
+    const std::vector<OnlineSubmap>& revisions, const Keyframe* keyframe,
+    std::optional<PoseFrontier> frontier,
+    const std::shared_ptr<const PoseSnapshot>& snapshot,
+    bool full_observation) noexcept {
   if (!options_.enabled || finished_ || terminal_pending_) return;
   const auto start = Clock::now();
   try {
     std::lock_guard<std::mutex> lock(mutex_);
     if (failed_) return;
-    if (!update.poses)
-      throw std::invalid_argument("Missing geometry map poses");
-    const auto& poses = *update.poses;
+    if (!frontier) throw std::invalid_argument("Missing geometry map poses");
+    const auto& poses = *frontier;
     CheckHeader(poses);
+    if (snapshot && (snapshot->poses.size() != poses.frame_count ||
+                     !(snapshot->frontier() == poses))) {
+      throw std::invalid_argument("Invalid live geometry map source header");
+    }
     if (have_source_ &&
         (poses.version < latest_header_.pose_version ||
          poses.frame_count < latest_header_.frame_count ||
@@ -211,20 +175,22 @@ void GeometryMapOutput::Observe(const OnlineSubmapUpdate& update) noexcept {
       throw std::invalid_argument("Geometry map source moved backwards");
     const bool frame_limit =
         poses.frame_count > static_cast<std::uint64_t>(options_.max_keyframes);
-    if (!limited_ && !frame_limit && latest_poses_ &&
-        poses.version == latest_poses_->version &&
-        !std::equal(latest_poses_->poses.begin(), latest_poses_->poses.end(),
-                    poses.poses.begin(), SamePose))
+    if (!limited_ && !frame_limit && latest_full_poses_ && snapshot &&
+        poses.version == latest_full_poses_->version &&
+        !std::equal(latest_full_poses_->poses.begin(),
+                    latest_full_poses_->poses.end(), snapshot->poses.begin(),
+                    SamePose))
       throw std::invalid_argument("Geometry map pose version changed in place");
 
     bool membership_changed = false;
     if (!limited_ && !frame_limit) {
-      membership_changed = ApplyRevisions(update);
+      membership_changed =
+          ApplyRevisions(revisions, keyframe, poses.frame_count);
     } else {
-      if (update.revisions.size() > 2)
+      if (revisions.size() > 2)
         throw std::invalid_argument("Too many geometry membership revisions");
-      for (const auto& group : update.revisions) {
-        geometry_detail::ValidateRevision(group, poses);
+      for (const auto& group : revisions) {
+        geometry_detail::ValidateRevision(group, poses.frame_count);
         if (group.primary.id > submap_count_ ||
             (group.primary.id < submap_count_ &&
              group.primary.id + 1 != submap_count_))
@@ -282,14 +248,13 @@ void GeometryMapOutput::Observe(const OnlineSubmapUpdate& update) noexcept {
       header.error = frame_limit
                          ? "Geometry map exceeds configured max_keyframes"
                          : "Geometry map exceeds configured message budget";
-      std::vector<OnlineSubmap>().swap(groups_);
-      latest_poses_.reset();
-    } else {
-      latest_poses_ = update.poses;
+      groups_.clear();
+      latest_full_poses_.reset();
+    } else if (full_observation) {
+      latest_full_poses_ = snapshot;
     }
     if (pending_) ++stats_.coalesced;
-    pending_ =
-        Observed{header, limited_ ? nullptr : update.poses, Clock::now()};
+    pending_ = Observed{header, limited_ ? nullptr : snapshot, Clock::now()};
     latest_header_ = std::move(header);
     have_source_ = true;
     ++stats_.observed;
@@ -299,8 +264,8 @@ void GeometryMapOutput::Observe(const OnlineSubmapUpdate& update) noexcept {
   } catch (...) {
     observe_error_ = std::current_exception();
     terminal_pending_ = true;
-    latest_poses_.reset();
-    std::vector<OnlineSubmap>().swap(groups_);
+    latest_full_poses_.reset();
+    groups_.clear();
     if (pending_) pending_->poses.reset();
   }
 }
@@ -314,8 +279,8 @@ void GeometryMapOutput::Poll(bool force) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (failed_) {
       pending_.reset();
-      latest_poses_.reset();
-      std::vector<OnlineSubmap>().swap(groups_);
+      latest_full_poses_.reset();
+      groups_.clear();
       return;
     }
     if (busy_) return;
@@ -344,15 +309,28 @@ void GeometryMapOutput::Poll(bool force) {
         view = system_.GetKeyframeReadView();
         if (view->frame_count() < pending_->header.frame_count)
           throw std::invalid_argument("Geometry read view precedes its poses");
-        groups = groups_;
+        if (!pending_->poses) {
+          auto poses = system_.GetPoseSnapshot();
+          CheckHeader(poses->frontier());
+          const auto& header = pending_->header;
+          if (poses->version != header.pose_version ||
+              poses->frame_count != header.frame_count ||
+              poses->optimized_frame_count != header.optimized_frame_count ||
+              poses->parent_frame != header.parent_frame) {
+            throw std::invalid_argument(
+                "Geometry pose snapshot does not match the observed frontier");
+          }
+          pending_->poses = std::move(poses);
+        }
+        groups.assign(groups_.begin(), groups_.end());
       } catch (...) {
         pending_->header.status = GeometryMapStatus::kError;
         pending_->header.error = ErrorText(std::current_exception());
         pending_->poses.reset();
         view.reset();
         terminal_pending_ = true;
-        latest_poses_.reset();
-        std::vector<OnlineSubmap>().swap(groups_);
+        latest_full_poses_.reset();
+        groups_.clear();
       }
     }
     task_.emplace(
@@ -477,9 +455,13 @@ void GeometryMapOutput::Finish() {
   if (finished_) return;
   if (options_.enabled) {
     if (!GetStats().failed && !terminal_pending_) {
-      OnlineSubmapUpdate final;
-      final.poses = system_.GetPoseSnapshot();
-      Observe(final);
+      if (latest_full_poses_) {
+        OnlineSubmapUpdate final;
+        final.poses = system_.GetPoseSnapshot();
+        Observe(final);
+      } else {
+        ObserveFrontier({}, nullptr, system_.GetPoseFrontier(), {});
+      }
     }
     for (;;) {
       Poll(true);
