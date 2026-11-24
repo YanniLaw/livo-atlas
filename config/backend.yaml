@@ -93,6 +93,7 @@ loop_closure:
 pose_graph:
   # Defaults to loop_closure.enabled when omitted. Set false for detection only.
   # enabled: false
+  num_background_threads: 4
   # Bounds pending archive writes, including when loop closure is disabled.
   max_pending_keyframes: 64
   prior_rotation_sigma_rad: 0.001

@@ -18,13 +18,14 @@ namespace fs = std::filesystem;
 
 class Gate {
  public:
-  void Enter(const LoopTask& task) {
+  bool Enter(const LoopTask& task) {
     std::unique_lock<std::mutex> lock(mutex_);
-    if (entered_) return;
+    if (entered_) return true;
     entered_ = true;
     frontier_ = task.input.poses.frame_count;
     condition_.notify_all();
-    condition_.wait(lock, [&] { return released_; });
+    return condition_.wait_for(lock, std::chrono::seconds(5),
+                               [&] { return released_; });
   }
 
   bool Wait() {
@@ -236,6 +237,51 @@ TEST_F(LoopBackendTest, FrontendContinuesWhileArchiveWriterIsBusy) {
   system_->Finish();
   EXPECT_GT(system_->GetKeyframeReadView().frame_count(), 4u);
   EXPECT_THROW(before.ReadTimestamp(4), std::out_of_range);
+}
+
+TEST_F(LoopBackendTest, BackgroundPoolWritesWhileLoopQueryIsBlocked) {
+  for (const int threads : {4, 6}) {
+    SCOPED_TRACE(threads);
+    auto config = options_;
+    config.exporter.directory /= "threads-" + std::to_string(threads);
+    config.num_background_threads = threads;
+    const auto gate = std::make_shared<Gate>();
+    LivoSystem system(config);
+    ReleaseOnExit release{*gate};
+    const auto loop = loop_test::NearbyOptions();
+    LoopBackendTestPeer::InstallManaged(
+        system, loop, [gate, loop](const LoopTask& task) {
+          EXPECT_TRUE(gate->Enter(task))
+              << "Archive work did not progress while the loop was blocked";
+          return RunLoopTask(task, loop);
+        });
+    for (std::uint64_t id = 0; id < 4; ++id)
+      LoopBackendTestPeer::Enqueue(system, loop_test::DenseFrame(id, cloud_));
+    LoopBackendTestPeer::FlushKeyframes(system);
+    ASSERT_TRUE(gate->Wait());
+    ASSERT_EQ(gate->frontier(), 4u);
+
+    // The loop task holds one pool worker. The serial writer uses another.
+    LoopBackendTestPeer::Append(system, loop_test::DenseFrame(4, cloud_));
+    EXPECT_EQ(system.GetKeyframeReadView().frame_count(), 5u);
+    EXPECT_NO_THROW(system.SealInput());
+    gate->Release();
+    system.Finish();
+    EXPECT_TRUE(system.IsFinished());
+    const auto report =
+        InspectLoopDataset(config.exporter.directory / "keyframes");
+    EXPECT_EQ(report.status, LoopRecoveryStatus::kConsistent);
+  }
+}
+
+TEST(LoopBackendOptionsTest, RejectsInvalidThreadCountsBeforeIo) {
+  EXPECT_EQ(SystemOptions{}.num_background_threads, 4);
+  for (const int threads : {0, -1}) {
+    auto options = loop_test::OnlineOptions();
+    options.num_background_threads = threads;
+    EXPECT_THROW(LivoSystem{options}, std::invalid_argument);
+    EXPECT_FALSE(fs::exists(options.exporter.directory));
+  }
 }
 
 TEST_F(LoopBackendTest, DetectionOnlyFinishesWithoutPublishingAPoseUpdate) {

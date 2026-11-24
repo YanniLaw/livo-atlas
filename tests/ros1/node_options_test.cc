@@ -278,6 +278,20 @@ TEST_F(Ros1ParametersTest, ReadsGeometryOptionsAndRejectsInvalidBounds) {
   EXPECT_NO_THROW(ReadNodeOptions(*node_));
 }
 
+TEST_F(Ros1ParametersTest, ReadsBackgroundThreadBudgetWithoutLoopClosure) {
+  EXPECT_EQ(ReadNodeOptions(*node_).livo.system.num_background_threads, 4);
+  for (const int threads : {1, 4, 6, 0, -1}) {
+    node_->setParam("pose_graph/num_background_threads", threads);
+    if (threads <= 0) {
+      EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+    } else {
+      EXPECT_EQ(ReadNodeOptions(*node_).livo.system.num_background_threads,
+                threads);
+    }
+    EXPECT_FALSE(std::filesystem::exists(directory_));
+  }
+}
+
 TEST_F(Ros1ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   EXPECT_FALSE(ReadNodeOptions(*node_).livo.system.loop_closure);
   node_->setParam("pose_graph/max_pending_keyframes", 4);

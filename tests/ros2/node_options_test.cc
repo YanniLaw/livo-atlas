@@ -158,6 +158,30 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
   }
 }
 
+TEST(Ros2ParametersTest, ReadsBackgroundThreadBudgetWithoutLoopClosure) {
+  const auto sequence =
+      std::chrono::steady_clock::now().time_since_epoch().count();
+  const auto directory = std::filesystem::temp_directory_path() /
+                         ("pose-graph-threads-" + std::to_string(sequence));
+  rclcpp::Node defaults("default_thread_budget",
+                        rclcpp::NodeOptions().parameter_overrides(
+                            test::Parameters(directory.string())));
+  EXPECT_EQ(ReadNodeOptions(defaults).livo.system.num_background_threads, 4);
+  for (const int threads : {1, 4, 6, 0, -1}) {
+    auto parameters = test::Parameters(directory.string());
+    parameters.emplace_back("pose_graph.num_background_threads", threads);
+    rclcpp::Node node("thread_budget",
+                      rclcpp::NodeOptions().parameter_overrides(parameters));
+    if (threads <= 0) {
+      EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+    } else {
+      EXPECT_EQ(ReadNodeOptions(node).livo.system.num_background_threads,
+                threads);
+    }
+    EXPECT_FALSE(std::filesystem::exists(directory));
+  }
+}
+
 TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
   const auto directory =
       std::filesystem::temp_directory_path() /

@@ -55,6 +55,7 @@ class LoopBackendTestPeer {
 namespace loop_test {
 inline SystemOptions OnlineOptions() {
   auto options = test::Options(FrontendMode::kLidarOnly);
+  options.num_background_threads = 1;
   options.keyframes.enabled = options.submaps.enabled = true;
   options.submaps.max_keyframes = 1;
   options.submap_mode = SubmapMode::kOnline;

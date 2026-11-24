@@ -7,6 +7,7 @@
 
 #include "common/thread_pool.h"
 #include "common/timing.h"
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/system_options.h"
 #include "pose_graph/loop_commit.h"
 #include "pose_graph/online_submap_archive.h"
@@ -27,7 +28,10 @@ PoseGraph::PoseGraph(const SystemOptions& options)
                  options.frontend.calibration),
       groups_(options.submaps.max_keyframes),
       stage_timing_(options.stage_timing),
-      thread_pool_(std::make_unique<ThreadPool>(1)) {
+      thread_pool_(
+          std::make_unique<ThreadPool>(options.num_background_threads)) {
+  LOG(INFO) << "pose_graph.num_background_threads="
+            << options.num_background_threads;
   if (options.max_pending_keyframes)
     options_.max_pending_keyframes = *options.max_pending_keyframes;
   if (!options.submaps.enabled) return;

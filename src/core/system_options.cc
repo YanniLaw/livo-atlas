@@ -25,6 +25,10 @@ FrontendMode SystemOptions::frontend_mode() const {
 
 SystemOptions PrepareSystemOptions(SystemOptions options) {
   const auto mode = options.frontend_mode();
+  if (options.num_background_threads <= 0) {
+    throw std::invalid_argument(
+        "pose_graph.num_background_threads must be positive");
+  }
   const auto& buffer = options.sensor_buffer;
   if (buffer.max_lidar_scans <= 0 || buffer.max_imu_samples <= 0 ||
       buffer.max_images <= 0) {

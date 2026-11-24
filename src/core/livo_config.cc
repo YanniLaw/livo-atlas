@@ -44,6 +44,9 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   if (config.executor_threads < 2) {
     throw std::invalid_argument("ros.executor_threads must be at least 2");
   }
+  config.system.num_background_threads = reader.Integer(
+      "pose_graph.num_background_threads",
+      config.system.num_background_threads);
   const bool loop_enabled = reader.Boolean("loop_closure.enabled", false);
   const bool graph_enabled = reader.Boolean("pose_graph.enabled", loop_enabled);
   if (graph_enabled && !loop_enabled) {

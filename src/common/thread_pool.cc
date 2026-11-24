@@ -38,9 +38,20 @@ void ThreadPoolInterface::SetThreadPool(Task* task) {
 
 ThreadPool::ThreadPool(int num_threads) {
   CHECK_GT(num_threads, 0) << "ThreadPool requires a positive num_threads!";
-  std::lock_guard<std::mutex> locker(mutex_);
-  for (int i = 0; i != num_threads; ++i) {
-    pool_.emplace_back([this]() { ThreadPool::DoWork(); });
+  std::unique_lock<std::mutex> locker(mutex_);
+  try {
+    for (int i = 0; i != num_threads; ++i) {
+      pool_.emplace_back([this]() { ThreadPool::DoWork(); });
+    }
+  } catch (...) {
+    // Construction must join its partial pool before thread objects unwind.
+    running_ = false;
+    locker.unlock();
+    task_ready_.notify_all();
+    for (std::thread& thread : pool_) {
+      thread.join();
+    }
+    throw;
   }
 }
 

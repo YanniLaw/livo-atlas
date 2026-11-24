@@ -64,6 +64,8 @@ struct SystemOptions {
   // Applies to all keyframe archives. An unset value uses the loop options
   // when present, or the default queue capacity otherwise.
   std::optional<std::size_t> max_pending_keyframes;
+  // Archive work and loop queries share this pool. Graph writes stay serial.
+  int num_background_threads = 4;
 };
 
 // Validates configuration and fills derived output mode/calibration without

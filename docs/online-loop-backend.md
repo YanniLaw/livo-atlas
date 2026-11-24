@@ -3,7 +3,7 @@
 `LivoSystem` 管理前端、子地图归档和回环的生命周期。回环默认关闭。
 启用图优化时，`LoopClosure` 计算候选和约束，`Optimizer` 试算位姿，`PoseGraph` 检查提案来源。
 ROS1 Noetic 与 ROS2 Humble 使用同一个 `src/app/livo_main.cc`。
-启用关键帧归档时，位姿图通过 `WorkQueue` 和单线程 `ThreadPool` 保存关键帧与成员修订。
+启用关键帧归档时，位姿图通过 `WorkQueue` 串行保存关键帧与成员修订，任务由 `ThreadPool` 执行。
 接纳优化结果时，同一执行线先写 `prepared`，再写正式位姿并更新已接纳的约束。
 [线程池来源与许可](cartographer-scheduler.md)
 它仍使用批量 GTSAM LM 试算，当前不包含 iSAM2、全局描述子、全局 TF 发布或 Gaussian 训练。
@@ -36,6 +36,7 @@ loop_closure:
   enabled: true
 pose_graph:
   enabled: true
+  num_background_threads: 4
   max_pending_keyframes: 64
 ```
 
@@ -48,6 +49,8 @@ worker 使用 `loop_closure.geometry` 指定的独立几何参数，默认体素
 ## SDK 所有权与停止
 
 SDK 链接 `livo_atlas::core`。启用在线关键帧和子地图后，把 `LoopAdmissionOptions` 交给 `SystemOptions::loop_closure`。已有导出目标 `livo_atlas::online_backend` 仍可链接。
+`SystemOptions::num_background_threads` 设置后台线程数，默认 4。ROS1 和 ROS2 从
+`config/backend.yaml` 读取同名的 `pose_graph.num_background_threads`，可设为 6。
 独立构造的 `LoopBackend` 持有该会话的提交权，沿用 `Observe()`、`Poll()` 和显式 `Finish()`，写入由同一位姿图执行。
 
 ```cpp
@@ -75,6 +78,8 @@ const auto stats = system.GetLoopStats();
 后端位姿通过 `OnlineSubmapDelta` 通知轨迹、几何和高斯消费者，SDK 完整回调也收到该版本的快照。
 
 任务与结果共享一个载荷槽，另有一个最新待查 ID。新封存查询可以合并旧待查查询，并记录 skipped。
+后台线程数为正整数。多个工作线程允许回环计算与归档同时推进，单条执行线拥有图状态和写入权。
+候选验证目前在回环任务内依序执行。1 线程用于队列回归，4 和 6 线程覆盖并发归档与正常停止。
 `pose_graph.max_pending_keyframes` 限制待写关键帧，默认 64，适用于所有关键帧归档模式。
 SDK 可以通过 `SystemOptions::max_pending_keyframes` 设置同一上限。满载时拒收新关键帧、保留已提交前沿并终止会话。控制请求和交付回执仍可推进。`peak_queued_keyframes` 记录待写峰值。
 `GetLoopStats()` 的帧数、位姿版本和已接纳回环数反映系统发布进度，后台拒绝及待查等计数随队列推进。

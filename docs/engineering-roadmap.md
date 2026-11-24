@@ -55,9 +55,10 @@ C4c 的 Retail_Street 完整均匀侧有 13 次查询，其中 4 次的候选数
 4. 单所有者持有的串行状态无需跨线程锁。任务队列和完成通知使用短临界区和条件变量，具体计算
    在锁外。若实测表明队列同步成为瓶颈，再评估具备明确单生产者、单消费者契约的方案。
 
-拟议运行参数 `loop_closure.worker_threads` 缺省为 1，此时走串行验证。功能回归沿用现有
-bag 和 CPU 亲和性。性能对照为两侧分配同一组至少两个可用逻辑 CPU，
-固定前端 OpenMP 预算，对比 1 与 2 个候选验证线程的回环耗时、前端 P95、实际并发、过期结果
+后端线程池使用 `pose_graph.num_background_threads`，缺省为 4，可设为 6，1 用于单线程回归。
+线程池负责归档与回环任务。候选验证拆分后使用同一线程池及 `Task` 依赖。
+功能回归沿用现有 bag，性能对照为各侧分配同一组至少六个可用逻辑 CPU，
+固定前端 OpenMP 预算，对比 1、4、6 个工作线程的回环耗时、前端 P95、实际并发、过期结果
 和 RSS。核对候选排序、接纳 ID、位姿版本、旧任务丢弃和停止排空。
 
 ## 构建能力与 YAML 运行选择
@@ -97,9 +98,9 @@ frontend:
   openmp_threads: 2
 loop_closure:
   enabled: true
-  worker_threads: 2
 pose_graph:
   enabled: true
+  num_background_threads: 4
 gaussian:
   enabled: true
 ```
