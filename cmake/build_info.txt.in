@@ -1,0 +1,12 @@
+schema_version=1
+compiler_id=@CMAKE_CXX_COMPILER_ID@
+compiler_version=@CMAKE_CXX_COMPILER_VERSION@
+system_name=@CMAKE_SYSTEM_NAME@
+system_processor=@CMAKE_SYSTEM_PROCESSOR@
+ros_version=@LIVO_ATLAS_ROS_VERSION@
+build_type=@CMAKE_BUILD_TYPE@
+eigen_version=@livo_atlas_build_eigen_version@
+pcl_version=@PCL_VERSION@
+opencv_version=@OpenCV_VERSION@
+gtsam_version=@livo_atlas_build_gtsam_version@
+openmp_available=@LIVO_ATLAS_OPENMP_AVAILABLE@

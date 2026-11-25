@@ -112,6 +112,36 @@ def library_environment(build):
     return env
 
 
+def read_build_info(build, output):
+    path = build / 'livo_atlas_build_info.txt'
+    if not path.is_file():
+        return dict(status='unavailable', reason='No configured build record')
+    record = output / path.name
+    shutil.copy2(str(path), str(record))
+    try:
+        lines = [line for line in record.read_text().splitlines() if line]
+        fields = dict(line.split('=', 1) for line in lines)
+        required = {'schema_version', 'compiler_id', 'compiler_version',
+                    'system_name', 'system_processor', 'ros_version', 'build_type',
+                    'eigen_version', 'pcl_version', 'opencv_version', 'gtsam_version',
+                    'openmp_available'}
+        if len(fields) != len(lines) or not required <= fields.keys() or \
+                fields['schema_version'] != '1' or \
+                fields['openmp_available'] not in ('TRUE', 'FALSE') or \
+                fields['ros_version'] not in ('0', '1', '2'):
+            raise ValueError('Invalid build metadata schema or fields')
+    except ValueError as error:
+        raise RuntimeError('Invalid configured build record: ' + str(path)) from error
+    return dict(status='recorded', record_sha256=digest(record),
+                compiler={k: fields['compiler_' + k] or None for k in ('id', 'version')},
+                target={k: fields[v] or None for k, v in (
+                    ('system', 'system_name'), ('processor', 'system_processor'),
+                    ('ros_version', 'ros_version'), ('build_type', 'build_type'))},
+                dependencies={k: fields[k + '_version'] or None for k in
+                              ('eigen', 'pcl', 'opencv', 'gtsam')},
+                openmp_available=fields['openmp_available'] == 'TRUE')
+
+
 def run_ctest(build, output, pattern=None, timeout=1800):
     build = Path(build).resolve()
     results = Path(cache_values(build).get('CATKIN_TEST_RESULTS_DIR', 'test_results'))
@@ -167,6 +197,8 @@ def run_ctest(build, output, pattern=None, timeout=1800):
 
 def build_and_test(build, output, jobs, pattern, timeout, ros=False):
     values = cache_values(build)
+    info = read_build_info(build, output)
+    write_json(output / 'build-info.json', info)
     mode = values.get('LIVO_ATLAS_ROS_VERSION')
     if ros:
         distro = {'1': 'noetic', '2': 'humble'}.get(mode)
@@ -181,10 +213,14 @@ def build_and_test(build, output, jobs, pattern, timeout, ros=False):
         command(['cmake', '--build', build, '--target', 'tests',
                  '--parallel', str(jobs)], output / 'build-tests.log',
                 timeout=timeout)
+    # A build may have reconfigured CMake and generated a newer record.
+    info = read_build_info(build, output)
+    write_json(output / 'build-info.json', info)
     result = run_ctest(build, output, pattern, timeout)
     result.update(ros_version=mode, build_directory=str(build),
                   configured_source=values.get('CMAKE_HOME_DIRECTORY'),
                   source=source_info(values.get('CMAKE_HOME_DIRECTORY', build)),
+                  build_info=info,
                   cache_sha256=digest(build / 'CMakeCache.txt'))
     return result
 
@@ -333,7 +369,8 @@ def run_replay(args, output, prefix):
         timings = analyze_lines(chain.from_iterable(streams))
     timings['logs'] = [str(path) for path in logs]
     write_json(output / 'replay-timing.json', timings)
-    return dict(directory=str(replay), summary=str(replay / 'summary.json'))
+    return dict(directory=str(replay), summary=str(replay / 'summary.json'),
+                thread_configuration=timings['thread_configuration'])
 
 
 def finalize_artifacts(output, success, retain):
@@ -419,6 +456,9 @@ def main(values=None):
     report = dict(schema_version=1, status='running', scope='requested_stages',
                   source=source_info(PACKAGE), platform=platform.platform(),
                   machine=platform.machine(), command=sys.argv if values is None else values,
+                  thread_environment={name: os.environ[name] for name in (
+                      'OMP_NUM_THREADS', 'OMP_THREAD_LIMIT', 'OMP_DYNAMIC',
+                      'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS') if name in os.environ},
                   tool_sha256={name: digest(PACKAGE / 'tools' / name) for name in
                                ('run_regression.py', 'timing_analysis.py')},
                   stages={name: dict(requested=value,

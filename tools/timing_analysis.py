@@ -9,6 +9,9 @@ FRONTEND = re.compile(
     r'livo_atlas update kind=(lio|vio) frontend_process_seconds=(\S+)')
 CACHE_FIELDS = {'submap', 'pose_version', 'reader_reset', 'built',
                 'cloud_reads', 'evictions', 'resident_submaps'}
+FRONTEND_CONFIG = re.compile(
+    r'frontend\.openmp_threads=(\S+) openmp_available=(true|false)')
+POSE_GRAPH_CONFIG = re.compile(r'pose_graph\.num_background_threads=(\S+)')
 
 
 def summarize(values):
@@ -28,6 +31,7 @@ def summarize(values):
 
 def analyze_lines(lines):
     stages, frontend = {}, {}
+    configuration = dict(frontend=[], pose_graph=[])
     cache = dict(requests=0, builds=0, hits=0, cloud_reads=0, evictions=0,
                  reader_resets=0, max_resident_submaps=0)
 
@@ -39,6 +43,23 @@ def analyze_lines(lines):
         destination.setdefault(name, []).append(value)
 
     for line in lines:
+        if 'frontend.openmp_threads=' in line:
+            match = FRONTEND_CONFIG.search(line)
+            if not match:
+                raise ValueError('Invalid frontend thread configuration')
+            count = int(match[1])
+            if count <= 0:
+                raise ValueError('Invalid frontend thread budget')
+            value = dict(openmp_threads=count, openmp_available=match[2] == 'true')
+            if value not in configuration['frontend']:
+                configuration['frontend'].append(value)
+        if 'pose_graph.num_background_threads=' in line:
+            match = POSE_GRAPH_CONFIG.search(line)
+            if not match or int(match[1]) <= 0:
+                raise ValueError('Invalid pose graph thread budget')
+            value = dict(background_threads=int(match[1]))
+            if value not in configuration['pose_graph']:
+                configuration['pose_graph'].append(value)
         match = STAGE.search(line)
         if match:
             append(stages, match)
@@ -64,4 +85,5 @@ def analyze_lines(lines):
     return dict(schema_version=1,
                 stages={k: summarize(v) for k, v in stages.items()},
                 frontend={k: summarize(v) for k, v in frontend.items()},
+                thread_configuration=configuration,
                 cache=cache)

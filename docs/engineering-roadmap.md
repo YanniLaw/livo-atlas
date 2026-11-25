@@ -4,7 +4,8 @@
 [工程回归工具](regression-tools.md)。两次 Humble 完整 bag 回放已通过，
 [验证记录](humble-full-validation.md)包含同环境重复性和跨 ROS 数值差异。
 跨环境首次分歧及 Eigen 版本效应已完成 [单变量诊断](cross-ros-numerics.md)。
-后续先收敛数值回归契约及依赖记录；3DGS、长距离数据、ARM 实机等方向保留如下。
+构建依赖、线程预算记录及回归工具两项边界已收尾，见 [工程回归工具](regression-tools.md)。
+同环境精确回归与跨环境数值对照继续分开解释；3DGS、长距离数据、ARM 实机等方向保留如下。
 
 C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
 以下记录待推进项和工程改造建议。[C4c 验证](p6-03c4c-validation.md)

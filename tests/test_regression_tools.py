@@ -36,6 +36,30 @@ class TimingAnalysisTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             timing_analysis.analyze_lines(['ordinary log'])
 
+    def test_thread_configuration_records_instances_without_guessing_teams(self):
+        lines = ['livo_atlas timing stage=work seconds=.1',
+                 'frontend.openmp_threads=2 openmp_available=true',
+                 'frontend.openmp_threads=1 openmp_available=false, using one thread',
+                 'frontend.openmp_threads=2 openmp_available=true',
+                 'pose_graph.num_background_threads=4',
+                 'pose_graph.num_background_threads=6']
+        result = timing_analysis.analyze_lines(lines)['thread_configuration']
+        self.assertEqual(result['frontend'], [
+            {'openmp_threads': 2, 'openmp_available': True},
+            {'openmp_threads': 1, 'openmp_available': False}])
+        self.assertEqual(result['pose_graph'], [
+            {'background_threads': 4}, {'background_threads': 6}])
+        old = timing_analysis.analyze_lines(lines[:1])['thread_configuration']
+        self.assertEqual(old, {'frontend': [], 'pose_graph': []})
+
+    def test_invalid_thread_configuration_fails(self):
+        for line in ['frontend.openmp_threads=0 openmp_available=true',
+                     'pose_graph.num_background_threads=-1',
+                     'frontend.openmp_threads=bad openmp_available=true']:
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                timing_analysis.analyze_lines([
+                    'livo_atlas timing stage=work seconds=.1', line])
+
 
 class RegressionToolsTest(unittest.TestCase):
     def setUp(self):
@@ -45,7 +69,7 @@ class RegressionToolsTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def project(self, script=None):
+    def project(self, script=None, metadata=False):
         source = self.root / 'source'
         source.mkdir()
         tests = ''
@@ -55,15 +79,84 @@ class RegressionToolsTest(unittest.TestCase):
             tests = ('add_test(NAME case COMMAND "' + sys.executable +
                      '" "' + str(path) + '")\n')
         (source / 'CMakeLists.txt').write_text(
-            'cmake_minimum_required(VERSION 3.16)\n'
-            'project(livo_atlas NONE)\n'
+            'cmake_minimum_required(VERSION 3.16)\n' +
+            ('project(livo_atlas CXX)\n' if metadata else 'project(livo_atlas NONE)\n') +
             'set(LIVO_ATLAS_ROS_VERSION 1 CACHE STRING "")\n'
-            'include(CTest)\nadd_custom_target(tests)\n' + tests)
+            'include(CTest)\nadd_custom_target(tests)\n' + tests +
+            (('include(GNUInstallDirs)\n'
+              'set(EIGEN3_VERSION_STRING 3.4.0)\nset(PCL_VERSION 1.12.1)\n'
+              'set(OpenCV_VERSION 4.5.4)\nset(GTSAM_VERSION 4.2.2)\n'
+              'set(LIVO_ATLAS_OPENMP_AVAILABLE FALSE)\ninclude("' +
+              str(run_regression.PACKAGE / 'cmake/build_info.cmake') + '")\n')
+             if metadata else ''))
         build = self.root / 'build'
         subprocess.run(['cmake', '-S', str(source), '-B', str(build)],
                        check=True, stdout=subprocess.DEVNULL,
                        stderr=subprocess.STDOUT)
         return build
+
+    def test_configured_build_metadata_and_install(self):
+        build = self.project('print("ran")', metadata=True)
+        output = self.root / 'result'
+        output.mkdir()
+        result = run_regression.read_build_info(build, output)
+        self.assertEqual(result['status'], 'recorded')
+        self.assertTrue(result['compiler']['id'])
+        self.assertTrue(result['compiler']['version'])
+        self.assertEqual(result['dependencies'], dict(
+            eigen='3.4.0', pcl='1.12.1', opencv='4.5.4', gtsam='4.2.2'))
+        self.assertFalse(result['openmp_available'])
+        self.assertEqual(result['target']['ros_version'], '1')
+        self.assertTrue((output / 'livo_atlas_build_info.txt').is_file())
+        prefix = self.root / 'installed sdk'
+        subprocess.run(['cmake', '--install', str(build), '--prefix', str(prefix)],
+                       check=True, stdout=subprocess.DEVNULL)
+        self.assertTrue((prefix / 'share/livo_atlas/livo_atlas_build_info.txt').is_file())
+
+    def test_missing_build_metadata_is_explicit(self):
+        output = self.root / 'out'
+        output.mkdir()
+        result = run_regression.read_build_info(self.root, output)
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertNotIn('dependencies', result)
+
+    def test_empty_dependency_version_remains_unknown(self):
+        build = self.project('print("ran")', metadata=True)
+        path = build / 'livo_atlas_build_info.txt'
+        path.write_text(path.read_text().replace('eigen_version=3.4.0', 'eigen_version='))
+        output = self.root / 'result'
+        output.mkdir()
+        result = run_regression.read_build_info(build, output)
+        self.assertIsNone(result['dependencies']['eigen'])
+
+    def test_failing_tests_keep_build_metadata(self):
+        build = self.project('raise SystemExit(1)', metadata=True)
+        output = self.root / 'result'
+        output.mkdir()
+        with mock.patch.dict(os.environ,
+                             {'ROS_DISTRO': 'noetic', 'ROS_VERSION': '1'}):
+            with self.assertRaises(RuntimeError):
+                run_regression.build_and_test(build, output, 1, None, 30, ros=True)
+        report = json.loads((output / 'build-info.json').read_text())
+        self.assertEqual(report['status'], 'recorded')
+        self.assertEqual(report['dependencies']['eigen'], '3.4.0')
+
+    def test_bad_build_metadata_is_preserved_and_rejected(self):
+        text = ('schema_version=1\ncompiler_id=GNU\ncompiler_version=9.4.0\n'
+                'system_name=Linux\nsystem_processor=x86_64\nros_version=0\n'
+                'build_type=Release\neigen_version=3.3.7\npcl_version=1.10.0\n'
+                'opencv_version=4.2.0\ngtsam_version=4.2.2\nopenmp_available=FALSE\n')
+        for index, data in enumerate([
+                text.replace('schema_version=1', 'schema_version=2'),
+                text.replace('openmp_available=FALSE', 'openmp_available=maybe'),
+                'schema_version=1\n']):
+            with self.subTest(index=index):
+                (self.root / 'livo_atlas_build_info.txt').write_text(data)
+                output = self.root / ('out-' + str(index))
+                output.mkdir()
+                with self.assertRaises(RuntimeError):
+                    run_regression.read_build_info(self.root, output)
+                self.assertEqual((output / 'livo_atlas_build_info.txt').read_text(), data)
 
     def test_real_ctest_success(self):
         build = self.project('print("ran")')
@@ -128,7 +221,8 @@ class RegressionToolsTest(unittest.TestCase):
         build = self.project('print("ran")')
         out = self.root / 'out'
         with mock.patch.dict(os.environ,
-                             {'ROS_DISTRO': 'noetic', 'ROS_VERSION': '1'}):
+                             {'ROS_DISTRO': 'noetic', 'ROS_VERSION': '1',
+                              'OMP_THREAD_LIMIT': '7'}):
             with contextlib.redirect_stdout(io.StringIO()):
                 code = run_regression.main([
                     '--ros-build', str(build), '--output', str(out)])
@@ -137,6 +231,8 @@ class RegressionToolsTest(unittest.TestCase):
         self.assertEqual(report['stages']['ros']['tests'], 1)
         self.assertEqual(report['stages']['ros']['ros_version'], '1')
         self.assertEqual(report['stages']['sdk']['status'], 'not_requested')
+        self.assertEqual(report['thread_environment']['OMP_THREAD_LIMIT'], '7')
+        self.assertEqual(report['stages']['ros']['build_info']['status'], 'unavailable')
 
     def test_existing_output_is_never_replaced(self):
         out = self.root / 'out'
@@ -389,7 +485,9 @@ class RegressionToolsTest(unittest.TestCase):
         script = self.root / (name + '.py')
         report = dict(clean_shutdown=True, passed=True, lio_cycles=3,
                       trajectory_rows=3, loop_closure_enabled=reported_loop)
-        log = 'livo_atlas timing stage=work seconds=.1\n'
+        log = ('livo_atlas timing stage=work seconds=.1\n'
+               'frontend.openmp_threads=2 openmp_available=true\n'
+               'pose_graph.num_background_threads=4\n')
         script.write_text(
             'import json,sys\nfrom pathlib import Path\n'
             'p=Path(sys.argv[-1]);p.mkdir()\n'
@@ -416,6 +514,9 @@ class RegressionToolsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         timings = json.loads((output / 'replay-timing.json').read_text())
         self.assertEqual(timings['stages']['work']['count'], 1)
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['stages']['replay']['thread_configuration'],
+                         timings['thread_configuration'])
 
     def test_missing_loop_archive_retains_payload(self):
         for reported, requested in [(True, False), (False, True)]:

@@ -1,7 +1,7 @@
 # 可复现工程回归
 
-按已批准的方向复用现有 CMake/CTest、安装消费者和两套 ROS 回放工具。本轮只增加验证
-入口与正式几何基准，不修改 SLAM 算法、参数格式、线程或公开 SDK。
+按已批准的方向复用现有 CMake/CTest、安装消费者和两套 ROS 回放工具。入口包含正式几何
+基准、构建记录与日志分析，不修改 SLAM 算法、参数格式、线程调度或公开 SDK。
 
 ## 设计范围
 
@@ -44,10 +44,14 @@ tools/analyze_timing.py 独立分析 GLOG，标准库逐行读取并汇总次数
 若生成回环数据集，使用 --loop-checker 或本次 SDK/ROS 构建中的检查工具确认归档后，
 才允许精简输出。ROS1 仍遵守既有回放工具对独立源码快照 workspace 的要求。
 
---output 必须是不存在的新目录。--retain compact 为缺省，只在所有请求阶段成功后，
+--output 必须是不存在的新目录。既有目录、文件、符号链接（含悬空链接）均拒绝；
+悬空父链接也拒绝，指向既有目录的父链接可用于创建新输出。
+--retain compact 为缺省，只在所有请求阶段成功后，
 对本次 replay 中生成的点云/图像保存逐文件 SHA256 清单，再删除这些载荷；元数据、
 结果摘要、日志、轨迹和编译/安装产物保留。--retain all 保留全部载荷，失败或未完成
-验证时始终保留。不会清理输入数据、既有输出、构建目录或跟随符号链接删除外部文件。
+验证时始终保留。成功验证后的精简若被中断，可能已经删除部分载荷，报告会明确标记
+清理中断；删除前生成的文件清单仍保留。不会清理输入数据、既有输出、构建目录或跟随
+符号链接删除外部文件。
 精简后的回放目录不是完整可恢复数据集，需要 --retain all 才能继续作为基准输入。
 
 ## 验收
@@ -129,10 +133,44 @@ python3 tools/analyze_timing.py --log /path/to/mapping.log \
 ```
 
 总报告为 `summary.json`；阶段日志在 `stages/`，回放日志、检查摘要和计时报告在输出根目录。
-状态为 passed/failed/incomplete/interrupted，退出码分别为0/1/2/130；未请求阶段为
-not_requested，缺环境为 unavailable，依赖前置失败为 blocked。报告记录来源、缓存指纹、
+状态为 passed/failed/incomplete/interrupted，退出码分别为0/1/2/130；阶段含 `requested`
+标记，请求后先为 pending，未请求为 not_requested，缺环境为 unavailable，依赖前置失败
+为 blocked。SDK/安装失败会阻塞依赖该安装的基准；显式 `--benchmark-executable` 仍独立
+运行。中断时，正在执行和尚未执行的请求阶段均为 interrupted，并给出不同原因。
+报告记录来源、缓存指纹、
 工具指纹和实际测试范围。Git 不可用的源码快照明确标记，不伪造提交号。
-保留失败日志再重跑时请选择新输出目录。Ctrl+C 停止后续阶段并保留本轮产物。
+保留失败日志再重跑时请选择新输出目录。Ctrl+C 停止后续阶段，验证未完成时不启动精简。
+
+## 构建版本与线程记录
+
+CMake 配置时在构建目录生成 `livo_atlas_build_info.txt`，安装到
+`share/livo_atlas/livo_atlas_build_info.txt`。记录编译器 ID/版本、目标系统/处理器、ROS
+版本、构建类型、Eigen/PCL/OpenCV/GTSAM 版本，以及已解析的 OpenMP 编译能力。
+版本来自本次 CMake 依赖解析，使用非标准安装时也不改读系统头文件。
+
+SDK/ROS 阶段保存原始记录和 `build-info.json`；成功时同时写入阶段摘要的 `build_info`。
+构建前后各采集一次，测试失败时仍保留已有记录。旧构建没有记录时明确为 unavailable；
+版本为空时为 JSON null，不猜测版本。坏 schema 或非法能力值会失败，并保留原记录。
+这些字段描述构建配置，不能替代运行时实际加载库路径的核验。
+
+日志分析和回放阶段分别在 `replay-timing.json`、阶段摘要中保存 `thread_configuration`。
+它收集节点声明的前端 OpenMP 预算/可用性和后端线程预算；多个实例的不同配置均保留，
+旧日志没有配置时为空列表。例子：
+
+```json
+{
+  "frontend": [{"openmp_threads": 2, "openmp_available": true}],
+  "pose_graph": [{"background_threads": 4}]
+}
+```
+
+总报告 `thread_environment` 只记录回归进程的 OMP_NUM_THREADS、OMP_THREAD_LIMIT、
+OMP_DYNAMIC、OPENBLAS_NUM_THREADS、MKL_NUM_THREADS 中已设置的值。回放器可能为节点
+调整环境；这里不推测子进程环境或实际线程团队大小。仅请求 replay 时，没有构建阶段
+版本记录；可同时提供 `--ros-build` 获取相应配置记录。
+
+数值回归按 [差异诊断结论](cross-ros-numerics.md) 区分同环境精确对照与跨环境数值记录，
+不根据单个 bag 制定通用容差。
 
 ## 本轮验证记录（2026-11-26）
 
@@ -160,5 +198,17 @@ Humble stderr、缺失回环归档、自定义 catkin XML、失真的基准报�
 以上属于回归工具整理阶段。后续已完成两次 Humble 完整 bag 回放，结果与跨 ROS
 数值差异见 [Humble 完整回放验证](humble-full-validation.md)；ARM 实机仍待完成。
 
-两项小边界留待后续整理：目前请用真实的新目录路径，入口尚未单独拒绝悬空输出
-符号链接；前置失败或中断后的部分后续阶段状态还需细分，总体退出状态仍如实失败或中断。
+## 工程收尾记录（2026-11-26）
+
+输出入口、父链接与阶段状态边界已补复现测试并修正。工具自测35项通过；SDK完整
+CTest复跑78/78及安装消费者通过，Noetic相关子集8/8、Humble相关子集9/9通过。
+两端3秒回放的输入、输出及回环归档检查通过，线程记录均为前端2、后端4。
+本机与 Humble 记录分别为 GNU9.4 / Eigen3.3.7 / PCL1.10 / OpenCV4.2，和
+GNU11.4 / Eigen3.4.0 / PCL1.12.1 / OpenCV4.5.4；两端 GTSAM 均为4.2.2。
+
+首轮 SDK 中既有 `TwoContentAttemptsYieldOnceThenTrainAgain` 用例曾出现一次
+视图请求数预期2、实际3的失败。单独复跑10次及随后完整串行复跑通过；本轮未修改该
+用例或高斯 C++，未稳定复现原因，保留失败 XML 和复跑日志，后续仍需关注。
+
+资料保存在工作区 `validation/regression-hardening-20261126/`。本轮只验收工具边界、
+构建记录和短回放日志接入；生产 SLAM 算法未变，没有重复135秒算法回归。
