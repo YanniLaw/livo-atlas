@@ -385,8 +385,10 @@ void GeometryMapper::Build(std::uint64_t id, const Keyframe* new_keyframe) {
       stats_.last_cloud_read_seconds += Seconds(read_start);
     }
     if (!cloud) throw std::runtime_error("Missing geometry body cloud");
-    builder->AddKeyframe(frame_id, *cloud,
-                         SubmapFromBody(entry.membership, frame_id));
+    // This local builder is not observable until the complete snapshot is
+    // installed below. A failed frame discards the whole partial build.
+    builder->AddKeyframeInPlace(
+        frame_id, *cloud, SubmapFromBody(entry.membership, frame_id));
   }
   const auto snapshot_start = Clock::now();
   auto data = builder->Snapshot();

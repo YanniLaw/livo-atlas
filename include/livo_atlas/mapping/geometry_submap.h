@@ -88,6 +88,15 @@ class GeometrySubmapBuilder {
   std::shared_ptr<const GeometryData> Snapshot() const;
 
  private:
+  friend class GeometryMapper;
+
+  void ValidateKeyframeHeader(
+      std::uint64_t id, const PointCloud& body_cloud,
+      const RigidTransform& submap_from_body) const;
+  // Only for a new, unpublished builder. Discard it on any failure.
+  void AddKeyframeInPlace(std::uint64_t id, const PointCloud& body_cloud,
+                          const RigidTransform& submap_from_body);
+
   struct KeyHash {
     std::size_t operator()(const GeometryVoxelKey& key) const;
   };

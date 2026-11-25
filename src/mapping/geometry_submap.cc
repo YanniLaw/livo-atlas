@@ -66,6 +66,18 @@ GeometrySubmapBuilder::GeometrySubmapBuilder(GeometryOptions options)
 void GeometrySubmapBuilder::AddKeyframe(
     std::uint64_t id, const PointCloud& body_cloud,
     const RigidTransform& submap_from_body) {
+  ValidateKeyframeHeader(id, body_cloud, submap_from_body);
+  // Keep the public operation transactional, including allocation failures.
+  auto candidate = *this;
+  candidate.AddKeyframeInPlace(id, body_cloud, submap_from_body);
+  voxels_.swap(candidate.voxels_);
+  sources_.swap(candidate.sources_);
+  input_point_count_ = candidate.input_point_count_;
+}
+
+void GeometrySubmapBuilder::ValidateKeyframeHeader(
+    std::uint64_t id, const PointCloud& body_cloud,
+    const RigidTransform& submap_from_body) const {
   if (sources_.size() >= kMaxGeometryKeyframes ||
       (!sources_.empty() && id <= sources_.back().keyframe_id) ||
       body_cloud.empty() ||
@@ -78,9 +90,12 @@ void GeometrySubmapBuilder::AddKeyframe(
   }
   const auto error = ValidateExtrinsic(submap_from_body);
   if (!error.empty()) throw std::invalid_argument("Geometry pose: " + error);
+}
 
-  // Candidate state prevents a malformed point from partially changing a block.
-  auto candidate = voxels_;
+void GeometrySubmapBuilder::AddKeyframeInPlace(
+    std::uint64_t id, const PointCloud& body_cloud,
+    const RigidTransform& submap_from_body) {
+  ValidateKeyframeHeader(id, body_cloud, submap_from_body);
   for (const auto& point : body_cloud) {
     if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
         !std::isfinite(point.z) || !std::isfinite(point.intensity)) {
@@ -93,14 +108,14 @@ void GeometrySubmapBuilder::AddKeyframe(
     const GeometryVoxelKey key{VoxelIndex(p.x(), options_.voxel_size),
                                VoxelIndex(p.y(), options_.voxel_size),
                                VoxelIndex(p.z(), options_.voxel_size)};
-    auto found = candidate.find(key);
-    if (found == candidate.end()) {
-      if (candidate.size() >=
+    auto found = voxels_.find(key);
+    if (found == voxels_.end()) {
+      if (voxels_.size() >=
           static_cast<std::size_t>(options_.max_voxels_per_submap)) {
         throw std::invalid_argument(
             "Geometry voxel limit exceeded by keyframe " + std::to_string(id));
       }
-      found = candidate.emplace(key, Moments{}).first;
+      found = voxels_.emplace(key, Moments{}).first;
     }
     auto& m = found->second;
     if (m.count == std::numeric_limits<std::uint64_t>::max()) {
@@ -117,10 +132,7 @@ void GeometrySubmapBuilder::AddKeyframe(
     }
     if (m.ids.empty() || m.ids.back() != id) m.ids.push_back(id);
   }
-  auto sources = sources_;
-  sources.push_back({id, submap_from_body});
-  voxels_.swap(candidate);
-  sources_.swap(sources);
+  sources_.push_back({id, submap_from_body});
   input_point_count_ += body_cloud.size();
 }
 
