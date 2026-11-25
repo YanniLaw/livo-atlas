@@ -157,7 +157,8 @@ Humble stderr、缺失回环归档、自定义 catkin XML、失真的基准报�
 验证资料位于工作区 `validation/regression-tools-20261126/`：`sdk-final/`、
 `humble-final/`、`noetic-replay-final/` 保留实际报告；`verification.json` 汇总输入保护
 和精简后的核验。另用已有 Humble stderr 日志确认可读取98次 LIO、97次 VIO及15类计时。
-这不代表本轮执行了 Humble 完整 bag 回放；该项和 ARM 实机仍待后续完成。
+以上属于回归工具整理阶段。后续已完成两次 Humble 完整 bag 回放，结果与跨 ROS
+数值差异见 [Humble 完整回放验证](humble-full-validation.md)；ARM 实机仍待完成。
 
 两项小边界留待后续整理：目前请用真实的新目录路径，入口尚未单独拒绝悬空输出
 符号链接；前置失败或中断后的部分后续阶段状态还需细分，总体退出状态仍如实失败或中断。
