@@ -3,7 +3,8 @@
 跨电脑复用的 SDK、双 ROS 测试、安装消费者、几何基准及可选回放入口已整理为
 [工程回归工具](regression-tools.md)。两次 Humble 完整 bag 回放已通过，
 [验证记录](humble-full-validation.md)包含同环境重复性和跨 ROS 数值差异。
-后续优先定位跨环境首次数值差异；3DGS、长距离数据、ARM 实机等方向保留如下。
+跨环境首次分歧及 Eigen 版本效应已完成 [单变量诊断](cross-ros-numerics.md)。
+后续先收敛数值回归契约及依赖记录；3DGS、长距离数据、ARM 实机等方向保留如下。
 
 C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
 以下记录待推进项和工程改造建议。[C4c 验证](p6-03c4c-validation.md)
