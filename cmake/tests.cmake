@@ -1,6 +1,11 @@
 if(NOT LIVO_ATLAS_ROS_VERSION STREQUAL "1")
   find_package(GTest REQUIRED)
 endif()
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+add_test(NAME regression_tools_test COMMAND ${Python3_EXECUTABLE}
+  -m unittest discover -s tests -p test_regression_tools.py)
+set_tests_properties(regression_tools_test PROPERTIES
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR} TIMEOUT 60)
 function(livo_atlas_test name)
   if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
     catkin_add_gtest(${name} ${ARGN} tests/test_main.cc)
@@ -83,6 +88,10 @@ livo_atlas_test(geometry_map_sampling_test tests/mapping/geometry_map_sampling_t
 target_include_directories(geometry_map_sampling_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 livo_atlas_test(geometry_map_builder_test tests/mapping/geometry_map_builder_test.cc)
 livo_atlas_test(geometry_failure_test tests/mapping/geometry_failure_test.cc)
+livo_atlas_test(geometry_benchmark_test tests/geometry_benchmark_test.cc)
+target_include_directories(geometry_benchmark_test PRIVATE
+  ${PROJECT_SOURCE_DIR}/tools)
+target_link_libraries(geometry_benchmark_test livo_atlas_geometry_benchmark)
 livo_atlas_test(pose_snapshot_test tests/mapping/pose_snapshot_test.cc)
 livo_atlas_test(map_correction_test tests/mapping/map_correction_test.cc)
 livo_atlas_test(trajectory_snapshot_test tests/mapping/trajectory_snapshot_test.cc)

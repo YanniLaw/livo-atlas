@@ -115,7 +115,12 @@ target_include_directories(livo_atlas_core PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(livo_atlas_core PUBLIC livo_atlas_frontend
   livo_atlas_synchronization livo_atlas_preprocess livo_atlas_colorizer livo_atlas_io livo_atlas_keyframes)
 
-foreach(tool inspect_keyframes inspect_submaps export_colmap export_geometry)
+add_library(livo_atlas_geometry_benchmark STATIC tools/geometry_benchmark.cc)
+target_link_libraries(livo_atlas_geometry_benchmark PRIVATE
+  livo_atlas::io livo_atlas::geometry)
+
+foreach(tool inspect_keyframes inspect_submaps export_colmap export_geometry
+    benchmark_geometry)
   set(livo_atlas_tool livo_atlas_${tool})
   add_executable(${livo_atlas_tool} tools/${tool}.cc)
   target_link_libraries(${livo_atlas_tool} PRIVATE livo_atlas::io)
@@ -127,6 +132,8 @@ foreach(tool inspect_keyframes inspect_submaps export_colmap export_geometry)
   endif()
   install(TARGETS ${livo_atlas_tool} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endforeach()
+target_link_libraries(livo_atlas_benchmark_geometry PRIVATE
+  livo_atlas_geometry_benchmark)
 
 install(TARGETS livo_atlas_build_options livo_atlas_calibration livo_atlas_camera livo_atlas_keyframes livo_atlas_geometry
   livo_atlas_synchronization livo_atlas_preprocess livo_atlas_imu livo_atlas_lio

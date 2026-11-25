@@ -17,7 +17,10 @@ C++17 库。`cmake/ros1.cmake` 和 `cmake/ros2.cmake` 分别加载 Noetic 与 Hu
   `ON` 要求提供 C++ OpenMP，`OFF` 关闭相关编译及链接依赖。
 - GTSAM 4.2。非标准安装通过 `GTSAM_DIR` 或 `CMAKE_PREFIX_PATH` 指定。
 - Linux 目标包含 Gaussian C++ 桥接库。ROS 启动时通过 `gaussian.enabled` 选择是否使用。
-- GTest 仅测试需要。`BUILD_TESTING=OFF` 构建独立库、数据集检查工具及离线导出工具。
+- GTest 和 Python 3.8+ 仅测试需要。`BUILD_TESTING=OFF` 构建独立库、数据集检查工具及离线导出工具。
+
+统一构建、CTest、安装消费者、几何基准和可选回放的入口见
+[可复现工程回归](regression-tools.md)。
 
 算法目标使用编译器默认指令集，不加 native ISA 或 fast-math。使用单任务编译，
 并在构建完成后回放 bag，避免同时占用大量内存。

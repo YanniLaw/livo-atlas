@@ -2,6 +2,8 @@
 
 本工程以 `livo-atlas` 为包目录开展重构。[重构文档](docs/README.md)包含目标架构、阶段验收、跨电脑验证步骤及 C++ 编码约定。
 
+跨电脑的构建、CTest、安装消费和可选 bag 回归入口见 [工程回归工具](docs/regression-tools.md)。
+
 当前提供普通 C++17 核心库、ROS1 Noetic 和 ROS2 Humble；两个 ROS 版本共用
 `src/app/livo_main.cc` 入口、`LivoSystem` 处理流程和参数清单，接入层只负责
 各自的 ROS API。构建操作见
