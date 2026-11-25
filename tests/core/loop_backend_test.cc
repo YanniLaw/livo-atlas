@@ -2,19 +2,54 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <stdexcept>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "core/loop_backend_fixtures.h"
+#include "livo_atlas/common/logging.h"
 
 namespace livo_atlas {
 namespace {
 namespace fs = std::filesystem;
+
+class PoseDeliveryLog : public google::LogSink {
+ public:
+  PoseDeliveryLog() { google::AddLogSink(this); }
+
+  ~PoseDeliveryLog() override { google::RemoveLogSink(this); }
+
+  void send(google::LogSeverity, const char*, const char*, int,
+            const std::tm*, const char* message,
+            std::size_t message_len) override {
+    std::string text(message, message_len);
+    if (text.find("stage=loop_pose_") == std::string::npos) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    records_.push_back(std::move(text));
+  }
+
+  std::size_t Count(const char* stage) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto token = std::string("stage=") + stage + " seconds=";
+    return std::count_if(records_.begin(), records_.end(),
+                         [&](const auto& text) {
+                           return text.find(token) != std::string::npos;
+                         });
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::vector<std::string> records_;
+};
 
 class Gate {
  public:
@@ -144,6 +179,99 @@ TEST_F(LoopBackendTest, WaitingPumpAcceptsResult) {
   EXPECT_EQ(backend.GetStats().accepted, 1u);
   EXPECT_EQ(system_->GetPoseSnapshot()->version, 1u);
   backend.Finish();
+}
+
+TEST_F(LoopBackendTest, PoseDeliveryTimingFollowsOwnerCallbacks) {
+  for (const bool enabled : {false, true}) {
+    auto config = options_;
+    config.exporter.directory /= enabled ? "timed" : "untimed";
+    config.stage_timing = enabled;
+    PoseDeliveryLog log;
+    LivoSystem system(config);
+    auto options = loop_test::NearbyOptions();
+    options.max_loops = 1;
+    LoopBackend backend(system, options);
+    bool delivered = false;
+    system.SetOnlineSubmapCallback([&](const auto& update) {
+      backend.Observe(update);
+      if (!update.pose_changes.empty()) {
+        delivered = true;
+        // The owner has applied the pose, but has not acknowledged it yet.
+        EXPECT_EQ(system.GetPoseFrontier().version, 1u);
+        EXPECT_EQ(log.Count("loop_pose_delivery_latency"), 0u);
+        EXPECT_EQ(log.Count("loop_pose_publication_wait"), 0u);
+      }
+    });
+    for (std::uint64_t id = 0; id < 4; ++id)
+      LoopBackendTestPeer::Append(system, loop_test::DenseFrame(id, cloud_));
+    backend.Poll();
+    backend.Finish();
+    ASSERT_TRUE(delivered);
+    ASSERT_EQ(backend.GetStats().accepted, 1u);
+    // Ordinary keyframe and seal publications must not reuse the timestamp.
+    EXPECT_EQ(log.Count("loop_pose_delivery_latency"), enabled ? 1u : 0u);
+    EXPECT_EQ(log.Count("loop_pose_publication_wait"), enabled ? 1u : 0u);
+  }
+}
+
+TEST_F(LoopBackendTest, RejectedQueriesHaveNoPoseDeliveryTiming) {
+  auto config = options_;
+  config.exporter.directory /= "rejected";
+  config.stage_timing = true;
+  PoseDeliveryLog log;
+  LivoSystem system(config);
+  auto options = loop_test::NearbyOptions();
+  options.search.min_submap_gap = 100;
+  LoopBackend backend(system, options);
+  system.SetOnlineSubmapCallback(
+      [&](const auto& update) { backend.Observe(update); });
+  for (std::uint64_t id = 0; id < 4; ++id)
+    LoopBackendTestPeer::Append(system, loop_test::DenseFrame(id, cloud_));
+  backend.Poll();
+  backend.Finish();
+  EXPECT_GT(backend.GetStats().rejected, 0u);
+  EXPECT_EQ(backend.GetStats().accepted, 0u);
+  EXPECT_EQ(log.Count("loop_pose_delivery_latency"), 0u);
+  EXPECT_EQ(log.Count("loop_pose_publication_wait"), 0u);
+}
+
+TEST_F(LoopBackendTest, FailedOwnerCallbackHasNoSuccessfulDeliveryTiming) {
+  auto config = options_;
+  config.exporter.directory /= "failed-delivery";
+  config.stage_timing = true;
+  PoseDeliveryLog log;
+  LivoSystem system(config);
+  LoopBackend backend(system, loop_test::NearbyOptions());
+  system.SetOnlineSubmapCallback([&](const auto& update) {
+    backend.Observe(update);
+    if (!update.pose_changes.empty())
+      throw std::runtime_error("Failed pose delivery");
+  });
+  for (std::uint64_t id = 0; id < 4; ++id)
+    LoopBackendTestPeer::Append(system, loop_test::DenseFrame(id, cloud_));
+  backend.Poll();
+  EXPECT_THROW(backend.Finish(), std::runtime_error);
+  EXPECT_EQ(system.GetPoseFrontier().version, 1u);
+  EXPECT_EQ(log.Count("loop_pose_delivery_latency"), 0u);
+  EXPECT_EQ(log.Count("loop_pose_publication_wait"), 0u);
+}
+
+TEST_F(LoopBackendTest, ExternalPoseUpdatesHaveNoLoopDeliveryTiming) {
+  auto config = options_;
+  config.exporter.directory /= "external-pose";
+  config.stage_timing = true;
+  PoseDeliveryLog log;
+  LivoSystem system(config);
+  for (std::uint64_t id = 0; id < 4; ++id)
+    LoopBackendTestPeer::Append(system, loop_test::DenseFrame(id, cloud_));
+  const auto poses = system.GetPoseSnapshot();
+  PoseUpdate update{poses->version, poses->frame_count, poses->poses};
+  for (auto& pose : update.poses) pose.map_from_body.translation.x() += 1;
+  system.ApplyPoseUpdate(update);
+  system.Finish();
+  EXPECT_EQ(system.GetPoseFrontier().version, 1u);
+  EXPECT_EQ(log.Count("loop_pose_delivery_latency"), 0u);
+  EXPECT_EQ(log.Count("loop_pose_publication_wait"), 0u);
 }
 
 TEST_F(LoopBackendTest, FullQueueCanDeliverAResultAndSealInput) {

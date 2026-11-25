@@ -11,6 +11,7 @@
 
 #include "common/thread_pool.h"
 #include "common/timing.h"
+#include "livo_atlas/common/logging.h"
 #include "livo_atlas/mapping/geometry_mapper.h"
 #include "loop_closure/loop_admission.h"
 #include "loop_closure/loop_internal.h"
@@ -56,7 +57,8 @@ LoopGeometryReader MakeGeometryReader(
     const auto start = StartTiming(stage_timing);
     auto& mapper = cache->mapper;
     auto& view = cache->view;
-    if (!view || view->version != poses.version) {
+    const bool reader_reset = !view || view->version != poses.version;
+    if (reader_reset) {
       mapper.reset();
       view = std::make_shared<const PoseSnapshot>(poses);
       const auto read_cloud = [&task, geometry](std::uint64_t frame_id) {
@@ -78,6 +80,8 @@ LoopGeometryReader MakeGeometryReader(
         groups.push_back(info.membership);
       mapper->Update(groups, view);
     }
+    GeometryCacheStats before;
+    if (stage_timing) before = mapper->GetStats();
     auto result = mapper->GetSubmap(id);
     if (stage_timing) {
       const auto elapsed = SteadyClock::now() - start;
@@ -89,6 +93,13 @@ LoopGeometryReader MakeGeometryReader(
         LogStageSeconds("loop_geometry_snapshot", stats.last_snapshot_seconds);
       }
       LogStageTiming("loop_geometry_read", elapsed);
+      LOG(INFO) << "livo_atlas loop_geometry_cache submap=" << id
+                << " pose_version=" << poses.version
+                << " reader_reset=" << reader_reset
+                << " built=" << (stats.full_builds > before.full_builds)
+                << " cloud_reads=" << (stats.cloud_reads - before.cloud_reads)
+                << " evictions=" << (stats.evictions - before.evictions)
+                << " resident_submaps=" << stats.resident_submaps;
     }
     return result;
   };

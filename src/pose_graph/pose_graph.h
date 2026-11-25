@@ -92,7 +92,8 @@ class PoseGraph {
       std::function<std::exception_ptr()> task);
   void ScheduleDrainLocked();
   void Drain() noexcept;
-  void Publish(ArchiveCommit commit, bool appended_keyframe = false);
+  void Publish(ArchiveCommit commit, bool appended_keyframe = false,
+               std::chrono::steady_clock::time_point loop_dispatch_time = {});
   void Append(std::shared_ptr<const Keyframe> keyframe);
   void RecordMembership(const std::vector<OnlineSubmap>& revisions);
   void QueueQuery(std::uint64_t query_id);
@@ -145,6 +146,8 @@ class PoseGraph {
   std::size_t queued_keyframes_ = 0;
   std::size_t peak_queued_keyframes_ = 0;
   std::chrono::steady_clock::time_point standalone_ready_, publication_time_;
+  // Only an accepted loop publication carries a dispatch time to the owner.
+  std::chrono::steady_clock::time_point published_loop_dispatch_time_;
   bool standalone_polling_ = false;
   bool standalone_abandoned_ = false;
   bool awaiting_delivery_ = false;

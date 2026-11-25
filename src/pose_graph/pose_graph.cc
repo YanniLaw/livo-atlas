@@ -213,13 +213,15 @@ void PoseGraph::Drain() noexcept {
   }
 }
 
-void PoseGraph::Publish(ArchiveCommit commit, bool appended_keyframe) {
+void PoseGraph::Publish(ArchiveCommit commit, bool appended_keyframe,
+                        SteadyClock::time_point loop_dispatch_time) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (appended_keyframe) --queued_keyframes_;
     publication_.emplace(std::move(commit));
     awaiting_delivery_ = true;
     publication_time_ = StartTiming(stage_timing_);
+    published_loop_dispatch_time_ = loop_dispatch_time;
     published_stats_ = stats_;
   }
   condition_.notify_all();
@@ -231,15 +233,23 @@ ArchiveProgress PoseGraph::TakeProgress() {
 }
 
 void PoseGraph::AcknowledgeCommit() {
-  SteadyClock::time_point published;
+  SteadyClock::time_point published, loop_dispatch, acknowledged;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     published = publication_time_;
     publication_time_ = {};
+    loop_dispatch = std::exchange(published_loop_dispatch_time_, {});
+    // The owner has applied this commit and completed its callbacks. Capture
+    // the endpoint before another queued query can change dispatch_time_.
+    acknowledged = StartTiming(loop_dispatch != SteadyClock::time_point{});
     awaiting_delivery_ = false;
     ScheduleDrainLocked();
   }
   LogStageTiming("archive_publication_wait", published);
+  if (loop_dispatch != SteadyClock::time_point{}) {
+    LogStageTiming("loop_pose_delivery_latency", acknowledged - loop_dispatch);
+    LogStageTiming("loop_pose_publication_wait", acknowledged - published);
+  }
 }
 
 std::optional<std::exception_ptr> PoseGraph::CheckControl(
@@ -424,9 +434,10 @@ void PoseGraph::Dispatch() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!CanDispatchLocked()) return;
+    // Include submission and any work that starts before Schedule returns.
+    dispatch_time_ = StartTiming(stage_timing_);
     thread_pool_->Schedule(std::move(task));
   }
-  dispatch_time_ = StartTiming(stage_timing_);
   active_query_ = *pending_;
   pending_.reset();
   ++stats_.submitted;
@@ -540,7 +551,8 @@ void PoseGraph::Complete(std::shared_ptr<const LoopTaskResult> result) {
     RecordDisposition(disposition);
     // Keep the accepted version available if delivery or reporting fails.
     query_report_ = QueryReport{std::move(result), disposition};
-    Publish({std::move(view), std::move(delta), online_->correction()});
+    Publish({std::move(view), std::move(delta), online_->correction()},
+            /*appended_keyframe=*/false, dispatch_time_);
     LogStageTiming("pose_commit", start);
   } else {
     journal_->WriteQuery(*result, disposition, stats_.pose_version,

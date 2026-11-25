@@ -15,6 +15,7 @@
 #include <map>
 #include <memory>
 #include <new>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -237,6 +238,27 @@ TEST_F(LoopTaskTest, QueryStageTimingIsOptIn) {
         reference.target_from_source->translation, 1e-12));
     EXPECT_EQ(actual.forward.iterations, reference.forward.iterations);
     EXPECT_EQ(actual.reverse.iterations, reference.reverse.iterations);
+    const std::regex cache(
+        "loop_geometry_cache submap=[0-9]+ pose_version=[0-9]+ "
+        "reader_reset=[01] built=([01]) cloud_reads=([0-9]+) "
+        "evictions=[0-9]+ resident_submaps=([0-9]+)");
+    std::size_t reads = 0, hits = 0;
+    for (auto it = std::sregex_iterator(log.begin(), log.end(), cache);
+         it != std::sregex_iterator(); ++it) {
+      ++reads;
+      const bool built = (*it)[1] == "1";
+      const auto cloud_reads = std::stoul((*it)[2]);
+      EXPECT_EQ(cloud_reads > 0, built);
+      EXPECT_LE(std::stoul((*it)[3]),
+                static_cast<unsigned long>(
+                    options.geometry.max_resident_submaps));
+      if (!built) ++hits;
+    }
+    EXPECT_EQ(reads > 0, enabled);
+    EXPECT_EQ(hits > 0, enabled);
+    if (!enabled) {
+      EXPECT_EQ(log.find("loop_geometry_cache"), std::string::npos);
+    }
     for (const auto* stage : {"loop_geometry_read", "loop_geometry_build",
                               "loop_cloud_read", "loop_geometry_snapshot",
                               "loop_prepare_batch", "loop_candidate",

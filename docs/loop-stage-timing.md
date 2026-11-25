@@ -29,11 +29,20 @@
 | loop_result_queue_wait | 完成回调进入至串行完成工作项开始，包括独立 LoopBackend 等待 Poll |
 | loop_result_acceptance | 串行完成工作项中的判定、日志及必要的位姿提交 |
 | archive_publication_wait | 归档发布至 owner 回执，包含交付、回调和回执调度开销 |
+| loop_pose_delivery_latency | 仅已接纳回环：提交查询到线程池之前至 owner 应用位姿并完成回调后的回执 |
+| loop_pose_publication_wait | 同一回环优化位姿发布至 owner 回执；回执时采样，再恢复队列 |
 
 上述时间相互包含。读取和快照属于完整构建，几何准备属于查询计算，几何复核属于接纳试算。
 并行候选各自耗时的和与批次墙钟时间含义不同。结果接纳与发布等待也可能重叠，
 不能相加后当作端到端耗时。原有 `loop_optimization_result_latency` 在 Classify 中采样，
 未包含其后的验证、提交和 owner 交付。
+两个 loop_pose 指标只记录成功回执的回环位姿，不包括普通关键帧、封口、外部位姿更新或
+拒绝查询；回调失败不产生成功交付样本。它们不表示 ROS 接收者或 GPU worker 已处理结果。
+派发时间在最终检查的锁内、Schedule 之前采样，避免漏记提交和提前开始的任务耗时。
+
+成功几何读取在同一开关下输出 loop_geometry_cache，区分读取器重建、完整构建、云读取、
+驱逐和驻留块数。它是缓存诊断日志，不是另一个可相加的计时阶段。
+当前无探针归因、边界验证和结果见 [几何准备与优化位姿交付](geometry-delivery-timing.md)。
 
 每个批次消费一次时间戳；因前一批出错而跳过的批次不会产生验证时间。
 异常中止时不保证所有子阶段都有样本。发布等待包含回执调度和解锁后的采样开销，
