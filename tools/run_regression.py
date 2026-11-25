@@ -391,6 +391,12 @@ def arguments(values):
         parser.error('Invalid jobs, rounds, version, limit or timeout')
     if args.replay_args and not args.replay:
         parser.error('--replay-args requires --replay')
+    # Check the spelling supplied by the caller before resolve follows links.
+    if os.path.lexists(args.output):
+        raise FileExistsError('Output already exists: ' + str(args.output))
+    for parent in args.output.parents:
+        if parent.is_symlink() and not parent.exists():
+            raise FileExistsError('Output parent is a dangling link: ' + str(parent))
     for name, value in vars(args).items():
         if isinstance(value, Path):
             setattr(args, name, value.resolve())
@@ -407,32 +413,37 @@ def arguments(values):
 def main(values=None):
     args = arguments(values)
     args.output.mkdir(parents=True, exist_ok=False)
+    requested = dict(sdk=bool(args.sdk_build), consumer=bool(args.sdk_build),
+                     ros=bool(args.ros_build), benchmark=bool(args.dataset),
+                     replay=bool(args.replay))
     report = dict(schema_version=1, status='running', scope='requested_stages',
                   source=source_info(PACKAGE), platform=platform.platform(),
                   machine=platform.machine(), command=sys.argv if values is None else values,
                   tool_sha256={name: digest(PACKAGE / 'tools' / name) for name in
                                ('run_regression.py', 'timing_analysis.py')},
-                  stages={name: dict(status='not_requested') for name in
-                          ('sdk', 'consumer', 'ros', 'benchmark', 'replay')})
+                  stages={name: dict(requested=value,
+                                     status='pending' if value else 'not_requested')
+                          for name, value in requested.items()})
     prefix = None
     (args.output / 'stages').mkdir()
 
     def stage(name, action):
         destination = args.output / 'stages' / name
         destination.mkdir()
-        report['stages'][name] = dict(status='running')
+        report['stages'][name].update(status='running')
         write_json(args.output / 'summary.json', report)
         try:
             result = action(destination) or {}
-            report['stages'][name] = dict(status='passed', **result)
+            report['stages'][name].update(status='passed', **result)
             return result
         except Unavailable as error:
-            report['stages'][name] = dict(status='unavailable', reason=str(error))
+            report['stages'][name].update(status='unavailable', reason=str(error))
         except KeyboardInterrupt:
-            report['stages'][name] = dict(status='interrupted')
+            report['stages'][name].update(status='interrupted',
+                                         reason='Interrupted during stage execution')
             raise
         except Exception as error:
-            report['stages'][name] = dict(status='failed', reason=str(error))
+            report['stages'][name].update(status='failed', reason=str(error))
         finally:
             write_json(args.output / 'summary.json', report)
         return None
@@ -446,17 +457,25 @@ def main(values=None):
                     args.sdk_build, out, args.jobs, args.timeout))
                 prefix = installed['prefix'] if installed else None
             else:
-                report['stages']['consumer'] = dict(
+                report['stages']['consumer'].update(
                     status='blocked', reason='SDK stage failed')
         if args.ros_build:
             stage('ros', lambda out: build_and_test(
                 args.ros_build, out, args.jobs, args.ctest_regex, args.timeout, ros=True))
         if args.dataset:
-            stage('benchmark', lambda out: run_benchmark(args, prefix, out))
+            if args.sdk_build and not args.benchmark_executable and prefix is None:
+                report['stages']['benchmark'].update(
+                    status='blocked', reason='SDK installation is unavailable')
+            else:
+                stage('benchmark', lambda out: run_benchmark(args, prefix, out))
         if args.replay:
             stage('replay', lambda _: run_replay(args, args.output, prefix))
     except KeyboardInterrupt:
         report['status'] = 'interrupted'
+        for value in report['stages'].values():
+            if value['status'] == 'pending':
+                value.update(status='interrupted',
+                             reason='Not executed after interruption')
     statuses = [value['status'] for value in report['stages'].values()]
     if report['status'] != 'interrupted':
         report['status'] = ('failed' if 'failed' in statuses else
@@ -465,6 +484,9 @@ def main(values=None):
     try:
         report['artifacts'] = finalize_artifacts(
             args.output, report['status'] == 'passed', args.retain)
+    except KeyboardInterrupt:
+        report['status'] = 'interrupted'
+        report['artifact_error'] = 'Artifact finalization interrupted; cleanup may be partial'
     except Exception as error:
         report['status'] = 'failed'
         report['artifact_error'] = str(error)

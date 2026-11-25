@@ -148,6 +148,81 @@ class RegressionToolsTest(unittest.TestCase):
                                  '--output', str(out)])
         self.assertEqual(sentinel.read_text(), 'original')
 
+    def test_existing_output_symlinks_are_rejected_before_resolving(self):
+        for target_exists in [False, True]:
+            with self.subTest(target_exists=target_exists):
+                target = self.root / ('target-' + str(target_exists))
+                if target_exists:
+                    target.mkdir()
+                    (target / 'keep').write_text('original')
+                link = self.root / ('link-' + str(target_exists))
+                link.symlink_to(target, target_is_directory=True)
+                with self.assertRaises(FileExistsError):
+                    run_regression.main(['--sdk-build', str(self.root / 'build'),
+                                         '--output', str(link)])
+                self.assertEqual(target.exists(), target_exists)
+                self.assertTrue(link.is_symlink())
+                if target_exists:
+                    self.assertEqual((target / 'keep').read_text(), 'original')
+
+    def test_dangling_output_parent_is_rejected(self):
+        target = self.root / 'missing-parent'
+        link = self.root / 'linked-parent'
+        link.symlink_to(target, target_is_directory=True)
+        with self.assertRaises(FileExistsError):
+            run_regression.main(['--sdk-build', str(self.root / 'build'),
+                                 '--output', str(link / 'result')])
+        self.assertFalse(target.exists())
+
+    def test_existing_parent_link_allows_new_output(self):
+        link = self.root / 'linked-parent'
+        link.symlink_to(self.root, target_is_directory=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = run_regression.main([
+                '--sdk-build', str(self.root / 'missing-build'),
+                '--output', str(link / 'new-output')])
+        self.assertEqual(code, 2)
+        self.assertTrue((self.root / 'new-output/summary.json').is_file())
+
+    def test_failed_sdk_blocks_implicit_benchmark(self):
+        output = self.root / 'out'
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = run_regression.main([
+                '--sdk-build', str(self.root / 'missing-build'),
+                '--dataset', str(self.root / 'dataset'), '--output', str(output)])
+        self.assertEqual(code, 2)
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['stages']['benchmark']['status'], 'blocked')
+        self.assertTrue(report['stages']['benchmark']['requested'])
+
+    def test_consumer_failure_blocks_implicit_benchmark(self):
+        output = self.root / 'out'
+        with mock.patch.object(run_regression, 'build_and_test', return_value={}):
+            with mock.patch.object(run_regression, 'install_consumer',
+                                   side_effect=RuntimeError('installation failed')):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    code = run_regression.main([
+                        '--sdk-build', str(self.root / 'build'),
+                        '--dataset', str(self.root / 'dataset'),
+                        '--output', str(output)])
+        self.assertEqual(code, 1)
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['stages']['benchmark']['status'], 'blocked')
+
+    def test_explicit_benchmark_still_runs_when_sdk_is_unavailable(self):
+        output = self.root / 'out'
+        with mock.patch.object(run_regression, 'run_benchmark', return_value={}) as run:
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = run_regression.main([
+                    '--sdk-build', str(self.root / 'missing-build'),
+                    '--dataset', str(self.root / 'dataset'),
+                    '--benchmark-executable', str(self.root / 'explicit-binary'),
+                    '--output', str(output)])
+        self.assertEqual(code, 2)
+        run.assert_called_once()
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['stages']['benchmark']['status'], 'passed')
+
     def test_replay_output_is_created_by_existing_replay_tool(self):
         out = self.root / 'out'
 
@@ -172,12 +247,35 @@ class RegressionToolsTest(unittest.TestCase):
                 with contextlib.redirect_stdout(io.StringIO()):
                     code = run_regression.main([
                         '--sdk-build', str(self.root / 'build'),
+                        '--ros-build', str(self.root / 'ros-build'),
+                        '--dataset', str(self.root / 'dataset'),
                         '--output', str(out)])
         self.assertEqual(code, 130)
         consumer.assert_not_called()
         report = json.loads((out / 'summary.json').read_text())
         self.assertEqual(report['status'], 'interrupted')
         self.assertEqual(report['artifacts']['removed_files'], 0)
+        for name in ['consumer', 'ros', 'benchmark']:
+            self.assertEqual(report['stages'][name]['status'], 'interrupted')
+            self.assertTrue(report['stages'][name]['requested'])
+        self.assertEqual(report['stages']['replay']['status'], 'not_requested')
+
+    def test_artifact_interrupt_is_reported(self):
+        output = self.root / 'out'
+        with mock.patch.object(run_regression, 'build_and_test', return_value={}):
+            with mock.patch.object(run_regression, 'finalize_artifacts',
+                                   side_effect=KeyboardInterrupt):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    try:
+                        code = run_regression.main([
+                            '--ros-build', str(self.root / 'build'),
+                            '--output', str(output)])
+                    except KeyboardInterrupt:
+                        self.fail('Artifact interruption was not recorded')
+        self.assertEqual(code, 130)
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['status'], 'interrupted')
+        self.assertEqual(report['stages']['ros']['status'], 'passed')
 
     def replay_files(self):
         output = self.root / 'owned'
