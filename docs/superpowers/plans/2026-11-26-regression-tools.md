@@ -31,9 +31,9 @@ CTest零用例和 catkin包装返回0但XML失败不能冒充通过；子集范�
 
 Files: tools/geometry_benchmark.h、tools/geometry_benchmark.cc、tools/benchmark_geometry.cc、tests/geometry_benchmark_test.cc、cmake/core.cmake、cmake/tests.cmake。
 
-- [ ] 新增小数据集测试，先确认入口缺失而失败，覆盖3帧2块、版本0/1、轮数、非法参数、封口、资源上限和只读。Expected: 旧树无法提供新入口。
-- [ ] 实现只读、逐块双路径基准和小型JSON，预加载限制、所有字段精确比对、无大体积输出；注册并安装基准。Expected: 数据规模可变，时钟范围清晰，stdout可解析JSON。
-- [ ] 运行新测试及既有几何相关目标。Expected: 全通过，SLAM库无行为修改。
+- [x] 新增小数据集测试，先确认入口缺失而失败，覆盖3帧2块、版本0/1、轮数、非法参数、封口、资源上限和只读。Expected: 旧树无法提供新入口。
+- [x] 实现只读、逐块双路径基准和小型JSON，预加载限制、所有字段精确比对、无大体积输出；注册并安装基准。Expected: 数据规模可变，时钟范围清晰，stdout可解析JSON。
+- [x] 运行新测试及既有几何相关目标。Expected: 全通过，SLAM库无行为修改。
 
 Interfaces: 安装bin/livo_atlas_benchmark_geometry，JSON schema1含工作量、两条指纹、匹配状态和每轮样本；私有工具入口RunGeometryBenchmark(vector<string>)供main及测试使用。
 
@@ -41,9 +41,9 @@ Interfaces: 安装bin/livo_atlas_benchmark_geometry，JSON schema1含工作量�
 
 Files: tools/timing_analysis.py、tools/analyze_timing.py、tools/run_regression.py、tests/test_regression_tools.py、cmake/tests.cmake。
 
-- [ ] 先写日志分析、真实小CTest项目、不可用环境、空/失败报告、保留策略与输出隔离测试。Expected: 新模块缺失或契约未实现而失败。
-- [ ] 实现标准库流式分析和明确请求范围的顺序调度，复用消费者/ROS回放器，记录命令日志与来源，成功后先清单再精简。Expected: 每个失败/未执行状态可见，退出码反映结果，既有数据不变。
-- [ ] 将标准库自测注册CTest，验证工具help可在无ROS环境运行。Expected: 单独与CTest均通过，原回放工具无需修改。
+- [x] 先写日志分析、真实小CTest项目、不可用环境、空/失败报告、保留策略与输出隔离测试。Expected: 新模块缺失或契约未实现而失败。
+- [x] 实现标准库流式分析和明确请求范围的顺序调度，复用消费者/ROS回放器，记录命令日志与来源，成功后先清单再精简。Expected: 每个失败/未执行状态可见，退出码反映结果，既有数据不变。
+- [x] 将标准库自测注册CTest，验证工具help可在无ROS环境运行。Expected: 单独与CTest均通过，原回放工具无需修改。
 
 Interfaces: runner使用Task1安装基准；若不构建SDK，则显式提供基准路径。日志/摘要JSON保留，外部路径全部由参数或CMakeCache得来。
 
@@ -51,8 +51,8 @@ Interfaces: runner使用Task1安装基准；若不构建SDK，则显式提供基
 
 Files: docs/regression-tools.md、docs/core-build.md、docs/engineering-roadmap.md、README.md。
 
-- [ ] 统一入口实际运行SDK及安装消费者、Noetic/Humble相关测试与真实基准。Expected: 来源、测试数和未请求范围正确，Humble不假称完整回放。
-- [ ] 原生Noetic回放验证compact策略，确认源数据/旧结果不变，摘要/日志/指纹仍在；all策略用测试和真实原数据基准验证。Expected: 成功检查后才精简，失败保留。
-- [ ] 独立源码复核、跨电脑命令与限制文档、本地提交。Expected: 无重要问题，容器恢复停止，工作区干净。
+- [x] 统一入口实际运行SDK及安装消费者、Noetic/Humble相关测试与真实基准。Expected: 来源、测试数和未请求范围正确，Humble不假称完整回放。
+- [x] 原生Noetic回放验证compact策略，确认源数据/旧结果不变，摘要/日志/指纹仍在；all策略用测试和真实原数据基准验证。Expected: 成功检查后才精简，失败保留。
+- [x] 独立源码复核、跨电脑命令与限制文档、本地提交。Expected: 无重要问题，容器恢复停止，工作区干净。
 
 Interfaces: Task3消费两项工具固定CLI和JSON，不能在验证时靠修改旧验证脚本才能运行。
