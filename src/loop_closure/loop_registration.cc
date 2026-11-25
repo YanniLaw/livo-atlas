@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <utility>
 
 #include <Eigen/Eigenvalues>
 #include <pcl/registration/gicp.h>
@@ -168,32 +169,86 @@ Cloud::Ptr Downsample(const GeometryData& data, double size) {
 }
 
 // PCL 1.10/1.12 expose the iteration counter only to derived implementations.
-class Gicp : public pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ,
-                                                          pcl::PointXYZ> {
+using GicpBase =
+    pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>;
+
+struct GicpCovariances {
+  GicpBase::MatricesVectorPtr source, target;
+};
+
+class Gicp : public GicpBase {
  public:
-  Gicp() {
+  explicit Gicp(bool stage_timing) : stage_timing_(stage_timing) {
     const auto estimate = rigid_transformation_estimation_;
     rigid_transformation_estimation_ =
-        [estimate](const Cloud& source, const std::vector<int>& source_indices,
-                   const Cloud& target, const std::vector<int>& target_indices,
-                   Eigen::Matrix4f& transform) {
+        [this, estimate](const Cloud& source,
+                         const std::vector<int>& source_indices,
+                         const Cloud& target,
+                         const std::vector<int>& target_indices,
+                         Eigen::Matrix4f& transform) {
+          auto start = StartTiming(stage_timing_);
           estimate(source, source_indices, target, target_indices, transform);
+          LogStageTiming("loop_gicp_estimate", start);
+          start = StartTiming(stage_timing_);
+          const bool safe = SafeTransform(source, transform);
+          LogStageTiming("loop_gicp_transform_check", start);
           // PCL catches this before the next float nearest-neighbor query.
-          if (!SafeTransform(source, transform)) {
+          if (!safe) {
             throw pcl::PCLException("Unsafe loop registration iterate");
           }
         };
   }
 
   int iterations() const { return nr_iterations_; }
+
+  GicpCovariances GetCovariances() const {
+    return {input_covariances_, target_covariances_};
+  }
+
+ protected:
+  void computeTransformation(Cloud& output,
+                             const Eigen::Matrix4f& guess) override {
+    if (!stage_timing_) {
+      GicpBase::computeTransformation(output, guess);
+      return;
+    }
+    auto start = StartTiming(true);
+    initComputeReciprocal();
+    LogStageTiming("loop_gicp_source_tree", start);
+    // Use PCL's exact routines and its target-before-source ordering. The
+    // base sees populated arrays and an initialized reciprocal tree below.
+    if (!target_covariances_ || target_covariances_->empty()) {
+      start = StartTiming(true);
+      target_covariances_.reset(new MatricesVector);
+      computeCovariances<pcl::PointXYZ>(target_, tree_, *target_covariances_);
+      LogStageTiming("loop_gicp_covariance_target", start);
+    }
+    if (!input_covariances_ || input_covariances_->empty()) {
+      start = StartTiming(true);
+      input_covariances_.reset(new MatricesVector);
+      computeCovariances<pcl::PointXYZ>(input_, tree_reciprocal_,
+                                       *input_covariances_);
+      LogStageTiming("loop_gicp_covariance_source", start);
+    }
+    start = StartTiming(true);
+    GicpBase::computeTransformation(output, guess);
+    LogStageTiming("loop_gicp_iterations", start);
+  }
+
+ private:
+  const bool stage_timing_;
 };
 
 LoopAlignment Align(const Cloud::ConstPtr& target,
                     const Cloud::ConstPtr& source, const Eigen::Matrix4f& guess,
-                    const LoopRegistrationOptions& options) {
-  Gicp solver;
+                    const LoopRegistrationOptions& options,
+                    bool stage_timing, GicpCovariances& covariances) {
+  Gicp solver(stage_timing);
   solver.setInputSource(source);
   solver.setInputTarget(target);
+  // PCL setters clear covariances, so attach the matching arrays afterwards.
+  if (covariances.source) solver.setSourceCovariances(covariances.source);
+  if (covariances.target) solver.setTargetCovariances(covariances.target);
   solver.setCorrespondenceRandomness(options.neighbors);
   solver.setMaxCorrespondenceDistance(options.correspondence_distance_m);
   solver.setMaximumIterations(options.max_iterations);
@@ -207,6 +262,7 @@ LoopAlignment Align(const Cloud::ConstPtr& target,
   } catch (const pcl::PCLException&) {
     return result;
   }
+  covariances = solver.GetCovariances();
   result.iterations = solver.iterations();
   result.converged = solver.hasConverged();
   const auto transform = solver.getFinalTransformation();
@@ -299,16 +355,24 @@ LoopVerification Solve(const GeometrySubmap& target,
       InitialGuess(*source_cloud, result.initial_target_from_source);
   const auto reverse_guess = InitialGuess(
       *target_cloud, pose_math::Inverse(result.initial_target_from_source));
+  GicpCovariances covariances;
   start = StartTiming(stage_timing);
-  result.forward = Align(target_cloud, source_cloud, forward_guess, options);
+  result.forward = Align(target_cloud, source_cloud, forward_guess, options,
+                          stage_timing, covariances);
   LogStageTiming("loop_gicp_forward", start);
   if (result.forward.iterations >= options.max_iterations) {
     result.status = LoopStatus::kIterationLimit;
     return result;
   }
   if (!result.forward.transform) return result;
+  // Covariances describe the untransformed local clouds. Reverse alignment
+  // exchanges their roles, while preserving point order and all parameters.
+  std::swap(covariances.source, covariances.target);
   start = StartTiming(stage_timing);
-  result.reverse = Align(source_cloud, target_cloud, reverse_guess, options);
+  result.reverse = Align(source_cloud, target_cloud, reverse_guess, options,
+                          stage_timing, covariances);
+  // Release the two arrays before the full-resolution quality checks.
+  covariances = {};
   LogStageTiming("loop_gicp_reverse", start);
   if (result.reverse.iterations >= options.max_iterations) {
     result.status = LoopStatus::kIterationLimit;

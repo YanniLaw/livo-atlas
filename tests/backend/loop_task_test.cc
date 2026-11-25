@@ -153,9 +153,33 @@ TEST_F(LoopTaskTest, FailedQueryDoesNotTimeSkippedBatches) {
   EXPECT_EQ(log.find(stage, first + stage.size()), std::string::npos);
 }
 
+TEST_F(LoopTaskTest, ForwardReverseShareCovariances) {
+  const auto task = Task();
+  const auto options = loop_test::NearbyOptions();
+  ManualThreadPool pool;
+  auto payload = std::make_shared<LoopTaskResult>(
+      LoopTaskResult{task, {}, {}});
+  testing::internal::CaptureStderr();
+  ScheduleLoopQuery(payload, options, PrepareLoopTask(task, options), pool, 4,
+                    [](auto) {}, true);
+  while (pool.ready_count()) pool.RunLastReady();
+  const auto log = testing::internal::GetCapturedStderr();
+  ASSERT_FALSE(payload->error);
+  ASSERT_TRUE(payload->admission);
+  ASSERT_TRUE(payload->admission->proposal);
+  ASSERT_NE(log.find("stage=loop_gicp_reverse seconds="), std::string::npos);
+  for (const auto* name : {"source", "target"}) {
+    const auto stage = std::string("stage=loop_gicp_covariance_") + name;
+    const auto first = log.find(stage);
+    ASSERT_NE(first, std::string::npos);
+    EXPECT_EQ(log.find(stage, first + stage.size()), std::string::npos);
+  }
+}
+
 TEST_F(LoopTaskTest, QueryStageTimingIsOptIn) {
   const auto task = Task();
   const auto options = loop_test::NearbyOptions();
+  const auto expected = RunLoopTask(task, options);
   for (const bool enabled : {false, true}) {
     ManualThreadPool pool;
     auto payload = std::make_shared<LoopTaskResult>(
@@ -166,6 +190,20 @@ TEST_F(LoopTaskTest, QueryStageTimingIsOptIn) {
     while (pool.ready_count()) pool.RunLastReady();
     const auto log = testing::internal::GetCapturedStderr();
     ASSERT_FALSE(payload->error);
+    ASSERT_TRUE(payload->admission);
+    EXPECT_EQ(payload->admission->status, expected.status);
+    ASSERT_EQ(payload->admission->candidates.size(), 1u);
+    ASSERT_EQ(expected.candidates.size(), 1u);
+    const auto& actual = payload->admission->candidates.front().verification;
+    const auto& reference = expected.candidates.front().verification;
+    ASSERT_TRUE(actual.target_from_source);
+    ASSERT_TRUE(reference.target_from_source);
+    EXPECT_TRUE(actual.target_from_source->rotation.isApprox(
+        reference.target_from_source->rotation, 1e-12));
+    EXPECT_TRUE(actual.target_from_source->translation.isApprox(
+        reference.target_from_source->translation, 1e-12));
+    EXPECT_EQ(actual.forward.iterations, reference.forward.iterations);
+    EXPECT_EQ(actual.reverse.iterations, reference.reverse.iterations);
     for (const auto* stage : {"loop_geometry_read", "loop_geometry_build",
                               "loop_cloud_read", "loop_geometry_snapshot",
                               "loop_prepare_batch", "loop_candidate",
@@ -173,7 +211,11 @@ TEST_F(LoopTaskTest, QueryStageTimingIsOptIn) {
                               "loop_query_compute", "loop_geometry_recheck",
                               "loop_input_prepare", "loop_gicp_forward",
                               "loop_gicp_reverse", "loop_quality_forward",
-                              "loop_quality_reverse"}) {
+                              "loop_quality_reverse", "loop_gicp_source_tree",
+                              "loop_gicp_covariance_source",
+                              "loop_gicp_covariance_target",
+                              "loop_gicp_iterations", "loop_gicp_estimate",
+                              "loop_gicp_transform_check"}) {
       const auto found = log.find(std::string("stage=") + stage + " seconds=");
       EXPECT_EQ(found != std::string::npos, enabled) << stage;
     }
