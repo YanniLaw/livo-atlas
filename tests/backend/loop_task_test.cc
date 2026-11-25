@@ -21,7 +21,9 @@
 #include <vector>
 
 #include "backend/loop_dataset_fixtures.h"
+#include "backend/loop_fixtures.h"
 #include "common/thread_pool.h"
+#include "loop_closure/loop_internal.h"
 #include "loop_closure/loop_query.h"
 #include "livo_atlas/io/keyframe_store.h"
 #include "livo_atlas/io/online_submap_store.h"
@@ -173,6 +175,37 @@ TEST_F(LoopTaskTest, ForwardReverseShareCovariances) {
     const auto first = log.find(stage);
     ASSERT_NE(first, std::string::npos);
     EXPECT_EQ(log.find(stage, first + stage.size()), std::string::npos);
+  }
+}
+
+TEST(LoopGicpTimingTest, RecordsEstimatorFailureWithoutChangingTheResult) {
+  const auto target = loop_test::Scene();
+  auto source = loop_test::Scene(5, 100);
+  // All points miss the correspondence radius. PCL's estimator throws
+  // NotEnoughPointsException, which its iteration loop catches internally.
+  source.parent_from_submap.translation.x() = 100;
+  const LoopRegistrationOptions options;
+  const auto expected = VerifyLoop(target, source, options);
+  ASSERT_FALSE(expected.forward.converged);
+  ASSERT_EQ(expected.forward.iterations, 0);
+  ASSERT_FALSE(expected.target_from_source);
+  for (const bool enabled : {false, true}) {
+    testing::internal::CaptureStderr();
+    const auto actual =
+        loop_internal::VerifyLoop(target, source, options, enabled);
+    const auto log = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(actual.status, expected.status);
+    EXPECT_EQ(actual.forward.converged, expected.forward.converged);
+    EXPECT_EQ(actual.forward.iterations, expected.forward.iterations);
+    EXPECT_FALSE(actual.target_from_source);
+    const std::string stage = "stage=loop_gicp_estimate seconds=";
+    const auto first = log.find(stage);
+    EXPECT_EQ(first != std::string::npos, enabled);
+    if (first != std::string::npos) {
+      EXPECT_EQ(log.find(stage, first + stage.size()), std::string::npos);
+    }
+    EXPECT_EQ(log.find("stage=loop_gicp_transform_check seconds="),
+              std::string::npos);
   }
 }
 

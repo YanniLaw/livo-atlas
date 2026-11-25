@@ -1,5 +1,8 @@
 # 回环分段计时
 
+本文历史时间包含线程审计探针开销，不能直接代表日常性能。
+后续 CPU 采样定位到该干扰，见 [不加载线程探针的对照](gicp-cpu-profile.md)。
+
 在 `config/backend.yaml` 中设置 `diagnostics.stage_timing: true`。ROS1、ROS2
 和 SDK 的 `SystemOptions::stage_timing` 使用同一开关。默认关闭，新增计时点关闭时
 不读时钟、不打印阶段日志。同步 `LoopClosure::Run()` 沿用原协议；本记录的新增查询计时

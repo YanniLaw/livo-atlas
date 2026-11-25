@@ -187,7 +187,14 @@ class Gicp : public GicpBase {
                          const std::vector<int>& target_indices,
                          Eigen::Matrix4f& transform) {
           auto start = StartTiming(stage_timing_);
-          estimate(source, source_indices, target, target_indices, transform);
+          try {
+            estimate(source, source_indices, target, target_indices, transform);
+          } catch (...) {
+            // PCL can catch a failed estimate inside its iteration loop.
+            // Include that work without changing the exception it receives.
+            LogStageTiming("loop_gicp_estimate", start);
+            throw;
+          }
           LogStageTiming("loop_gicp_estimate", start);
           start = StartTiming(stage_timing_);
           const bool safe = SafeTransform(source, transform);
