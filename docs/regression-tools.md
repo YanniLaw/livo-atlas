@@ -45,7 +45,8 @@ tools/analyze_timing.py 独立分析 GLOG，标准库逐行读取并汇总次数
 才允许精简输出。ROS1 仍遵守既有回放工具对独立源码快照 workspace 的要求。
 
 --output 必须是不存在的新目录。既有目录、文件、符号链接（含悬空链接）均拒绝；
-悬空父链接也拒绝，指向既有目录的父链接可用于创建新输出。
+悬空父链接也拒绝，指向既有目录的父链接可用于创建新输出。路径按分量依次检查，
+拒绝 `missing/..` 这种先经过不存在前缀再折返的写法，防止路径归一化掩盖既有链接。
 --retain compact 为缺省，只在所有请求阶段成功后，
 对本次 replay 中生成的点云/图像保存逐文件 SHA256 清单，再删除这些载荷；元数据、
 结果摘要、日志、轨迹和编译/安装产物保留。--retain all 保留全部载荷，失败或未完成
@@ -143,13 +144,16 @@ python3 tools/analyze_timing.py --log /path/to/mapping.log \
 
 ## 构建版本与线程记录
 
-CMake 配置时在构建目录生成 `livo_atlas_build_info.txt`，安装到
+CMake 配置时在包的构建目录生成 `livo_atlas_build_info.txt`，安装到
 `share/livo_atlas/livo_atlas_build_info.txt`。记录编译器 ID/版本、目标系统/处理器、ROS
 版本、构建类型、Eigen/PCL/OpenCV/GTSAM 版本，以及已解析的 OpenMP 编译能力。
-版本来自本次 CMake 依赖解析，使用非标准安装时也不改读系统头文件。
+版本来自本次 CMake 依赖解析，使用非标准安装时也不改读系统头文件。catkin_make 的
+顶层构建与包构建目录不同时，从缓存的 `livo_atlas_BINARY_DIR` 定位相应记录。
 
 SDK/ROS 阶段保存原始记录和 `build-info.json`；成功时同时写入阶段摘要的 `build_info`。
-构建前后各采集一次，测试失败时仍保留已有记录。旧构建没有记录时明确为 unavailable；
+构建前后各采集一次，失败的重构建也刷新记录并保留原始命令失败原因。刷新后的记录
+非法时，保存 invalid 状态和原文，不保留旧版本的 recorded JSON。测试失败时仍保留记录。
+旧构建没有记录时明确为 unavailable；
 版本为空时为 JSON null，不猜测版本。坏 schema 或非法能力值会失败，并保留原记录。
 这些字段描述构建配置，不能替代运行时实际加载库路径的核验。
 
@@ -200,15 +204,23 @@ Humble stderr、缺失回环归档、自定义 catkin XML、失真的基准报�
 
 ## 工程收尾记录（2026-11-26）
 
-输出入口、父链接与阶段状态边界已补复现测试并修正。工具自测35项通过；SDK完整
+输出入口、父链接与阶段状态边界已补复现测试并修正。工具自测43项通过；SDK完整
 CTest复跑78/78及安装消费者通过，Noetic相关子集8/8、Humble相关子集9/9通过。
 两端3秒回放的输入、输出及回环归档检查通过，线程记录均为前端2、后端4。
 本机与 Humble 记录分别为 GNU9.4 / Eigen3.3.7 / PCL1.10 / OpenCV4.2，和
 GNU11.4 / Eigen3.4.0 / PCL1.12.1 / OpenCV4.5.4；两端 GTSAM 均为4.2.2。
 
+独立复核另发现并补齐路径别名、嵌套 catkin、失败重构建记录和报告写入中断四项边界。
+JSON 使用临时文件和原子替换保存；元数据采集、阶段快照和最终快照被中断时，恢复
+可解析的报告，并协调 pending/running 阶段状态。
+
 首轮 SDK 中既有 `TwoContentAttemptsYieldOnceThenTrainAgain` 用例曾出现一次
 视图请求数预期2、实际3的失败。单独复跑10次及随后完整串行复跑通过；本轮未修改该
 用例或高斯 C++，未稳定复现原因，保留失败 XML 和复跑日志，后续仍需关注。
+
+保留一个低优先级日志解析边界：前端 `openmp_available` 的词尾尚未严格校验，异常外部
+日志中的 `trueish`/`falsehood` 会按布尔前缀识别。实际节点输出准确的 true/false，构建
+记录中的布尔字段也有独立严格校验；本轮实际版本和预算记录不受该边界影响。
 
 资料保存在工作区 `validation/regression-hardening-20261126/`。本轮只验收工具边界、
 构建记录和短回放日志接入；生产 SLAM 算法未变，没有重复135秒算法回归。

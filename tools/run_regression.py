@@ -16,6 +16,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 
@@ -34,7 +35,16 @@ class Unavailable(RuntimeError):
 
 
 def write_json(path, value):
-    path.write_text(json.dumps(value, indent=2, allow_nan=False) + '\n')
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent,
+                                         prefix='.' + path.name + '-', delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(json.dumps(value, indent=2, allow_nan=False) + '\n')
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def digest(path):
@@ -113,7 +123,11 @@ def library_environment(build):
 
 
 def read_build_info(build, output):
-    path = build / 'livo_atlas_build_info.txt'
+    values = cache_values(build) if (build / 'CMakeCache.txt').is_file() else {}
+    package = Path(values.get('livo_atlas_BINARY_DIR', build))
+    if not package.is_absolute():
+        package = build / package
+    path = package / 'livo_atlas_build_info.txt'
     if not path.is_file():
         return dict(status='unavailable', reason='No configured build record')
     record = output / path.name
@@ -140,6 +154,19 @@ def read_build_info(build, output):
                 dependencies={k: fields[k + '_version'] or None for k in
                               ('eigen', 'pcl', 'opencv', 'gtsam')},
                 openmp_available=fields['openmp_available'] == 'TRUE')
+
+
+def record_build_info(build, output):
+    # A refresh must never leave an earlier valid JSON beside newer raw data.
+    for name in ('build-info.json', 'livo_atlas_build_info.txt'):
+        (output / name).unlink(missing_ok=True)
+    try:
+        info = read_build_info(build, output)
+    except Exception as error:
+        write_json(output / 'build-info.json', dict(status='invalid', reason=str(error)))
+        raise
+    write_json(output / 'build-info.json', info)
+    return info
 
 
 def run_ctest(build, output, pattern=None, timeout=1800):
@@ -197,8 +224,7 @@ def run_ctest(build, output, pattern=None, timeout=1800):
 
 def build_and_test(build, output, jobs, pattern, timeout, ros=False):
     values = cache_values(build)
-    info = read_build_info(build, output)
-    write_json(output / 'build-info.json', info)
+    info = record_build_info(build, output)
     mode = values.get('LIVO_ATLAS_ROS_VERSION')
     if ros:
         distro = {'1': 'noetic', '2': 'humble'}.get(mode)
@@ -207,15 +233,21 @@ def build_and_test(build, output, jobs, pattern, timeout, ros=False):
             raise Unavailable('Source the matching Noetic/Humble environment')
     elif mode != '0':
         raise Unavailable('SDK build must use LIVO_ATLAS_ROS_VERSION=0')
-    command(['cmake', '--build', build, '--parallel', str(jobs)],
-            output / 'build.log', timeout=timeout)
-    if mode == '1':
-        command(['cmake', '--build', build, '--target', 'tests',
-                 '--parallel', str(jobs)], output / 'build-tests.log',
-                timeout=timeout)
+    try:
+        command(['cmake', '--build', build, '--parallel', str(jobs)],
+                output / 'build.log', timeout=timeout)
+        if mode == '1':
+            command(['cmake', '--build', build, '--target', 'tests',
+                     '--parallel', str(jobs)], output / 'build-tests.log',
+                    timeout=timeout)
+    except BaseException:
+        try:
+            record_build_info(build, output)
+        except Exception:
+            pass  # Preserve the build failure; invalid metadata is archived above.
+        raise
     # A build may have reconfigured CMake and generated a newer record.
-    info = read_build_info(build, output)
-    write_json(output / 'build-info.json', info)
+    info = record_build_info(build, output)
     result = run_ctest(build, output, pattern, timeout)
     result.update(ros_version=mode, build_directory=str(build),
                   configured_source=values.get('CMAKE_HOME_DIRECTORY'),
@@ -401,6 +433,27 @@ def finalize_artifacts(output, success, retain):
     return result
 
 
+def new_output(path):
+    current = Path(path.anchor) if path.is_absolute() else Path.cwd()
+    parts = path.parts[1:] if path.is_absolute() else path.parts
+    for index, part in enumerate(parts):
+        if part == '..':
+            if not current.is_dir():
+                raise ValueError('Output traverses an unresolved prefix before ..')
+            current = current.parent
+        else:
+            current = current / part
+        if current.is_symlink():
+            if index == len(parts) - 1 or not current.exists():
+                raise FileExistsError('Output traverses an existing or dangling link: ' + str(current))
+            current = current.resolve(strict=True)
+        if index != len(parts) - 1 and current.exists() and not current.is_dir():
+            raise NotADirectoryError(str(current))
+    if os.path.lexists(current):
+        raise FileExistsError('Output already exists: ' + str(current))
+    return current
+
+
 def arguments(values):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
@@ -428,12 +481,7 @@ def arguments(values):
         parser.error('Invalid jobs, rounds, version, limit or timeout')
     if args.replay_args and not args.replay:
         parser.error('--replay-args requires --replay')
-    # Check the spelling supplied by the caller before resolve follows links.
-    if os.path.lexists(args.output):
-        raise FileExistsError('Output already exists: ' + str(args.output))
-    for parent in args.output.parents:
-        if parent.is_symlink() and not parent.exists():
-            raise FileExistsError('Output parent is a dangling link: ' + str(parent))
+    args.output = new_output(args.output)
     for name, value in vars(args).items():
         if isinstance(value, Path):
             setattr(args, name, value.resolve())
@@ -454,25 +502,17 @@ def main(values=None):
                      ros=bool(args.ros_build), benchmark=bool(args.dataset),
                      replay=bool(args.replay))
     report = dict(schema_version=1, status='running', scope='requested_stages',
-                  source=source_info(PACKAGE), platform=platform.platform(),
-                  machine=platform.machine(), command=sys.argv if values is None else values,
-                  thread_environment={name: os.environ[name] for name in (
-                      'OMP_NUM_THREADS', 'OMP_THREAD_LIMIT', 'OMP_DYNAMIC',
-                      'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS') if name in os.environ},
-                  tool_sha256={name: digest(PACKAGE / 'tools' / name) for name in
-                               ('run_regression.py', 'timing_analysis.py')},
                   stages={name: dict(requested=value,
                                      status='pending' if value else 'not_requested')
                           for name, value in requested.items()})
     prefix = None
-    (args.output / 'stages').mkdir()
 
     def stage(name, action):
         destination = args.output / 'stages' / name
-        destination.mkdir()
         report['stages'][name].update(status='running')
-        write_json(args.output / 'summary.json', report)
         try:
+            destination.mkdir()
+            write_json(args.output / 'summary.json', report)
             result = action(destination) or {}
             report['stages'][name].update(status='passed', **result)
             return result
@@ -489,6 +529,15 @@ def main(values=None):
         return None
 
     try:
+        (args.output / 'stages').mkdir()
+        report.update(
+            source=source_info(PACKAGE), platform=platform.platform(),
+            machine=platform.machine(), command=sys.argv if values is None else values,
+            thread_environment={name: os.environ[name] for name in (
+                'OMP_NUM_THREADS', 'OMP_THREAD_LIMIT', 'OMP_DYNAMIC',
+                'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS') if name in os.environ},
+            tool_sha256={name: digest(PACKAGE / 'tools' / name) for name in
+                         ('run_regression.py', 'timing_analysis.py')})
         if args.sdk_build:
             result = stage('sdk', lambda out: build_and_test(
                 args.sdk_build, out, args.jobs, args.ctest_regex, args.timeout))
@@ -510,27 +559,33 @@ def main(values=None):
                 stage('benchmark', lambda out: run_benchmark(args, prefix, out))
         if args.replay:
             stage('replay', lambda _: run_replay(args, args.output, prefix))
-    except KeyboardInterrupt:
-        report['status'] = 'interrupted'
-        for value in report['stages'].values():
-            if value['status'] == 'pending':
-                value.update(status='interrupted',
-                             reason='Not executed after interruption')
-    statuses = [value['status'] for value in report['stages'].values()]
-    if report['status'] != 'interrupted':
+        statuses = [value['status'] for value in report['stages'].values()]
         report['status'] = ('failed' if 'failed' in statuses else
                             'incomplete' if any(s in statuses for s in
                                                 ('unavailable', 'blocked')) else 'passed')
-    try:
-        report['artifacts'] = finalize_artifacts(
-            args.output, report['status'] == 'passed', args.retain)
+        try:
+            report['artifacts'] = finalize_artifacts(
+                args.output, report['status'] == 'passed', args.retain)
+        except KeyboardInterrupt:
+            report['artifact_error'] = 'Artifact finalization interrupted; cleanup may be partial'
+            raise
+        except Exception as error:
+            report['status'] = 'failed'
+            report['artifact_error'] = str(error)
+        write_json(args.output / 'summary.json', report)
     except KeyboardInterrupt:
         report['status'] = 'interrupted'
-        report['artifact_error'] = 'Artifact finalization interrupted; cleanup may be partial'
-    except Exception as error:
-        report['status'] = 'failed'
-        report['artifact_error'] = str(error)
-    write_json(args.output / 'summary.json', report)
+        for value in report['stages'].values():
+            if value['status'] in ('pending', 'running'):
+                value.update(status='interrupted',
+                             reason='Not executed after interruption')
+        if 'artifacts' not in report:
+            partial = 'artifact_error' in report
+            report['artifacts'] = dict(
+                mode='interrupted' if partial else 'all_on_interruption',
+                removed_files=None if partial else 0,
+                removed_bytes=None if partial else 0)
+        write_json(args.output / 'summary.json', report)
     print(json.dumps(report, indent=2, allow_nan=False))
     return {'passed': 0, 'failed': 1, 'incomplete': 2,
             'interrupted': 130}[report['status']]

@@ -69,7 +69,7 @@ class RegressionToolsTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def project(self, script=None, metadata=False):
+    def project(self, script=None, metadata=False, nested=False):
         source = self.root / 'source'
         source.mkdir()
         tests = ''
@@ -89,6 +89,14 @@ class RegressionToolsTest(unittest.TestCase):
               'set(LIVO_ATLAS_OPENMP_AVAILABLE FALSE)\ninclude("' +
               str(run_regression.PACKAGE / 'cmake/build_info.cmake') + '")\n')
              if metadata else ''))
+        if nested:
+            package = source / 'package'
+            package.mkdir()
+            (source / 'CMakeLists.txt').rename(package / 'CMakeLists.txt')
+            (source / 'CMakeLists.txt').write_text(
+                'cmake_minimum_required(VERSION 3.16)\n'
+                'project(workspace NONE)\ninclude(CTest)\n'
+                'add_subdirectory(package livo-atlas)\n')
         build = self.root / 'build'
         subprocess.run(['cmake', '-S', str(source), '-B', str(build)],
                        check=True, stdout=subprocess.DEVNULL,
@@ -112,6 +120,46 @@ class RegressionToolsTest(unittest.TestCase):
         subprocess.run(['cmake', '--install', str(build), '--prefix', str(prefix)],
                        check=True, stdout=subprocess.DEVNULL)
         self.assertTrue((prefix / 'share/livo_atlas/livo_atlas_build_info.txt').is_file())
+
+    def test_nested_package_build_metadata_uses_configured_binary_directory(self):
+        build = self.project('print("ran")', metadata=True, nested=True)
+        output = self.root / 'result'
+        output.mkdir()
+        self.assertFalse((build / 'livo_atlas_build_info.txt').exists())
+        self.assertTrue((build / 'livo-atlas/livo_atlas_build_info.txt').is_file())
+        result = run_regression.read_build_info(build, output)
+        self.assertEqual(result['status'], 'recorded')
+        self.assertEqual(result['dependencies']['eigen'], '3.4.0')
+
+    def failed_rebuild(self, invalid=False):
+        build = self.project('print("ran")', metadata=True)
+        source = self.root / 'source/CMakeLists.txt'
+        text = source.read_text().replace('EIGEN3_VERSION_STRING 3.4.0',
+                                          'EIGEN3_VERSION_STRING 3.4.1')
+        if invalid:
+            text += ('file(WRITE "${PROJECT_BINARY_DIR}/livo_atlas_build_info.txt" '
+                     '"schema_version=99\\n")\n')
+        text += 'add_custom_target(broken ALL COMMAND ${CMAKE_COMMAND} -E false)\n'
+        source.write_text(text)
+        output = self.root / 'result'
+        output.mkdir()
+        with mock.patch.dict(os.environ,
+                             {'ROS_DISTRO': 'noetic', 'ROS_VERSION': '1'}):
+            with self.assertRaisesRegex(RuntimeError, 'Command exited'):
+                run_regression.build_and_test(build, output, 1, None, 30, ros=True)
+        return output
+
+    def test_failed_rebuild_refreshes_dependency_versions(self):
+        output = self.failed_rebuild()
+        result = json.loads((output / 'build-info.json').read_text())
+        self.assertEqual(result['dependencies']['eigen'], '3.4.1')
+
+    def test_failed_rebuild_does_not_keep_stale_valid_metadata(self):
+        output = self.failed_rebuild(invalid=True)
+        result = json.loads((output / 'build-info.json').read_text())
+        self.assertEqual(result['status'], 'invalid')
+        self.assertEqual((output / 'livo_atlas_build_info.txt').read_text(),
+                         'schema_version=99\n')
 
     def test_missing_build_metadata_is_explicit(self):
         output = self.root / 'out'
@@ -270,6 +318,23 @@ class RegressionToolsTest(unittest.TestCase):
                                  '--output', str(link / 'result')])
         self.assertFalse(target.exists())
 
+    def test_missing_prefix_cannot_hide_dangling_output_alias(self):
+        for parent in [False, True]:
+            with self.subTest(parent=parent):
+                target = self.root / ('target-' + str(parent))
+                link = self.root / ('link-' + str(parent))
+                link.symlink_to(target, target_is_directory=True)
+                output = self.root / 'missing/..' / link.name
+                if parent:
+                    output = output / 'result'
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaises((ValueError, FileExistsError)):
+                        run_regression.main([
+                            '--sdk-build', str(self.root / 'missing-build'),
+                            '--output', str(output)])
+                self.assertFalse(target.exists())
+                self.assertFalse((self.root / 'missing').exists())
+
     def test_existing_parent_link_allows_new_output(self):
         link = self.root / 'linked-parent'
         link.symlink_to(self.root, target_is_directory=True)
@@ -372,6 +437,75 @@ class RegressionToolsTest(unittest.TestCase):
         report = json.loads((output / 'summary.json').read_text())
         self.assertEqual(report['status'], 'interrupted')
         self.assertEqual(report['stages']['ros']['status'], 'passed')
+
+    def test_stage_summary_interrupt_reconciles_running_and_pending(self):
+        output = self.root / 'result'
+        original = run_regression.write_json
+        interrupted = False
+
+        def write(path, report):
+            nonlocal interrupted
+            if path.name == 'summary.json' and not interrupted:
+                interrupted = True
+                raise KeyboardInterrupt
+            original(path, report)
+
+        with mock.patch.object(run_regression, 'write_json', side_effect=write):
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = run_regression.main([
+                    '--sdk-build', str(self.root / 'build'), '--output', str(output)])
+        self.assertEqual(code, 130)
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['stages']['sdk']['status'], 'interrupted')
+        self.assertEqual(report['stages']['consumer']['status'], 'interrupted')
+
+    def test_metadata_collection_interrupt_keeps_a_report(self):
+        output = self.root / 'result'
+        with mock.patch.object(run_regression, 'source_info', side_effect=KeyboardInterrupt):
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    code = run_regression.main([
+                        '--sdk-build', str(self.root / 'build'), '--output', str(output)])
+                except KeyboardInterrupt:
+                    self.fail('Metadata interruption escaped without a report')
+        self.assertEqual(code, 130)
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['status'], 'interrupted')
+        self.assertEqual(report['stages']['sdk']['status'], 'interrupted')
+
+    def test_final_summary_interrupt_is_reported(self):
+        output = self.root / 'result'
+        original = run_regression.write_json
+        interrupted = False
+
+        def write(path, report):
+            nonlocal interrupted
+            if path.name == 'summary.json' and report['status'] != 'running' and not interrupted:
+                interrupted = True
+                raise KeyboardInterrupt
+            original(path, report)
+
+        with mock.patch.object(run_regression, 'write_json', side_effect=write):
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    code = run_regression.main([
+                        '--sdk-build', str(self.root / 'missing-build'),
+                        '--output', str(output)])
+                except KeyboardInterrupt:
+                    self.fail('Final summary interruption escaped without a report')
+        self.assertEqual(code, 130)
+        report = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(report['status'], 'interrupted')
+
+    def test_json_replace_interrupt_keeps_previous_snapshot(self):
+        path = self.root / 'summary.json'
+        original = '{"original": true}\n'
+        path.write_text(original)
+        with mock.patch.object(Path, 'replace', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                run_regression.write_json(path, {'new': True})
+        self.assertEqual(path.read_text(), original)
+        self.assertEqual(list(self.root.iterdir()), [path])
 
     def replay_files(self):
         output = self.root / 'owned'
