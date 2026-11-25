@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -76,6 +77,7 @@ class RegressionToolsTest(unittest.TestCase):
         out.mkdir()
         with self.assertRaises(RuntimeError):
             run_regression.run_ctest(build, out)
+        self.assertTrue((out / 'ctest.xml').is_file())
 
     def test_zero_tests_is_not_a_pass(self):
         build = self.project()
@@ -90,6 +92,21 @@ class RegressionToolsTest(unittest.TestCase):
             'p=Path.cwd()/"test_results"\np.mkdir(exist_ok=True)\n'
             '(p/"case.xml").write_text('
             '"<testsuites tests=\'1\' failures=\'1\' errors=\'0\'/>")\n')
+        out = self.root / 'result'
+        out.mkdir()
+        with self.assertRaisesRegex(RuntimeError, 'GTest'):
+            run_regression.run_ctest(build, out)
+        self.assertTrue((out / 'gtest/case.xml').is_file())
+
+    def test_configured_catkin_results_cannot_hide_failing_gtest(self):
+        results = self.root / 'custom catkin results'
+        build = self.project(
+            'from pathlib import Path\n'
+            'p=Path(' + repr(str(results)) + ')\np.mkdir()\n'
+            '(p/"case.xml").write_text('
+            '"<testsuites tests=\'1\' failures=\'1\' errors=\'0\'/>")\n')
+        with (build / 'CMakeCache.txt').open('a') as stream:
+            stream.write('\nCATKIN_TEST_RESULTS_DIR:PATH=' + str(results) + '\n')
         out = self.root / 'result'
         out.mkdir()
         with self.assertRaisesRegex(RuntimeError, 'GTest'):
@@ -192,6 +209,28 @@ class RegressionToolsTest(unittest.TestCase):
             self.assertEqual(result['removed_files'], 0)
             self.assertTrue((frames / 'cloud.pcd').exists())
 
+    def test_compact_removes_both_ros2_product_copies(self):
+        output, _, _ = self.replay_files()
+        for directory in ['products', 'node-output']:
+            path = output / 'replay' / directory / 'PCD/scan.pcd'
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b'generated product')
+        result = run_regression.finalize_artifacts(output, True, 'compact')
+        self.assertEqual(result['removed_files'], 3)
+        self.assertFalse((output / 'replay/node-output/PCD/scan.pcd').exists())
+
+    def test_replay_cannot_redirect_output_to_external_directories(self):
+        for flags in [['--legacy-output', '--save-products'],
+                      ['--gaussian-socket', str(self.root / 'worker.sock'),
+                       '--gaussian-output', str(self.root / 'external')]]:
+            with self.subTest(flags=flags), self.assertRaisesRegex(
+                    ValueError, 'output|Output'):
+                run_regression.arguments([
+                    '--replay', 'ros1', '--output', str(self.root / 'new'),
+                    '--replay-args', '--workspace', str(self.root / 'snapshot'),
+                    '--bag', str(self.root / 'input.bag')] + flags)
+        self.assertFalse((self.root / 'new').exists())
+
     def test_replay_summary_cannot_hide_failure_or_empty_input(self):
         for report in [{}, {'clean_shutdown': True, 'lio_cycles': 0},
                        {'clean_shutdown': False, 'lio_cycles': 3},
@@ -218,6 +257,77 @@ class RegressionToolsTest(unittest.TestCase):
         self.assertEqual(code, 1)
         result = json.loads((out / 'summary.json').read_text())
         self.assertEqual(result['stages']['benchmark']['status'], 'failed')
+
+    def test_benchmark_version_and_timing_samples_are_validated(self):
+        sample = dict(round=0, reference_first=1,
+                      **{key: .1 for key in (
+                          'reference_add_seconds', 'reference_snapshot_seconds',
+                          'mapper_total_seconds', 'mapper_build_seconds',
+                          'mapper_snapshot_seconds', 'mapper_read_seconds')})
+        for index, (version, value) in enumerate([
+                (0, sample), (3, {}),
+                (3, dict(sample, mapper_total_seconds=float('nan'))),
+                (3, dict(sample, mapper_total_seconds=-.1))]):
+            with self.subTest(version=version, sample=value):
+                report = dict(schema_version=1, geometry_matches=True,
+                              pose_version=version, frame_count=3, submap_count=2,
+                              samples=[value], reference_fingerprint='0' * 16,
+                              mapper_fingerprint='0' * 16)
+                executable = self.root / ('benchmark-' + str(index))
+                executable.write_text('#!' + sys.executable + '\nprint(' +
+                                      repr(json.dumps(report)) + ')\n')
+                executable.chmod(0o700)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    code = run_regression.main([
+                        '--dataset', str(self.root / 'dataset'),
+                        '--benchmark-executable', str(executable),
+                        '--pose-version', '3', '--rounds', '1',
+                        '--output', str(self.root / ('result-' + str(index)))])
+                self.assertEqual(code, 1)
+
+    def run_replay_fixture(self, name, mode, reported_loop=False,
+                           requested_loop=False):
+        output = self.root / name
+        script = self.root / (name + '.py')
+        report = dict(clean_shutdown=True, passed=True, lio_cycles=3,
+                      trajectory_rows=3, loop_closure_enabled=reported_loop)
+        log = 'livo_atlas timing stage=work seconds=.1\n'
+        script.write_text(
+            'import json,sys\nfrom pathlib import Path\n'
+            'p=Path(sys.argv[-1]);p.mkdir()\n'
+            '(p/"summary.json").write_text(' + repr(json.dumps(report)) + ')\n'
+            'f=p/"keyframes/frames/0";f.mkdir(parents=True)\n'
+            '(f/"cloud.pcd").write_bytes(b"keep on failure")\n'
+            '(p/"node.log").write_text(' +
+            repr('stdout banner\n' if mode == 'ros2' else log) + ')\n'
+            '(p/"node-stderr.log").write_text(' + repr(log if mode == 'ros2' else '') +
+            ')\n')
+        options = SimpleNamespace(bag=self.root / 'input.bag',
+                                  loop_closure=requested_loop)
+        with mock.patch.object(run_regression, 'replay_options',
+                               return_value=(script, options)):
+            with mock.patch.dict(os.environ, {'ROS_DISTRO':
+                                 'humble' if mode == 'ros2' else 'noetic'}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    code = run_regression.main([
+                        '--replay', mode, '--output', str(output)])
+        return code, output
+
+    def test_ros2_replay_reads_glog_from_stderr(self):
+        code, output = self.run_replay_fixture('humble', 'ros2')
+        self.assertEqual(code, 0)
+        timings = json.loads((output / 'replay-timing.json').read_text())
+        self.assertEqual(timings['stages']['work']['count'], 1)
+
+    def test_missing_loop_archive_retains_payload(self):
+        for reported, requested in [(True, False), (False, True)]:
+            with self.subTest(reported=reported, requested=requested):
+                code, output = self.run_replay_fixture(
+                    'loop-' + str(reported), 'ros1', reported, requested)
+                self.assertEqual(code, 1)
+                self.assertTrue((output / 'replay/keyframes/frames/0/cloud.pcd').exists())
+                report = json.loads((output / 'summary.json').read_text())
+                self.assertEqual(report['artifacts']['removed_files'], 0)
 
 
 if __name__ == '__main__':

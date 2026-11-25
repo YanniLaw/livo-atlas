@@ -82,7 +82,8 @@ python3 tools/run_regression.py --ros-build /path/to/configured/build \
 SDK 阶段包含构建、CTest、临时安装和独立消费者。构建会更新给定的构建目录，
 不自动重设其编译选项；非标准依赖需在首次 CMake 配置时提供对应 `*_DIR`。
 CTest 在构建目录中运行，保留 XML，并额外检查本轮新写入的 GTest XML，避免 catkin
-包装命令返回0却遗漏失败。仅通过消费者后才提供其安装前缀供后续阶段复用。
+包装命令返回0却遗漏失败。catkin 的结果目录以缓存中的 `CATKIN_TEST_RESULTS_DIR` 为准；
+CTest/GTest 失败时同样保存本轮 XML。仅通过消费者后才提供其安装前缀供后续阶段复用。
 
 单独运行真实数据几何基准：
 
@@ -115,6 +116,10 @@ python3 tools/run_regression.py --replay ros1 \
 `--replay-args` 必须放最后，其余参数直接交给旧回放器。Humble 用 `--replay ros2`，
 通过其 `--executable`、`--config`、`--camera` 等参数提供当前环境输入。
 回放目录由统一入口创建，不能指向既有数据。成功回放的检查工具必须与数据格式匹配。
+统一入口拒绝 `--legacy-output`，因为该模式可覆盖源码快照中的历史输出。
+`--gaussian-output` 必须位于本轮输出的 `replay/` 内。回环请求或回放摘要声明启用回环时，
+缺少归档也会失败并保留产物。Humble 的 stdout 和 GLOG stderr 分开读取，合并统计；
+精简同时覆盖两端使用的 `node_output` 和 `node-output` 产品目录。
 
 日志分析也可单独运行，输出文件不可已存在：
 

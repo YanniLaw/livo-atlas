@@ -2,9 +2,12 @@
 """Run explicitly selected, configured LIVO builds and optional data checks."""
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import importlib
+from itertools import chain
 import json
+import math
 import os
 import platform
 import re
@@ -111,28 +114,46 @@ def library_environment(build):
 
 def run_ctest(build, output, pattern=None, timeout=1800):
     build = Path(build).resolve()
+    results = Path(cache_values(build).get('CATKIN_TEST_RESULTS_DIR', 'test_results'))
+    if not results.is_absolute():
+        results = build / results
     started = time.time_ns()
     before = {p: (p.stat().st_mtime_ns, p.stat().st_size)
-              for p in (build / 'test_results').rglob('*.xml')}
+              for p in results.rglob('*.xml')}
     arguments = ['ctest', '-T', 'Test', '--no-compress-output',
                  '--output-on-failure', '-j', '1']
     if pattern:
         arguments += ['-R', pattern]
-    command(arguments, output / 'ctest.log', cwd=build,
-            env=library_environment(build), timeout=timeout)
-    tag = (build / 'Testing/TAG').read_text().splitlines()[0]
-    report = build / 'Testing' / tag / 'Test.xml'
-    if report.stat().st_mtime_ns < started - 1_000_000_000:
-        raise RuntimeError('CTest report is stale')
+    report, gtest_reports = None, []
+    try:
+        command(arguments, output / 'ctest.log', cwd=build,
+                env=library_environment(build), timeout=timeout)
+    finally:
+        # Preserve this run's XML even when CTest fails or catkin hides an error.
+        tag_path = build / 'Testing/TAG'
+        if tag_path.is_file():
+            tag = tag_path.read_text().splitlines()[0]
+            candidate = build / 'Testing' / tag / 'Test.xml'
+            if candidate.is_file() and \
+                    candidate.stat().st_mtime_ns >= started - 1_000_000_000:
+                report = output / 'ctest.xml'
+                shutil.copy2(str(candidate), str(report))
+        for path in results.rglob('*.xml'):
+            stat = path.stat()
+            if before.get(path) == (stat.st_mtime_ns, stat.st_size):
+                continue
+            destination = output / 'gtest' / path.relative_to(results)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(path), str(destination))
+            gtest_reports.append(destination)
+    if report is None:
+        raise RuntimeError('CTest report is missing or stale')
     tests = ET.parse(str(report)).findall('.//Testing/Test')
     if not tests:
         raise RuntimeError('No tests executed')
     if any(test.get('Status') != 'passed' for test in tests):
         raise RuntimeError('CTest contains failed or unexecuted tests')
-    for path in (build / 'test_results').rglob('*.xml'):
-        stat = path.stat()
-        if before.get(path) == (stat.st_mtime_ns, stat.st_size):
-            continue
+    for path in gtest_reports:
         root = ET.parse(str(path)).getroot()
         if root.tag not in ('testsuite', 'testsuites'):
             continue
@@ -140,7 +161,6 @@ def run_ctest(build, output, pattern=None, timeout=1800):
                 int(node.get(field, '0')) for node in root.iter()
                 for field in ('failures', 'errors')):
             raise RuntimeError('GTest report has failures or no cases: ' + str(path))
-    shutil.copy2(str(report), str(output / 'ctest.xml'))
     return dict(tests=len(tests), test_names=[t.findtext('Name') for t in tests],
                 test_regex=pattern)
 
@@ -234,11 +254,22 @@ def run_benchmark(args, prefix, output):
     reference = report.get('reference_fingerprint', '')
     if report.get('schema_version') != 1 or \
             report.get('geometry_matches') is not True or \
+            report.get('pose_version') != args.pose_version or \
             len(report.get('samples', [])) != args.rounds or \
             report.get('frame_count', 0) <= 0 or report.get('submap_count', 0) <= 0 or \
             not re.fullmatch('[0-9a-f]{16}', reference) or \
             report.get('mapper_fingerprint') != reference:
         raise RuntimeError('Geometry benchmark did not validate its results')
+    timings = ('reference_add_seconds', 'reference_snapshot_seconds',
+               'mapper_total_seconds', 'mapper_build_seconds',
+               'mapper_snapshot_seconds', 'mapper_read_seconds')
+    for index, sample in enumerate(report['samples']):
+        if sample.get('round') != index or \
+                sample.get('reference_first') != (index % 2 == 0) or any(
+                    type(sample.get(key)) not in (int, float) or
+                    not math.isfinite(sample[key]) or sample[key] < 0
+                    for key in timings):
+            raise RuntimeError('Invalid geometry benchmark timing sample')
     return dict(command=[str(v) for v in arguments], frame_count=report['frame_count'],
                 submap_count=report['submap_count'], rounds=len(report['samples']),
                 executable_sha256=digest(executable),
@@ -261,6 +292,11 @@ def replay_options(args):
     module = importlib.import_module(('tools.' if __package__ else '') + name)
     parsed = module.parse_arguments(args.replay_args +
                                     ['--output', str(args.output / 'replay')])
+    if getattr(parsed, 'legacy_output', False):
+        raise ValueError('--legacy-output can write outside this run output')
+    gaussian = getattr(parsed, 'gaussian_output', None)
+    if gaussian and args.output / 'replay' not in gaussian.resolve().parents:
+        raise ValueError('--gaussian-output must be inside this run replay output')
     return PACKAGE / 'tools' / (name + '.py'), parsed
 
 
@@ -268,7 +304,7 @@ def run_replay(args, output, prefix):
     expected = 'noetic' if args.replay == 'ros1' else 'humble'
     if os.environ.get('ROS_DISTRO') != expected:
         raise Unavailable('Source ' + expected + ' before replay')
-    script, _ = replay_options(args)
+    script, options = replay_options(args)
     arguments = [sys.executable, script] + args.replay_args + \
         ['--output', output / 'replay']
     command(arguments, output / 'replay.log', timeout=args.timeout)
@@ -276,7 +312,10 @@ def run_replay(args, output, prefix):
     report = json.loads((replay / 'summary.json').read_text())
     check_replay_summary(report, args.replay)
     dataset = replay / 'keyframes'
-    if (dataset / 'loop_closure').is_dir():
+    archive = dataset / 'loop_closure'
+    if options.loop_closure or report.get('loop_closure_enabled') or archive.is_dir():
+        if not archive.is_dir():
+            raise RuntimeError('Expected loop archive is missing')
         checker = args.loop_checker
         if checker is None and prefix:
             checker = Path(prefix) / 'bin/livo_atlas_check_loops'
@@ -286,11 +325,13 @@ def run_replay(args, output, prefix):
             raise Unavailable('A loop checker is required before compacting the replay')
         command([checker, dataset, output / 'replay-inspection'],
                 output / 'inspection.log', timeout=args.timeout)
-    log = replay / 'mapping.log'
-    if not log.exists():
-        log = replay / 'node.log'
-    with log.open(errors='replace') as stream:
-        timings = analyze_lines(stream)
+    names = ['mapping.log'] if args.replay == 'ros1' else ['node.log', 'node-stderr.log']
+    # The ROS2 runner separates stdout and GLOG stderr; parse both streams.
+    logs = [replay / name for name in names if (replay / name).is_file()]
+    with ExitStack() as stack:
+        streams = [stack.enter_context(path.open(errors='replace')) for path in logs]
+        timings = analyze_lines(chain.from_iterable(streams))
+    timings['logs'] = [str(path) for path in logs]
     write_json(output / 'replay-timing.json', timings)
     return dict(directory=str(replay), summary=str(replay / 'summary.json'))
 
@@ -310,7 +351,7 @@ def finalize_artifacts(output, success, retain):
             if path.is_symlink() or not path.is_file():
                 continue
             files[str(relative)] = dict(size=path.stat().st_size, sha256=digest(path))
-            if relative.parts[0] in ('keyframes', 'products', 'node_output') and \
+            if relative.parts[0] in ('keyframes', 'products', 'node_output', 'node-output') and \
                     path.suffix.lower() in BULK_SUFFIXES:
                 removable.append(path)
     # Manifest must reach disk before the first payload is removed.
