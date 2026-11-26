@@ -29,9 +29,9 @@
 **Interfaces:** compare(...,reduced_learning_rate=None); --reduced-learning-rate means|log_scales;
 comparison_scope=learning_rates.<name>, learning_rates.parameter/baseline/candidate.
 
-- [ ] Add RED tests for both positive-rate fields and CLI acceptance; reject zero/equal/increase/names/mode conflicts, second rate/config changes, YAML aliases/key types/default spelling; default/freeze modes reject positive-rate interventions.
-- [ ] Implement shared one-rate verification with distinct freeze/decrease validation and accurate labels; preserve old outputs.
-- [ ] Run focused and full Python/CUDA suite, expected all pass, no skips; re-certify genuine old method/freeze comparisons byte-identical; commit and ledger.
+- [x] Add RED tests for both positive-rate fields and CLI acceptance; reject zero/equal/increase/names/mode conflicts, second rate/config changes, YAML aliases/key types/default spelling; default/freeze modes reject positive-rate interventions.
+- [x] Implement shared one-rate verification with distinct freeze/decrease validation and accurate labels; preserve old outputs.
+- [x] Run focused and full Python/CUDA suite, expected all pass, no skips; re-certify genuine old method/freeze comparisons byte-identical; commit and ledger.
 
 ### Task 2: Four fresh evaluations with verified reused controls
 
@@ -39,7 +39,7 @@ comparison_scope=learning_rates.<name>, learning_rates.parameter/baseline/candid
 local validation/gaussian-means-rate-20261127.
 **Interfaces:** original evaluator and Task1 comparison; protocol.json maps original full/zero archives plus new half-rate runs.
 
-- [ ] Freeze protocol/config/source/old-report fingerprints before training; verify reuse admission; run four new evaluations and four comparisons. Expected calls/steps/splits/selection unchanged.
-- [ ] Independent audit of all12 full/half/zero archives, raw metrics, per-scene six-way depth, training IDs/quotas, identities and all comparison PNGs. Expected succeeded; no-common depthnull.
-- [ ] Inspect diagnostic figures, record positive or negative results and resources/reproduction without default change; verify diff, commit and ledger.
+- [x] Freeze protocol/config/source/old-report fingerprints before training; verify reuse admission; run four new evaluations and four comparisons. Expected calls/steps/splits/selection unchanged.
+- [x] Independent audit of all12 full/half/zero archives, raw metrics, per-scene six-way depth, training IDs/quotas, identities and all comparison PNGs. Expected succeeded; no-common depthnull.
+- [x] Inspect diagnostic figures, record positive or negative results and resources/reproduction without default change; verify diff, commit and ledger.
 - [ ] One fresh whole-change final read-only review; fix Important issues once RED→GREEN/full suite, revalidate relevant artifacts; preserve branch/local commits.
