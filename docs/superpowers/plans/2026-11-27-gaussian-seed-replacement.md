@@ -1,6 +1,6 @@
 # Gaussian Seed Replacement Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 增加保持uniform位置的定额替换方式，并验证其相对旧补洞方法的覆盖/纹理/深度取舍。
 
@@ -32,10 +32,10 @@
 
 **Interfaces:** WorkerOptions.coverage_sampling='resample'; initialize_gaussians(...,coverage_sampling='resample'); _replacement_seed_count(...); replace-only uniform_uncovered/replaced_seeds evidence.
 
-- [ ] Write failing tests for exact replacement positions/bounds/defaults and real CUDA initialization/evidence, including zero bypass.
-- [ ] Observe RED; implement enum, deterministic set replacement and shared count helper.
-- [ ] Run focused and full Python/CUDA suite, expected all pass.
-- [ ] Commit implementation and ledger result.
+- [x] Write failing tests for exact replacement positions/bounds/defaults and real CUDA initialization/evidence, including zero bypass.
+- [x] Observe RED; implement enum, deterministic set replacement and shared count helper.
+- [x] Run focused and full Python/CUDA suite, expected all pass.
+- [x] Commit implementation and ledger result.
 
 ### Task 2: Exact controlled method comparison and legacy records
 
@@ -43,9 +43,9 @@
 
 **Interfaces:** compare(...,allow_coverage_sampling_change=False); mutually exclusive CLI flags; archived options supply only missing historical coverage_sampling='resample'.
 
-- [ ] Add failing tests for allowed enum-only change, wrong ratio/optimizer/type rejection, default/ratio-mode rejection, replacement counts and old archived options.
-- [ ] Observe RED; implement explicit method comparison and count validation without weakening existing guards.
-- [ ] Run focused and full suite, expected all pass; commit and ledger result.
+- [x] Add failing tests for allowed enum-only change, wrong ratio/optimizer/type rejection, default/ratio-mode rejection, replacement counts and old archived options.
+- [x] Observe RED; implement explicit method comparison and count validation without weakening existing guards.
+- [x] Run focused and full suite, expected all pass; commit and ledger result.
 
 ### Task 3: Ten-run paired study and documentation
 
@@ -53,7 +53,7 @@
 
 **Interfaces:** existing evaluator runs five conditions seeds0/1; same-ratio method comparison, zero-based ratio comparisons and independent ten-run audit.
 
-- [ ] Run ten sequential complete-prefix experiments, expected150calls/3000steps/21queries/19joint each and unchanged budgets.
-- [ ] Verify all source/pose/config/float artifacts, quotas/retention counts, ten-way common-depth metrics and worst-view diagnostics.
-- [ ] Document positive or negative outcome and limitations; verify full suite and git diff --check; commit docs.
+- [x] Run ten sequential complete-prefix experiments, expected150calls/3000steps/21queries/19joint each and unchanged budgets.
+- [x] Verify all source/pose/config/float artifacts, quotas/retention counts, ten-way common-depth metrics and worst-view diagnostics.
+- [x] Document positive or negative outcome and limitations; verify full suite and git diff --check; commit docs.
 - [ ] Obtain one fresh read-only final review and fix Important/Critical findings via RED→GREEN plus full suite.
