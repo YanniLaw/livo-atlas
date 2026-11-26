@@ -18,6 +18,8 @@
 [预留比例参数化与六次敏感性验证](gaussian-coverage-ratio.md)：25%提供联合质量折中，
 单块SSIM仍有损失。随后完成[定额替换与十次同版本对照](gaussian-seed-replacement.md)，
 uniform原有覆盖保留明显改善，但未恢复单块SSIM且有深度代价，默认仍为uniform/resample；下一项先诊断覆盖与纹理冗余的关系。
+随后完成[CBD Building第二场景复验](cbd-building-sampling.md)：85次训练/1700步、五条件各两次，
+覆盖保留收益复现，单块SSIM/共同深度代价扩大；补齐归档相机容差与原生准备器的一致性。
 同环境精确回归与跨环境数值对照继续分开解释；3DGS、长距离数据、ARM 实机等方向保留如下。
 
 C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。

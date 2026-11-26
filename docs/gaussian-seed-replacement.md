@@ -154,3 +154,6 @@ run_study.py、audit_study.py、summarize_study.py、test_suite.sh、execution.j
 下一步先诊断被移除点的纹理梯度/多视图贡献，以及保留点在优化中的尺度、颜色和位移变化，
 验证alpha覆盖能否用来判断冗余，再决定是否增加选择约束。保持同一预算单独做因果对照，
 本轮不继续叠加新的采样规则、增密或后端变化。
+
+随后完成[CBD Building第二场景复验](cbd-building-sampling.md)：原覆盖保留收益复现，
+但单块SSIM与共同深度代价更明显，50%替换的联合PSNR也略降。默认保持不变。
