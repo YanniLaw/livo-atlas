@@ -237,5 +237,73 @@ class OnlineGaussianModelTest(unittest.TestCase):
         self.assertEqual(model.frame_ids, [0])
 
 
+
+
+class CoverageRatioGpuTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from dataclasses import replace
+        from worker_config import DEFAULT_WORKER_OPTIONS
+        if not torch.cuda.is_available():
+            if os.environ.get('LIVO_REQUIRE_GPU') == '1':
+                raise RuntimeError('CUDA is required')
+            raise unittest.SkipTest('CUDA is not available')
+        # These two tests retain at most eight Gaussians on 8x6 images.
+        # Use an explicit test budget without changing the production default.
+        cls.options = replace(DEFAULT_WORKER_OPTIONS, min_free_gpu_memory_mib=1024,
+                              gpu_memory_fraction=.2)
+        cls.device = checked_cuda_device(cls.options)
+        torch.set_num_threads(1)
+
+    def test_zero_ratio_uses_uniform_training_without_prepass(self):
+        from dataclasses import replace
+        from worker_config import DEFAULT_WORKER_OPTIONS
+        options = replace(self.options, coverage_uncovered_ratio=0.)
+        models = []
+        schedules = []
+        for policy in ('uniform', 'coverage'):
+            model = OnlineGaussianModel(self.device, options=options)
+            model.reset(1)
+            actual = []
+            with mock.patch('online_model._MAX_PER_VIEW', 4):
+                for key in (0, 1):
+                    with mock.patch('online_model._render_view', wraps=_render_view) as render:
+                        _, metrics = model.train_candidate(make_view(key, dense=True), seed_policy=policy)
+                    self.assertEqual(render.call_count, 21)
+                    actual.append(metrics['training_frame_ids'])
+                    if policy == 'coverage':
+                        self.assertIsNone(metrics['seed_selection']['prepass_seconds'])
+                        self.assertEqual(metrics['seed_selection']['reserved_uncovered'], 0)
+                    model.decide(True)
+            models.append(model)
+            schedules.append(actual)
+        self.assertEqual(schedules[0], schedules[1])
+        torch.testing.assert_close(models[0].origin_ids, models[1].origin_ids, rtol=0, atol=0)
+        for name in models[0].parameters:
+            torch.testing.assert_close(models[0].parameters[name], models[1].parameters[name], rtol=1e-6, atol=1e-7)
+
+    def test_quarter_ratio_reaches_prepass_and_actual_initialization(self):
+        from dataclasses import replace
+        from worker_config import DEFAULT_WORKER_OPTIONS
+        options = replace(self.options, coverage_uncovered_ratio=.25,
+                          learning_rates=replace(DEFAULT_WORKER_OPTIONS.learning_rates, means=0.))
+        model = OnlineGaussianModel(self.device, options=options)
+        model.reset(1)
+        model.train_candidate(make_view(0))
+        model.decide(True)
+        view = make_view(1, dense=True)
+        def render(parameters, observation):
+            if observation is view:
+                alpha = torch.ones((6, 8), device=self.device)
+                alpha[0, :2] = 0
+                return None, alpha, None
+            return _render_view(parameters, observation)
+        with mock.patch('online_model._MAX_PER_VIEW', 4), mock.patch('online_model._render_view', side_effect=render):
+            _, metrics = model.train_candidate(view, seed_policy='coverage')
+        self.assertEqual(metrics['seed_selection']['reserved_uncovered'], 1)
+        actual = model.parameters['means'][model.origin_ids == 1].detach().cpu().numpy()
+        np.testing.assert_array_equal(actual, [[-4.5, 4.5, 1], [-4.5, 3.5, 1], [-2.5, 4.5, 1], [-.5, 4.5, 1]])
+
+
 if __name__ == "__main__":
     unittest.main()

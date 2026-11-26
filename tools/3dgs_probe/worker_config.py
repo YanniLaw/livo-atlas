@@ -27,6 +27,7 @@ class WorkerOptions:
     gpu_memory_fraction: float = 0.4
     depth_loss_weight: float = 0.05
     learning_rates: LearningRates = LearningRates()
+    coverage_uncovered_ratio: float = 0.5
 
 
 DEFAULT_WORKER_OPTIONS = WorkerOptions()
@@ -56,6 +57,14 @@ def _nonnegative_number(value, name):
     if type(value) not in (int, float) or not 0 <= value <= sys.float_info.max:
         raise ValueError(f"{name} must be a finite nonnegative number")
     return float(value)
+
+
+def validate_coverage_uncovered_ratio(value):
+    name = 'gaussian.worker.coverage_uncovered_ratio'
+    ratio = _nonnegative_number(value, name)
+    if ratio > 1:
+        raise ValueError(f'{name} must be in [0, 1]')
+    return ratio
 
 
 def load_worker_config(path):
@@ -97,6 +106,8 @@ def load_worker_config(path):
         raise ValueError(f"{name}.gpu_memory_fraction must be in (0, 1]")
     depth_weight = _nonnegative_number(worker.get("depth_loss_weight", defaults.depth_loss_weight),
                                        f"{name}.depth_loss_weight")
+    uncovered_ratio = validate_coverage_uncovered_ratio(
+        worker.get('coverage_uncovered_ratio', defaults.coverage_uncovered_ratio))
     rate_name = f"{name}.learning_rates"
     rates = _mapping(worker.get("learning_rates", {}), rate_name)
     rate_keys = [field.name for field in fields(LearningRates)]
@@ -111,5 +122,6 @@ def load_worker_config(path):
         options=WorkerOptions(
             device=device, min_free_gpu_memory_mib=free_memory, gpu_memory_fraction=fraction,
             depth_loss_weight=depth_weight, learning_rates=learning_rates,
+            coverage_uncovered_ratio=uncovered_ratio,
         ),
     )

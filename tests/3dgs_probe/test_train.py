@@ -25,6 +25,37 @@ def make_view(keyframe_id, split, width=8, height=6):
 
 
 class InitializationTest(unittest.TestCase):
+    def test_configured_coverage_ratio_preserves_total_budget_and_exact_seeds(self):
+        view = make_view(0, 'train', width=4, height=3)
+        valid = [0, 1, 2, 3, 4, 6, 7, 10, 11]
+        view['depth_mask'].flat[valid] = True
+        view['depth_m'].flat[valid] = 4
+        view['rgb'][:, :, 0] = np.arange(12).reshape(3, 4) / 12
+        holes = np.zeros((3, 4), dtype=bool)
+        holes.flat[[6, 7, 11]] = True
+        for ratio, pixels in ((0, [0, 2, 4, 7]), (.25, [0, 2, 6, 7]),
+                              (.5, [0, 3, 6, 7]), (1, [0, 6, 7, 11])):
+            with self.subTest(ratio=ratio):
+                result = initialize_gaussians([view], 4, uncovered_mask=holes, uncovered_ratio=ratio)
+                np.testing.assert_array_equal(result['colors'][:, 0], view['rgb'][:, :, 0].flat[pixels])
+                self.assertEqual(result['means'].shape, (4, 3))
+        holes[:] = False
+        holes.flat[[1, 2, 3, 4, 6, 7]] = True
+        result = initialize_gaussians([view], 4, uncovered_mask=holes, uncovered_ratio=1)
+        np.testing.assert_array_equal(result['colors'][:, 0], view['rgb'][:, :, 0].flat[[1, 2, 4, 6]])
+
+    def test_initializer_rejects_invalid_ratios_and_zero_matches_uniform(self):
+        view = make_view(0, 'train')
+        view['depth_mask'][:] = True
+        view['depth_m'][:] = 4
+        uniform = initialize_gaussians([view], 4)
+        zero = initialize_gaussians([view], 4, uncovered_mask=np.ones((6, 8), bool), uncovered_ratio=0)
+        for name in uniform:
+            np.testing.assert_array_equal(zero[name], uniform[name])
+        for ratio in (True, -.01, 1.01, float('nan'), float('inf'), '.5'):
+            with self.subTest(ratio=ratio), self.assertRaises(ValueError):
+                initialize_gaussians([view], 4, uncovered_ratio=ratio)
+
     def test_backprojection_and_validation_isolation(self):
         first = make_view(2, "train")
         first["depth_mask"][3, 4] = True

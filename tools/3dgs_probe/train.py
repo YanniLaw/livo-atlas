@@ -17,6 +17,7 @@ import torch
 
 from bundle import load_bundle
 from rasterizer import render, to_gsplat_camera
+from worker_config import validate_coverage_uncovered_ratio
 
 
 _ALPHA_THRESHOLD = 0.05
@@ -42,17 +43,20 @@ def _depth_candidates(view):
             np.asarray(view["depth_mask"], dtype=bool))
 
 
-def _reserved_seed_count(candidates, uncovered, limit):
+def _reserved_seed_count(candidates, uncovered, limit, uncovered_ratio=0.5):
+    ratio = validate_coverage_uncovered_ratio(uncovered_ratio)
     if candidates > limit and 0 < uncovered < candidates:
-        return min(limit // 2, uncovered)
+        return min(int(limit * ratio), uncovered)
     return 0
 
 
 def _evenly_spaced(pixels, count):
+    if not count:
+        return pixels[:0]
     return pixels[np.arange(count, dtype=np.int64) * pixels.size // count]
 
 
-def _seed_pixels(mask, limit, uncovered_mask):
+def _seed_pixels(mask, limit, uncovered_mask, uncovered_ratio):
     valid = np.flatnonzero(mask)
     count = min(valid.size, limit)
     if uncovered_mask is not None:
@@ -60,7 +64,7 @@ def _seed_pixels(mask, limit, uncovered_mask):
         if uncovered.dtype != np.dtype(bool) or uncovered.ndim != 2 or uncovered.shape != mask.shape:
             raise ValueError("uncovered_mask must be boolean and match the training image")
         holes = valid[uncovered.ravel()[valid]]
-        quota = _reserved_seed_count(valid.size, holes.size, limit)
+        quota = _reserved_seed_count(valid.size, holes.size, limit, uncovered_ratio)
         if quota:
             reserved = _evenly_spaced(holes, quota)
             remaining = np.setdiff1d(valid, reserved, assume_unique=True)
@@ -68,10 +72,11 @@ def _seed_pixels(mask, limit, uncovered_mask):
     return _evenly_spaced(valid, count) if count else valid
 
 
-def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None):
+def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None, uncovered_ratio=0.5):
     """Backproject a deterministic subset of training depths into the parent frame."""
     if type(max_per_view) is not int or max_per_view <= 0:
         raise ValueError("max_per_view must be a positive integer")
+    uncovered_ratio = validate_coverage_uncovered_ratio(uncovered_ratio)
     order = _training_ids(train_views)
     if uncovered_mask is not None and len(order) != 1:
         raise ValueError("uncovered_mask requires exactly one training view")
@@ -81,7 +86,7 @@ def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None):
     for keyframe_id in order:
         view = by_id[keyframe_id]
         mask = _depth_candidates(view)
-        pixels = _seed_pixels(mask, max_per_view, uncovered_mask)
+        pixels = _seed_pixels(mask, max_per_view, uncovered_mask, uncovered_ratio)
         count = pixels.size
         if count == 0:
             continue

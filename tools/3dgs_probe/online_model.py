@@ -218,7 +218,7 @@ class OnlineGaussianModel:
         count = int(candidates.sum())
         evidence = dict(prepass_seconds=None, depth_candidates=count,
                         uncovered_candidates=None, reserved_uncovered=0)
-        if self.parameters is None or count <= _MAX_PER_VIEW:
+        if self.options.coverage_uncovered_ratio == 0 or self.parameters is None or count <= _MAX_PER_VIEW:
             return None, evidence
 
         started = time.perf_counter()
@@ -236,7 +236,8 @@ class OnlineGaussianModel:
         uncovered = candidates & (alpha < _ALPHA_THRESHOLD)
         holes = int(uncovered.sum())
         evidence.update(uncovered_candidates=holes,
-                        reserved_uncovered=_reserved_seed_count(count, holes, _MAX_PER_VIEW))
+                        reserved_uncovered=_reserved_seed_count(
+                            count, holes, _MAX_PER_VIEW, self.options.coverage_uncovered_ratio))
         return uncovered, evidence
 
     def train_candidate(self, view, *, seed_policy=DEFAULT_SEED_POLICY):
@@ -255,7 +256,8 @@ class OnlineGaussianModel:
                 raise ValueError("Coverage prepass requires a training view")
             uncovered, selection = self._coverage_prepass(view)
         # Initialization validates that depth exists before the model mutates.
-        initial = initialize_gaussians([view], _MAX_PER_VIEW, uncovered_mask=uncovered)
+        initial = initialize_gaussians([view], _MAX_PER_VIEW, uncovered_mask=uncovered,
+                                      uncovered_ratio=self.options.coverage_uncovered_ratio)
         try:
             self._append(view, initial)
             before = {name: value.detach().clone()
