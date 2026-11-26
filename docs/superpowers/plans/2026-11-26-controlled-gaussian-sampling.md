@@ -1,6 +1,6 @@
 # Controlled Gaussian Sampling Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 固定观测与训练预算比较两种高斯采样策略，并输出可核验的空洞/交接视角诊断。
 
@@ -32,11 +32,11 @@
 
 **Interfaces:** Consumes load_evaluation_snapshot, EvaluationSelector, prepare_group, train_group; produces run(args) and report.json plus exact samples.
 
-- [ ] Write failing tests for frozen roles/group/query plan, canonical train admission, configurable training options, real CUDA schedule, budget and failure publication.
-- [ ] Run focused tests and observe missing behavior fail.
-- [ ] Implement runner; extend train_group with optional WorkerOptions, preserving legacy default.
-- [ ] Run focused tests, then the whole tests/3dgs_probe suite; expected all pass.
-- [ ] Commit runner with tests; ledger completion.
+- [x] Write failing tests for frozen roles/group/query plan, canonical train admission, configurable training options, real CUDA schedule, budget and failure publication.
+- [x] Run focused tests and observe missing behavior fail.
+- [x] Implement runner; extend train_group with optional WorkerOptions, preserving legacy default.
+- [x] Run focused tests, then the whole tests/3dgs_probe suite; expected all pass.
+- [x] Commit runner with tests; ledger completion.
 
 ### Task 2: Verified comparison and visual diagnostics
 
@@ -44,10 +44,10 @@
 
 **Interfaces:** Consumes two Task 1 outputs; produces comparison report with shared-mask depth, per-view errors, diagnostics and matching budgets.
 
-- [ ] Write failing tests for altered schedules/config/selection/reference/artifacts, exact metric reconstruction, shared-mask depth, empty masks and worst-view PNG output.
-- [ ] Observe RED, implement bounded report/sample loading and comparison using existing measure and training checks.
-- [ ] Run focused and full Python/CUDA suite; expected all pass.
-- [ ] Commit comparator; ledger completion.
+- [x] Write failing tests for altered schedules/config/selection/reference/artifacts, exact metric reconstruction, shared-mask depth, empty masks and worst-view PNG output.
+- [x] Observe RED, implement bounded report/sample loading and comparison using existing measure and training checks.
+- [x] Run focused and full Python/CUDA suite; expected all pass.
+- [x] Commit comparator; ledger completion.
 
 ### Task 3: Controlled experiment and evidence
 
@@ -55,8 +55,8 @@
 
 **Interfaces:** Runs Task 1 for uniform/coverage seeds 0/1, Task 2 for each pair; records commands, schedules, sample hashes, metrics and limits.
 
-- [ ] Run all four full frozen-snapshot experiments sequentially and audit 150 calls/3000 steps, common selection, poses and train-only lineage.
-- [ ] Compare both pairs and inspect worst-view diagnostic images; expected reports complete and all numerical controls match.
-- [ ] Document observed quality/depth/resource tradeoffs, single-scene limitation and one recommended next optimization.
-- [ ] Run final full Python/CUDA suite and git diff --check; expected pass.
+- [x] Run all four full frozen-snapshot experiments sequentially and audit 150 calls/3000 steps, common selection, poses and train-only lineage.
+- [x] Compare both pairs and inspect worst-view diagnostic images; expected reports complete and all numerical controls match.
+- [x] Document observed quality/depth/resource tradeoffs, single-scene limitation and one recommended next optimization.
+- [x] Run final full Python/CUDA suite and git diff --check; expected pass.
 - [ ] Commit evidence guide and obtain one fresh read-only final review; fix Important/Critical findings via RED→GREEN and full suite.
