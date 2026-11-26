@@ -10,6 +10,7 @@ DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "gaussian.yaml
 DEFAULT_TRANSFER_TIMEOUT_MS = 5000
 DEFAULT_SEED_POLICY = "uniform"
 SEED_POLICIES = (DEFAULT_SEED_POLICY, "coverage")
+COVERAGE_SAMPLING = ('resample', 'replace')
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class WorkerOptions:
     depth_loss_weight: float = 0.05
     learning_rates: LearningRates = LearningRates()
     coverage_uncovered_ratio: float = 0.5
+    coverage_sampling: str = 'resample'
 
 
 DEFAULT_WORKER_OPTIONS = WorkerOptions()
@@ -65,6 +67,12 @@ def validate_coverage_uncovered_ratio(value):
     if ratio > 1:
         raise ValueError(f'{name} must be in [0, 1]')
     return ratio
+
+
+def validate_coverage_sampling(value):
+    if not isinstance(value, str) or value not in COVERAGE_SAMPLING:
+        raise ValueError('gaussian.worker.coverage_sampling must be resample or replace')
+    return value
 
 
 def load_worker_config(path):
@@ -108,6 +116,7 @@ def load_worker_config(path):
                                        f"{name}.depth_loss_weight")
     uncovered_ratio = validate_coverage_uncovered_ratio(
         worker.get('coverage_uncovered_ratio', defaults.coverage_uncovered_ratio))
+    sampling = validate_coverage_sampling(worker.get('coverage_sampling', defaults.coverage_sampling))
     rate_name = f"{name}.learning_rates"
     rates = _mapping(worker.get("learning_rates", {}), rate_name)
     rate_keys = [field.name for field in fields(LearningRates)]
@@ -123,5 +132,6 @@ def load_worker_config(path):
             device=device, min_free_gpu_memory_mib=free_memory, gpu_memory_fraction=fraction,
             depth_loss_weight=depth_weight, learning_rates=learning_rates,
             coverage_uncovered_ratio=uncovered_ratio,
+            coverage_sampling=sampling,
         ),
     )

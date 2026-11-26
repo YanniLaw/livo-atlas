@@ -240,6 +240,33 @@ class OnlineGaussianModelTest(unittest.TestCase):
 
 
 class CoverageRatioGpuTest(unittest.TestCase):
+    def test_replacement_evidence_and_actual_initialized_positions(self):
+        from dataclasses import replace
+        options = replace(self.options, coverage_sampling='replace', coverage_uncovered_ratio=.5,
+                          learning_rates=replace(self.options.learning_rates, means=0.))
+        model = OnlineGaussianModel(self.device, options=options)
+        model.reset(1)
+        _, initial = model.train_candidate(make_view(0), seed_policy='coverage')
+        self.assertIsNone(initial['seed_selection']['uniform_uncovered'])
+        self.assertEqual(initial['seed_selection']['replaced_seeds'], 0)
+        model.decide(True)
+        view = make_view(1, dense=True)
+        def render(parameters, observation):
+            if observation is view:
+                alpha = torch.ones((6, 8), device=self.device)
+                alpha.view(-1)[[1, 13, 24, 37]] = 0
+                return None, alpha, None
+            return _render_view(parameters, observation)
+        with mock.patch('online_model._MAX_PER_VIEW', 4), mock.patch('online_model._render_view', side_effect=render):
+            _, metrics = model.train_candidate(view, seed_policy='coverage')
+        e = metrics['seed_selection']
+        self.assertEqual(e['uniform_uncovered'], 1)
+        self.assertEqual(e['replaced_seeds'], 2)
+        self.assertEqual(e['reserved_uncovered'], 0)
+        # U=[0,12,24,36], remove0/12, add1/13; retained24/36.
+        points = model.parameters['means'][model.origin_ids == 1].detach().cpu().numpy()
+        np.testing.assert_array_equal(points, [[-4.5, 3.5, 1], [-3.5, -.5, 1], [-1.5, 4.5, 1], [-.5, .5, 1]])
+
     @classmethod
     def setUpClass(cls):
         from dataclasses import replace
@@ -248,7 +275,7 @@ class CoverageRatioGpuTest(unittest.TestCase):
             if os.environ.get('LIVO_REQUIRE_GPU') == '1':
                 raise RuntimeError('CUDA is required')
             raise unittest.SkipTest('CUDA is not available')
-        # These two tests retain at most eight Gaussians on 8x6 images.
+        # These tests use 8x6 images and at most eight Gaussians per model.
         # Use an explicit test budget without changing the production default.
         cls.options = replace(DEFAULT_WORKER_OPTIONS, min_free_gpu_memory_mib=1024,
                               gpu_memory_fraction=.2)
@@ -261,8 +288,8 @@ class CoverageRatioGpuTest(unittest.TestCase):
         options = replace(self.options, coverage_uncovered_ratio=0.)
         models = []
         schedules = []
-        for policy in ('uniform', 'coverage'):
-            model = OnlineGaussianModel(self.device, options=options)
+        for policy, sampling in (('uniform', 'resample'), ('coverage', 'resample'), ('coverage', 'replace')):
+            model = OnlineGaussianModel(self.device, options=replace(options, coverage_sampling=sampling))
             model.reset(1)
             actual = []
             with mock.patch('online_model._MAX_PER_VIEW', 4):
@@ -277,10 +304,11 @@ class CoverageRatioGpuTest(unittest.TestCase):
                     model.decide(True)
             models.append(model)
             schedules.append(actual)
-        self.assertEqual(schedules[0], schedules[1])
-        torch.testing.assert_close(models[0].origin_ids, models[1].origin_ids, rtol=0, atol=0)
-        for name in models[0].parameters:
-            torch.testing.assert_close(models[0].parameters[name], models[1].parameters[name], rtol=1e-6, atol=1e-7)
+        for index in (1, 2):
+            self.assertEqual(schedules[0], schedules[index])
+            torch.testing.assert_close(models[0].origin_ids, models[index].origin_ids, rtol=0, atol=0)
+            for name in models[0].parameters:
+                torch.testing.assert_close(models[0].parameters[name], models[index].parameters[name], rtol=1e-6, atol=1e-7)
 
     def test_quarter_ratio_reaches_prepass_and_actual_initialization(self):
         from dataclasses import replace

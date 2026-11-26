@@ -11,7 +11,8 @@ import numpy as np
 import torch
 
 from gaussian_state import GaussianState, _metadata, _pose, _unsigned, validate_state
-from train import (_ALPHA_THRESHOLD, _depth_candidates, _render_view, _reserved_seed_count,
+from train import (_ALPHA_THRESHOLD, _depth_candidates, _evenly_spaced, _render_view,
+                   _replacement_seed_count, _reserved_seed_count,
                    create_parameters, initialize_gaussians, masked_losses)
 from worker_config import DEFAULT_SEED_POLICY, DEFAULT_WORKER_OPTIONS, SEED_POLICIES
 
@@ -218,6 +219,8 @@ class OnlineGaussianModel:
         count = int(candidates.sum())
         evidence = dict(prepass_seconds=None, depth_candidates=count,
                         uncovered_candidates=None, reserved_uncovered=0)
+        if self.options.coverage_sampling == 'replace':
+            evidence.update(uniform_uncovered=None, replaced_seeds=0)
         if self.options.coverage_uncovered_ratio == 0 or self.parameters is None or count <= _MAX_PER_VIEW:
             return None, evidence
 
@@ -235,9 +238,16 @@ class OnlineGaussianModel:
             raise RuntimeError("Coverage prepass produced invalid alpha")
         uncovered = candidates & (alpha < _ALPHA_THRESHOLD)
         holes = int(uncovered.sum())
-        evidence.update(uncovered_candidates=holes,
-                        reserved_uncovered=_reserved_seed_count(
-                            count, holes, _MAX_PER_VIEW, self.options.coverage_uncovered_ratio))
+        evidence['uncovered_candidates'] = holes
+        if self.options.coverage_sampling == 'replace':
+            uniform = _evenly_spaced(np.flatnonzero(candidates), min(count, _MAX_PER_VIEW))
+            uniform_holes = int(uncovered.ravel()[uniform].sum())
+            evidence.update(uniform_uncovered=uniform_holes,
+                replaced_seeds=_replacement_seed_count(count, holes, uniform_holes,
+                    _MAX_PER_VIEW, self.options.coverage_uncovered_ratio))
+        else:
+            evidence['reserved_uncovered'] = _reserved_seed_count(
+                count, holes, _MAX_PER_VIEW, self.options.coverage_uncovered_ratio)
         return uncovered, evidence
 
     def train_candidate(self, view, *, seed_policy=DEFAULT_SEED_POLICY):
@@ -257,7 +267,8 @@ class OnlineGaussianModel:
             uncovered, selection = self._coverage_prepass(view)
         # Initialization validates that depth exists before the model mutates.
         initial = initialize_gaussians([view], _MAX_PER_VIEW, uncovered_mask=uncovered,
-                                      uncovered_ratio=self.options.coverage_uncovered_ratio)
+                                      uncovered_ratio=self.options.coverage_uncovered_ratio,
+                                      coverage_sampling=self.options.coverage_sampling)
         try:
             self._append(view, initial)
             before = {name: value.detach().clone()

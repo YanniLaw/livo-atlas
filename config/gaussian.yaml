@@ -33,6 +33,8 @@ gaussian:
     # Maximum fraction of the seed budget reserved for uncovered depth pixels.
     # Only affects coverage; 0 uses uniform initialization without a prepass.
     coverage_uncovered_ratio: 0.5
+    # replace keeps uniform seed positions except for a bounded hole-filling swap.
+    coverage_sampling: resample
     device: cuda:0
     min_free_gpu_memory_mib: 4096
     gpu_memory_fraction: 0.4

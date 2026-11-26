@@ -17,7 +17,7 @@ import torch
 
 from bundle import load_bundle
 from rasterizer import render, to_gsplat_camera
-from worker_config import validate_coverage_uncovered_ratio
+from worker_config import validate_coverage_sampling, validate_coverage_uncovered_ratio
 
 
 _ALPHA_THRESHOLD = 0.05
@@ -56,7 +56,13 @@ def _evenly_spaced(pixels, count):
     return pixels[np.arange(count, dtype=np.int64) * pixels.size // count]
 
 
-def _seed_pixels(mask, limit, uncovered_mask, uncovered_ratio):
+def _replacement_seed_count(candidates, uncovered, uniform_uncovered, limit, ratio):
+    ratio = validate_coverage_uncovered_ratio(ratio)
+    count = min(candidates, limit)
+    return min(int(count * ratio), count - uniform_uncovered, uncovered - uniform_uncovered)
+
+
+def _seed_pixels(mask, limit, uncovered_mask, uncovered_ratio, coverage_sampling):
     valid = np.flatnonzero(mask)
     count = min(valid.size, limit)
     if uncovered_mask is not None:
@@ -64,6 +70,16 @@ def _seed_pixels(mask, limit, uncovered_mask, uncovered_ratio):
         if uncovered.dtype != np.dtype(bool) or uncovered.ndim != 2 or uncovered.shape != mask.shape:
             raise ValueError("uncovered_mask must be boolean and match the training image")
         holes = valid[uncovered.ravel()[valid]]
+        if coverage_sampling == 'replace':
+            uniform = _evenly_spaced(valid, count)
+            covered = uniform[~uncovered.ravel()[uniform]]
+            additions = np.setdiff1d(holes, uniform, assume_unique=True)
+            quota = _replacement_seed_count(valid.size, holes.size, count-covered.size, limit, uncovered_ratio)
+            # Preserve every other uniform position; coverage is a heuristic,
+            # not a guarantee that removing these seeds cannot hurt texture.
+            removed = _evenly_spaced(covered, quota)
+            kept = np.setdiff1d(uniform, removed, assume_unique=True)
+            return np.sort(np.concatenate((kept, _evenly_spaced(additions, quota))))
         quota = _reserved_seed_count(valid.size, holes.size, limit, uncovered_ratio)
         if quota:
             reserved = _evenly_spaced(holes, quota)
@@ -72,11 +88,13 @@ def _seed_pixels(mask, limit, uncovered_mask, uncovered_ratio):
     return _evenly_spaced(valid, count) if count else valid
 
 
-def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None, uncovered_ratio=0.5):
+def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None, uncovered_ratio=0.5,
+                         coverage_sampling='resample'):
     """Backproject a deterministic subset of training depths into the parent frame."""
     if type(max_per_view) is not int or max_per_view <= 0:
         raise ValueError("max_per_view must be a positive integer")
     uncovered_ratio = validate_coverage_uncovered_ratio(uncovered_ratio)
+    coverage_sampling = validate_coverage_sampling(coverage_sampling)
     order = _training_ids(train_views)
     if uncovered_mask is not None and len(order) != 1:
         raise ValueError("uncovered_mask requires exactly one training view")
@@ -86,7 +104,7 @@ def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None, unco
     for keyframe_id in order:
         view = by_id[keyframe_id]
         mask = _depth_candidates(view)
-        pixels = _seed_pixels(mask, max_per_view, uncovered_mask, uncovered_ratio)
+        pixels = _seed_pixels(mask, max_per_view, uncovered_mask, uncovered_ratio, coverage_sampling)
         count = pixels.size
         if count == 0:
             continue

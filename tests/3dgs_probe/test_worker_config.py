@@ -8,6 +8,18 @@ from worker_config import DEFAULT_CONFIG, load_worker_config
 
 
 class CoverageRatioConfigTest(unittest.TestCase):
+    def test_sampling_method_default_and_validation(self):
+        self.assertEqual(load_worker_config(DEFAULT_CONFIG).options.coverage_sampling, 'resample')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'config.yaml'
+            for value in ('resample', 'replace', 'other', True, None, 1):
+                path.write_text(yaml.safe_dump({'gaussian': {'worker': {'coverage_sampling': value}}}))
+                if value in ('resample', 'replace'):
+                    self.assertEqual(load_worker_config(path).options.coverage_sampling, value)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'coverage_sampling'):
+                        load_worker_config(path)
+
     def load(self, value):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'config.yaml'

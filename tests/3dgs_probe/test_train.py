@@ -25,6 +25,52 @@ def make_view(keyframe_id, split, width=8, height=6):
 
 
 class InitializationTest(unittest.TestCase):
+    def test_replacement_preserves_unreplaced_uniform_positions(self):
+        view = make_view(0, 'train', width=4, height=3)
+        view['depth_mask'][:] = True
+        view['depth_m'][:] = 4
+        view['rgb'][:, :, 0] = np.arange(12).reshape(3, 4) / 12
+        holes = np.zeros((3, 4), bool)
+        holes.flat[[1, 4, 6, 10]] = True
+        for ratio, expected in ((0, [0, 3, 6, 9]), (.25, [1, 3, 6, 9]),
+                                (.5, [1, 4, 6, 9]), (1, [1, 4, 6, 10])):
+            with self.subTest(ratio=ratio):
+                actual = initialize_gaussians([view], 4, uncovered_mask=holes,
+                    uncovered_ratio=ratio, coverage_sampling='replace')
+                np.testing.assert_array_equal(actual['colors'][:, 0], view['rgb'][:, :, 0].flat[expected])
+        for indices, expected in (([1], [1, 3, 6, 9]), ([0, 1, 3, 6], [0, 1, 3, 6]),
+                                  ([0, 3, 6, 9], [0, 3, 6, 9]), ([], [0, 3, 6, 9]),
+                                  (list(range(12)), [0, 3, 6, 9])):
+            holes[:] = False
+            holes.flat[indices] = True
+            actual = initialize_gaussians([view], 4, uncovered_mask=holes,
+                uncovered_ratio=1, coverage_sampling='replace')
+            np.testing.assert_array_equal(actual['colors'][:, 0], view['rgb'][:, :, 0].flat[expected])
+
+    def test_replacement_properties_and_small_budget(self):
+        view = make_view(0, 'train', width=20, height=3)
+        view['depth_mask'][:] = True
+        view['depth_m'][:] = 4
+        view['rgb'][:, :, 0] = np.arange(60).reshape(3, 20) / 60
+        rng = np.random.default_rng(723)
+        for limit in (1, 7, 60, 100):
+            uniform = initialize_gaussians([view], limit)
+            u = set(np.rint(uniform['colors'][:, 0]*60).astype(int))
+            for ratio in (0, .25, .5, 1):
+                holes = rng.random((3, 20)) < .4
+                h = set(np.flatnonzero(holes))
+                q = min(int(len(u)*ratio), len(u-h), len(h-u))
+                actual = initialize_gaussians([view], limit, uncovered_mask=holes,
+                    uncovered_ratio=ratio, coverage_sampling='replace')
+                indices = np.rint(actual['colors'][:, 0]*60).astype(int)
+                s = set(indices)
+                self.assertEqual(len(indices), len(u))
+                self.assertEqual(len(s), len(u))
+                self.assertEqual(len(u-s), q)
+                self.assertEqual(len(s-u), q)
+                self.assertTrue((u & h) <= s)
+                self.assertTrue((s-u) <= (h-u))
+
     def test_configured_coverage_ratio_preserves_total_budget_and_exact_seeds(self):
         view = make_view(0, 'train', width=4, height=3)
         valid = [0, 1, 2, 3, 4, 6, 7, 10, 11]
