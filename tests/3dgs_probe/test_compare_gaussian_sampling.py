@@ -669,6 +669,36 @@ class SamplingComparisonTest(unittest.TestCase):
             with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'config|options'):
                 compare(self.baseline, self.candidate, self.root / case, reduced_learning_rate='means')
 
+    def test_reduced_rate_accepts_identical_mixed_yaml_keys(self):
+        import yaml
+        self.reduced_rate_pair()
+        for root in (self.baseline, self.candidate):
+            config = yaml.safe_load((root / 'config.yaml').read_text())
+            config['profiles'] = {1: 'camera', 'fallback': 'camera'}
+            self.archive_config(root, config)
+        self.assertEqual(compare(self.baseline, self.candidate, self.root / 'mixed-keys',
+                                 reduced_learning_rate='means')['status'], 'succeeded')
+
+    def test_reduced_rate_preserves_yaml_collection_value_types(self):
+        import datetime
+        import yaml
+        self.reduced_rate_pair()
+        for root in (self.baseline, self.candidate):
+            config = yaml.safe_load((root / 'config.yaml').read_text())
+            config['metadata'] = dict(day=datetime.date(2026, 11, 27), sensors={1, 'camera'}, ids=[1, False])
+            self.archive_config(root, config)
+        self.assertEqual(compare(self.baseline, self.candidate, self.root / 'yaml-values',
+                                 reduced_learning_rate='means')['status'], 'succeeded')
+        for index, value in enumerate((dict(day=datetime.date(2026, 11, 27), sensors={True, 'camera'}, ids=[1, False]),
+                                       dict(day='2026-11-27', sensors={1, 'camera'}, ids=[1, False]),
+                                       dict(day=datetime.date(2026, 11, 27), sensors={1, 'camera'}, ids=[True, 0]))):
+            config = yaml.safe_load((self.candidate / 'config.yaml').read_text())
+            config['metadata'] = value
+            self.archive_config(self.candidate, config)
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'config'):
+                compare(self.baseline, self.candidate, self.root / f'yaml-types-{index}',
+                        reduced_learning_rate='means')
+
 
 
 if __name__ == '__main__':

@@ -29,6 +29,22 @@ _CONTROLS = ('random_seed', 'split_id', 'selection_policy', 'selection_semantics
 _REFERENCE = ('reference_rgb', 'reference_depth_m', 'image_mask', 'depth_mask')
 
 
+def _same_configuration(a, b):
+    """Compare resolved YAML values without sorting or stringifying its keys."""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, dict):
+        left = {(type(key), key): value for key, value in a.items()}
+        right = {(type(key), key): value for key, value in b.items()}
+        return left.keys() == right.keys() and all(_same_configuration(value, right[key])
+                                                   for key, value in left.items())
+    if isinstance(a, (list, tuple)):
+        return len(a) == len(b) and all(_same_configuration(x, y) for x, y in zip(a, b))
+    if isinstance(a, set):
+        return {(type(value), value) for value in a} == {(type(value), value) for value in b}
+    return a == b
+
+
 def depth_comparison(baseline, candidate, reference, labels):
     mask = labels & (baseline['alpha'] >= _ALPHA_THRESHOLD) & (candidate['alpha'] >= _ALPHA_THRESHOLD)
     count = int(mask.sum())
@@ -287,10 +303,7 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
             else:
                 document['gaussian'].get('worker', {}).pop(varied_key, None)
                 values.pop(varied_key)
-        # Native equality distinguishes YAML key types that JSON stringifies;
-        # canonical JSON also distinguishes numeric and boolean value types.
-        _require(configurations[0] == configurations[1]
-                 and canonical_json(configurations[0]) == canonical_json(configurations[1])
+        _require(_same_configuration(configurations[0], configurations[1])
                  and canonical_json(options[0]) == canonical_json(options[1]),
                  'Other config or training options differ in controlled comparison')
         controls = tuple(key for key in _CONTROLS if key not in ('config_sha256', 'training_options'))
