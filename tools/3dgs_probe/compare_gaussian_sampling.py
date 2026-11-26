@@ -220,13 +220,18 @@ def _diagnostic(path, baseline, candidate, mode, labels=('uniform', 'coverage'))
 
 
 def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
-             allow_coverage_sampling_change=False, frozen_parameter=None):
+             allow_coverage_sampling_change=False, frozen_parameter=None,
+             reduced_learning_rate=None):
     _require(frozen_parameter is None or
              (isinstance(frozen_parameter, str) and frozen_parameter in ('means', 'log_scales')),
              'Frozen parameter must be means or log_scales')
+    _require(reduced_learning_rate is None or
+             (isinstance(reduced_learning_rate, str) and reduced_learning_rate in ('means', 'log_scales')),
+             'Reduced learning rate must be means or log_scales')
     _require(sum((bool(allow_coverage_ratio_change), bool(allow_coverage_sampling_change),
-                  frozen_parameter is not None)) <= 1,
+                  frozen_parameter is not None, reduced_learning_rate is not None)) <= 1,
              'Only one setting may vary in a controlled comparison')
+    parameter = frozen_parameter if frozen_parameter is not None else reduced_learning_rate
     baseline, candidate, output = Path(baseline).resolve(strict=True), Path(candidate).resolve(strict=True), Path(output).absolute()
     _require(not output.exists() and not output.is_symlink() and output.parent.is_dir(), 'Output must be new')
     resolved = output.resolve()
@@ -235,7 +240,7 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
     a, split, a_digest = _load(baseline)
     b, other, b_digest = _load(candidate)
     controls = _CONTROLS
-    if allow_coverage_ratio_change or allow_coverage_sampling_change or frozen_parameter is not None:
+    if allow_coverage_ratio_change or allow_coverage_sampling_change or parameter is not None:
         configurations = [verify_configuration(root, report) for root, report in ((baseline, a), (candidate, b))]
         # Nested learning-rate removal must not mutate the loaded reports.
         options = [copy.deepcopy(normalized_training_options(report)) for report in (a, b)]
@@ -246,16 +251,21 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
             worker = dict(document['gaussian'].get('worker', {}))
             document['gaussian']['worker'] = worker
             configurations[index] = document
-            if frozen_parameter is None:
+            if parameter is None:
                 worker.setdefault('coverage_sampling', 'resample')
                 options[index].setdefault('coverage_sampling', 'resample')
-        if frozen_parameter is not None:
-            learning_rates = dict(parameter=frozen_parameter,
-                baseline=options[0]['learning_rates'][frozen_parameter],
-                candidate=options[1]['learning_rates'][frozen_parameter])
+        if parameter is not None:
+            learning_rates = dict(parameter=parameter,
+                baseline=options[0]['learning_rates'][parameter],
+                candidate=options[1]['learning_rates'][parameter])
             _require(a['seed_policy'] == b['seed_policy'] and a['seed_policy'] in ('uniform', 'coverage')
-                     and learning_rates['baseline'] > 0 and learning_rates['candidate'] == 0,
-                     'Freeze comparison requires a positive learning rate then zero')
+                     and learning_rates['baseline'] > 0, 'Rate comparison requires the same policy and a positive baseline')
+            if frozen_parameter is not None:
+                _require(learning_rates['candidate'] == 0,
+                         'Freeze comparison requires a positive learning rate then zero')
+            else:
+                _require(0 < learning_rates['candidate'] < learning_rates['baseline'],
+                         'Reduced learning rate must remain positive and decrease')
         elif allow_coverage_sampling_change:
             samplings = dict(zip(('baseline', 'candidate'), (values['coverage_sampling'] for values in options)))
             _require(a['seed_policy'] == b['seed_policy'] == 'coverage'
@@ -269,11 +279,11 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
                      and b['seed_policy'] == 'coverage', 'Ratio comparison requires a zero-ratio baseline')
             varied_key = 'coverage_uncovered_ratio'
         for document, values in zip(configurations, options):
-            if frozen_parameter is not None:
+            if parameter is not None:
                 worker = document['gaussian']['worker']
                 worker['learning_rates'] = dict(worker.get('learning_rates', {}))
-                worker['learning_rates'].pop(frozen_parameter, None)
-                values['learning_rates'].pop(frozen_parameter)
+                worker['learning_rates'].pop(parameter, None)
+                values['learning_rates'].pop(parameter)
             else:
                 document['gaussian'].get('worker', {}).pop(varied_key, None)
                 values.pop(varied_key)
@@ -323,8 +333,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
         report.update(comparison_scope='coverage_uncovered_ratio', coverage_uncovered_ratios=ratios)
     elif allow_coverage_sampling_change:
         report.update(comparison_scope='coverage_sampling', coverage_sampling=samplings)
-    elif frozen_parameter is not None:
-        report.update(comparison_scope='learning_rates.'+frozen_parameter, learning_rates=learning_rates)
+    elif parameter is not None:
+        report.update(comparison_scope='learning_rates.'+parameter, learning_rates=learning_rates)
     for mode in ('single', 'joint'):
         selected = [row[mode] for row in rows if row[mode] is not None]
         report[mode] = dict(query_count=len(selected), baseline=aggregate_metrics([r['baseline'] for r in selected]),
@@ -340,6 +350,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
     by_key_b = {row['keyframe_id']: row for row in b['queries']}
     if frozen_parameter is not None:
         labels = ('baseline', frozen_parameter+' fixed')
+    elif reduced_learning_rate is not None:
+        labels = tuple(f'{parameter} lr {learning_rates[side]:g}' for side in ('baseline', 'candidate'))
     elif allow_coverage_sampling_change:
         labels = ('resample', 'replace')
     elif allow_coverage_ratio_change:
@@ -380,12 +392,14 @@ def main(argv=None):
     variation.add_argument('--allow-coverage-sampling-change', action='store_true')
     variation.add_argument('--frozen-parameter', choices=('means', 'log_scales'),
                            help='Verify that only this learning rate changes from positive to zero')
+    variation.add_argument('--reduced-learning-rate', choices=('means', 'log_scales'),
+                           help='Verify that only this learning rate decreases and remains positive')
     args = parser.parse_args(argv)
     try:
         compare(args.baseline, args.candidate, args.output,
                 allow_coverage_ratio_change=args.allow_coverage_ratio_change,
                 allow_coverage_sampling_change=args.allow_coverage_sampling_change,
-                frozen_parameter=args.frozen_parameter)
+                frozen_parameter=args.frozen_parameter, reduced_learning_rate=args.reduced_learning_rate)
     except Exception as error:
         print(f'{type(error).__name__}: {error}', file=sys.stderr)
         return 1

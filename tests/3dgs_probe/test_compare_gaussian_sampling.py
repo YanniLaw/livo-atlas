@@ -570,6 +570,105 @@ class SamplingComparisonTest(unittest.TestCase):
                     '--output',str(self.root/'cli'),'--frozen-parameter','means','--allow-coverage-ratio-change'])
         self.assertEqual(result.exception.code,2)
 
+    def reduced_rate_pair(self, parameter='means'):
+        self.freeze_pair()
+        for root in (self.baseline, self.candidate):
+            self.configure_learning_rates(root, means=.0005, log_scales=.002)
+        self.configure_learning_rates(self.candidate, **{parameter: .00025 if parameter == 'means' else .001})
+
+    def test_reduced_rate_accepts_only_one_positive_decrease_and_cli(self):
+        import compare_gaussian_sampling as comparison
+        for parameter, old, new in (('means', .0005, .00025), ('log_scales', .002, .001)):
+            self.reduced_rate_pair(parameter)
+            result = compare(self.baseline, self.candidate, self.root / parameter,
+                             reduced_learning_rate=parameter)
+            self.assertEqual(result['comparison_scope'], 'learning_rates.' + parameter)
+            self.assertEqual(result['learning_rates'],
+                             dict(parameter=parameter, baseline=old, candidate=new))
+            self.assertEqual(json.loads((self.candidate / 'report.json').read_text())
+                             ['training_options']['learning_rates'][parameter], new)
+        self.assertEqual(comparison.main([
+            '--baseline', str(self.baseline), '--candidate', str(self.candidate),
+            '--output', str(self.root / 'cli-positive'), '--reduced-learning-rate', 'log_scales']), 0)
+
+    def test_reduced_rate_rejects_zero_equal_increased_and_reverse_rates(self):
+        for index, (old, new) in enumerate(((.0005, 0.), (.0005, .0005), (.0005, .001), (0., .00025))):
+            self.reduced_rate_pair()
+            self.configure_learning_rates(self.baseline, means=old)
+            self.configure_learning_rates(self.candidate, means=new)
+            with self.subTest(old=old, new=new), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root / f'invalid-rate-{index}',
+                        reduced_learning_rate='means')
+
+    def test_reduced_rate_names_modes_and_old_mode_limits(self):
+        import compare_gaussian_sampling as comparison
+        self.reduced_rate_pair()
+        for index, name in enumerate(('', False, 'color_logits')):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root / f'invalid-name-{index}',
+                        reduced_learning_rate=name)
+        for index, extra in enumerate((dict(frozen_parameter='means'),
+                                       dict(allow_coverage_ratio_change=True),
+                                       dict(allow_coverage_sampling_change=True))):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root / f'modes-{index}',
+                        reduced_learning_rate='means', **extra)
+        for index, extra in enumerate(({}, dict(frozen_parameter='means'))):
+            with self.subTest(old_mode=extra), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root / f'old-modes-{index}', **extra)
+        with mock.patch('sys.stderr'), self.assertRaises(SystemExit) as result:
+            comparison.main(['--baseline', str(self.baseline), '--candidate', str(self.candidate),
+                             '--output', str(self.root / 'cli-conflict'), '--reduced-learning-rate', 'means',
+                             '--frozen-parameter', 'means'])
+        self.assertEqual(result.exception.code, 2)
+
+    def test_reduced_rate_accepts_targeted_default_and_detaches_yaml_alias(self):
+        import yaml
+        self.freeze_pair()
+        self.configure_learning_rates(self.candidate, means=.00025)
+        result = compare(self.baseline, self.candidate, self.root / 'implicit-positive',
+                         reduced_learning_rate='means')
+        self.assertEqual(result['learning_rates']['baseline'], .0005)
+        self.reduced_rate_pair()
+        for root in (self.baseline, self.candidate):
+            config = yaml.safe_load((root / 'config.yaml').read_text())
+            config['default_rates'] = {'means': .0005, 'log_scales': .002}
+            if root == self.baseline:
+                config['gaussian']['worker']['learning_rates'] = config['default_rates']
+            self.archive_config(root, config)
+        self.assertEqual(compare(self.baseline, self.candidate, self.root / 'positive-alias',
+                                 reduced_learning_rate='means')['status'], 'succeeded')
+
+    def test_reduced_rate_rejects_other_controls_and_aliased_paths(self):
+        import yaml
+        for case in ('second-rate', 'ratio', 'sampling', 'alias', 'key-type', 'value-type', 'default-spelling'):
+            self.reduced_rate_pair()
+            if case == 'second-rate':
+                self.configure_learning_rates(self.candidate, log_scales=.001)
+            elif case == 'ratio':
+                self.configure_ratio(self.candidate, .5)
+                self.configure_sampling(self.candidate, 'replace')
+                self.configure_learning_rates(self.candidate, means=.00025, log_scales=.002)
+            elif case == 'sampling':
+                self.configure_sampling(self.candidate, 'resample')
+            else:
+                if case == 'default-spelling':
+                    for root in (self.baseline, self.candidate):
+                        self.configure_sampling(root, 'resample')
+                for root in (self.baseline, self.candidate):
+                    config = yaml.safe_load((root / 'config.yaml').read_text())
+                    if case == 'alias':
+                        config['other_rates'] = config['gaussian']['worker']['learning_rates']
+                    elif case == 'key-type':
+                        config['profiles'] = {1 if root == self.baseline else '1': 'camera'}
+                    elif case == 'value-type':
+                        config['enabled'] = False if root == self.baseline else 0
+                    elif root == self.baseline:
+                        del config['gaussian']['worker']['coverage_sampling']
+                    self.archive_config(root, config)
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'config|options'):
+                compare(self.baseline, self.candidate, self.root / case, reduced_learning_rate='means')
+
 
 
 if __name__ == '__main__':
