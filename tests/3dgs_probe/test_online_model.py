@@ -282,6 +282,27 @@ class CoverageRatioGpuTest(unittest.TestCase):
         cls.device = checked_cuda_device(cls.options)
         torch.set_num_threads(1)
 
+    def test_zero_learning_rates_hold_initial_parameters_through_eviction(self):
+        from dataclasses import replace
+        from train import initialize_gaussians
+        for parameter in ('means', 'log_scales'):
+            options = replace(self.options, learning_rates=replace(self.options.learning_rates, **{parameter:0.}))
+            model = OnlineGaussianModel(self.device, options=options)
+            model.reset(1)
+            expected = []
+            for key in range(12):
+                view = make_view(key, dense=True)
+                initial = initialize_gaussians([view],1000)
+                expected.append(initial['means'])
+                _, metrics = model.train_candidate(view)
+                if parameter == 'means':
+                    np.testing.assert_array_equal(model.parameters['means'].detach().cpu().numpy(),np.concatenate(expected[-10:]))
+                else:
+                    value = torch.log(torch.tensor(.03,dtype=torch.float32,device=self.device))
+                    self.assertTrue(torch.equal(model.parameters['log_scales'],torch.full_like(model.parameters['log_scales'],value.item())))
+                self.assertTrue(metrics['parameter_updated'])
+                model.decide(True)
+
     def test_zero_ratio_uses_uniform_training_without_prepass(self):
         from dataclasses import replace
         from worker_config import DEFAULT_WORKER_OPTIONS

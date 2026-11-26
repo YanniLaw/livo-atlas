@@ -415,6 +415,98 @@ class SamplingComparisonTest(unittest.TestCase):
             comparison.coverage_transition(reference, replacement.T, mask)
 
 
+    def configure_learning_rates(self, root, **rates):
+        import hashlib
+        import yaml
+        path = root / 'report.json'
+        report = json.loads(path.read_text())
+        report['training_options']['learning_rates'].update(rates)
+        config = yaml.safe_load((root / 'config.yaml').read_text())
+        config['gaussian'].setdefault('worker', {}).setdefault('learning_rates', {}).update(rates)
+        raw = yaml.safe_dump(config).encode()
+        (root / 'config.yaml').write_bytes(raw)
+        report['config_sha256'] = hashlib.sha256(raw).hexdigest()
+        path.write_text(json.dumps(report))
+
+    def freeze_pair(self):
+        for root in (self.baseline, self.candidate):
+            self.configure_ratio(root, .25)
+            self.configure_sampling(root, 'replace')
+
+    def test_frozen_parameter_comparison_accepts_only_selected_zero_rate(self):
+        self.freeze_pair()
+        for parameter in ('means', 'log_scales'):
+            self.configure_learning_rates(self.candidate, means=.0005, log_scales=.002)
+            self.configure_learning_rates(self.baseline, means=.0005, log_scales=.002)
+            self.configure_learning_rates(self.candidate, **{parameter: 0.})
+            with self.subTest(parameter=parameter):
+                result = compare(self.baseline, self.candidate, self.root/parameter, frozen_parameter=parameter)
+                self.assertEqual(result['comparison_scope'], 'learning_rates.'+parameter)
+                self.assertEqual(result['learning_rates']['candidate'], 0.)
+                self.assertGreater(result['learning_rates']['baseline'], 0.)
+                self.assertEqual(result['learning_rates']['parameter'], parameter)
+                # The comparison must not pop fields from either archived run.
+                self.assertIn(parameter, json.loads((self.candidate/'report.json').read_text())['training_options']['learning_rates'])
+
+    def test_freeze_comparison_normalizes_only_targeted_default(self):
+        self.freeze_pair()
+        self.configure_learning_rates(self.candidate, means=0.)
+        result = compare(self.baseline, self.candidate, self.root/'implicit-default', frozen_parameter='means')
+        self.assertEqual(result['learning_rates']['baseline'], .0005)
+
+    def test_freeze_rejects_nonzero_reverse_two_rates_and_other_controls(self):
+        self.freeze_pair()
+        for index, (baseline, candidate) in enumerate(((.0005,.0001), (0.,0.), (0.,.0005))):
+            self.configure_learning_rates(self.baseline, means=baseline)
+            self.configure_learning_rates(self.candidate, means=candidate)
+            with self.subTest(direction=index), self.assertRaises(ValueError):
+                compare(self.baseline,self.candidate,self.root/f'direction-{index}',frozen_parameter='means')
+        self.configure_learning_rates(self.baseline, means=.0005)
+        self.configure_learning_rates(self.candidate, means=0., log_scales=0.)
+        with self.assertRaises(ValueError):
+            compare(self.baseline,self.candidate,self.root/'two-rates',frozen_parameter='means')
+        self.configure_learning_rates(self.candidate, log_scales=.002)
+        self.configure_learning_rates(self.baseline, log_scales=.002)
+        self.configure_ratio(self.candidate, .5)
+        self.configure_sampling(self.candidate, 'replace')
+        self.configure_learning_rates(self.candidate, means=0., log_scales=.002)
+        with self.assertRaises(ValueError):
+            compare(self.baseline,self.candidate,self.root/'ratio',frozen_parameter='means')
+        self.configure_ratio(self.candidate, .25)
+        self.configure_sampling(self.candidate, 'resample')
+        self.configure_learning_rates(self.candidate, means=0., log_scales=.002)
+        with self.assertRaises(ValueError):
+            compare(self.baseline,self.candidate,self.root/'sampling',frozen_parameter='means')
+        self.configure_sampling(self.candidate, 'replace')
+        for root, value in ((self.baseline,False),(self.candidate,0)):
+            import yaml, hashlib
+            path=root/'config.yaml';config=yaml.safe_load(path.read_text())
+            config['gaussian']['publish_preview']=value
+            raw=yaml.safe_dump(config).encode();path.write_bytes(raw)
+            report=json.loads((root/'report.json').read_text());report['config_sha256']=hashlib.sha256(raw).hexdigest()
+            (root/'report.json').write_text(json.dumps(report))
+        with self.assertRaises(ValueError):
+            compare(self.baseline,self.candidate,self.root/'yaml-types',frozen_parameter='means')
+
+    def test_freeze_mode_names_and_modes_are_exclusive(self):
+        import compare_gaussian_sampling as comparison
+        self.freeze_pair()
+        self.configure_learning_rates(self.candidate, means=0.)
+        for name in ('colors','',False):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                compare(self.baseline,self.candidate,self.root/'name',frozen_parameter=name)
+        for flag in ('allow_coverage_ratio_change','allow_coverage_sampling_change'):
+            with self.subTest(flag=flag), self.assertRaises(ValueError):
+                compare(self.baseline,self.candidate,self.root/flag,frozen_parameter='means',**{flag:True})
+        with self.assertRaises(ValueError):
+            compare(self.baseline,self.candidate,self.root/'strict-freeze')
+        with mock.patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as result:
+                comparison.main(['--baseline',str(self.baseline),'--candidate',str(self.candidate),
+                    '--output',str(self.root/'cli'),'--frozen-parameter','means','--allow-coverage-ratio-change'])
+        self.assertEqual(result.exception.code,2)
+
+
 
 if __name__ == '__main__':
     unittest.main()

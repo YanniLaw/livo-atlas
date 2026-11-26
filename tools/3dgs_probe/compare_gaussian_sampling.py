@@ -1,6 +1,7 @@
 """Verify controlled sampling runs and diagnose holes and submap handoff views."""
 
 import argparse
+import copy
 import hashlib
 import math
 from pathlib import Path
@@ -219,9 +220,13 @@ def _diagnostic(path, baseline, candidate, mode, labels=('uniform', 'coverage'))
 
 
 def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
-             allow_coverage_sampling_change=False):
-    _require(not (allow_coverage_ratio_change and allow_coverage_sampling_change),
-             'Only one coverage setting may vary in a controlled comparison')
+             allow_coverage_sampling_change=False, frozen_parameter=None):
+    _require(frozen_parameter is None or
+             (isinstance(frozen_parameter, str) and frozen_parameter in ('means', 'log_scales')),
+             'Frozen parameter must be means or log_scales')
+    _require(sum((bool(allow_coverage_ratio_change), bool(allow_coverage_sampling_change),
+                  frozen_parameter is not None)) <= 1,
+             'Only one setting may vary in a controlled comparison')
     baseline, candidate, output = Path(baseline).resolve(strict=True), Path(candidate).resolve(strict=True), Path(output).absolute()
     _require(not output.exists() and not output.is_symlink() and output.parent.is_dir(), 'Output must be new')
     resolved = output.resolve()
@@ -230,13 +235,21 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
     a, split, a_digest = _load(baseline)
     b, other, b_digest = _load(candidate)
     controls = _CONTROLS
-    if allow_coverage_ratio_change or allow_coverage_sampling_change:
+    if allow_coverage_ratio_change or allow_coverage_sampling_change or frozen_parameter is not None:
         configurations = [verify_configuration(root, report) for root, report in ((baseline, a), (candidate, b))]
-        options = [normalized_training_options(report) for report in (a, b)]
+        # Nested learning-rate removal must not mutate the loaded reports.
+        options = [copy.deepcopy(normalized_training_options(report)) for report in (a, b)]
         for document, values in zip(configurations, options):
             document['gaussian'].setdefault('worker', {}).setdefault('coverage_sampling', 'resample')
             values.setdefault('coverage_sampling', 'resample')
-        if allow_coverage_sampling_change:
+        if frozen_parameter is not None:
+            learning_rates = dict(parameter=frozen_parameter,
+                baseline=options[0]['learning_rates'][frozen_parameter],
+                candidate=options[1]['learning_rates'][frozen_parameter])
+            _require(a['seed_policy'] == b['seed_policy'] and a['seed_policy'] in ('uniform', 'coverage')
+                     and learning_rates['baseline'] > 0 and learning_rates['candidate'] == 0,
+                     'Freeze comparison requires a positive learning rate then zero')
+        elif allow_coverage_sampling_change:
             samplings = dict(zip(('baseline', 'candidate'), (values['coverage_sampling'] for values in options)))
             _require(a['seed_policy'] == b['seed_policy'] == 'coverage'
                      and samplings == {'baseline': 'resample', 'candidate': 'replace'},
@@ -249,11 +262,15 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
                      and b['seed_policy'] == 'coverage', 'Ratio comparison requires a zero-ratio baseline')
             varied_key = 'coverage_uncovered_ratio'
         for document, values in zip(configurations, options):
-            document['gaussian'].get('worker', {}).pop(varied_key, None)
-            values.pop(varied_key)
+            if frozen_parameter is not None:
+                document['gaussian']['worker'].setdefault('learning_rates', {}).pop(frozen_parameter, None)
+                values['learning_rates'].pop(frozen_parameter)
+            else:
+                document['gaussian'].get('worker', {}).pop(varied_key, None)
+                values.pop(varied_key)
         _require(canonical_json(configurations[0]) == canonical_json(configurations[1])
                  and canonical_json(options[0]) == canonical_json(options[1]),
-                 'Other config or training options differ in controlled coverage comparison')
+                 'Other config or training options differ in controlled comparison')
         controls = tuple(key for key in _CONTROLS if key not in ('config_sha256', 'training_options'))
     else:
         _require(a['seed_policy'] == 'uniform' and b['seed_policy'] == 'coverage', 'Expected uniform then coverage')
@@ -294,6 +311,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
         report.update(comparison_scope='coverage_uncovered_ratio', coverage_uncovered_ratios=ratios)
     elif allow_coverage_sampling_change:
         report.update(comparison_scope='coverage_sampling', coverage_sampling=samplings)
+    elif frozen_parameter is not None:
+        report.update(comparison_scope='learning_rates.'+frozen_parameter, learning_rates=learning_rates)
     for mode in ('single', 'joint'):
         selected = [row[mode] for row in rows if row[mode] is not None]
         report[mode] = dict(query_count=len(selected), baseline=aggregate_metrics([r['baseline'] for r in selected]),
@@ -307,12 +326,18 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
                                             for run in ('baseline', 'candidate')), reverse=True)[:6]
     by_key_a = {row['keyframe_id']: row for row in a['queries']}
     by_key_b = {row['keyframe_id']: row for row in b['queries']}
+    if frozen_parameter is not None:
+        labels = ('baseline', frozen_parameter+' fixed')
+    elif allow_coverage_sampling_change:
+        labels = ('resample', 'replace')
+    elif allow_coverage_ratio_change:
+        labels = (f"ratio {ratios['baseline']:g}", f"ratio {ratios['candidate']:g}")
+    else:
+        labels = ('uniform', 'coverage')
     for row in worst:
         key = row['keyframe_id']
         mode = 'joint' if row['joint'] else 'single'
         path = output / f'views/{key}.png'
-        labels = ('resample', 'replace') if allow_coverage_sampling_change else (
-            (f"ratio {ratios['baseline']:g}", f"ratio {ratios['candidate']:g}") if allow_coverage_ratio_change else ('uniform', 'coverage'))
         _diagnostic(path, _samples(baseline, a, by_key_a[key], split.frames[key]),
                     _samples(candidate, b, by_key_b[key], split.frames[key]), mode, labels)
         report['diagnostics'].append(dict(keyframe_id=key, mode=mode, path=f'views/{key}.png', sha256=file_sha(path)))
@@ -341,11 +366,14 @@ def main(argv=None):
     variation = parser.add_mutually_exclusive_group()
     variation.add_argument('--allow-coverage-ratio-change', action='store_true')
     variation.add_argument('--allow-coverage-sampling-change', action='store_true')
+    variation.add_argument('--frozen-parameter', choices=('means', 'log_scales'),
+                           help='Verify that only this learning rate changes from positive to zero')
     args = parser.parse_args(argv)
     try:
         compare(args.baseline, args.candidate, args.output,
                 allow_coverage_ratio_change=args.allow_coverage_ratio_change,
-                allow_coverage_sampling_change=args.allow_coverage_sampling_change)
+                allow_coverage_sampling_change=args.allow_coverage_sampling_change,
+                frozen_parameter=args.frozen_parameter)
     except Exception as error:
         print(f'{type(error).__name__}: {error}', file=sys.stderr)
         return 1

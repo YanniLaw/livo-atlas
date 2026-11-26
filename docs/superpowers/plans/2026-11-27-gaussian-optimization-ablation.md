@@ -37,6 +37,6 @@
 **Interfaces:** existing evaluate_gaussian_sampling plus Task1 comparison mode; three conditions per scene/seeds0/1.
 
 - [ ] Freeze protocol/config snapshots;12 fresh sequential evaluations, expected unchanged calls/steps/selection/splits.
-- [ ] Run8 controlled comparisons; independently rehash/recompute inputs/metrics, per-scene six-way common depth and quotas/retention counts.
+- [ ] Run8 bounded real-data frozen-parameter witnesses and8 controlled comparisons; independently rehash/recompute inputs/metrics, per-scene six-way common depth and quotas/retention counts.
 - [ ] Inspect diagnostics and document measured effect including negative outcomes/seed-selection feedback; verify diff and commit.
 - [ ] One fresh read-only final review, Important fixes RED→GREEN and full suite; preserve local branch/worktree.
