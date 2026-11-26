@@ -41,4 +41,4 @@
 - [x] Freeze protocol and run12 sequential traces; expected real calls/20steps/retained target and aligned1000seed records each.
 - [x] Independently rehash sources/config/artifacts and recompute feature/cohort/parameter statistics from NPZ; expected identical and all train IDs.
 - [x] Document measured results and proxy/selection limits, run git diff --check; commit and ledger completion.
-- [ ] One fresh read-only final review, fix Important/Critical via RED→GREEN and full suite; preserve branch and local commits.
+- [x] One fresh read-only final review, fix Important/Critical via RED→GREEN and full suite; preserve branch and local commits.
