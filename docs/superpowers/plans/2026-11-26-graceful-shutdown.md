@@ -31,22 +31,22 @@
 
 **Files:** `tests/ros_common/shutdown_process.py`; validation artifacts.
 
-- [ ] Add a small no-bag process harness using a controlled protocol peer and actual ROS subscribers.
-- [ ] Run current Noetic and Humble nodes with paused simulation time and SIGINT; expect missing STOPPED before any production change.
-- [ ] Cover SIGTERM, slow stop and a worker stop timeout without a CUDA dependency.
+- [x] Add a small no-bag process harness using a controlled protocol peer and actual ROS subscribers.
+- [x] Run current Noetic and Humble nodes with paused simulation time and SIGINT; expect missing STOPPED before any production change.
+- [x] Cover SIGTERM, slow stop and a worker stop timeout without a CUDA dependency.
 
 ### Task 2: Preserve the context through final publication
 
 **Files:** `src/app/shutdown_signal.h`, `src/app/shutdown_signal.cc`, `src/app/livo_main.cc`, `cmake/node.cmake`, `cmake/tests.cmake`, `tests/app/shutdown_signal_test.cc`.
 
-- [ ] Add signal ownership tests, then implement the minimal safe signal flag and handler restoration.
-- [ ] Disable default ROS signal shutdown; use the flag to stop both executor forms and explicitly close ROS last.
-- [ ] Verify the process regression, including fast stop, repeated signals and paused /clock.
-- [ ] If verified transport loss persists, record the exact boundary before adding a bounded transport wait.
+- [x] Add signal ownership tests and implement the minimal safe signal flag and handler restoration; the process regression failed before production changes.
+- [x] Take over ROS signals after node creation; stop both executor forms and explicitly close ROS last.
+- [x] Verify the process regression, including fast stop, repeated signals and paused /clock.
+- [x] No residual transport loss observed in the controlled and GPU tests; no extra transport delay added.
 
 ### Task 3: Verify, review and record
 
-- [ ] Run SDK and related Noetic/Humble tests, plus short real GPU/Finalize replays and timeout validation.
-- [ ] Obtain one fresh read-only final review; address material findings with failing/passing tests.
-- [ ] Record actual counts, limitations and reproducible commands; update the roadmap.
-- [ ] Commit locally, retain the current branch, and restore the container to stopped.
+- [x] Run SDK and related Noetic/Humble tests, plus short real GPU/Finalize replays and timeout validation.
+- [x] Obtain one fresh read-only final review; address material findings with failing/passing tests. Added unreachable-master startup and gated late-RCL-shutdown tests; both findings reproduced before the lifetime corrections.
+- [x] Record actual counts, limitations and reproducible commands; update the roadmap.
+- [x] Commit locally, retain the current branch, and restore the container to stopped.

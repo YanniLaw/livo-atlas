@@ -3,6 +3,7 @@
 #include <functional>
 #include <iomanip>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "app/shutdown_signal.h"
@@ -32,16 +33,20 @@ namespace ros_integration = livo_atlas::ros2;
 int main(int argc, char** argv) {
   livo_atlas::InitializeLogging(argv[0]);
   int result = 0;
+  // Keep ownership through catch reporting and the final middleware shutdown.
+  std::optional<livo_atlas::app::ShutdownSignal> shutdown_signal;
   try {
-    livo_atlas::app::ShutdownSignal shutdown_signal;
 #if LIVO_ATLAS_ROS_VERSION == 1
-    ros::init(argc, argv, "laserMapping", ros::init_options::NoSigintHandler);
+    // NodeHandle can wait for the master. Preserve ROS1's interruptible startup
+    // until the node exists and the application can service its own stop flag.
+    ros::init(argc, argv, "laserMapping");
     auto node = std::make_shared<ros::NodeHandle>();
 #else
     rclcpp::init(argc, argv, rclcpp::InitOptions(),
                  rclcpp::SignalHandlerOptions::None);
     auto node = std::make_shared<rclcpp::Node>("laserMapping");
 #endif
+    shutdown_signal.emplace();
     const auto parameters = ros_integration::ReadNodeOptions(*node);
     livo_atlas::app::GaussianMapping::ValidateConfig(parameters.livo);
     livo_atlas::LivoSystem system(parameters.livo.system);
@@ -97,7 +102,7 @@ int main(int argc, char** argv) {
       ros::AsyncSpinner spinner(parameters.livo.executor_threads);
       spinner.start();
       ros::WallRate rate(5000);
-      while (ros::ok() && !shutdown_signal.requested()) {
+      while (ros::ok() && !shutdown_signal->requested()) {
         if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
           rate.sleep();
         }
@@ -111,7 +116,7 @@ int main(int argc, char** argv) {
       // context. A wall timer keeps this responsive when /clock is paused.
       auto stop_timer = node->create_wall_timer(
           std::chrono::milliseconds(5), [&] {
-            if (shutdown_signal.requested()) executor.cancel();
+            if (shutdown_signal->requested()) executor.cancel();
           });
       executor.spin();
       stop_timer->cancel();

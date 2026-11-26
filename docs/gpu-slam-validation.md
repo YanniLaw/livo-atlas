@@ -65,6 +65,8 @@ Noetic 的 `trajectory.tum`、`mat_pre.txt`、`mat_out.txt`、`imu.txt` 与既�
 两端订阅者均未收到退出时的 `STOPPED`，发布统计各记录1次 unavailable；这是仍待收尾
 的正常退出通知交付问题。封口、worker 停止和节点正常退出已独立通过，不把这些结果
 表述为终止消息已可靠送达。
+该限制随后已在[双 ROS 正常退出验证](graceful-shutdown-validation.md)中修复；本节保留
+当时完整回放的原始观察，不回写历史结果。
 
 原始 ROS1 bag 与冻结 Noetic 源码/运行库校验通过，ROS2 转换数据与此前基准的三份文件
 校验和一致。成功会话分别精简344、338份关键帧载荷，共437436233字节；清单与 SHA256

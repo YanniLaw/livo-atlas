@@ -95,6 +95,7 @@ def main():
     parser.add_argument('--stop-delay', type=float, default=0)
     parser.add_argument('--expect-timeout', action='store_true')
     parser.add_argument('--repeat-signal', action='store_true')
+    parser.add_argument('--shutdown-hook', type=Path)
     args = parser.parse_args()
     if args.output:
         output = args.output.resolve()
@@ -117,6 +118,11 @@ def main():
                    'gaussian.output_directory': str(output / 'gaussian')})
     env = dict(os.environ, ROS_LOCALHOST_ONLY='1', GLOG_logtostderr='1',
                ROS_HOME=str(output / 'ros-home'), ROS_LOG_DIR=str(output / 'ros-logs'))
+    entered, released = output / 'shutdown-entered', output / 'shutdown-released'
+    if args.shutdown_hook:
+        env.update(LD_PRELOAD=str(args.shutdown_hook.resolve()),
+                   LIVO_SHUTDOWN_ENTERED_FILE=str(entered),
+                   LIVO_SHUTDOWN_RELEASE_FILE=str(released))
     try:
         with tempfile.TemporaryDirectory(prefix='livo-stop-') as ipc:
             path = Path(ipc) / 'worker.sock'
@@ -190,8 +196,17 @@ def main():
             began = time.monotonic()
             process.send_signal(getattr(signal, args.signal))
             repeated = False
+            late = False
             while process.poll() is None and time.monotonic() - began < 8:
                 poll()
+                if args.shutdown_hook and entered.exists() and not late:
+                    process.send_signal(signal.SIGTERM)
+                    late = True
+                    # Keep shutdown gated until the second signal is handled.
+                    until = time.monotonic() + .05
+                    while process.poll() is None and time.monotonic() < until:
+                        poll()
+                    released.touch()
                 if args.repeat_signal and not repeated and time.monotonic() - began > .05:
                     process.send_signal(getattr(signal, args.signal))
                     repeated = True
@@ -203,10 +218,13 @@ def main():
             report = dict(directory=str(output), returncode=process.poll(),
                           elapsed_seconds=time.monotonic() - began,
                           stopped=stopped, samples=samples, repeated=repeated,
-                          peer_error=peer.error, peer_events=list(peer.events),
+                          late_signal_sent=late, peer_error=peer.error,
+                          peer_events=list(peer.events),
                           finalization=finalization, signal=args.signal)
             (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
             assert process.poll() == (1 if args.expect_timeout else 0), report
+            if args.shutdown_hook:
+                assert late, report
             assert len(stopped) == 1, 'Expected one received STOPPED: ' + str(report)
             assert stopped[0]['bytes'] == stopped[0]['width'] == 0, report
             assert samples[-1] == stopped[0], report

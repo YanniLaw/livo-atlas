@@ -49,6 +49,29 @@ if(TARGET fastlivo_mapping AND TARGET livo_atlas_online_gaussian)
       ENVIRONMENT "PYTHONPATH=${shutdown_python_path};LD_LIBRARY_PATH=${shutdown_library_path};ROS_DOMAIN_ID=98"
       RUN_SERIAL TRUE)
   endforeach()
+  if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
+    add_test(NAME shutdown_startup COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/ros_common/shutdown_startup.py
+      --executable $<TARGET_FILE:fastlivo_mapping>)
+    set_tests_properties(shutdown_startup PROPERTIES TIMEOUT 20
+      ENVIRONMENT "LD_LIBRARY_PATH=${shutdown_library_path}")
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_library(shutdown_interceptor SHARED tests/ros2/shutdown_interceptor.cc)
+    target_link_libraries(shutdown_interceptor PRIVATE rclcpp::rclcpp ${CMAKE_DL_LIBS})
+    foreach(shutdown_case late late_timeout)
+      set(shutdown_args)
+      if(shutdown_case STREQUAL "late_timeout")
+        set(shutdown_args --stop-delay 0.5 --expect-timeout)
+      endif()
+      add_test(NAME shutdown_process_${shutdown_case} COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/ros_common/shutdown_process.py
+        --ros-version 2 --executable $<TARGET_FILE:fastlivo_mapping>
+        --shutdown-hook $<TARGET_FILE:shutdown_interceptor> ${shutdown_args})
+      set_tests_properties(shutdown_process_${shutdown_case} PROPERTIES TIMEOUT 40
+        ENVIRONMENT "PYTHONPATH=${shutdown_python_path};LD_LIBRARY_PATH=${shutdown_library_path};ROS_DOMAIN_ID=98"
+        RUN_SERIAL TRUE)
+    endforeach()
+  endif()
 endif()
 if(TARGET livo_atlas_online_gaussian)
   livo_atlas_test(gaussian_render_output_test tests/gaussian/gaussian_render_output_test.cc)
