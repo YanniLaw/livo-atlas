@@ -165,7 +165,6 @@ def run(args):
     snapshot = load_evaluation_snapshot(args.map_directory, args.keyframes)
     if settings.split_file:
         from holdout_split import HoldoutSplit, MAX_SPLIT_BYTES
-        from gaussian_state import _open_file
         with _open_file(Path(settings.split_file), MAX_SPLIT_BYTES) as stream:
             _require(HoldoutSplit(stream.read()).split_id == snapshot.split.split_id,
                      'Configured split differs from the reference snapshot')
