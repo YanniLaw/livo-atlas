@@ -28,17 +28,17 @@
 **Files:** tools/3dgs_probe/diagnose_gaussian_seeds.py; tests/3dgs_probe/test_diagnose_gaussian_seeds.py.
 **Interfaces:** seed_features(view,pixels,history), cohort_summary(features,selected,uniform), parameter_changes(initial,current), TraceModel(device,tracked_id,options), run(args).
 
-- [ ] CPU failing tests: hand-computed gradient/projection/depth/color support, masks/behind camera, empty cohorts and parameter deltas.
-- [ ] CUDA failing tests: actual selected pixels/init mapping, owned snapshots, unchanged model/schedule, invalid target and output handling.
-- [ ] Observe RED; implement tool without changing production training/model files; focused tests expected OK.
-- [ ] Full Python/CUDA suite expected all pass, then commit and ledger completion.
+- [x] CPU failing tests: hand-computed gradient/projection/depth/color support, masks/behind camera, empty cohorts and parameter deltas.
+- [x] CUDA failing tests: actual selected pixels/init mapping, owned snapshots, unchanged model/schedule, invalid target and output handling.
+- [x] Observe RED; implement tool without changing production training/model files; focused tests expected OK.
+- [x] Full Python/CUDA suite expected all pass, then commit and ledger completion.
 
 ### Task 2: Two-scene diagnosis and evidence
 
 **Files:** docs/gaussian-seed-diagnostics.md; docs/engineering-roadmap.md; local validation/gaussian-seed-diagnostics-20261127.
 **Interfaces:** Task1 CLI/NPZ/summary; reference map/split/config from prior Retail/CBD studies.
 
-- [ ] Freeze protocol and run12 sequential traces; expected real calls/20steps/retained target and aligned1000seed records each.
-- [ ] Independently rehash sources/config/artifacts and recompute feature/cohort/parameter statistics from NPZ; expected identical and all train IDs.
-- [ ] Document measured results and proxy/selection limits, run git diff --check; commit and ledger completion.
+- [x] Freeze protocol and run12 sequential traces; expected real calls/20steps/retained target and aligned1000seed records each.
+- [x] Independently rehash sources/config/artifacts and recompute feature/cohort/parameter statistics from NPZ; expected identical and all train IDs.
+- [x] Document measured results and proxy/selection limits, run git diff --check; commit and ledger completion.
 - [ ] One fresh read-only final review, fix Important/Critical via RED→GREEN and full suite; preserve branch and local commits.
