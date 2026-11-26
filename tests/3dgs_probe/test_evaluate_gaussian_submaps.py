@@ -91,6 +91,33 @@ class HoldoutPreparationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'camera pose.*keyframe 0'):
             read_prepared_group(keyframes, bundle, group, 'a' * 64)
 
+    def test_prepared_camera_accepts_native_roundoff_projection(self):
+        from gaussian_map import _yaml
+
+        keyframes, bundle, group = self.prepare_fixture()
+        path = keyframes / 'frames/0/frame.yml'
+        raw = _yaml(path)
+        rotation = np.asarray(raw['camera_from_odom']['rotation'], dtype='f8')
+        raw['camera_from_odom']['rotation'] = (rotation * 1.0000008).tolist()
+        path.write_text(json.dumps(raw))
+        views = read_prepared_group(keyframes, bundle, group, 'a' * 64)
+        expected = json.loads((bundle / 'bundle.json').read_text())['views'][0]['camera_from_parent']
+        np.testing.assert_allclose(views[0]['camera_from_parent'].ravel(), expected, atol=1e-12, rtol=0)
+
+    def test_prepared_camera_rejects_invalid_rotation_before_projection(self):
+        from gaussian_map import _yaml
+
+        keyframes, bundle, group = self.prepare_fixture()
+        path = keyframes / 'frames/0/frame.yml'
+        original = _yaml(path)
+        for rotation in (np.diag([1.001, 1, 1]), np.diag([-1., 1, 1]),
+                         np.full((3, 3), float('nan'))):
+            raw = copy.deepcopy(original)
+            raw['camera_from_odom']['rotation'] = rotation.ravel().tolist()
+            path.write_text(json.dumps(raw))
+            with self.subTest(rotation=rotation), self.assertRaises(ValueError):
+                read_prepared_group(keyframes, bundle, group, 'a' * 64)
+
     def test_prepared_assets_must_belong_to_their_keyframe(self):
         keyframes, bundle, group = self.prepare_fixture()
         manifest = bundle / 'bundle.json'

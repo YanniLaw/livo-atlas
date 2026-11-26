@@ -148,6 +148,20 @@ def verify_split_sources(split, directory, keyframes, prepare):
         raise ValueError('Preparation executable changed during evaluation')
 
 
+def _recorded_camera(value):
+    # Match native ValidateExtrinsic before projecting accepted calibration
+    # roundoff. Wire poses and optimized body poses keep their stricter checks.
+    pose = np.eye(4)
+    pose[:3, :3] = np.asarray(value['rotation'], dtype='f8').reshape(3, 3)
+    pose[:3, 3] = np.asarray(value['translation'], dtype='f8')
+    rotation = pose[:3, :3]
+    if (not np.isfinite(pose).all() or
+            np.max(np.abs(rotation.T @ rotation - np.eye(3))) > 1e-4 or
+            abs(np.linalg.det(rotation) - 1) > 1e-4):
+        raise ValueError('Invalid recorded camera pose')
+    return _project(pose)
+
+
 def read_prepared_group(keyframes, output, group, source_sha256):
     manifest = _json(output / 'bundle.json')
     entries = manifest.get('views')
@@ -188,7 +202,7 @@ def read_prepared_group(keyframes, output, group, source_sha256):
             raise ValueError(f'Prepared view {key} does not match its source observation')
         # In raw odom the body transforms cancel. The C++ exporter first
         # projects the recorded rotations back onto SO(3).
-        raw_camera = _project(_transform(raw['camera_from_odom']))
+        raw_camera = _recorded_camera(raw['camera_from_odom'])
         if not np.allclose(view['camera_from_parent'], raw_camera, atol=1e-9, rtol=1e-12):
             raise ValueError(f'Prepared camera pose does not match raw keyframe {key}')
         if not view['image_mask'].any() or (view['split'] == 'train' and not view['depth_mask'].any()):
