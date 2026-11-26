@@ -56,4 +56,4 @@
 - [x] Execute six sequential runs; expected150calls/3000steps/21queries/19joint each, shared inputs/poses/selection/capacity.
 - [x] Recompute all metrics and six-way common depth, inspect worst-view maps; expected all proof checks pass.
 - [x] Record observed tradeoffs, resource scope and unchanged defaults; run final suites and git diff --check.
-- [ ] Commit docs, obtain one fresh read-only final review, fix Important/Critical findings via RED→GREEN and green full suite.
+- [x] Commit docs, obtain one fresh read-only final review, fix Important/Critical findings via RED→GREEN and green full suite.

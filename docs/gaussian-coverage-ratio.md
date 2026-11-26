@@ -44,7 +44,7 @@ python tools/3dgs_probe/compare_gaussian_sampling.py \
 ## 试验口径
 
 使用已有完整 172 帧快照：150 train、22 heldout、21 个预选查询，其中 19 个联合查询。
-三组各两次，GPU 顺序执行；每次 150 次训练、3000 步，合计 120000 个最终高斯。
+三组各两次，GPU 顺序执行；每次 150 次训练、3000 步，每次最终保留 120000 个高斯。
 先核对每次预留数、预渲染次数与完整损失观测 ID，再比较单块/联合画质、覆盖新增与丢失、
 六次共同覆盖的同一 LiDAR 像素上的深度 L1/RMSE，以及训练耗时和分配器显存。
 PSNR 从聚合 MSE 推导，SSIM 按有效窗口加权，不能平均每个视角的 dB 代替总体指标。
@@ -118,6 +118,12 @@ GPU为 RTX4060 Laptop；各次训练分配器 peak allocated 约96.5 MiB、reser
 四套 `comparison-*` 报告与误差图、`audit.json` 的六次共同像素与逐查询核验、`summary.txt`。
 `run_sweep.py`、`audit_sweep.py`、`summarize_sweep.py`、`test_suite.sh`、`execution.jsonl` 和
 `implementation.json` 记录本机复现命令、配置及代码摘要。六套评分约2.4GiB，未复制bag或另一套模型。
+
+独立审查后进一步要求剩余 YAML 和实际优化器配置按类型精确比较，防止 `false` 与 `0`
+被当成相同；缺失配置归档声明也不能把新格式结果降为旧格式，真正的旧记录继续可读。
+相关问题均先复现失败再修复，最终普通预算 Python/CUDA 全套 **358/358通过，无跳过**。
+强化后的四份配对报告与原报告逐字节一致，原始六次训练、配置及浮点渲染未修改。
+`recertification.json`、`recertify_sweep.py`、`logs/final-suite.log` 保存复核记录。
 
 ## 结论与后续
 

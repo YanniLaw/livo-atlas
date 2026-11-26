@@ -53,6 +53,15 @@ def _depth_total(rows):
     return result
 
 
+def _requires_configuration(root, report):
+    # Missing a declaration must not turn a modern result into a legacy one.
+    options = report.get('training_options', {})
+    path = root / 'config.yaml'
+    return ('config_file' in report or
+            (isinstance(options, dict) and 'coverage_uncovered_ratio' in options) or
+            path.exists() or path.is_symlink())
+
+
 def _load(root):
     _real_directory(root)
     report, digest = _read_json(root / 'report.json')
@@ -97,7 +106,7 @@ def _load(root):
         _require(np.allclose(camera, body_camera @ np.linalg.inv(poses[key]), atol=1e-9, rtol=1e-12),
                  'Query camera differs from frozen final pose')
     verify_artifacts(root, report['artifacts'], report['queries'])
-    if 'config_file' in report:
+    if _requires_configuration(root, report):
         verify_configuration(root, report)
     return report, split, digest
 
@@ -209,7 +218,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False):
         for document, values in zip(configurations, options):
             document['gaussian'].get('worker', {}).pop('coverage_uncovered_ratio', None)
             values.pop('coverage_uncovered_ratio')
-        _require(configurations[0] == configurations[1] and options[0] == options[1],
+        _require(canonical_json(configurations[0]) == canonical_json(configurations[1])
+                 and canonical_json(options[0]) == canonical_json(options[1]),
                  'Other config or training options differ in ratio comparison')
         controls = tuple(key for key in _CONTROLS if key not in ('config_sha256', 'training_options'))
     else:
@@ -274,7 +284,7 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False):
     for root, value in ((baseline, a), (candidate, b)):
         verify_artifacts(root, value['artifacts'], value['queries'])
         load_final_poses(root, value, len(split.frames))
-        if 'config_file' in value:
+        if _requires_configuration(root, value):
             verify_configuration(root, value)
     payload = _json_bytes(report, 2*1024*1024)
     _require(shutil.disk_usage(output).free >= 1024**3 + len(payload),

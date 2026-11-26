@@ -253,6 +253,49 @@ class SamplingComparisonTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Other config|training options'):
             compare(self.baseline, self.candidate, self.root / 'different-optimizer', allow_coverage_ratio_change=True)
 
+    def test_ratio_mode_rejects_other_yaml_scalar_type_changes(self):
+        self.configure_ratio(self.baseline, 0., {'publish_preview': False})
+        self.configure_ratio(self.candidate, .25, {'publish_preview': 0})
+        with self.assertRaisesRegex(ValueError, 'config'):
+            compare(self.baseline, self.candidate, self.root / 'changed-type', allow_coverage_ratio_change=True)
+
+    def test_effective_options_preserve_exact_scalar_types(self):
+        import hashlib
+        import yaml
+        for root, ratio in ((self.baseline, 0.), (self.candidate, .25)):
+            self.configure_ratio(root, ratio)
+            path = root / 'report.json'
+            report = json.loads(path.read_text())
+            config = yaml.safe_load((root / 'config.yaml').read_text())
+            config['gaussian']['worker']['depth_loss_weight'] = 0.
+            raw = yaml.safe_dump(config).encode()
+            (root / 'config.yaml').write_bytes(raw)
+            report['config_sha256'] = hashlib.sha256(raw).hexdigest()
+            report['training_options']['depth_loss_weight'] = 0. if root == self.baseline else False
+            path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'config|options'):
+            compare(self.baseline, self.candidate, self.root / 'option-type', allow_coverage_ratio_change=True)
+
+    def test_modern_report_cannot_omit_archive_declaration(self):
+        path = self.candidate / 'report.json'
+        report = json.loads(path.read_text())
+        del report['config_file']
+        path.write_text(json.dumps(report))
+        (self.candidate / 'config.yaml').write_text('invalid and unrelated YAML')
+        with self.assertRaisesRegex(ValueError, 'config'):
+            compare(self.baseline, self.candidate, self.root / 'omitted-declaration')
+
+    def test_genuine_legacy_report_without_archive_remains_supported(self):
+        for root in (self.baseline, self.candidate):
+            path = root / 'report.json'
+            report = json.loads(path.read_text())
+            del report['config_file']
+            del report['training_options']['coverage_uncovered_ratio']
+            path.write_text(json.dumps(report))
+            (root / 'config.yaml').unlink()
+        result = compare(self.baseline, self.candidate, self.root / 'legacy')
+        self.assertEqual(result['status'], 'succeeded')
+
 
 if __name__ == '__main__':
     unittest.main()
