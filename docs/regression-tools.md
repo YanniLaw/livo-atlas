@@ -248,3 +248,8 @@ SDK 完整 CTest 78/78；Noetic 和 Humble 各运行联合渲染用例32项，�
 100次通过。修复前失败、复核发现的测试失败和各轮通过日志分别保留。
 本轮只修改 CPU 调度边界和日志解析，没有重复 bag 回放或验证 GPU 训练画质。
 记录位于工作区 `validation/gaussian-scheduling-20261126/`。
+
+后续已用真实 worker 跑实此前跳过的三项 GPU 用例，并完成双 ROS 的完整 bag 验证，
+见 [GPU 与双 ROS 全链路记录](gpu-slam-validation.md)。该轮发现并修复 Humble 消息固定
+数组的 NumPy 标量被接收工具误判为非法相机的问题；失败原始记录、修复前后复现及完整
+重跑结果分别保留。
