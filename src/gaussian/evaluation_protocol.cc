@@ -63,7 +63,8 @@ RigidTransform Pose(const cv::FileNode& node) {
     for (int col = 0; col < 4; ++col) {
       const auto value = Number(node[4 * row + col]);
       if (row == 3)
-        Require(value == (col == 3 ? 1 : 0), "Invalid homogeneous row");
+        Require(std::abs(value - (col == 3 ? 1 : 0)) <= 1e-9,
+                "Invalid homogeneous row");
       else if (col == 3)
         result.translation[row] = value;
       else
@@ -159,6 +160,12 @@ void ValidateGaussianEvaluationMessage(const cv::FileNode& root,
     camera.camera_from_body = Pose(query["camera_from_body"]);
     camera.capture_time = Number(query["image_timestamp"]);
     ValidateRenderCamera(camera);
+    if (request.policy == GaussianRenderPolicy::kSpatial) {
+      const auto& retained = request.blocks.back().render_metadata->camera;
+      Require(camera.width == retained.width &&
+                  camera.height == retained.height,
+              "Evaluation camera dimensions differ from spatial owner");
+    }
     Require(camera.keyframe_id == request.query_keyframe_id &&
                 camera.calibration_id == 0,
             "Evaluation query identity differs");

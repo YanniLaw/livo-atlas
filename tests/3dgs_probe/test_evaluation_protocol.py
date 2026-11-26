@@ -1,5 +1,7 @@
 import copy
 import os
+import json
+import struct
 import socket
 import subprocess
 import unittest
@@ -9,14 +11,14 @@ import numpy as np
 from evaluation_protocol import decode_evaluation, validate_evaluation_message
 from online_protocol import encode_message, read_message, write_message
 from test_submap_protocol import SubmapProtocolTest
-from render_fixtures import render_request_fixture
+from render_fixtures import render_request_fixture, spatial_request_fixture
 from test_online_protocol import view_fixture
 from test_holdout_split import sample_manifest
 from holdout_split import canonical_json
 
 
-def evaluation_fixture():
-    source, poses = render_request_fixture()
+def evaluation_fixture(spatial=False):
+    source, poses = spatial_request_fixture() if spatial else render_request_fixture()
     source.update(type='gaussian_sources', query_keyframe_id='4')
     poses = np.eye(4, dtype='<f8').tobytes() + poses[128:]
     # The owner anchor is frame4 with absolute body tx(4).
@@ -24,6 +26,8 @@ def evaluation_fixture():
     poses = matrix.tobytes() + poses[128:]
     source['blocks'][-1]['frame_ids'] = ['5']
     source['blocks'][-1]['gaussian_count'] = 1
+    if spatial:
+        source['blocks'][-1]['render_metadata']['extents'] = source['blocks'][-1]['render_metadata']['extents'][1:]
     view, pixels = view_fixture()
     query = {k: view[k] for k in ('width', 'height', 'calibration_id', 'fx', 'fy', 'cx', 'cy',
         'state_timestamp', 'cloud_timestamp', 'image_timestamp', 'inverse_exposure_time')}
@@ -36,6 +40,54 @@ def evaluation_fixture():
 
 
 class EvaluationProtocolTest(unittest.TestCase):
+    def cpp_accepts(self, header, body):
+        # Bypass the Python encoder so a decoder disagreement reaches C++.
+        raw = json.dumps(header, allow_nan=False).encode()
+        local, remote = socket.socketpair()
+        with local, remote:
+            process = subprocess.Popen([os.environ['LIVO_WIRE_PEER'],str(remote.fileno())],
+                pass_fds=(remote.fileno(),),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            remote.close()
+            try:
+                local.sendall(struct.pack('<IQ',len(raw),len(body))+raw+body)
+                process.communicate(timeout=5)
+                return process.returncode == 0
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+
+    @unittest.skipUnless(os.environ.get('LIVO_WIRE_PEER'), 'C++ wire peer is not configured')
+    def test_camera_homogeneous_row_has_the_same_boundary_in_both_decoders(self):
+        for index in range(12,16):
+            for delta, accepted in ((5e-10,True),(-5e-10,True),(2e-9,False),(-2e-9,False)):
+                header, body = evaluation_fixture()
+                header['query']['camera_from_body'][index] += delta
+                with self.subTest(index=index,delta=delta):
+                    try:
+                        validate_evaluation_message(header,body)
+                        python_accepts = True
+                    except ValueError:
+                        python_accepts = False
+                    self.assertEqual(python_accepts,accepted)
+                    self.assertEqual(self.cpp_accepts(header,body),accepted)
+
+    @unittest.skipUnless(os.environ.get('LIVO_WIRE_PEER'), 'C++ wire peer is not configured')
+    def test_spatial_query_requires_each_owner_dimension_in_both_decoders(self):
+        for width,height,accepted in ((8,6,True),(4,12,False),(4,6,False)):
+            header, body = evaluation_fixture(spatial=True)
+            offset = 128*(1+sum(b['target']['primary_count'] for b in header['sources']['blocks']))
+            header['query'].update(width=width,height=height)
+            body = body[:offset]+bytes(9*width*height)
+            with self.subTest(width=width,height=height):
+                try:
+                    validate_evaluation_message(header,body)
+                    python_accepts = True
+                except ValueError:
+                    python_accepts = False
+                self.assertEqual(python_accepts,accepted)
+                self.assertEqual(self.cpp_accepts(header,body),accepted)
+
     def test_capability_requires_holdout_and_explicit_budgets(self):
         manifest = sample_manifest()
         header = dict(schema=2, type='hello', session_id='a'*32, state_directory='/tmp/evaluation/states',

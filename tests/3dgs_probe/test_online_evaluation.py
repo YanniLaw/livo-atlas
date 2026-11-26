@@ -107,3 +107,27 @@ class OnlineEvaluationTest(HoldoutWorkerTest):
         reply, _ = self.actor.handle(header, body)
         self.assertEqual(reply['type'], 'heldout_evaluation_error')
         self.assertEqual(reply['code'], 'source')
+
+    def test_report_preserves_software_and_cumulative_inference_evidence(self):
+        header, body = self.request()
+        software = dict(python='3.10-test',torch='2.3-test',cuda='12.1-test',
+                        gsplat='1.5-test',device='test device')
+        self.actor.software = dict(software)
+        before = training_state(self.actor)
+        rng = torch.cuda.get_rng_state().clone()
+        peak = torch.cuda.max_memory_allocated(self.actor.device)
+        reply, _ = self.actor.handle(header,body)
+        self.assertEqual(reply['type'],'heldout_evaluation_ok')
+        report = json.loads((Path(self.temporary.name)/'evaluations/views/1/report.json').read_text())
+        self.assertEqual(report['software'],dict(software,numpy=np.__version__))
+        inference = report['inference']
+        self.assertEqual(inference['memory_peak_scope'],'worker_lifetime')
+        self.assertIsNone(inference['joint'])
+        single = inference['single']
+        self.assertGreaterEqual(single['gpu_peak_allocated_bytes'],peak)
+        self.assertGreaterEqual(single['gpu_peak_reserved_bytes'],single['gpu_peak_allocated_bytes'])
+        self.assertGreater(single['gaussian_count'],0)
+        self.assertEqual(set(single['timings']),{'transform_upload_seconds','render_seconds','total_seconds'})
+        self.assertTrue(all(value>=0 for value in single['timings'].values()))
+        self.assertEqual(training_state(self.actor),before)
+        self.assertTrue(torch.equal(rng,torch.cuda.get_rng_state()))

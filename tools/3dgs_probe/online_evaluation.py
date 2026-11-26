@@ -153,7 +153,15 @@ class OnlineEvaluation:
         height, width = query['rgb'].shape[:2]
         single = infer_blocks([own], query['K'], width, height, actor.device)
         joint = infer_blocks(blocks, query['K'], width, height, actor.device) if len(blocks) == 2 else None
+        # infer_blocks leaves allocator statistics untouched. Each sample is
+        # cumulative over this worker, not the incremental cost of this query.
+        inference = dict(memory_peak_scope='worker_lifetime')
+        for name, result in (('single', single), ('joint', joint)):
+            inference[name] = None if result is None else {
+                key: copy.deepcopy(result[key]) for key in (
+                    'timings', 'gaussian_count', 'gpu_peak_allocated_bytes', 'gpu_peak_reserved_bytes')}
         report = dict(schema=1, kind='livo_atlas.gaussian_online_evaluation', phase='online_snapshot',
+            software=dict(actor.software, numpy=np.__version__), inference=inference,
             status='succeeded', keyframe_id=key, split_id=self.split.split_id, training_performed=False,
             sealed_at_unix_seconds=header['sealed_at_unix_seconds'],
             dispatched_at_unix_seconds=header['dispatched_at_unix_seconds'],

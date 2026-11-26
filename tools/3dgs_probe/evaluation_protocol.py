@@ -34,6 +34,10 @@ def validate_evaluation_message(header, body):
         if not isinstance(body, bytes) or len(body) != offset + 9 * _dimensions(query)[2]:
             raise ValueError('Incorrect evaluation body size')
         decode_source_request(source, body[:offset])
+        if source.get('policy') == 'spatial':
+            retained = source['blocks'][-1]['render_metadata']['camera']
+            if any(query[key] != retained[key] for key in ('width', 'height')):
+                raise ValueError('Evaluation camera dimensions differ from spatial owner')
         _selection(source, query)
         camera = _pose(query['camera_from_body'], 'heldout body camera')
         flat = dict(query, **{k: source[k] for k in ('frame_count', 'optimized_frame_count',
