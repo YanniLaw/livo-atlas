@@ -27,16 +27,16 @@
 **Files:** tools/3dgs_probe/compare_gaussian_sampling.py; tests/3dgs_probe/test_compare_gaussian_sampling.py; tests/3dgs_probe/test_online_model.py.
 **Interfaces:** compare(...,frozen_parameter=None); --frozen-parameter {means,log_scales}; comparison_scope=learning_rates.<name> and learning_rates baseline/candidate metadata.
 
-- [ ] Add failing tests for accepted one-rate freeze, invalid directions/names, extra ratio/method/other rate/YAML type changes, and mutually exclusive modes.
-- [ ] Verify existing zero learning rates via real CUDA across12 insertions/eviction and initialized values; this is characterization of existing support.
-- [ ] Observe comparison RED, implement minimal explicit mode; run focused and full suite, expected all pass; commit and ledger.
+- [x] Add failing tests for accepted one-rate freeze, invalid directions/names, extra ratio/method/other rate/YAML type changes, and mutually exclusive modes.
+- [x] Verify existing zero learning rates via real CUDA across12 insertions/eviction and initialized values; this is characterization of existing support.
+- [x] Observe comparison RED, implement minimal explicit mode; run focused and full suite, expected all pass; commit and ledger.
 
 ### Task 2: Two-scene full-prefix study
 
 **Files:** docs/gaussian-optimization-ablation.md; docs/engineering-roadmap.md; local validation/gaussian-optimization-ablation-20261127.
 **Interfaces:** existing evaluate_gaussian_sampling plus Task1 comparison mode; three conditions per scene/seeds0/1.
 
-- [ ] Freeze protocol/config snapshots;12 fresh sequential evaluations, expected unchanged calls/steps/selection/splits.
-- [ ] Run8 bounded real-data frozen-parameter witnesses and8 controlled comparisons; independently rehash/recompute inputs/metrics, per-scene six-way common depth and quotas/retention counts.
-- [ ] Inspect diagnostics and document measured effect including negative outcomes/seed-selection feedback; verify diff and commit.
+- [x] Freeze protocol/config snapshots;12 fresh sequential evaluations, expected unchanged calls/steps/selection/splits.
+- [x] Run8 bounded real-data frozen-parameter witnesses and8 controlled comparisons; independently rehash/recompute inputs/metrics, per-scene six-way common depth and quotas/retention counts.
+- [x] Inspect diagnostics and document measured effect including negative outcomes/seed-selection feedback; verify diff and commit.
 - [ ] One fresh read-only final review, Important fixes RED→GREEN and full suite; preserve local branch/worktree.
