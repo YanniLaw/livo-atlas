@@ -86,6 +86,13 @@ def load_final_poses(root, report, frame_count):
     return np.asarray([_pose(pose) for pose in poses])
 
 
+def normalized_training_options(report):
+    """Supply only the known historical method default, preserving other types."""
+    options = dict(report['training_options'])
+    options.setdefault('coverage_sampling', 'resample')
+    return options
+
+
 def verify_configuration(root, report):
     """Bind an archived YAML to both its byte digest and effective optimizer."""
     import yaml
@@ -95,9 +102,7 @@ def verify_configuration(root, report):
     with _open_file(path, 256 * 1024) as stream:
         raw = stream.read()
     _require(hashlib.sha256(raw).hexdigest() == report['config_sha256'], 'Archived config digest differs')
-    options = dict(report['training_options'])
-    # Older archived runs predate this optional method; their path is resample.
-    options.setdefault('coverage_sampling', 'resample')
+    options = normalized_training_options(report)
     _require(canonical_json(asdict(load_worker_config(path).options)) == canonical_json(options),
              'Archived config differs from effective training options')
     _require(file_sha(path) == report['config_sha256'], 'Archived config changed during verification')

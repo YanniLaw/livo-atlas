@@ -10,7 +10,8 @@ import sys
 import numpy as np
 
 from compare_gaussian_holdout import _check_training, _read_json
-from evaluate_gaussian_sampling import load_final_poses, verify_artifacts, verify_configuration
+from evaluate_gaussian_sampling import (load_final_poses, normalized_training_options,
+                                       verify_artifacts, verify_configuration)
 from evaluation_metrics import aggregate_metrics, measure
 from gaussian_map import _require
 from gaussian_state import _inspect_npz, _open_file
@@ -53,6 +54,22 @@ def _depth_total(rows):
     return result
 
 
+def coverage_transition(reference_alpha, target_alpha, image_mask):
+    """Pixel turnover against the supplied reference, not against an implicit run."""
+    reference, target, mask = map(np.asarray, (reference_alpha, target_alpha, image_mask))
+    _require(reference.shape == target.shape == mask.shape and mask.ndim == 2
+             and 0 < mask.size <= 1_000_000 and mask.dtype in (np.dtype('bool'), np.dtype('u1'))
+             and np.all(mask <= 1), 'Invalid coverage reference or mask')
+    for alpha in (reference, target):
+        _require(alpha.dtype.kind == 'f' and np.isfinite(alpha).all()
+                 and np.all(alpha >= 0) and np.all(alpha <= 1+1e-6), 'Invalid coverage alpha')
+    mask = mask.astype(bool, copy=False)
+    old, new = reference >= _ALPHA_THRESHOLD, target >= _ALPHA_THRESHOLD
+    return dict(newly_covered=int((mask & ~old & new).sum()),
+                newly_uncovered=int((mask & old & ~new).sum()),
+                common_holes=int((mask & ~old & ~new).sum()))
+
+
 def _requires_configuration(root, report):
     # Missing a declaration must not turn a modern result into a legacy one.
     options = report.get('training_options', {})
@@ -67,6 +84,8 @@ def _load(root):
     report, digest = _read_json(root / 'report.json')
     _require(report.get('kind') == 'livo_atlas.gaussian_sampling_evaluation'
              and report.get('status') == 'succeeded', 'Expected complete controlled sampling report')
+    _require(type(report.get('random_seed')) is int and 0 <= report['random_seed'] < 2**32,
+             'Invalid controlled random seed')
     with _open_file(root / 'split.json', MAX_SPLIT_BYTES) as stream:
         split = HoldoutSplit(stream.read())
     poses = load_final_poses(root, report, len(split.frames))
@@ -213,7 +232,7 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
     controls = _CONTROLS
     if allow_coverage_ratio_change or allow_coverage_sampling_change:
         configurations = [verify_configuration(root, report) for root, report in ((baseline, a), (candidate, b))]
-        options = [dict(report['training_options']) for report in (a, b)]
+        options = [normalized_training_options(report) for report in (a, b)]
         for document, values in zip(configurations, options):
             document['gaussian'].setdefault('worker', {}).setdefault('coverage_sampling', 'resample')
             values.setdefault('coverage_sampling', 'resample')
@@ -234,11 +253,17 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
             values.pop(varied_key)
         _require(canonical_json(configurations[0]) == canonical_json(configurations[1])
                  and canonical_json(options[0]) == canonical_json(options[1]),
-                 'Other config or training options differ in ratio comparison')
+                 'Other config or training options differ in controlled coverage comparison')
         controls = tuple(key for key in _CONTROLS if key not in ('config_sha256', 'training_options'))
     else:
         _require(a['seed_policy'] == 'uniform' and b['seed_policy'] == 'coverage', 'Expected uniform then coverage')
-    _require(split.payload == other.payload and all(a[key] == b[key] for key in controls),
+
+    def control_values(report):
+        return {key: normalized_training_options(report) if key == 'training_options' else report[key]
+                for key in controls}
+
+    _require(split.payload == other.payload
+             and canonical_json(control_values(a)) == canonical_json(control_values(b)),
              'Controlled experiment inputs or training options differ')
     counts = _check_training(a['groups'], a, b)
     rows = []
@@ -254,13 +279,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
                 continue
             row[mode] = dict(baseline=old[mode], candidate=new[mode], common_depth=depth_comparison(
                 _rendered(x, mode), _rendered(y, mode), x['reference_depth_m'], x['depth_mask'].astype(bool)))
-            mask = x['image_mask'].astype(bool)
-            covered_a = x[mode+'_alpha'] >= _ALPHA_THRESHOLD
-            covered_b = y[mode+'_alpha'] >= _ALPHA_THRESHOLD
-            row[mode]['coverage_transition'] = dict(
-                newly_covered=int((mask & ~covered_a & covered_b).sum()),
-                newly_uncovered=int((mask & covered_a & ~covered_b).sum()),
-                common_holes=int((mask & ~covered_a & ~covered_b).sum()))
+            row[mode]['coverage_transition'] = coverage_transition(
+                x[mode+'_alpha'], y[mode+'_alpha'], x['image_mask'])
         rows.append(row)
     for report in (a, b):
         summary = {mode: aggregate_metrics([row[mode] for row in report['queries'] if row[mode] is not None])

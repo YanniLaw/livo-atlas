@@ -369,6 +369,51 @@ class SamplingComparisonTest(unittest.TestCase):
         result = compare(self.baseline, self.candidate, self.root / 'old-archive')
         self.assertEqual(result['status'], 'succeeded')
 
+    def test_default_comparison_accepts_mixed_historical_resample_option(self):
+        path = self.baseline / 'report.json'
+        report = json.loads(path.read_text())
+        del report['training_options']['coverage_sampling']
+        path.write_text(json.dumps(report))
+        result = compare(self.baseline, self.candidate, self.root / 'mixed-archive')
+        self.assertEqual(result['status'], 'succeeded')
+
+    def test_method_controls_and_seed_types_remain_exact(self):
+        self.configure_ratio(self.baseline, .25)
+        self.configure_ratio(self.candidate, .25)
+        self.configure_sampling(self.baseline, 'resample')
+        self.configure_sampling(self.candidate, 'replace')
+        path = self.candidate / 'report.json'
+        original = json.loads(path.read_text())
+        for key, value in (('random_seed', 0.), ('training_calls', 10.)):
+            report = copy.deepcopy(original)
+            report[key] = value
+            path.write_text(json.dumps(report))
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root / key, allow_coverage_sampling_change=True)
+        path.write_text(json.dumps(original))
+        for root in (self.baseline, self.candidate):
+            p = root / 'report.json'
+            report = json.loads(p.read_text())
+            report['random_seed'] = 0.
+            p.write_text(json.dumps(report))
+        with self.assertRaises(ValueError):
+            compare(self.baseline, self.candidate, self.root / 'both-float-seeds', allow_coverage_sampling_change=True)
+
+    def test_coverage_retention_uses_one_shared_reference(self):
+        import compare_gaussian_sampling as comparison
+        reference = np.ones((1, 4), dtype='f4')
+        resample = np.array([[1., 0., 0., 1.]], dtype='f4')
+        replacement = np.array([[0., 1., 1., 1.]], dtype='f4')
+        mask = np.ones((1, 4), bool)
+        self.assertEqual(comparison.coverage_transition(reference, resample, mask),
+                         dict(newly_covered=0, newly_uncovered=2, common_holes=0))
+        self.assertEqual(comparison.coverage_transition(reference, replacement, mask),
+                         dict(newly_covered=0, newly_uncovered=1, common_holes=0))
+        self.assertEqual(comparison.coverage_transition(resample, replacement, mask),
+                         dict(newly_covered=2, newly_uncovered=1, common_holes=0))
+        with self.assertRaises(ValueError):
+            comparison.coverage_transition(reference, replacement.T, mask)
+
 
 
 if __name__ == '__main__':

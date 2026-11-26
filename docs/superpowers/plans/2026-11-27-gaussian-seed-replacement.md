@@ -56,4 +56,4 @@
 - [x] Run ten sequential complete-prefix experiments, expected150calls/3000steps/21queries/19joint each and unchanged budgets.
 - [x] Verify all source/pose/config/float artifacts, quotas/retention counts, ten-way common-depth metrics and worst-view diagnostics.
 - [x] Document positive or negative outcome and limitations; verify full suite and git diff --check; commit docs.
-- [ ] Obtain one fresh read-only final review and fix Important/Critical findings via RED→GREEN plus full suite.
+- [x] Obtain one fresh read-only final review and fix Important/Critical findings via RED→GREEN plus full suite.
