@@ -1,7 +1,8 @@
 # 在线 Gaussian 留出数据隔离
 
 第一阶段已实现训练前冻结划分、双端接纳检查和完整训练历史。它为后续在线留出评分
-建立来源边界；当前没有在线留出渲染、PSNR/SSIM 成绩或最终状态只读评分工具。
+建立来源边界；第二阶段已提供[最终快照只读评分工具](gaussian-heldout-scoring.md)。
+在线封口评分与调度仍待接入，最终快照评分不称为图像到达时的预测。
 [设计](superpowers/specs/2026-11-26-online-heldout-evaluation-design.md) ·
 [实施计划](superpowers/plans/2026-11-26-gaussian-holdout-isolation.md)
 

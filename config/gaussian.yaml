@@ -1,8 +1,10 @@
 gaussian:
-  # Stage 1: freeze training isolation; heldout scoring is a later stage.
+  # Frozen training isolation; final snapshot scorer also reads the disk budgets.
   evaluation:
     enabled: false
     split_file: ""
+    max_output_mib: 256
+    min_free_disk_mib: 1024
   enabled: false
   persist_submaps: false
   # Use one absolute path for the ROS node and Python worker.

@@ -1,7 +1,8 @@
 # 在线留出视角画质评估：设计草案
 
 状态：第一阶段训练划分和来源隔离已实现，见[验证与复现](../../gaussian-holdout-isolation.md)。
-在线留出查询、指标和评分调度尚未实现，未产生新的留出画质结果。
+第二阶段已实现[独立查询、固定指标与最终快照只读评分](../../gaussian-heldout-scoring.md)。
+在线留出请求协议、封口触发与公平调度仍待接入；现有结果是最终快照成绩。
 目标是在当前单 GPU worker 的在线训练过程中，对从未进入高斯训练的相机图像评分，
 同时保留实时前端、异步后端、现有预览和正常退出语义。
 
@@ -102,19 +103,19 @@ RGB 主指标不能只选已覆盖区域，否则空洞会消失在分母中。�
 
 ## 配置、产物与资源
 
-配置统一进入 `config/gaussian.yaml`，两端共用读取语义。拟保留最少参数：
+配置统一进入 `config/gaussian.yaml`，当前参数如下；每组查询上限在冻结划分时确定：
 
 ```yaml
 gaussian:
   evaluation:
     enabled: false
     split_file: ""
-    max_queries_per_submap: 2
     max_output_mib: 256
     min_free_disk_mib: 1024
 ```
 
-当前只读取 `enabled` 和 `split_file`，其余是评分阶段待收敛的配置建议。启用时要求持久化、在线子地图和有效
+节点读取 `enabled` 和 `split_file`，最终评分工具也读取磁盘预算；查询上限由 manifest 固定。
+启用在线隔离时要求持久化、在线子地图和有效
 划分；划分中的查询数不能超出安全上限，运行中不任意挑“容易”的查询。
 
 输出包含 split/source/software 摘要、逐次训练 lineage、逐查询相机与 as_of 来源、
@@ -146,3 +147,4 @@ PNG 只作为浏览副本，不能用量化后的 PNG 承诺逐位复算浮点 M
 建立可复核基线，不预设未经测量的 PSNR/SSIM 提升门槛，不从一次 Retail_Street 推断
 跨场景泛化、长距离定位精度或即时预测能力。第一阶段实施见
 [执行计划](../plans/2026-11-26-gaussian-holdout-isolation.md)。
+第二阶段见[查询与评分计划](../plans/2026-11-26-gaussian-heldout-scoring.md)。

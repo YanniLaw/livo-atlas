@@ -119,6 +119,7 @@ class HoldoutSplit:
         source = data['source']
         if not isinstance(source, dict) or set(source) != _SOURCE:
             raise ValueError('Incomplete split source')
+        self.source = source
         if (not isinstance(source['frontend_profile'], str) or not 1 <= len(source['frontend_profile']) <= 256 or
                 any(not isinstance(source[k], str) or not _HASH.fullmatch(source[k])
                     for k in _SOURCE - {'frontend_profile', 'assets'})):
@@ -184,17 +185,23 @@ class HoldoutSplit:
             self.frames[index] = frame
         self.payload = canonical_json(data)
 
-    def check_view(self, view):
+    def _check_observation(self, view, role, selected=False):
         key = view['keyframe_id']
         frame = self.frames.get(key)
-        if frame is None or frame['role'] != 'train':
-            raise ValueError('Gaussian observation is heldout or not_in_scope')
+        if frame is None or frame['role'] != role or (selected and not frame['query']):
+            raise ValueError('Gaussian observation has an invalid role or is not_in_scope')
         if 'submap_id' in view and view['submap_id'] != frame['submap_id']:
             raise ValueError('Gaussian observation has a different primary group')
-        actual = observation_record(view, frame['submap_id'], 'train')
+        actual = observation_record(view, frame['submap_id'], role)
         if actual['observation_sha256'] != frame['observation_sha256']:
             raise ValueError('Gaussian observation differs from frozen split')
         return key
+
+    def check_view(self, view):
+        return self._check_observation(view, 'train')
+
+    def check_query(self, view):
+        return self._check_observation(view, 'heldout', selected=True)
 
     def check_target(self, target):
         frontier = _id(target['frame_count'])

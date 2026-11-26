@@ -182,7 +182,7 @@ def _check_groups(keyframes, rows):
 
 
 def _inspect_gaussian_map(directory, keyframes, expected_version, expected_frames,
-                          query_id=None):
+                          query_id=None, state_validator=None):
     """Verify one state at a time; never retain a map-wide parameter cache."""
     directory, keyframes = Path(directory), Path(keyframes)
     data = _json(directory / "map.json")
@@ -293,6 +293,8 @@ def _inspect_gaussian_map(directory, keyframes, expected_version, expected_frame
                  "Asset source identity or currentness differs")
         ids = _coverage(row["asset_trained_frame_ids"], row["asset_gaussian_count"], saved_source)
         state = read_state(path)
+        if state_validator is not None:
+            state_validator(state)
         metadata = state.metadata
         _require(metadata["origin_session_id"] == session and metadata["capture_kind"] == "online_confirmed" and
                  all(metadata[key] == saved_source[key] for key in _TARGET_IDS) and

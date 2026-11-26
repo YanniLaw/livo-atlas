@@ -18,7 +18,8 @@
 在线联合渲染读取已确认的最多两块；densification、跨块联合训练和整套 SLAM session 恢复属于后续工作。
 
 可选的[留出数据隔离](gaussian-holdout-isolation.md)先冻结划分，再禁止 heldout 参与
-训练、重建和状态恢复，并保存完整训练 lineage。当前仅实现隔离，没有在线留出评分。
+训练、重建和状态恢复，并保存完整训练 lineage。
+[最终快照评分](gaussian-heldout-scoring.md)读取已封口权重进行只读留出评估；在线评分调度仍待接入。
 
 ## 环境与构建
 
