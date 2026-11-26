@@ -291,10 +291,84 @@ class SamplingComparisonTest(unittest.TestCase):
             report = json.loads(path.read_text())
             del report['config_file']
             del report['training_options']['coverage_uncovered_ratio']
+            report['training_options'].pop('coverage_sampling', None)
             path.write_text(json.dumps(report))
             (root / 'config.yaml').unlink()
         result = compare(self.baseline, self.candidate, self.root / 'legacy')
         self.assertEqual(result['status'], 'succeeded')
+
+    def configure_sampling(self, root, sampling):
+        import hashlib
+        import yaml
+        path = root / 'report.json'
+        report = json.loads(path.read_text())
+        report['seed_policy'] = 'coverage'
+        report['training_options']['coverage_sampling'] = sampling
+        config = yaml.safe_load((root / 'config.yaml').read_text())
+        config['gaussian']['worker']['coverage_sampling'] = sampling
+        raw = yaml.safe_dump(config).encode()
+        (root / 'config.yaml').write_bytes(raw)
+        report['config_sha256'] = hashlib.sha256(raw).hexdigest()
+        for group in report['submaps']:
+            for operation in group['training']:
+                evidence = dict(depth_candidates=1, prepass_seconds=None,
+                                uncovered_candidates=None, reserved_uncovered=0)
+                if sampling == 'replace':
+                    evidence.update(uniform_uncovered=None, replaced_seeds=0)
+                operation['seed_selection'] = evidence
+        path.write_text(json.dumps(report))
+
+    def test_explicit_sampling_comparison_allows_only_method_change(self):
+        self.configure_ratio(self.baseline, .25)
+        self.configure_ratio(self.candidate, .25)
+        self.configure_sampling(self.baseline, 'resample')
+        self.configure_sampling(self.candidate, 'replace')
+        with self.assertRaises(ValueError):
+            compare(self.baseline, self.candidate, self.root / 'strict-method')
+        result = compare(self.baseline, self.candidate, self.root / 'method', allow_coverage_sampling_change=True)
+        self.assertEqual(result['comparison_scope'], 'coverage_sampling')
+        self.assertEqual(result['coverage_sampling'], {'baseline': 'resample', 'candidate': 'replace'})
+        with self.assertRaises(ValueError):
+            compare(self.baseline, self.candidate, self.root / 'two-flags',
+                    allow_coverage_sampling_change=True, allow_coverage_ratio_change=True)
+
+    def test_sampling_mode_rejects_changed_ratio_other_options_and_yaml_type(self):
+        self.configure_ratio(self.baseline, .25, {'publish_preview': False})
+        self.configure_ratio(self.candidate, .5, {'publish_preview': False})
+        self.configure_sampling(self.baseline, 'resample')
+        self.configure_sampling(self.candidate, 'replace')
+        with self.assertRaises(ValueError):
+            compare(self.baseline, self.candidate, self.root / 'wrong-ratio', allow_coverage_sampling_change=True)
+        self.configure_ratio(self.candidate, .25, {'publish_preview': 0})
+        self.configure_sampling(self.candidate, 'replace')
+        with self.assertRaises(ValueError):
+            compare(self.baseline, self.candidate, self.root / 'wrong-type', allow_coverage_sampling_change=True)
+        self.configure_ratio(self.candidate, .25, {'publish_preview': False})
+        self.configure_sampling(self.candidate, 'replace')
+        path = self.candidate / 'report.json'
+        report = json.loads(path.read_text())
+        report['training_options']['depth_loss_weight'] = .9
+        path.write_text(json.dumps(report))
+        with self.assertRaises(ValueError):
+            compare(self.baseline, self.candidate, self.root / 'wrong-option', allow_coverage_sampling_change=True)
+
+    def test_ratio_mode_cannot_also_change_sampling_method(self):
+        self.configure_ratio(self.baseline, 0.)
+        self.configure_ratio(self.candidate, .25)
+        self.configure_sampling(self.baseline, 'resample')
+        self.configure_sampling(self.candidate, 'replace')
+        with self.assertRaisesRegex(ValueError, 'config|options'):
+            compare(self.baseline, self.candidate, self.root / 'ratio-and-method', allow_coverage_ratio_change=True)
+
+    def test_old_archived_options_supply_only_missing_resample_default(self):
+        for root in (self.baseline, self.candidate):
+            path = root / 'report.json'
+            report = json.loads(path.read_text())
+            report['training_options'].pop('coverage_sampling')
+            path.write_text(json.dumps(report))
+        result = compare(self.baseline, self.candidate, self.root / 'old-archive')
+        self.assertEqual(result['status'], 'succeeded')
+
 
 
 if __name__ == '__main__':

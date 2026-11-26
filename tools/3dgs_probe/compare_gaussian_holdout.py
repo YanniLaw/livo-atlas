@@ -15,7 +15,7 @@ from gaussian_map import _require
 from gaussian_state import _open_file, _pose, _reject_constant, _unique_object
 from joint_renderer import _ALPHA_THRESHOLD, _real_directory
 from render_gaussian_map import _exclusive_write, _json_bytes
-from worker_config import validate_coverage_uncovered_ratio
+from worker_config import validate_coverage_sampling, validate_coverage_uncovered_ratio
 
 
 _FRONTIER_FIELDS = ('session_id', 'pose_version', 'frame_count', 'optimized_frame_count',
@@ -60,8 +60,10 @@ def _by_keyframe(rows, frame_count, label):
     return result
 
 
-def _check_seed_selection(operation, policy, has_history, seeds, *, uncovered_ratio=0.5):
+def _check_seed_selection(operation, policy, has_history, seeds, *, uncovered_ratio=0.5,
+                          coverage_sampling='resample'):
     ratio = validate_coverage_uncovered_ratio(uncovered_ratio)
+    sampling = validate_coverage_sampling(coverage_sampling)
     message = f"Invalid seed selection for {policy} keyframe {operation['keyframe_id']}"
     if policy == 'uniform':
         _require('seed_selection' not in operation, message)
@@ -72,6 +74,22 @@ def _check_seed_selection(operation, policy, has_history, seeds, *, uncovered_ra
     candidates, seconds, holes, quota = (selection[field] for field in _SEED_FIELDS)
     _require(type(candidates) is int and 1 <= candidates <= _MAX_PIXELS and
              seeds == min(candidates, _SEED_LIMIT) and type(quota) is int, message)
+    if sampling == 'replace':
+        _require('uniform_uncovered' in selection and 'replaced_seeds' in selection, message)
+        kept_holes = selection.get('uniform_uncovered')
+        changed = selection.get('replaced_seeds')
+        _require(type(changed) is int and quota == 0, message)
+        if ratio > 0 and has_history and candidates > _SEED_LIMIT:
+            _require(type(seconds) in (int, float) and math.isfinite(seconds) and seconds >= 0
+                     and type(holes) is int and 0 <= holes <= candidates
+                     and type(kept_holes) is int
+                     and max(0, seeds-(candidates-holes)) <= kept_holes <= min(seeds, holes), message)
+            expected = min(int(seeds*ratio), seeds-kept_holes, holes-kept_holes)
+            _require(changed == expected, message)
+        else:
+            _require(seconds is None and holes is None and kept_holes is None and changed == 0, message)
+        return
+    _require('uniform_uncovered' not in selection and 'replaced_seeds' not in selection, message)
     if ratio > 0 and has_history and candidates > _SEED_LIMIT:
         _require(type(seconds) in (int, float) and math.isfinite(seconds) and seconds >= 0 and
                  type(holes) is int and 0 <= holes <= candidates, message)
@@ -111,7 +129,8 @@ def _check_training(groups, baseline, candidate):
             for operation, report in ((a, baseline), (b, candidate)):
                 ratio = report.get('training_options', {}).get('coverage_uncovered_ratio', .5)
                 _check_seed_selection(operation, report['seed_policy'], index > 0, seed_count,
-                                      uncovered_ratio=ratio)
+                                      uncovered_ratio=ratio,
+                                      coverage_sampling=report.get('training_options', {}).get('coverage_sampling', 'resample'))
             previous_counts[key] = seed_count
         retained = keys[-10:]
         origins = {str(key): previous_counts[key] for key in retained}

@@ -58,7 +58,7 @@ def _requires_configuration(root, report):
     options = report.get('training_options', {})
     path = root / 'config.yaml'
     return ('config_file' in report or
-            (isinstance(options, dict) and 'coverage_uncovered_ratio' in options) or
+            (isinstance(options, dict) and ('coverage_uncovered_ratio' in options or 'coverage_sampling' in options)) or
             path.exists() or path.is_symlink())
 
 
@@ -199,7 +199,10 @@ def _diagnostic(path, baseline, candidate, mode, labels=('uniform', 'coverage'))
     sheet.save(path)
 
 
-def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False):
+def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
+             allow_coverage_sampling_change=False):
+    _require(not (allow_coverage_ratio_change and allow_coverage_sampling_change),
+             'Only one coverage setting may vary in a controlled comparison')
     baseline, candidate, output = Path(baseline).resolve(strict=True), Path(candidate).resolve(strict=True), Path(output).absolute()
     _require(not output.exists() and not output.is_symlink() and output.parent.is_dir(), 'Output must be new')
     resolved = output.resolve()
@@ -208,16 +211,27 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False):
     a, split, a_digest = _load(baseline)
     b, other, b_digest = _load(candidate)
     controls = _CONTROLS
-    if allow_coverage_ratio_change:
-        ratios = {name: report['training_options']['coverage_uncovered_ratio']
-                  for name, report in (('baseline', a), ('candidate', b))}
-        _require(a['seed_policy'] in ('uniform', 'coverage') and ratios['baseline'] == 0
-                 and b['seed_policy'] == 'coverage', 'Ratio comparison requires a zero-ratio baseline')
+    if allow_coverage_ratio_change or allow_coverage_sampling_change:
         configurations = [verify_configuration(root, report) for root, report in ((baseline, a), (candidate, b))]
         options = [dict(report['training_options']) for report in (a, b)]
         for document, values in zip(configurations, options):
-            document['gaussian'].get('worker', {}).pop('coverage_uncovered_ratio', None)
-            values.pop('coverage_uncovered_ratio')
+            document['gaussian'].setdefault('worker', {}).setdefault('coverage_sampling', 'resample')
+            values.setdefault('coverage_sampling', 'resample')
+        if allow_coverage_sampling_change:
+            samplings = dict(zip(('baseline', 'candidate'), (values['coverage_sampling'] for values in options)))
+            _require(a['seed_policy'] == b['seed_policy'] == 'coverage'
+                     and samplings == {'baseline': 'resample', 'candidate': 'replace'},
+                     'Sampling comparison requires resample then replace')
+            varied_key = 'coverage_sampling'
+        else:
+            ratios = {name: report['training_options']['coverage_uncovered_ratio']
+                      for name, report in (('baseline', a), ('candidate', b))}
+            _require(a['seed_policy'] in ('uniform', 'coverage') and ratios['baseline'] == 0
+                     and b['seed_policy'] == 'coverage', 'Ratio comparison requires a zero-ratio baseline')
+            varied_key = 'coverage_uncovered_ratio'
+        for document, values in zip(configurations, options):
+            document['gaussian'].get('worker', {}).pop(varied_key, None)
+            values.pop(varied_key)
         _require(canonical_json(configurations[0]) == canonical_json(configurations[1])
                  and canonical_json(options[0]) == canonical_json(options[1]),
                  'Other config or training options differ in ratio comparison')
@@ -258,6 +272,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False):
         final_gaussian_counts=counts, queries=rows, diagnostics=[])
     if allow_coverage_ratio_change:
         report.update(comparison_scope='coverage_uncovered_ratio', coverage_uncovered_ratios=ratios)
+    elif allow_coverage_sampling_change:
+        report.update(comparison_scope='coverage_sampling', coverage_sampling=samplings)
     for mode in ('single', 'joint'):
         selected = [row[mode] for row in rows if row[mode] is not None]
         report[mode] = dict(query_count=len(selected), baseline=aggregate_metrics([r['baseline'] for r in selected]),
@@ -275,7 +291,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False):
         key = row['keyframe_id']
         mode = 'joint' if row['joint'] else 'single'
         path = output / f'views/{key}.png'
-        labels = (f"ratio {ratios['baseline']:g}", f"ratio {ratios['candidate']:g}") if allow_coverage_ratio_change else ('uniform', 'coverage')
+        labels = ('resample', 'replace') if allow_coverage_sampling_change else (
+            (f"ratio {ratios['baseline']:g}", f"ratio {ratios['candidate']:g}") if allow_coverage_ratio_change else ('uniform', 'coverage'))
         _diagnostic(path, _samples(baseline, a, by_key_a[key], split.frames[key]),
                     _samples(candidate, b, by_key_b[key], split.frames[key]), mode, labels)
         report['diagnostics'].append(dict(keyframe_id=key, mode=mode, path=f'views/{key}.png', sha256=file_sha(path)))
@@ -301,11 +318,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('baseline', 'candidate', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
-    parser.add_argument('--allow-coverage-ratio-change', action='store_true')
+    variation = parser.add_mutually_exclusive_group()
+    variation.add_argument('--allow-coverage-ratio-change', action='store_true')
+    variation.add_argument('--allow-coverage-sampling-change', action='store_true')
     args = parser.parse_args(argv)
     try:
         compare(args.baseline, args.candidate, args.output,
-                allow_coverage_ratio_change=args.allow_coverage_ratio_change)
+                allow_coverage_ratio_change=args.allow_coverage_ratio_change,
+                allow_coverage_sampling_change=args.allow_coverage_sampling_change)
     except Exception as error:
         print(f'{type(error).__name__}: {error}', file=sys.stderr)
         return 1

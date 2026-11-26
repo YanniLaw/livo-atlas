@@ -96,6 +96,31 @@ def evaluation(root, policy):
 
 
 class HoldoutComparisonTest(unittest.TestCase):
+    def test_replacement_counts_obey_uniform_and_new_hole_limits(self):
+        operation = dict(keyframe_id=2, seed_selection=dict(depth_candidates=1200,
+            prepass_seconds=.01, uncovered_candidates=700, reserved_uncovered=0,
+            uniform_uncovered=650, replaced_seeds=50))
+        _check_seed_selection(operation, 'coverage', True, 1000,
+                              uncovered_ratio=.25, coverage_sampling='replace')
+        for key, value in (('uniform_uncovered', 701), ('replaced_seeds', 250), ('reserved_uncovered', 50)):
+            invalid = copy.deepcopy(operation)
+            invalid['seed_selection'][key] = value
+            with self.assertRaises(ValueError):
+                _check_seed_selection(invalid, 'coverage', True, 1000,
+                                      uncovered_ratio=.25, coverage_sampling='replace')
+        with self.assertRaises(ValueError):
+            _check_seed_selection(operation, 'coverage', True, 1000,
+                                  uncovered_ratio=.25, coverage_sampling='resample')
+        initial = copy.deepcopy(operation)
+        initial['seed_selection'].update(prepass_seconds=None, uncovered_candidates=None,
+                                         uniform_uncovered=None, replaced_seeds=0)
+        _check_seed_selection(initial, 'coverage', False, 1000,
+                              uncovered_ratio=.25, coverage_sampling='replace')
+        del initial['seed_selection']['uniform_uncovered']
+        with self.assertRaises(ValueError):
+            _check_seed_selection(initial, 'coverage', False, 1000,
+                                  uncovered_ratio=.25, coverage_sampling='replace')
+
     def test_seed_evidence_uses_configured_quota_and_zero_prepass_rule(self):
         operation = dict(keyframe_id=2, seed_selection=dict(depth_candidates=1200,
             prepass_seconds=.01, uncovered_candidates=700, reserved_uncovered=250))
@@ -106,6 +131,7 @@ class HoldoutComparisonTest(unittest.TestCase):
         _check_seed_selection(operation, 'coverage', True, 1000, uncovered_ratio=0)
         with self.assertRaises(ValueError):
             _check_seed_selection(operation, 'coverage', True, 1000, uncovered_ratio=.25)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
