@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -105,6 +106,78 @@ class SamplingComparisonTest(unittest.TestCase):
             report_path.write_text(json.dumps(report))
         with self.assertRaisesRegex(ValueError, 'frozen'):
             compare(self.baseline, self.candidate, self.root / 'bad-reference')
+
+    def test_matching_extrinsics_wrong_owner_and_tampered_poses_are_rejected(self):
+        for root in (self.baseline, self.candidate):
+            path = root / 'report.json'
+            report = json.loads(path.read_text())
+            report['queries'][0]['query']['camera_from_parent'][3] = 1234567
+            path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'camera|pose'):
+            compare(self.baseline, self.candidate, self.root / 'bad-extrinsics')
+
+    def test_owner_identity_is_bound_to_split(self):
+        path = self.candidate / 'report.json'
+        report = json.loads(path.read_text())
+        report['queries'][0]['owner_submap_id'] = 999
+        path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'owner'):
+            compare(self.baseline, self.candidate, self.root / 'bad-owner')
+
+    def test_final_pose_payload_must_match_original_digest(self):
+        path = self.candidate / 'poses.f64le'
+        poses = np.frombuffer(path.read_bytes(), dtype='<f8').reshape(12, 4, 4).copy()
+        poses[0, 0, 3] += 1
+        path.write_bytes(poses.tobytes())
+        with self.assertRaisesRegex(ValueError, 'pose'):
+            compare(self.baseline, self.candidate, self.root / 'bad-pose')
+
+    def test_missing_png_and_missing_receipt_cannot_be_certified(self):
+        path = self.candidate / 'views/1/reference.png'
+        path.unlink()
+        with self.assertRaises((ValueError, OSError)):
+            compare(self.baseline, self.candidate, self.root / 'missing-png')
+        report_path = self.candidate / 'report.json'
+        report = json.loads(report_path.read_text())
+        del report['artifacts']['views/1/reference.png']
+        report_path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'artifact'):
+            compare(self.baseline, self.candidate, self.root / 'missing-receipt')
+
+    def test_partial_report_write_never_creates_published_report(self):
+        import compare_gaussian_sampling as comparison
+        write = comparison._exclusive_write
+        def partial(path, payload):
+            write(path, payload[:64])
+            raise OSError('partial write')
+        output = self.root / 'partial'
+        with mock.patch('compare_gaussian_sampling._exclusive_write', side_effect=partial):
+            with self.assertRaisesRegex(OSError, 'partial write'):
+                compare(self.baseline, self.candidate, output)
+        self.assertFalse((output / 'report.json').exists())
+
+    def test_disk_reserve_drop_during_diagnostics_prevents_publication(self):
+        import compare_gaussian_sampling as comparison
+        diagnostic = comparison._diagnostic
+        free = 4 * 1024**3
+        def draw(*args):
+            nonlocal free
+            diagnostic(*args)
+            free = 0
+        output = self.root / 'disk-drop'
+        with (mock.patch('compare_gaussian_sampling._diagnostic', side_effect=draw),
+              mock.patch('compare_gaussian_sampling.shutil.disk_usage', side_effect=lambda _: mock.Mock(free=free))):
+            with self.assertRaisesRegex(ValueError, 'reserve'):
+                compare(self.baseline, self.candidate, output)
+        self.assertFalse((output / 'report.json').exists())
+
+    def test_run_summary_must_match_reconstructed_metrics(self):
+        path = self.candidate / 'report.json'
+        report = json.loads(path.read_text())
+        report['summary']['joint']['rgb_psnr_db'] = 999
+        path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'summary'):
+            compare(self.baseline, self.candidate, self.root / 'bad-summary')
 
 
 if __name__ == '__main__':

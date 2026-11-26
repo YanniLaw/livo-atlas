@@ -32,11 +32,14 @@ def make_sampling_pair(root):
         output = root / policy
         output.mkdir()
         (output / 'split.json').write_bytes(split.payload)
+        poses = np.asarray([views[key]['camera_from_body'] for key in range(12)], dtype='<f8')
+        (output / 'poses.f64le').write_bytes(poses.tobytes())
         report = dict(schema=1, kind='livo_atlas.gaussian_sampling_evaluation', status='succeeded',
             seed_policy=policy, random_seed=0, split_id=split.split_id, selection_policy='spatial',
             selection_semantics='frozen_reference_online_models', selector_runtime_sha256='a'*64,
             selection_plan=plan, selection_plan_sha256=hashlib.sha256(canonical_json(plan)).hexdigest(),
-            sources={'map_sha256': 'a'*64}, source_sha256={'source': 'b'*64}, final_poses_sha256='c'*64,
+            sources={'map_sha256': 'a'*64}, source_sha256={'source': 'b'*64},
+            final_poses_sha256=hashlib.sha256(poses.tobytes()).hexdigest(),
             config_sha256='d'*64, preparer_sha256='e'*64, software={'torch': 'fixture'},
             training_options={'depth_loss_weight': .05}, groups=groups, submaps=copy.deepcopy(training),
             training_calls=10, training_steps=200, queries=[], artifacts={})

@@ -10,6 +10,7 @@ import sys
 import numpy as np
 
 from compare_gaussian_holdout import _check_training, _read_json
+from evaluate_gaussian_sampling import load_final_poses, verify_artifacts
 from evaluation_metrics import aggregate_metrics, measure
 from gaussian_map import _require
 from gaussian_state import _inspect_npz, _open_file
@@ -59,6 +60,7 @@ def _load(root):
              and report.get('status') == 'succeeded', 'Expected complete controlled sampling report')
     with _open_file(root / 'split.json', MAX_SPLIT_BYTES) as stream:
         split = HoldoutSplit(stream.read())
+    poses = load_final_poses(root, report, len(split.frames))
     _require(report['split_id'] == split.split_id, 'Report differs from frozen split')
     _require(hashlib.sha256(canonical_json(report['selection_plan'])).hexdigest()
              == report['selection_plan_sha256'], 'Selection plan digest differs')
@@ -81,6 +83,7 @@ def _load(root):
     for row, selection in zip(report['queries'], report['selection_plan']):
         key = row['keyframe_id']
         owner = int(split.frames[key]['submap_id'])
+        _require(row['owner_submap_id'] == owner, 'Query owner differs from frozen split')
         ids = row['selected_ids']
         _require(ids == selection['selected_ids'] and ids == sorted(set(ids)) and owner in ids
                  and ids[-1] == owner and 1 <= len(ids) <= 2
@@ -89,6 +92,11 @@ def _load(root):
         _require(row['query']['width'] == frame['width'] and row['query']['height'] == frame['height']
                  and np.array_equal(np.asarray(row['query']['K']).ravel(), frame['intrinsics']),
                  'Query camera differs from frozen calibration')
+        body_camera = np.asarray(frame['camera_from_body'], dtype='f8').reshape(4, 4)
+        camera = np.asarray(row['query']['camera_from_parent'], dtype='f8').reshape(4, 4)
+        _require(np.allclose(camera, body_camera @ np.linalg.inv(poses[key]), atol=1e-9, rtol=1e-12),
+                 'Query camera differs from frozen final pose')
+    verify_artifacts(root, report['artifacts'], report['queries'])
     return report, split, digest
 
 
@@ -213,6 +221,10 @@ def compare(baseline, candidate, output):
                 newly_uncovered=int((mask & covered_a & ~covered_b).sum()),
                 common_holes=int((mask & ~covered_a & ~covered_b).sum()))
         rows.append(row)
+    for report in (a, b):
+        summary = {mode: aggregate_metrics([row[mode] for row in report['queries'] if row[mode] is not None])
+                   for mode in ('single', 'joint')}
+        _require(report['summary'] == summary, 'Run summary differs from reconstructed metrics')
     report = dict(schema=1, kind='livo_atlas.gaussian_sampling_comparison', status='succeeded',
         split_id=split.split_id, random_seed=a['random_seed'], baseline_report_sha256=a_digest,
         candidate_report_sha256=b_digest, training_calls=a['training_calls'], training_steps=a['training_steps'],
@@ -239,7 +251,17 @@ def compare(baseline, candidate, output):
         report['diagnostics'].append(dict(keyframe_id=key, mode=mode, path=f'views/{key}.png', sha256=file_sha(path)))
     _require(file_sha(baseline / 'report.json') == a_digest and file_sha(candidate / 'report.json') == b_digest,
              'Input report changed during comparison')
-    _exclusive_write(output / 'report.json', _json_bytes(report, 2*1024*1024))
+    for root, value in ((baseline, a), (candidate, b)):
+        verify_artifacts(root, value['artifacts'], value['queries'])
+        load_final_poses(root, value, len(split.frames))
+    payload = _json_bytes(report, 2*1024*1024)
+    _require(shutil.disk_usage(output).free >= 1024**3 + len(payload),
+             'Comparison publication disk reserve is insufficient')
+    pending = output / 'report.pending.json'
+    _exclusive_write(pending, payload)
+    _require(shutil.disk_usage(output).free >= 1024**3,
+             'Comparison publication disk reserve fell below budget')
+    pending.rename(output / 'report.json')
     return report
 
 

@@ -18,11 +18,12 @@ from evaluate_heldout_snapshot import (_estimate, _save_samples, initialize_cuda
                                        load_settings)
 from evaluation_metrics import aggregate_metrics, measure
 from gaussian_map import _project, _require
+from gaussian_state import _open_file, _pose
 from heldout_query import (canonical_query, load_evaluation_snapshot,
                            verify_evaluation_snapshot)
 from heldout_selection import EvaluationSelector
 from holdout_split import canonical_json
-from joint_renderer import infer_blocks
+from joint_renderer import _real_directory, infer_blocks
 from prepare_holdout_split import file_sha
 from render_gaussian_map import _exclusive_write, _json_bytes, _new_output, _sources_report
 
@@ -48,14 +49,17 @@ def frozen_groups(snapshot):
 def admit_training_view(split, view):
     """Verify original sensor values before canonicalizing the camera for training."""
     result = dict(view)
+    for name in ('image_mask', 'depth_mask'):
+        mask = np.asarray(result[name])
+        _require(mask.dtype in (np.dtype('bool'), np.dtype('u1')) and np.all(mask <= 1),
+                 'Invalid frozen training mask')
+        result[name] = mask.astype(bool, copy=True)
+    for name in ('rgb', 'depth_m'):
+        result[name] = np.asarray(result[name], dtype='<f4').copy()
     if 'camera_from_body' not in result:
         result['camera_from_body'] = result['camera_from_parent'] @ _project(result['parent_from_body'])
     key = split.check_view(result)
     frame = split.frames[key]
-    for name in ('rgb', 'depth_m'):
-        result[name] = np.asarray(result[name], dtype='<f4').copy()
-    for name in ('image_mask', 'depth_mask'):
-        result[name] = np.asarray(result[name], dtype=bool).copy()
     result['K'] = np.asarray(frame['intrinsics'], dtype='f8').reshape(3, 3).copy()
     result['camera_from_body'] = np.asarray(frame['camera_from_body'], dtype='f8').reshape(4, 4).copy()
     # train_group composes C_P * P_B. Project the recorded P_B exactly as the
@@ -67,6 +71,47 @@ def admit_training_view(split, view):
     result['camera_from_parent'] = result['camera_from_body'] @ np.linalg.inv(result['parent_from_body'])
     result['split'] = 'train'
     return result
+
+
+def load_final_poses(root, report, frame_count):
+    """Bind individual camera matrices to the complete recorded pose digest."""
+    _require(type(frame_count) is int and 1 <= frame_count <= 512, 'Invalid final pose count')
+    expected = frame_count * 16 * 8
+    with _open_file(root / 'poses.f64le', expected) as stream:
+        raw = stream.read()
+    _require(len(raw) == expected and hashlib.sha256(raw).hexdigest() == report['final_poses_sha256'],
+             'Final pose payload differs from recorded digest')
+    poses = np.frombuffer(raw, dtype='<f8').reshape(frame_count, 4, 4)
+    return np.asarray([_pose(pose) for pose in poses])
+
+
+def verify_artifacts(root, artifacts, queries):
+    """Check the complete advertised sample/PNG set before certification."""
+    expected = {}
+    for row in queries:
+        key = row['keyframe_id']
+        width, height = row['query']['width'], row['query']['height']
+        _require(type(width) is int and type(height) is int and width > 0 and height > 0
+                 and width * height <= 1_000_000, 'Invalid artifact dimensions')
+        pixels = width * height
+        files = ['reference.png', 'single.png', 'samples.npz']
+        if row['joint'] is not None:
+            files.append('joint.png')
+        for name in files:
+            expected[f'views/{key}/{name}'] = pixels * (58 if name.endswith('.npz') else 3) + 65536
+    _require(isinstance(artifacts, dict) and artifacts.keys() == expected.keys(),
+             'Incomplete or unexpected artifact receipt set')
+    _real_directory(root / 'views')
+    for relative, maximum in expected.items():
+        path = root / relative
+        _real_directory(path.parent)
+        receipt = artifacts[relative]
+        _require(isinstance(receipt, dict) and receipt.keys() == {'bytes', 'sha256'}
+                 and type(receipt['bytes']) is int, 'Invalid artifact receipt')
+        with _open_file(path, maximum) as stream:
+            raw = stream.read()
+        _require(len(raw) == receipt['bytes'] and hashlib.sha256(raw).hexdigest() == receipt['sha256'],
+                 'Output artifact differs from receipt')
 
 
 def _render(snapshot, view, selected, blocks, device):
@@ -138,6 +183,7 @@ def run(args):
     output.mkdir(mode=0o700)
     try:
         _exclusive_write(output / 'split.json', snapshot.split.payload)
+        _exclusive_write(output / 'poses.f64le', np.asarray(snapshot.poses, dtype='<f8').tobytes())
         random.seed(args.random_seed)
         np.random.seed(args.random_seed)
         device, report['software'] = initialize_cuda(settings.worker)
@@ -180,12 +226,15 @@ def run(args):
         _require(file_sha(args.config) == settings.config_sha256 and file_sha(executable) == executable_sha,
                  'Config or preparation executable changed during training')
         _require((output / 'split.json').read_bytes() == snapshot.split.payload, 'Output split changed')
+        load_final_poses(output, report, len(snapshot.poses))
+        verify_artifacts(output, report['artifacts'], report['queries'])
         payload = _json_bytes(report, _REPORT_BYTES)
         used = sum(path.stat().st_size for path in output.rglob('*') if path.is_file())
         _require(used + len(payload) <= settings.max_output_bytes, 'Controlled output exceeded budget')
         _require(shutil.disk_usage(output).free >= settings.min_free_disk_bytes + len(payload),
                  'Controlled publication disk reserve is insufficient')
         _exclusive_write(output / 'report.pending.json', payload)
+        verify_artifacts(output, report['artifacts'], report['queries'])
         (output / 'report.pending.json').rename(output / 'report.json')
         return report
     except (Exception, KeyboardInterrupt) as error:

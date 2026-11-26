@@ -51,6 +51,14 @@ class SamplingPlanTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'frozen split'):
             admit_training_view(self.split, changed)
 
+    def test_fractional_or_nonbinary_mask_cannot_change_after_frozen_admission(self):
+        for value in (.5, 256., -256.):
+            changed = copy.deepcopy(self.views[0])
+            changed['depth_mask'] = changed['depth_mask'].astype('f4')
+            changed['depth_mask'][0, 0] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'mask'):
+                admit_training_view(self.split, changed)
+
     def arguments(self):
         config = self.root / 'config.yaml'
         config.write_text(yaml.safe_dump({'gaussian': {'joint_render_policy': 'temporal',
@@ -130,6 +138,26 @@ class SamplingCudaTest(SamplingPlanTest):
                           learning_rates=replace(DEFAULT_WORKER_OPTIONS.learning_rates, means=0.))
         block, _ = train_group(group, [view], [np.eye(4)], checked_cuda_device(), options=options)
         np.testing.assert_array_equal(block.parameters['means'], [[-1.5, .5, 1.]])
+
+    def test_deleted_or_replaced_render_artifact_cannot_publish_success(self):
+        import evaluate_gaussian_sampling as sampling
+        original = sampling._save_samples
+        for action in ('delete', 'replace'):
+            args = self.arguments()
+            args.output = self.root / action
+            def save(output, value):
+                receipts = original(output, value)
+                path = output / f"views/{value['query']['keyframe_id']}/reference.png"
+                if action == 'delete':
+                    path.unlink()
+                else:
+                    path.write_bytes(b'wrong-render')
+                return receipts
+            with (mock.patch('evaluate_gaussian_sampling.prepare_group', side_effect=self.prepared),
+                  mock.patch('evaluate_gaussian_sampling._save_samples', side_effect=save)):
+                with self.subTest(action=action), self.assertRaises((ValueError, OSError)):
+                    run(args)
+            self.assertFalse((args.output / 'report.json').exists())
 
 
 if __name__ == '__main__':

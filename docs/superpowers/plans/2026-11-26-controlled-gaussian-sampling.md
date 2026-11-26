@@ -59,4 +59,4 @@
 - [x] Compare both pairs and inspect worst-view diagnostic images; expected reports complete and all numerical controls match.
 - [x] Document observed quality/depth/resource tradeoffs, single-scene limitation and one recommended next optimization.
 - [x] Run final full Python/CUDA suite and git diff --check; expected pass.
-- [ ] Commit evidence guide and obtain one fresh read-only final review; fix Important/Critical findings via RED→GREEN and full suite.
+- [x] Commit evidence guide and obtain one fresh read-only final review; fix Important/Critical findings via RED→GREEN and full suite.
