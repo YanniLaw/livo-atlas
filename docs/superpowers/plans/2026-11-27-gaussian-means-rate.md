@@ -42,4 +42,4 @@ local validation/gaussian-means-rate-20261127.
 - [x] Freeze protocol/config/source/old-report fingerprints before training; verify reuse admission; run four new evaluations and four comparisons. Expected calls/steps/splits/selection unchanged.
 - [x] Independent audit of all12 full/half/zero archives, raw metrics, per-scene six-way depth, training IDs/quotas, identities and all comparison PNGs. Expected succeeded; no-common depthnull.
 - [x] Inspect diagnostic figures, record positive or negative results and resources/reproduction without default change; verify diff, commit and ledger.
-- [ ] One fresh whole-change final read-only review; fix Important issues once RED→GREEN/full suite, revalidate relevant artifacts; preserve branch/local commits.
+- [x] One fresh whole-change final read-only review; fix Important issues once RED→GREEN/full suite, revalidate relevant artifacts; preserve branch/local commits.
