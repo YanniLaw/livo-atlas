@@ -179,6 +179,80 @@ class SamplingComparisonTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'summary'):
             compare(self.baseline, self.candidate, self.root / 'bad-summary')
 
+    def configure_ratio(self, root, ratio, extra=None):
+        import hashlib
+        import yaml
+        path = root / 'report.json'
+        report = json.loads(path.read_text())
+        report['training_options']['coverage_uncovered_ratio'] = ratio
+        document = {'gaussian': {'worker': {'coverage_uncovered_ratio': ratio}}}
+        if extra:
+            document['gaussian'].update(extra)
+        raw = yaml.safe_dump(document).encode()
+        (root / 'config.yaml').write_bytes(raw)
+        report['config_sha256'] = hashlib.sha256(raw).hexdigest()
+        path.write_text(json.dumps(report))
+
+    def test_explicit_ratio_comparison_allows_only_ratio_change(self):
+        self.configure_ratio(self.baseline, 0.)
+        self.configure_ratio(self.candidate, .25)
+        with self.assertRaises(ValueError):
+            compare(self.baseline, self.candidate, self.root / 'strict')
+        result = compare(self.baseline, self.candidate, self.root / 'ratio', allow_coverage_ratio_change=True)
+        self.assertEqual(result['comparison_scope'], 'coverage_uncovered_ratio')
+        self.assertEqual(result['coverage_uncovered_ratios'], {'baseline': 0., 'candidate': .25})
+
+    def test_explicit_ratio_mode_rejects_other_configuration_and_changed_archive(self):
+        self.configure_ratio(self.baseline, 0.)
+        self.configure_ratio(self.candidate, .25, {'evaluation': {'max_output_mib': 999}})
+        with self.assertRaisesRegex(ValueError, 'config'):
+            compare(self.baseline, self.candidate, self.root / 'other-key', allow_coverage_ratio_change=True)
+        self.configure_ratio(self.candidate, .25)
+        with (self.candidate / 'config.yaml').open('ab') as stream:
+            stream.write(b'changed: true\n')
+        with self.assertRaisesRegex(ValueError, 'config'):
+            compare(self.baseline, self.candidate, self.root / 'changed-file', allow_coverage_ratio_change=True)
+
+    def test_explicit_ratio_mode_rejects_mismatched_optimizer_and_missing_archive(self):
+        self.configure_ratio(self.baseline, 0.)
+        self.configure_ratio(self.candidate, .25)
+        path = self.candidate / 'report.json'
+        report = json.loads(path.read_text())
+        report['training_options']['learning_rates']['means'] = .1
+        path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'config|option'):
+            compare(self.baseline, self.candidate, self.root / 'other-rate', allow_coverage_ratio_change=True)
+        (self.candidate / 'config.yaml').unlink()
+        with self.assertRaises((ValueError, OSError)):
+            compare(self.baseline, self.candidate, self.root / 'missing-config', allow_coverage_ratio_change=True)
+
+    def test_ratio_mode_rejects_real_optimizer_change_and_accepts_zero_coverage_baseline(self):
+        import hashlib
+        import yaml
+        self.configure_ratio(self.baseline, 0.)
+        self.configure_ratio(self.candidate, .5)
+        path = self.baseline / 'report.json'
+        report = json.loads(path.read_text())
+        report['seed_policy'] = 'coverage'
+        for group in report['submaps']:
+            for operation in group['training']:
+                operation['seed_selection'] = dict(depth_candidates=1, prepass_seconds=None,
+                    uncovered_candidates=None, reserved_uncovered=0)
+        path.write_text(json.dumps(report))
+        result = compare(self.baseline, self.candidate, self.root / 'zero-coverage', allow_coverage_ratio_change=True)
+        self.assertEqual(result['coverage_uncovered_ratios']['baseline'], 0.)
+        path = self.candidate / 'report.json'
+        report = json.loads(path.read_text())
+        report['training_options']['learning_rates']['means'] = .1
+        config = yaml.safe_load((self.candidate / 'config.yaml').read_text())
+        config['gaussian']['worker']['learning_rates'] = {'means': .1}
+        raw = yaml.safe_dump(config).encode()
+        (self.candidate / 'config.yaml').write_bytes(raw)
+        report['config_sha256'] = hashlib.sha256(raw).hexdigest()
+        path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'Other config|training options'):
+            compare(self.baseline, self.candidate, self.root / 'different-optimizer', allow_coverage_ratio_change=True)
+
 
 if __name__ == '__main__':
     unittest.main()

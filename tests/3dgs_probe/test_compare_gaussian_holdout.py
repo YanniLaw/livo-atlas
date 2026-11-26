@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 
 from compare_gaussian_holdout import compare
+from compare_gaussian_holdout import _check_seed_selection
 
 
 def write_json(path, document):
@@ -95,6 +96,16 @@ def evaluation(root, policy):
 
 
 class HoldoutComparisonTest(unittest.TestCase):
+    def test_seed_evidence_uses_configured_quota_and_zero_prepass_rule(self):
+        operation = dict(keyframe_id=2, seed_selection=dict(depth_candidates=1200,
+            prepass_seconds=.01, uncovered_candidates=700, reserved_uncovered=250))
+        _check_seed_selection(operation, 'coverage', True, 1000, uncovered_ratio=.25)
+        with self.assertRaises(ValueError):
+            _check_seed_selection(operation, 'coverage', True, 1000, uncovered_ratio=.5)
+        operation['seed_selection'].update(prepass_seconds=None, uncovered_candidates=None, reserved_uncovered=0)
+        _check_seed_selection(operation, 'coverage', True, 1000, uncovered_ratio=0)
+        with self.assertRaises(ValueError):
+            _check_seed_selection(operation, 'coverage', True, 1000, uncovered_ratio=.25)
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

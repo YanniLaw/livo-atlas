@@ -10,7 +10,7 @@ import sys
 import numpy as np
 
 from compare_gaussian_holdout import _check_training, _read_json
-from evaluate_gaussian_sampling import load_final_poses, verify_artifacts
+from evaluate_gaussian_sampling import load_final_poses, verify_artifacts, verify_configuration
 from evaluation_metrics import aggregate_metrics, measure
 from gaussian_map import _require
 from gaussian_state import _inspect_npz, _open_file
@@ -97,6 +97,8 @@ def _load(root):
         _require(np.allclose(camera, body_camera @ np.linalg.inv(poses[key]), atol=1e-9, rtol=1e-12),
                  'Query camera differs from frozen final pose')
     verify_artifacts(root, report['artifacts'], report['queries'])
+    if 'config_file' in report:
+        verify_configuration(root, report)
     return report, split, digest
 
 
@@ -144,13 +146,13 @@ def _rendered(values, mode):
     return {field: values[mode+'_'+field] for field in ('rgb', 'alpha', 'depth_m')}
 
 
-def _diagnostic(path, baseline, candidate, mode):
+def _diagnostic(path, baseline, candidate, mode, labels=('uniform', 'coverage')):
     from PIL import Image, ImageDraw
 
     rows = []
     titles = ['reference', 'single', mode, 'RGB error [0,.5]', 'holes (magenta)',
               'depth error [0,1m]', 'joint gain [-.2,.2]']
-    for label, values in (('uniform', baseline), ('coverage', candidate)):
+    for label, values in zip(labels, (baseline, candidate)):
         query = values['reference_rgb']
         mask = values['image_mask'].astype(bool)
         labels = values['depth_mask'].astype(bool)
@@ -188,7 +190,7 @@ def _diagnostic(path, baseline, candidate, mode):
     sheet.save(path)
 
 
-def compare(baseline, candidate, output):
+def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False):
     baseline, candidate, output = Path(baseline).resolve(strict=True), Path(candidate).resolve(strict=True), Path(output).absolute()
     _require(not output.exists() and not output.is_symlink() and output.parent.is_dir(), 'Output must be new')
     resolved = output.resolve()
@@ -196,8 +198,23 @@ def compare(baseline, candidate, output):
                  for root in (baseline, candidate)), 'Comparison output overlaps inputs')
     a, split, a_digest = _load(baseline)
     b, other, b_digest = _load(candidate)
-    _require(a['seed_policy'] == 'uniform' and b['seed_policy'] == 'coverage', 'Expected uniform then coverage')
-    _require(split.payload == other.payload and all(a[key] == b[key] for key in _CONTROLS),
+    controls = _CONTROLS
+    if allow_coverage_ratio_change:
+        ratios = {name: report['training_options']['coverage_uncovered_ratio']
+                  for name, report in (('baseline', a), ('candidate', b))}
+        _require(a['seed_policy'] in ('uniform', 'coverage') and ratios['baseline'] == 0
+                 and b['seed_policy'] == 'coverage', 'Ratio comparison requires a zero-ratio baseline')
+        configurations = [verify_configuration(root, report) for root, report in ((baseline, a), (candidate, b))]
+        options = [dict(report['training_options']) for report in (a, b)]
+        for document, values in zip(configurations, options):
+            document['gaussian'].get('worker', {}).pop('coverage_uncovered_ratio', None)
+            values.pop('coverage_uncovered_ratio')
+        _require(configurations[0] == configurations[1] and options[0] == options[1],
+                 'Other config or training options differ in ratio comparison')
+        controls = tuple(key for key in _CONTROLS if key not in ('config_sha256', 'training_options'))
+    else:
+        _require(a['seed_policy'] == 'uniform' and b['seed_policy'] == 'coverage', 'Expected uniform then coverage')
+    _require(split.payload == other.payload and all(a[key] == b[key] for key in controls),
              'Controlled experiment inputs or training options differ')
     counts = _check_training(a['groups'], a, b)
     rows = []
@@ -229,6 +246,8 @@ def compare(baseline, candidate, output):
         split_id=split.split_id, random_seed=a['random_seed'], baseline_report_sha256=a_digest,
         candidate_report_sha256=b_digest, training_calls=a['training_calls'], training_steps=a['training_steps'],
         final_gaussian_counts=counts, queries=rows, diagnostics=[])
+    if allow_coverage_ratio_change:
+        report.update(comparison_scope='coverage_uncovered_ratio', coverage_uncovered_ratios=ratios)
     for mode in ('single', 'joint'):
         selected = [row[mode] for row in rows if row[mode] is not None]
         report[mode] = dict(query_count=len(selected), baseline=aggregate_metrics([r['baseline'] for r in selected]),
@@ -246,14 +265,17 @@ def compare(baseline, candidate, output):
         key = row['keyframe_id']
         mode = 'joint' if row['joint'] else 'single'
         path = output / f'views/{key}.png'
+        labels = (f"ratio {ratios['baseline']:g}", f"ratio {ratios['candidate']:g}") if allow_coverage_ratio_change else ('uniform', 'coverage')
         _diagnostic(path, _samples(baseline, a, by_key_a[key], split.frames[key]),
-                    _samples(candidate, b, by_key_b[key], split.frames[key]), mode)
+                    _samples(candidate, b, by_key_b[key], split.frames[key]), mode, labels)
         report['diagnostics'].append(dict(keyframe_id=key, mode=mode, path=f'views/{key}.png', sha256=file_sha(path)))
     _require(file_sha(baseline / 'report.json') == a_digest and file_sha(candidate / 'report.json') == b_digest,
              'Input report changed during comparison')
     for root, value in ((baseline, a), (candidate, b)):
         verify_artifacts(root, value['artifacts'], value['queries'])
         load_final_poses(root, value, len(split.frames))
+        if 'config_file' in value:
+            verify_configuration(root, value)
     payload = _json_bytes(report, 2*1024*1024)
     _require(shutil.disk_usage(output).free >= 1024**3 + len(payload),
              'Comparison publication disk reserve is insufficient')
@@ -269,9 +291,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('baseline', 'candidate', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--allow-coverage-ratio-change', action='store_true')
     args = parser.parse_args(argv)
     try:
-        compare(args.baseline, args.candidate, args.output)
+        compare(args.baseline, args.candidate, args.output,
+                allow_coverage_ratio_change=args.allow_coverage_ratio_change)
     except Exception as error:
         print(f'{type(error).__name__}: {error}', file=sys.stderr)
         return 1

@@ -15,6 +15,7 @@ from gaussian_map import _require
 from gaussian_state import _open_file, _pose, _reject_constant, _unique_object
 from joint_renderer import _ALPHA_THRESHOLD, _real_directory
 from render_gaussian_map import _exclusive_write, _json_bytes
+from worker_config import validate_coverage_uncovered_ratio
 
 
 _FRONTIER_FIELDS = ('session_id', 'pose_version', 'frame_count', 'optimized_frame_count',
@@ -59,7 +60,8 @@ def _by_keyframe(rows, frame_count, label):
     return result
 
 
-def _check_seed_selection(operation, policy, has_history, seeds):
+def _check_seed_selection(operation, policy, has_history, seeds, *, uncovered_ratio=0.5):
+    ratio = validate_coverage_uncovered_ratio(uncovered_ratio)
     message = f"Invalid seed selection for {policy} keyframe {operation['keyframe_id']}"
     if policy == 'uniform':
         _require('seed_selection' not in operation, message)
@@ -70,10 +72,10 @@ def _check_seed_selection(operation, policy, has_history, seeds):
     candidates, seconds, holes, quota = (selection[field] for field in _SEED_FIELDS)
     _require(type(candidates) is int and 1 <= candidates <= _MAX_PIXELS and
              seeds == min(candidates, _SEED_LIMIT) and type(quota) is int, message)
-    if has_history and candidates > _SEED_LIMIT:
+    if ratio > 0 and has_history and candidates > _SEED_LIMIT:
         _require(type(seconds) in (int, float) and math.isfinite(seconds) and seconds >= 0 and
                  type(holes) is int and 0 <= holes <= candidates, message)
-        expected = min(_SEED_LIMIT // 2, holes) if holes < candidates else 0
+        expected = min(int(_SEED_LIMIT * ratio), holes) if holes < candidates else 0
         _require(quota == expected, message)
     else:
         _require(seconds is None and holes is None and quota == 0, message)
@@ -106,8 +108,10 @@ def _check_training(groups, baseline, candidate):
             seed_count = a['gaussian_count'] - older_count
             _require(type(seed_count) is int and 1 <= seed_count <= _SEED_LIMIT,
                      f'Keyframe {key} exceeds the Gaussian training budget')
-            _check_seed_selection(a, baseline['seed_policy'], index > 0, seed_count)
-            _check_seed_selection(b, candidate['seed_policy'], index > 0, seed_count)
+            for operation, report in ((a, baseline), (b, candidate)):
+                ratio = report.get('training_options', {}).get('coverage_uncovered_ratio', .5)
+                _check_seed_selection(operation, report['seed_policy'], index > 0, seed_count,
+                                      uncovered_ratio=ratio)
             previous_counts[key] = seed_count
         retained = keys[-10:]
         origins = {str(key): previous_counts[key] for key in retained}

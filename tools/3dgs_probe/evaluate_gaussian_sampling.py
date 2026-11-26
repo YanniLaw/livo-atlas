@@ -26,6 +26,7 @@ from holdout_split import canonical_json
 from joint_renderer import _real_directory, infer_blocks
 from prepare_holdout_split import file_sha
 from render_gaussian_map import _exclusive_write, _json_bytes, _new_output, _sources_report
+from worker_config import load_worker_config
 
 
 _REPORT_BYTES = 2 * 1024 * 1024
@@ -85,6 +86,21 @@ def load_final_poses(root, report, frame_count):
     return np.asarray([_pose(pose) for pose in poses])
 
 
+def verify_configuration(root, report):
+    """Bind an archived YAML to both its byte digest and effective optimizer."""
+    import yaml
+
+    _require(report.get('config_file') == 'config.yaml', 'Missing archived config identity')
+    path = root / 'config.yaml'
+    with _open_file(path, 256 * 1024) as stream:
+        raw = stream.read()
+    _require(hashlib.sha256(raw).hexdigest() == report['config_sha256'], 'Archived config digest differs')
+    _require(asdict(load_worker_config(path).options) == report['training_options'],
+             'Archived config differs from effective training options')
+    _require(file_sha(path) == report['config_sha256'], 'Archived config changed during verification')
+    return yaml.safe_load(raw)
+
+
 def verify_artifacts(root, artifacts, queries):
     """Check the complete advertised sample/PNG set before certification."""
     expected = {}
@@ -141,6 +157,10 @@ def run(args):
     _require(type(args.random_seed) is int and 0 <= args.random_seed < 2**32, 'Invalid random seed')
     output = _new_output(args.map_directory, args.keyframes, args.output)
     settings = load_settings(args.config)
+    with _open_file(args.config, 256 * 1024) as stream:
+        configuration = stream.read()
+    _require(hashlib.sha256(configuration).hexdigest() == settings.config_sha256,
+             'Config changed during preflight')
     _require(settings.min_free_disk_bytes >= 1024**3, 'At least 1 GiB disk reserve is required')
     snapshot = load_evaluation_snapshot(args.map_directory, args.keyframes)
     if settings.split_file:
@@ -177,12 +197,13 @@ def run(args):
         selection_plan_sha256=hashlib.sha256(canonical_json(plan)).hexdigest(),
         sources=_sources_report(snapshot), source_sha256=snapshot.source_digests,
         final_poses_sha256=hashlib.sha256(np.asarray(snapshot.poses, dtype='<f8').tobytes()).hexdigest(),
-        config_sha256=settings.config_sha256, preparer_sha256=executable_sha,
+        config_sha256=settings.config_sha256, config_file='config.yaml', preparer_sha256=executable_sha,
         training_options=asdict(settings.worker), groups=groups, submaps=[], queries=[], artifacts={},
         training_calls=0, training_steps=0)
     output.mkdir(mode=0o700)
     try:
         _exclusive_write(output / 'split.json', snapshot.split.payload)
+        _exclusive_write(output / 'config.yaml', configuration)
         _exclusive_write(output / 'poses.f64le', np.asarray(snapshot.poses, dtype='<f8').tobytes())
         random.seed(args.random_seed)
         np.random.seed(args.random_seed)
@@ -227,6 +248,7 @@ def run(args):
                  'Config or preparation executable changed during training')
         _require((output / 'split.json').read_bytes() == snapshot.split.payload, 'Output split changed')
         load_final_poses(output, report, len(snapshot.poses))
+        verify_configuration(output, report)
         verify_artifacts(output, report['artifacts'], report['queries'])
         payload = _json_bytes(report, _REPORT_BYTES)
         used = sum(path.stat().st_size for path in output.rglob('*') if path.is_file())
@@ -235,6 +257,7 @@ def run(args):
                  'Controlled publication disk reserve is insufficient')
         _exclusive_write(output / 'report.pending.json', payload)
         verify_artifacts(output, report['artifacts'], report['queries'])
+        verify_configuration(output, report)
         (output / 'report.pending.json').rename(output / 'report.json')
         return report
     except (Exception, KeyboardInterrupt) as error:

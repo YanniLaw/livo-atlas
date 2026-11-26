@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from dataclasses import asdict
 
 import numpy as np
 
@@ -10,6 +11,7 @@ from evaluate_heldout_snapshot import _save_samples
 from evaluation_metrics import aggregate_metrics, measure
 from heldout_fixtures import make_heldout_snapshot
 from holdout_split import canonical_json
+from worker_config import DEFAULT_WORKER_OPTIONS
 
 
 def make_sampling_pair(root):
@@ -34,14 +36,17 @@ def make_sampling_pair(root):
         (output / 'split.json').write_bytes(split.payload)
         poses = np.asarray([views[key]['camera_from_body'] for key in range(12)], dtype='<f8')
         (output / 'poses.f64le').write_bytes(poses.tobytes())
+        configuration = b'gaussian:\n  worker:\n    coverage_uncovered_ratio: 0.5\n'
+        (output / 'config.yaml').write_bytes(configuration)
         report = dict(schema=1, kind='livo_atlas.gaussian_sampling_evaluation', status='succeeded',
             seed_policy=policy, random_seed=0, split_id=split.split_id, selection_policy='spatial',
             selection_semantics='frozen_reference_online_models', selector_runtime_sha256='a'*64,
             selection_plan=plan, selection_plan_sha256=hashlib.sha256(canonical_json(plan)).hexdigest(),
             sources={'map_sha256': 'a'*64}, source_sha256={'source': 'b'*64},
             final_poses_sha256=hashlib.sha256(poses.tobytes()).hexdigest(),
-            config_sha256='d'*64, preparer_sha256='e'*64, software={'torch': 'fixture'},
-            training_options={'depth_loss_weight': .05}, groups=groups, submaps=copy.deepcopy(training),
+            config_sha256=hashlib.sha256(configuration).hexdigest(), config_file='config.yaml',
+            preparer_sha256='e'*64, software={'torch': 'fixture'},
+            training_options=asdict(DEFAULT_WORKER_OPTIONS), groups=groups, submaps=copy.deepcopy(training),
             training_calls=10, training_steps=200, queries=[], artifacts={})
         if policy == 'coverage':
             for group in report['submaps']:
