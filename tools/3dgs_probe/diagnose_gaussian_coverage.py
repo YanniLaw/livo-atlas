@@ -19,7 +19,7 @@ from evaluation_metrics import measure
 from gaussian_coverage import COHORTS, RADII, coverage_summary, projected_support
 from gaussian_map import _require
 from gaussian_state import _open_file
-from heldout_query import canonical_query, load_evaluation_snapshot, verify_evaluation_snapshot
+from heldout_query import canonical_query, load_evaluation_snapshot
 from heldout_selection import EvaluationSelector
 from holdout_split import HoldoutSplit, MAX_SPLIT_BYTES
 from online_model import OnlineGaussianModel
@@ -129,6 +129,7 @@ def run(args):
     output = _new_output(args.map_directory,args.keyframes,args.output)
     _require(type(args.random_seed) is int and 0 <= args.random_seed < 2**32,'Invalid random seed')
     settings = load_settings(args.config)
+    _require(settings.policy=='spatial','Coverage diagnosis requires native spatial selection')
     raw_config = Path(args.config).read_bytes()
     _require(hashlib.sha256(raw_config).hexdigest()==settings.config_sha256,'Config changed')
     snapshot = load_evaluation_snapshot(args.map_directory,args.keyframes)
@@ -221,14 +222,23 @@ def run(args):
             sources=_sources_report(snapshot),source_sha256=snapshot.source_digests,config_sha256=settings.config_sha256,
             preparer_sha256=preparer_hash,final_poses_sha256=file_sha(output/'poses.f64le'),groups=evidence,
             summary=summaries,metrics=metrics,artifacts=artifacts)
-        verify_evaluation_snapshot(snapshot)
-        _require(file_sha(args.config)==file_sha(output/'config.yaml')==settings.config_sha256 and file_sha(preparer)==preparer_hash,'Input changed')
-        _require((selector.executable is None or file_sha(selector.executable)==selector.sha256) and
-                 all(file_sha(Path(path))==digest for path,digest in selector.libraries.items()),'Selector changed')
+        def verify_inputs():
+            selector.verify()
+            _require(file_sha(args.config)==file_sha(output/'config.yaml')==settings.config_sha256 and
+                     file_sha(preparer)==preparer_hash,'Input changed')
+            for name,receipt in artifacts.items():
+                path=output/name
+                _require(path.stat().st_size==receipt['bytes'] and file_sha(path)==receipt['sha256'],
+                         'Diagnostic artifact changed: '+name)
+
+        verify_inputs()
         payload=_json_bytes(report,2*1024**2)
         _require(sum(row['bytes'] for row in artifacts.values())+len(payload) <= maximum,'Diagnostic output budget exceeded')
         _require(shutil.disk_usage(output).free >= len(payload)+65536+reserve,'Insufficient report reserve')
         pending=output/'.report.pending.json';_exclusive_write(pending,payload)
+        with _open_file(pending,len(payload)) as stream:
+            _require(stream.read()==payload,'Pending diagnostic report changed')
+        verify_inputs()
         _require(shutil.disk_usage(output).free >= reserve,'Insufficient reserve after report write')
         pending.replace(output/'report.json')
         return report

@@ -114,8 +114,12 @@ class CoverageGpuTest(unittest.TestCase):
         np.testing.assert_array_equal(actual['all_initial_means'][actual['all_origin_ids']>=2],actual['initial']['means'])
 
     def fixture(self, blocks=2):
+        import yaml
         from test_diagnose_gaussian_seeds import cli_fixture
         args,prepared=cli_fixture(self,blocks=blocks)
+        document=yaml.safe_load(args.config.read_text())
+        document['gaussian']['joint_render_policy']='spatial'
+        args.config.write_text(yaml.safe_dump(document))
         args.keyframe_id=1
         args.selector_executable=Path(os.environ['LIVO_SELECTOR_BIN'])
         return args,prepared
@@ -185,6 +189,9 @@ class CoverageGpuTest(unittest.TestCase):
         with mock.patch.object(diagnostic,'prepare_group',side_effect=prepared):report=diagnostic.run(args)
         self.assertEqual(len(report['selected_ids']),2)
         self.assertEqual(report['selected_ids'][-1],4)
+        self.assertEqual(report['selection_policy'],'spatial')
+        self.assertEqual(len(report['selector_runtime_sha256']),64)
+        self.assertIsNotNone(report['selection']['selection'])
         self.assertIsNotNone(report['summary']['joint'])
         for summary in report['summary'].values():
             self.assertEqual(sum(summary[k] for k in ('common_covered','gained_coverage','lost_coverage','persistent_holes')),
@@ -199,6 +206,7 @@ class CoverageGpuTest(unittest.TestCase):
         with mock.patch.object(diagnostic,'prepare_group',side_effect=changed),self.assertRaisesRegex(ValueError,'Input changed'):
             diagnostic.run(args)
         self.assertFalse((args.output/'report.json').exists())
+
         args.config.write_text(original);args.output=args.output.parent/'disk-drop'
         save=diagnostic.np.savez_compressed;free=10*1024**3
         def saved(*values,**kwargs):
@@ -209,6 +217,43 @@ class CoverageGpuTest(unittest.TestCase):
              mock.patch.object(diagnostic.shutil,'disk_usage',side_effect=lambda _:mock.Mock(free=free)):
             with self.assertRaisesRegex(ValueError,'reserve'):diagnostic.run(args)
         self.assertFalse((args.output/'report.json').exists())
+
+    def test_temporal_selection_cannot_bypass_native_requirement(self):
+        import yaml
+        import diagnose_gaussian_coverage as diagnostic
+        args,prepared=self.fixture()
+        document=yaml.safe_load(args.config.read_text());document['gaussian']['joint_render_policy']='temporal'
+        args.config.write_text(yaml.safe_dump(document))
+        args.selector_executable=args.output.parent/'missing-selector'
+        with mock.patch.object(diagnostic,'prepare_group',side_effect=prepared),self.assertRaisesRegex(ValueError,'spatial'):
+            diagnostic.run(args)
+        self.assertFalse(args.output.exists())
+
+    def test_mutation_during_pending_write_cannot_publish_success(self):
+        import diagnose_gaussian_coverage as diagnostic
+        for mutation in ('config','artifact','pending','runtime'):
+            args,prepared=self.fixture();late=False
+            write=diagnostic._exclusive_write
+            libraries=diagnostic.EvaluationSelector._runtime_libraries
+            def resolved(selector):
+                return libraries(selector)+[args.output.parent/'late-runtime.so'] if late and mutation=='runtime' else libraries(selector)
+            def changed(path,payload):
+                nonlocal late
+                write(path,payload)
+                if path.name!='.report.pending.json':return
+                late=True
+                if mutation=='runtime':(args.output.parent/'late-runtime.so').write_bytes(b'new project dependency')
+                if mutation=='config':args.config.write_text(args.config.read_text()+'\n')
+                if mutation in ('artifact','pending'):
+                    target=args.output/'samples.npz' if mutation=='artifact' else path
+                    data=target.read_bytes();target.write_bytes(b'x'+data[1:])
+            with self.subTest(mutation=mutation),\
+                 mock.patch.object(diagnostic,'prepare_group',side_effect=prepared),\
+                 mock.patch.object(diagnostic,'_exclusive_write',side_effect=changed),\
+                 mock.patch.object(diagnostic.EvaluationSelector,'_runtime_libraries',resolved):
+                with self.assertRaises(ValueError):diagnostic.run(args)
+                self.assertFalse((args.output/'report.json').exists())
+
 
 
 if __name__=='__main__':unittest.main()
