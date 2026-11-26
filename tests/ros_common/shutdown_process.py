@@ -14,7 +14,6 @@ import xmlrpc.client
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO), str(REPO / 'tools/3dgs_probe')]
-from online_protocol import read_message, write_message
 from tools.run_ros2_baseline import load_config
 
 
@@ -33,6 +32,8 @@ class EmptyPeer:
         self.thread.start()
 
     def run(self):
+        from online_protocol import read_message, write_message
+
         try:
             while not self.closed.is_set():
                 try:
@@ -84,6 +85,30 @@ class EmptyPeer:
         if self.client is not None:
             self.client.close()
         self.listener.close()
+
+
+def validate_result(report, *, expect_timeout=False, repeat_signal=False,
+                    shutdown_hook=False):
+    """Check recorded outcomes independently of the ROS process harness."""
+    stopped, samples = report['stopped'], report['samples']
+    finalization = report['finalization']
+    assert report['returncode'] == (1 if expect_timeout else 0), report
+    if shutdown_hook:
+        assert report['late_signal_sent'], report
+    if repeat_signal:
+        assert report['repeated'], report
+    assert len(stopped) == 1, 'Expected one received STOPPED: ' + str(report)
+    assert stopped[0]['bytes'] == stopped[0]['width'] == 0, report
+    assert samples[-1] == stopped[0], report
+    assert 'stop' in report['peer_events'], report
+    if expect_timeout:
+        assert finalization['status'] != 'succeeded', report
+        assert finalization.get('reason') == 'incomplete_shutdown', report
+        assert finalization.get('worker_stopped') == 0, report
+        assert not report['peer_error'] or not report['peer_error'].startswith('ValueError'), report
+    else:
+        assert finalization['status'] == 'succeeded' and report['peer_error'] is None, report
+    assert report['elapsed_seconds'] < 5, report
 
 
 def main():
@@ -222,19 +247,9 @@ def main():
                           peer_events=list(peer.events),
                           finalization=finalization, signal=args.signal)
             (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
-            assert process.poll() == (1 if args.expect_timeout else 0), report
-            if args.shutdown_hook:
-                assert late, report
-            assert len(stopped) == 1, 'Expected one received STOPPED: ' + str(report)
-            assert stopped[0]['bytes'] == stopped[0]['width'] == 0, report
-            assert samples[-1] == stopped[0], report
-            assert 'stop' in peer.events, report
-            if args.expect_timeout:
-                assert finalization['status'] != 'succeeded', report
-                assert not peer.error or not peer.error.startswith('ValueError'), report
-            else:
-                assert finalization['status'] == 'succeeded' and peer.error is None, report
-            assert report['elapsed_seconds'] < 5, report
+            validate_result(report, expect_timeout=args.expect_timeout,
+                            repeat_signal=args.repeat_signal,
+                            shutdown_hook=args.shutdown_hook is not None)
             print(json.dumps(report), flush=True)
     finally:
         if process is not None and process.poll() is None:

@@ -61,6 +61,19 @@ GPU 环境沿用 RTX 4060 Laptop、Torch2.3.0+cu121、gsplat1.5.3，worker 未�
 
 低优先级待加强：进程测试可进一步直接断言 `repeated`，以及超时 reason 和
 `worker_stopped`；本轮记录和汇总核对已保存这些事实。该建议未作为额外改动加入。
+该建议已在后续断言收尾中落实，见下一节。
+
+## 后续断言收尾
+
+进程报告校验提取为同文件的 `validate_result()`，重复信号用例现在要求 `repeated=true`；
+受控超时要求 `reason=incomplete_shutdown` 且 `worker_stopped=0`，缺失字段也会失败。
+原有退出码、唯一 STOPPED、清空图像、末段信号及等待上限检查保留。
+
+先用5个错误/缺失事实复现旧检查仍接受报告，再补直接断言；新增4项纯数据单测通过，
+`python3 -S -m unittest tests.test_shutdown_result` 不依赖 NumPy 或 ROS。协议依赖只在
+实际启动受控 peer 时加载。新增 SDK CTest 通过；两端 `shutdown_` 子集分别为
+Noetic 7/7、Humble 8/8，覆盖实际进程和报告校验。本轮未改动节点或 SLAM 算法。
+失败/通过及两端日志位于 `validation/shutdown-checks-20261126/`。
 
 ## 复现与证据
 

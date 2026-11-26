@@ -6,6 +6,10 @@ add_test(NAME regression_tools_test COMMAND ${Python3_EXECUTABLE}
   -m unittest discover -s tests -p test_regression_tools.py)
 set_tests_properties(regression_tools_test PROPERTIES
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR} TIMEOUT 60)
+add_test(NAME shutdown_result_test COMMAND ${Python3_EXECUTABLE}
+  -m unittest tests.test_shutdown_result)
+set_tests_properties(shutdown_result_test PROPERTIES
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR} TIMEOUT 30)
 function(livo_atlas_test name)
   if(LIVO_ATLAS_ROS_VERSION STREQUAL "1")
     catkin_add_gtest(${name} ${ARGN} tests/test_main.cc)
