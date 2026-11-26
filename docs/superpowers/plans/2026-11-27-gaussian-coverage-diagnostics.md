@@ -44,4 +44,4 @@ local validation/gaussian-coverage-diagnostics-20261127.
 - [x] Freeze protocol/config/source fingerprints before four sequential runs; expected six trained submaps/76calls1520steps, exact selected IDs, no default change.
 - [x] Independently prepare raw sensor views and reconstruct actual selected seeds, final origin/window counts, camera transforms and per-pixel densities/statistics; re-render saved parameters on GPU, verify all receipts/budgets/source bindings. Expected all pass and null/unknown remains explicit.
 - [x] Inspect overlays, document positive/negative observations, denominators, radius sensitivity, retention proxy and local/joint limits; save reproduction/size and commit.
-- [ ] One fresh whole-change final read-only review; fix Important once RED→GREEN/full suite and revalidate relevant experiments; archive own scratch, preserve branch/local commits.
+- [x] One fresh whole-change final read-only review; fix Important once RED→GREEN/full suite and revalidate relevant experiments; archive own scratch, preserve branch/local commits.
