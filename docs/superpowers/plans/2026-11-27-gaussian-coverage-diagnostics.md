@@ -31,9 +31,9 @@ tests/3dgs_probe/test_gaussian_coverage.py.
 coverage_summary(query,initial,trained,support)->JSON statistics;
 CaptureModel(OnlineGaussianModel), train_observed_group(...); CLI standard map/keyframes/prepare/selector/config/keyframe-id/random-seed/output.
 
-- [ ] Add RED CPU tests with hand-computed nonidentity/border/radius/front/behind/mixed/unknown counts and coverage partitions; reject invalid shapes/cameras/points/radius.
-- [ ] Implement minimal bounded projection/statistics, then observation class/CLI. Add CUDA equivalence againsttrain_group through12 insertions/eviction; actual initial/retained correspondence, same lossIDs/steps, no heldout training.
-- [ ] Add CLI tests for heldout/selection/source constraints and budget/partial publication; run focused and full Python/CUDA, expected all pass/no skips; commit and ledger.
+- [x] Add RED CPU tests with hand-computed nonidentity/border/radius/front/behind/mixed/unknown counts and coverage partitions; reject invalid shapes/cameras/points/radius.
+- [x] Implement minimal bounded projection/statistics, then observation class/CLI. Add CUDA equivalence againsttrain_group through12 insertions/eviction; actual initial/retained correspondence, same lossIDs/steps, no heldout training.
+- [x] Add CLI tests for heldout/selection/source constraints and budget/partial publication; run focused and full Python/CUDA, expected all pass/no skips; commit and ledger.
 
 ### Task 2: Two-query real-data diagnosis and audit
 
@@ -41,7 +41,7 @@ CaptureModel(OnlineGaussianModel), train_observed_group(...); CLI standard map/k
 local validation/gaussian-coverage-diagnostics-20261127.
 **Interfaces:** Task1 CLI with frozen query97/9, seeds0/1, source full-rate sceneYAML; split/poses/NPZ/report/PNGs.
 
-- [ ] Freeze protocol/config/source fingerprints before four sequential runs; expected six trained submaps/76calls1520steps, exact selected IDs, no default change.
-- [ ] Independently prepare raw sensor views and reconstruct actual selected seeds, final origin/window counts, camera transforms and per-pixel densities/statistics; re-render saved parameters on GPU, verify all receipts/budgets/source bindings. Expected all pass and null/unknown remains explicit.
-- [ ] Inspect overlays, document positive/negative observations, denominators, radius sensitivity, retention proxy and local/joint limits; save reproduction/size and commit.
+- [x] Freeze protocol/config/source fingerprints before four sequential runs; expected six trained submaps/76calls1520steps, exact selected IDs, no default change.
+- [x] Independently prepare raw sensor views and reconstruct actual selected seeds, final origin/window counts, camera transforms and per-pixel densities/statistics; re-render saved parameters on GPU, verify all receipts/budgets/source bindings. Expected all pass and null/unknown remains explicit.
+- [x] Inspect overlays, document positive/negative observations, denominators, radius sensitivity, retention proxy and local/joint limits; save reproduction/size and commit.
 - [ ] One fresh whole-change final read-only review; fix Important once RED→GREEN/full suite and revalidate relevant experiments; archive own scratch, preserve branch/local commits.
