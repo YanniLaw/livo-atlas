@@ -47,6 +47,15 @@
 ### Task 3: Verify and record
 
 - [x] Build and run the affected Gaussian test in native Noetic and container Humble.
-- [ ] Obtain one fresh read-only final review, address material findings with failing/passing tests.
+- [x] Obtain one fresh read-only final review, address material findings with failing/passing tests. A controlled late map acknowledgement reproduced the test helper's second-receive race; single-receive stepping and an explicit pending-map-ack guard correct it.
 - [x] Update the engineering roadmap and regression documentation with actual results and limitations.
-- [ ] Commit locally; do not push or merge.
+- [x] Commit locally; do not push or merge.
+
+## Verified result
+
+- SDK CTest: 78/78 after the review correction.
+- Four critical scheduling cases: 100 final repeat rounds, 400 passes.
+- Noetic and Humble joint rendering: 29 passed and 3 real-worker skips each.
+- Python regression tools: 45 passed on each platform; failed-rebuild fixture repeated 100 times.
+- No bag replay or real GPU training was requested for this CPU scheduling fix.
+- Evidence: workspace `validation/gaussian-scheduling-20261126/`, including pre-fix failures and the review correction's failing/passing runs.

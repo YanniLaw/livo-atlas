@@ -65,6 +65,7 @@ class SubmapPeer {
 
   std::atomic<bool> hold_candidate{false}, hold_commit{false},
       hold_checkpoint{false}, hold_map_ack{false}, hold_empty{false},
+      hold_map_reply{false},
       corrupt_checkpoint{false}, wrong_stop{false}, ineffective_training{false};
   std::atomic<bool> hold_render{false}, oom_render{false},
       no_render_capability{false};
@@ -299,6 +300,7 @@ class SubmapPeer {
         } else if (kind == "map_committed") {
           if (input["asset_ids"].size()) Hold(hold_map_ack);
           ++acknowledgements;
+          Hold(hold_map_reply);
           out << "type"
               << "map_committed_ok"
               << "map_sequence" << Text(input["map_sequence"]) << "asset_ids"

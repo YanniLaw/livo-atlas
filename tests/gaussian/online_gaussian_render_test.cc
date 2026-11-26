@@ -16,8 +16,10 @@
 #include <memory>
 #include <mutex>
 #include <opencv2/core.hpp>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "core/fixtures.h"
@@ -58,8 +60,9 @@ namespace livo_atlas {
 // worker briefly owning the mutex without depending on thread scheduling.
 class OnlineGaussianMapperTestPeer {
  public:
-  static bool PollWithMailboxContention(OnlineGaussianMapper& mapper,
-                                        bool synchronized) {
+  static bool PollWithMailboxContention(
+      OnlineGaussianMapper& mapper, bool synchronized,
+      const std::function<void()>& after_receive) {
     std::optional<OnlineGaussianMapper::Reply> reply;
     {
       std::lock_guard<std::mutex> lock(mapper.mutex_);
@@ -72,13 +75,17 @@ class OnlineGaussianMapperTestPeer {
       mapper.condition_.notify_one();
       mapper.HandleReply(std::move(*reply));
     }
+    after_receive();
     const bool boundary =
         !mapper.busy_ && !mapper.submap_work_ && !mapper.unsaved_ &&
+        !mapper.map_to_ack_ &&
         mapper.render_pending_ && mapper.render_attempts_ == 2 &&
         ((mapper.acknowledged_map_ == mapper.map_index_.sequence()) ==
          synchronized);
     if (!boundary) {
-      mapper.Poll();
+      // Consume at most one reply before checking admission. A second Poll
+      // could accept a late acknowledgement and queue a render unobserved.
+      mapper.Dispatch();
       return false;
     }
     std::promise<void> locked;
@@ -96,6 +103,11 @@ class OnlineGaussianMapperTestPeer {
     EXPECT_FALSE(mapper.submap_work_.has_value())
         << "Mailbox contention reserved content during the render turn";
     return true;
+  }
+
+  static bool HasReply(OnlineGaussianMapper& mapper) {
+    std::lock_guard<std::mutex> lock(mapper.mutex_);
+    return mapper.reply_.has_value();
   }
 };
 
@@ -139,7 +151,8 @@ class OnlineGaussianRenderTest : public testing::Test {
     hold_joint_publication = joint_publication_waiting = false;
     if (peer_)
       peer_->hold_candidate = peer_->hold_commit = peer_->hold_checkpoint =
-          peer_->hold_map_ack = peer_->hold_empty = peer_->hold_render = false;
+          peer_->hold_map_ack = peer_->hold_map_reply = peer_->hold_empty =
+              peer_->hold_render = false;
     mapper_.reset();
     peer_.reset();
     system_.reset();
@@ -236,14 +249,35 @@ class OnlineGaussianRenderTest : public testing::Test {
     Confirm();
     peer_->hold_commit = true;
     ASSERT_TRUE(Wait([&] { return peer_->decisions == 2; }));
+    const int acknowledged = peer_->acknowledgements;
+    peer_->hold_map_reply = synchronized;
     Append();
     peer_->hold_commit = false;
 
     bool contended = false;
+    bool released_ack = false;
+    const auto after_receive = [&] {
+      if (!synchronized || released_ack ||
+          peer_->acknowledgements == acknowledged)
+        return;
+      // Put the reply strictly after this owner's mailbox sample. A second
+      // receive in the same test step would bypass the admission boundary.
+      peer_->hold_map_reply = false;
+      released_ack = true;
+      const auto deadline = std::chrono::steady_clock::now() + 8s;
+      while (!OnlineGaussianMapperTestPeer::HasReply(*mapper_) &&
+             std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+      EXPECT_TRUE(OnlineGaussianMapperTestPeer::HasReply(*mapper_));
+    };
     const auto deadline = std::chrono::steady_clock::now() + 8s;
     while (!contended && std::chrono::steady_clock::now() < deadline) {
       contended = OnlineGaussianMapperTestPeer::PollWithMailboxContention(
-          *mapper_, synchronized);
+          *mapper_, synchronized, after_receive);
+      if (!contended && mapper_->GetRenderStats().submitted) {
+        ADD_FAILURE() << "Render bypassed the controlled admission boundary";
+        break;
+      }
       if (!contended) std::this_thread::sleep_for(1ms);
     }
     ASSERT_TRUE(contended);
