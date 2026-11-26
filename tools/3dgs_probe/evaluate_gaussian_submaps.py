@@ -19,6 +19,7 @@ from gaussian_map import (_inspect_gaussian_map, _json, _project, _transform, _y
 from gaussian_state import _unsigned
 from joint_renderer import _ALPHA_THRESHOLD, _check_frontier, _real_directory, infer_blocks
 from render_gaussian_map import _exclusive_write, _json_bytes, _new_output, _png, _render_report
+from worker_config import DEFAULT_WORKER_OPTIONS
 
 
 _MAX_FRAMES = 512
@@ -204,7 +205,8 @@ def prepare_group(prepare, keyframes, output, group, source_sha256):
     return read_prepared_group(keyframes, output, group, source_sha256)
 
 
-def train_group(group, train_views, poses, device, *, seed_policy='uniform'):
+def train_group(group, train_views, poses, device, *, seed_policy='uniform',
+                options=DEFAULT_WORKER_OPTIONS):
     train_ids = group['train_ids']
     if ([view['keyframe_id'] for view in train_views] != train_ids or
             any(view['split'] != 'train' for view in train_views) or
@@ -216,7 +218,7 @@ def train_group(group, train_views, poses, device, *, seed_policy='uniform'):
 
     started = time.perf_counter()
     torch.cuda.reset_peak_memory_stats(device)
-    model = OnlineGaussianModel(device)
+    model = OnlineGaussianModel(device, options=options)
     model.reset(1)
     anchor_pose = poses[group['anchor_id']]
     training = []
