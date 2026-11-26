@@ -81,7 +81,8 @@ class GaussianSubmapWorker:
     """One serialized session; owner decisions are separate from durable references."""
 
     def __init__(self, session_id, state_directory, model, software, *, joint_render_enabled=False,
-                 spatial_render_enabled=False, seed_policy=DEFAULT_SEED_POLICY, split=None):
+                 spatial_render_enabled=False, seed_policy=DEFAULT_SEED_POLICY, split=None,
+                 evaluation_limits=None):
         if seed_policy not in SEED_POLICIES:
             raise ValueError("Unknown Gaussian seed policy")
         if spatial_render_enabled and not joint_render_enabled:
@@ -108,6 +109,12 @@ class GaussianSubmapWorker:
         self.spatial_render_enabled = spatial_render_enabled
         self._seed_policy = seed_policy
         self._split = split
+        self.evaluation = None
+        if evaluation_limits is not None:
+            if split is None or not joint_render_enabled:
+                raise ValueError('Online evaluation requires split and render capabilities')
+            from online_evaluation import OnlineEvaluation
+            self.evaluation = OnlineEvaluation(path.parent, split, evaluation_limits)
         self.confirmed_state = None
         self.confirmed_metadata = None
         self.confirmed_binding = None
@@ -389,7 +396,7 @@ class GaussianSubmapWorker:
         self.pending_checkpoint = asset_id
         return self._reply("checkpoint_ok", request, **description), b""
 
-    def _map_committed(self, request):
+    def _map_committed(self, request, body=b''):
         sequence = int(request["map_sequence"])
         references = {int(value) for value in request["asset_ids"]}
         if (sequence <= self.map_sequence or not references <= self.assets.keys() or
@@ -398,6 +405,10 @@ class GaussianSubmapWorker:
         submaps = {self.assets[key]["submap_id"] for key in references}
         if len(submaps) != len(references):
             raise ValueError("A map can reference only one asset per submap")
+        if self.evaluation is not None:
+            self.evaluation.commit_map(request,body)
+        elif 'evaluation_bindings' in request:
+            raise ValueError('Evaluation binding proof was not negotiated')
         self.references = references
         self.map_sequence = sequence
         self.pending_checkpoint = None
@@ -430,6 +441,12 @@ class GaussianSubmapWorker:
             if kind == "decision" or int(header["job_id"]) <= self._last_job:
                 raise ValueError("Operation job ID did not advance")
             self._last_job = int(header["job_id"])
+            if kind == 'heldout_evaluate':
+                if self.evaluation is None:
+                    raise ValueError('Heldout evaluation capability was not negotiated')
+                if header['sources'].get('policy') == 'spatial' and not self.spatial_render_enabled:
+                    raise ValueError('Spatial evaluation capability was not negotiated')
+                return self.evaluation.operation(self, header, body)
             if kind == 'joint_render':
                 if not self.joint_render_enabled:
                     raise ValueError('Joint render capability was not negotiated')
@@ -444,7 +461,7 @@ class GaussianSubmapWorker:
             if kind == "checkpoint":
                 return self._checkpoint(header)
             if kind == "map_committed":
-                return self._map_committed(header)
+                return self._map_committed(header, body)
             if kind == "prune":
                 return self._prune(header)
             if kind == "stop":

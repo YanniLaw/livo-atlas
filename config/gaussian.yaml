@@ -1,7 +1,9 @@
 gaussian:
-  # Frozen training isolation; final snapshot scorer also reads the disk budgets.
+  # Frozen training isolation. Online scoring shares the existing worker.
+  # Both online and final-snapshot scoring enforce the disk budgets below.
   evaluation:
     enabled: false
+    online_enabled: false
     split_file: ""
     max_output_mib: 256
     min_free_disk_mib: 1024

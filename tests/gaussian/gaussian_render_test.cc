@@ -1,5 +1,7 @@
 #include "livo_atlas/gaussian/gaussian_render.h"
 
+#include <gtest/gtest.h>
+
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -7,10 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
-
-#include "livo_atlas/gaussian/gaussian_map_index.h"
 #include "gaussian/render_metadata_test_helpers.h"
+#include "livo_atlas/gaussian/gaussian_map_index.h"
 
 namespace livo_atlas {
 namespace {
@@ -81,7 +81,8 @@ class GaussianRenderTest : public testing::Test {
       index_.RecordConfirmed(index_.MakeTarget(id, id + 1),
                              GaussianOperation::kView, id + 1,
                              {static_cast<std::uint64_t>(2 * id),
-                              static_cast<std::uint64_t>(2 * id + 1)}, 2);
+                              static_cast<std::uint64_t>(2 * id + 1)},
+                             2);
       ASSERT_TRUE(index_.RecordCheckpoint(
           Asset(*index_.Snapshot().entries[id].content, id + 1)));
     }
@@ -117,6 +118,27 @@ TEST_F(GaussianRenderTest, NewestQueryComesFromAnAssetInsteadOfTheResident) {
   EXPECT_TRUE(IsCurrentGaussianRender(result, map_, poses_));
 }
 
+TEST_F(GaussianRenderTest,
+       IndependentCameraUsesHistoricalOwnerWithoutRelaxingPreview) {
+  // Query 0 is deliberately absent from this owner's retained window.
+  map_.entries[0].frame_ids = map_.entries[0].asset_frame_ids = {1};
+  map_.entries[0].gaussian_count = map_.entries[0].asset_gaussian_count = 1;
+  GaussianCamera camera;
+  camera.keyframe_id = 0;
+  camera.width = 8;
+  camera.height = 6;
+  camera.K << 4, 0, 3.5, 0, 4, 2.5, 0, 0, 1;
+  std::string reason;
+  auto request = SelectGaussianEvaluation(
+      map_, poses_, 4, camera, GaussianRenderPolicy::kTemporal, &reason);
+  ASSERT_TRUE(request) << reason;
+  EXPECT_EQ(request->query_keyframe_id, 0u);
+  EXPECT_EQ(request->query_submap_id, 0u);
+  ASSERT_EQ(request->blocks.size(), 1u);
+  EXPECT_NO_THROW(ValidateGaussianSourceRequest(*request));
+  EXPECT_THROW(ValidateGaussianRenderRequest(*request), std::invalid_argument);
+}
+
 TEST_F(GaussianRenderTest, UnavailableNewestQueryNeverFallsBackToOlderCameras) {
   map_.entries[2].availability = GaussianAvailability::kNeedsRebuild;
   std::string reason;
@@ -138,8 +160,8 @@ TEST_F(GaussianRenderTest, OldOrMissingQueryAssetsNeverReplaceConfirmation) {
 
 TEST_F(GaussianRenderTest,
        CanonicalChangeOutsideRetainedFramesStillBlocksQuery) {
-  index_.RecordConfirmed(index_.MakeTarget(2, 5), GaussianOperation::kView,
-                         5, {5}, 1);
+  index_.RecordConfirmed(index_.MakeTarget(2, 5), GaussianOperation::kView, 5,
+                         {5}, 1);
   auto changed = Poses(6, 1);
   changed.poses[4].map_from_body.translation.z() = 1;
   Observe(index_, changed);
@@ -165,8 +187,8 @@ TEST_F(GaussianRenderTest, UnusableNeighborProducesOneExplicitBlock) {
 }
 
 TEST_F(GaussianRenderTest, VolatileResidentUsesTheExactCpuConfirmation) {
-  index_.RecordConfirmed(index_.MakeTarget(2, 5), GaussianOperation::kView,
-                         5, {4, 5}, 2);
+  index_.RecordConfirmed(index_.MakeTarget(2, 5), GaussianOperation::kView, 5,
+                         {4, 5}, 2);
   map_ = index_.Snapshot();
   auto result = SelectGaussianRender(map_, poses_, 5, nullptr);
   ASSERT_TRUE(result);
@@ -254,11 +276,11 @@ class SpatialGaussianRenderTest : public testing::Test {
     Observe(index_, poses_, {Group(3, 2, true)});
     for (std::uint64_t id = 0; id < 4; ++id) {
       const std::vector<std::uint64_t> frames{2 * id, 2 * id + 1};
-      auto metadata = test::RenderMetadata({kSession, id, id + 1, id + 1},
-                                           frames);
+      auto metadata =
+          test::RenderMetadata({kSession, id, id + 1, id + 1}, frames);
       for (auto& extent : metadata.extents) {
-        extent.min = extent.max = Eigen::Vector3d(
-            7. - 2. * id, 0, id == 0 || id == 3 ? 4 : -4);
+        extent.min = extent.max =
+            Eigen::Vector3d(7. - 2. * id, 0, id == 0 || id == 3 ? 4 : -4);
       }
       index_.RecordConfirmed(index_.MakeTarget(id, id + 1),
                              GaussianOperation::kView, id + 1, frames, 2,
@@ -303,6 +325,29 @@ TEST_F(SpatialGaussianRenderTest, SelectsNonadjacentAssetWithThirdResident) {
   EXPECT_TRUE(result.blocks[0].render_metadata);
   EXPECT_TRUE(result.blocks[1].render_metadata);
   EXPECT_TRUE(IsCurrentGaussianRender(result, map_, poses_));
+}
+
+TEST_F(SpatialGaussianRenderTest, HistoricalHeldoutQueryIgnoresFutureGroups) {
+  // Owner2 retains training5; query4 is independent and group3 is newer.
+  const auto original = map_.entries[2].render_metadata->camera;
+  auto camera = original;
+  camera.keyframe_id = 4;
+  map_.entries[2].frame_ids = {5};
+  map_.entries[2].render_metadata.reset();
+  // Keep source metadata consistent with its training window.
+  map_.entries[2].render_metadata =
+      test::RenderMetadata(*map_.entries[2].content, {5});
+  Place(0, 5, 4);
+  Place(1, 3, -4);
+  Place(3, -1, 4);
+  const auto selected = SelectGaussianEvaluation(
+      map_, poses_, 5, camera, GaussianRenderPolicy::kSpatial, nullptr);
+  ASSERT_TRUE(selected);
+  ASSERT_EQ(selected->blocks.size(), 2u);
+  EXPECT_EQ(selected->query_keyframe_id, 4u);
+  EXPECT_EQ(selected->blocks[0].content.submap_id, 0u);
+  EXPECT_EQ(selected->blocks[1].content.submap_id, 2u);
+  EXPECT_THROW(ValidateGaussianRenderRequest(*selected), std::invalid_argument);
 }
 
 TEST_F(SpatialGaussianRenderTest, TemporalDefaultKeepsPreviousLogicalGroup) {
@@ -390,29 +435,29 @@ TEST(SpatialGaussianRenderBudget, OneAndThirtyTwoGroupsFitButThirtyThreeFail) {
       target.submap_from_body.resize(2);
       target.submap_from_body[1].translation.x() = 1;
       entry.content_target = entry.asset_source = target;
-      entry.content = GaussianContentId{
-          kSession, static_cast<std::uint64_t>(id),
-          static_cast<std::uint64_t>(id + 1),
-          static_cast<std::uint64_t>(id + 1)};
+      entry.content =
+          GaussianContentId{kSession, static_cast<std::uint64_t>(id),
+                            static_cast<std::uint64_t>(id + 1),
+                            static_cast<std::uint64_t>(id + 1)};
       entry.frame_ids = entry.asset_frame_ids =
           target.group.primary.keyframe_ids;
       entry.gaussian_count = entry.asset_gaussian_count = 2;
       entry.asset = Asset(*entry.content, id + 1);
       entry.asset_current = true;
-      entry.render_metadata = test::RenderMetadata(*entry.content,
-                                                   entry.frame_ids);
+      entry.render_metadata =
+          test::RenderMetadata(*entry.content, entry.frame_ids);
       for (auto& extent : entry.render_metadata->extents)
-        extent.min = extent.max = Eigen::Vector3d(
-            1, 0, id + 1 == groups ? 4 : -4);
+        extent.min = extent.max =
+            Eigen::Vector3d(1, 0, id + 1 == groups ? 4 : -4);
       map.entries.push_back(entry);
     }
     if (groups == 33) {
-      EXPECT_THROW(SelectGaussianRender(map, poses, 34,
-                       GaussianRenderPolicy::kSpatial, nullptr),
+      EXPECT_THROW(SelectGaussianRender(
+                       map, poses, 34, GaussianRenderPolicy::kSpatial, nullptr),
                    std::invalid_argument);
     } else {
-      const auto result = SelectGaussianRender(map, poses, groups + 1,
-          GaussianRenderPolicy::kSpatial, nullptr);
+      const auto result = SelectGaussianRender(
+          map, poses, groups + 1, GaussianRenderPolicy::kSpatial, nullptr);
       ASSERT_TRUE(result);
       EXPECT_EQ(result->blocks.size(), 1u);
       EXPECT_EQ(result->neighbor_reason, "no_spatial_candidate");
@@ -438,8 +483,8 @@ TEST_F(SpatialGaussianRenderTest, RequestValidatesSpatialSummaryAndSources) {
     if (mode == 2) request.blocks[0].render_metadata.reset();
     if (mode == 3) request.neighbor_reason = "no_spatial_candidate";
     if (mode == 4) request.policy = static_cast<GaussianRenderPolicy>(2);
-    EXPECT_THROW(ValidateGaussianRenderRequest(request),
-                 std::invalid_argument) << mode;
+    EXPECT_THROW(ValidateGaussianRenderRequest(request), std::invalid_argument)
+        << mode;
   }
 }
 

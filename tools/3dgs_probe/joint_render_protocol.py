@@ -63,7 +63,7 @@ def _selection(header, camera):
              _number(value['selection_seconds'], 'selection time') >= 0, 'Invalid spatial selection summary')
 
 
-def _header(header):
+def _header(header, *, independent=False):
     """Bound every count before decoding even the first primary body array."""
     from submap_protocol import _frame_ids
 
@@ -142,9 +142,13 @@ def _header(header):
         expected = 'no_spatial_candidate' if spatial else ('no_previous_group' if owner == 0 else 'neighbor_unavailable')
         _require(reason == expected,
                  'Missing single-block reason')
-    _require(str(query) == blocks[-1]['frame_ids'][-1], 'Query is not the last retained owner camera')
-    if spatial:
-        _selection(header, blocks[-1]['render_metadata']['camera'])
+    if not independent:
+        _require(str(query) == blocks[-1]['frame_ids'][-1], 'Query is not the last retained owner camera')
+        if spatial:
+            _selection(header, blocks[-1]['render_metadata']['camera'])
+    owner_target = blocks[-1]['target']
+    anchor = int(owner_target['anchor_keyframe_id'])
+    _require(anchor <= query < anchor + owner_target['primary_count'], 'Query is outside its owner')
     return primary_count
 
 
@@ -156,7 +160,16 @@ def validate_render_header(header):
 
 
 def decode_render_request(header, body):
-    count = validate_render_header(header)
+    return _decode_source_body(header, body, validate_render_header(header))
+
+
+def decode_source_request(header, body):
+    _keys(header, _root_fields(header))
+    _require(header['type'] == 'gaussian_sources', 'Expected evaluation sources')
+    return _decode_source_body(header, body, _header(header, independent=True))
+
+
+def _decode_source_body(header, body, count):
     _require(isinstance(body, bytes) and len(body) == 128 * (1 + count) and len(body) <= 131200,
              'Incorrect joint render body size')
     from submap_protocol import _primary_context, _same_pose

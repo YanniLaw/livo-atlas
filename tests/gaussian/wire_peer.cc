@@ -1,32 +1,59 @@
-#include "gaussian/wire_protocol.h"
-#include "gaussian/submap_protocol.h"
-#include "render_test_helpers.h"
-
 #include <chrono>
 #include <exception>
 #include <string>
 
+#include "gaussian/evaluation_protocol.h"
+#include "gaussian/submap_protocol.h"
+#include "gaussian/wire_protocol.h"
 #include "livo_atlas/common/logging.h"
+#include "render_test_helpers.h"
 
 int main(int argc, char** argv) {
   livo_atlas::InitializeLogging(argv[0]);
   if (argc != 2 && argc != 3) return 2;
   try {
     const int fd = std::stoi(argv[1]);
+    if (argc == 3 && std::string(argv[2]) == "--evaluation") {
+      livo_atlas::GaussianEvaluationRequest request;
+      request.sources = livo_atlas::test::RenderRequest();
+      request.sources.query_keyframe_id = 4;
+      request.sources.parent_from_body.translation.x() = 4;
+      request.sources.blocks.back().frame_ids = {5};
+      request.sources.blocks.back().gaussian_count = 1;
+      request.camera.keyframe_id = 4;
+      request.split_id = std::string(64, 'a');
+      request.sealed_at_unix_seconds = 1;
+      request.dispatched_at_unix_seconds = 2;
+      livo_atlas::ReconstructionView view;
+      view.keyframe_id = 4;
+      view.camera = {"Pinhole", 8, 6, 1, 4, 4, 3.5, 2.5, {}};
+      view.image_bgr = cv::Mat(6, 8, CV_8UC3, cv::Scalar(40, 40, 40));
+      view.image_mask = cv::Mat::ones(6, 8, CV_8UC1);
+      view.depth_mask = cv::Mat::zeros(6, 8, CV_8UC1);
+      view.depth_m = cv::Mat::zeros(6, 8, CV_32FC1);
+      livo_atlas::WriteGaussianMessage(
+          fd, livo_atlas::EncodeGaussianEvaluation(request, view, {}),
+          std::chrono::seconds(2));
+      const auto response =
+          livo_atlas::ReadGaussianMessage(fd, std::chrono::seconds(2));
+      return livo_atlas::CheckGaussianEvaluationReply(response, request).empty()
+                 ? 0
+                 : 1;
+    }
     if (argc == 3 && (std::string(argv[2]) == "--render" ||
                       std::string(argv[2]) == "--spatial-render")) {
       const auto request = std::string(argv[2]) == "--spatial-render"
-          ? livo_atlas::test::SpatialRenderRequest()
-          : livo_atlas::test::RenderRequest();
-      livo_atlas::WriteGaussianMessage(fd,
-          livo_atlas::EncodeGaussianRenderRequest(request),
+                               ? livo_atlas::test::SpatialRenderRequest()
+                               : livo_atlas::test::RenderRequest();
+      livo_atlas::WriteGaussianMessage(
+          fd, livo_atlas::EncodeGaussianRenderRequest(request),
           std::chrono::seconds(2));
       const auto response =
           livo_atlas::ReadGaussianMessage(fd, std::chrono::seconds(2));
       const auto result =
           livo_atlas::DecodeGaussianRenderReply(response, request);
-      return result.width == 8 && result.request.job_id == request.job_id
-          ? 0 : 1;
+      return result.width == 8 && result.request.job_id == request.job_id ? 0
+                                                                          : 1;
     }
     if (argc == 3) {
       if (std::string(argv[2]) != "--target") return 2;

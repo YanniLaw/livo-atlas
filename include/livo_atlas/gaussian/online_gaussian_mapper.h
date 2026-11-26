@@ -21,6 +21,7 @@
 #include "livo_atlas/gaussian/gaussian_render.h"
 #include "livo_atlas/gaussian/gaussian_render_snapshot.h"
 #include "livo_atlas/gaussian/holdout_split.h"
+#include "livo_atlas/io/keyframe_read_view.h"
 
 namespace livo_atlas {
 
@@ -93,6 +94,7 @@ class OnlineGaussianMapper {
   GaussianRenderStats GetRenderStats() const;
   GaussianRenderSnapshot GetRenderSnapshot() const;
   std::shared_ptr<const GaussianMapSnapshot> GetMapSnapshot() const;
+  std::vector<GaussianEvaluationStatus> GetEvaluationStatus() const;
 
  private:
   friend class OnlineGaussianMapperTestPeer;
@@ -120,7 +122,9 @@ class OnlineGaussianMapper {
     kMapCommitted,
     kPrune,
     kRender,
-    kSaveRender
+    kSaveRender,
+    kEvaluate,
+    kEvaluationStatus
   };
 
   struct Command {
@@ -142,6 +146,10 @@ class OnlineGaussianMapper {
     std::optional<GaussianRenderRequest> render_request;
     std::shared_ptr<const GaussianRender> render;
     std::optional<GaussianRenderMetadata> render_metadata;
+    std::optional<GaussianEvaluationRequest> evaluation;
+    std::optional<KeyframeReadView> keyframes;
+    std::shared_ptr<const std::vector<GaussianEvaluationStatus>>
+        evaluation_status;
   };
 
   enum class ReplyKind {
@@ -160,6 +168,9 @@ class OnlineGaussianMapper {
     kRendered,
     kRenderError,
     kRenderSaved,
+    kEvaluated,
+    kEvaluationError,
+    kEvaluationStatus,
     kError
   };
 
@@ -168,6 +179,8 @@ class OnlineGaussianMapper {
     Command command;
     std::shared_ptr<GaussianPreview> preview;
     std::string detail;
+    std::string evaluation_report_sha256;
+    std::string evaluation_error_code;
     std::optional<GaussianAssetReference> asset;
     std::shared_ptr<GaussianRender> render;
   };
@@ -182,10 +195,18 @@ class OnlineGaussianMapper {
   bool QueueSubmapCommand(Command command);
   void EndSubmapWork(bool retry);
   void RefreshRenderDemand();
-  // True reserves this dispatch turn, including a retry after mailbox contention.
+  // True reserves this dispatch turn, including a retry after mailbox
+  // contention.
   bool DispatchRender(const GaussianMapSnapshot& map);
   void HandleRenderReply(Reply reply);
   void StopRendering();
+  void RefreshEvaluationDemand();
+  bool DispatchEvaluation(const GaussianMapSnapshot& map);
+  void HandleEvaluationReply(const Reply& reply);
+  void StopEvaluation();
+  void WriteEvaluationStatus(
+      const std::vector<GaussianEvaluationStatus>& states,
+      const std::string& session_error = "") const;
   void SetRenderWait(const std::string& reason, std::uint64_t map_sequence);
   void ConfirmPreview(const std::shared_ptr<GaussianPreview>& preview,
                       Clock::time_point observed_at);
@@ -237,6 +258,11 @@ class OnlineGaussianMapper {
   Clock::time_point render_dispatched_at_;
   std::shared_ptr<const GaussianRender> latest_render_, unsaved_render_;
   GaussianRenderStats render_stats_;
+  std::vector<GaussianEvaluationStatus> evaluation_status_;
+  std::uint64_t evaluation_sequence_ = 0, evaluation_saved_sequence_ = 0;
+  int evaluation_content_attempts_ = 0;
+  bool evaluation_sync_attempted_ = false;
+  bool evaluation_turn_ = true;
   bool foreground_started_ = false;
   bool finishing_ = false, published_since_work_ = false;
   bool checkpoint_needs_map_ = false;

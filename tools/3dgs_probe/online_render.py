@@ -9,7 +9,7 @@ import torch
 from joint_renderer import image_metrics, infer_blocks
 
 
-def render_confirmed(actor, request):
+def confirmed_sources(actor, request):
     from submap_worker import _compatible
 
     header = request['header']
@@ -17,9 +17,6 @@ def render_confirmed(actor, request):
             int(header['map_sequence']) != actor.map_sequence or actor.pending_checkpoint is not None or
             int(header['frame_count']) < actor._max_frontier or int(header['pose_version']) < actor._max_version):
         raise ValueError('Render fence differs from the acknowledged worker map')
-    started = time.perf_counter()
-    blocks, query = [], None
-    camera_from_parent = None
     for block in request['blocks']:
         source = block['header']
         content = dict(source['content'])
@@ -50,6 +47,17 @@ def render_confirmed(actor, request):
         if (not _compatible(state, target) or ids != source['frame_ids'] or
                 len(state.origin_ids) != source['gaussian_count']):
             raise ValueError('Render source coverage or canonical body poses differ')
+        yield block, state
+        del state
+
+
+def render_confirmed(actor, request):
+    header = request['header']
+    started = time.perf_counter()
+    blocks, query = [], None
+    camera_from_parent = None
+    for block, state in confirmed_sources(actor, request):
+        target = block['target']
         if target['submap_id'] == header['query_submap_id']:
             query = copy.deepcopy(next(view for view in state.views
                                       if str(view['keyframe_id']) == header['query_keyframe_id']))

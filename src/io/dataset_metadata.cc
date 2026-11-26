@@ -108,10 +108,18 @@ int Integer(const cv::FileNode& node) {
   return static_cast<int>(node);
 }
 
-cv::FileStorage ReadYaml(const fs::path& path) {
+cv::FileStorage ReadYaml(const fs::path& path, std::size_t max_bytes) {
   std::ifstream input(path, std::ios::binary);
   if (!input) Fail(path, "Cannot open metadata");
-  const std::string text{std::istreambuf_iterator<char>(input), {}};
+  std::string text;
+  if (max_bytes) {
+    text.resize(max_bytes + 1);
+    input.read(text.data(), text.size());
+    text.resize(input.gcount());
+    if (text.size() > max_bytes) Fail(path, "Metadata exceeds byte budget");
+  } else {
+    text.assign(std::istreambuf_iterator<char>(input), {});
+  }
   if (input.bad()) Fail(path, "Cannot read metadata");
   ValidateYamlIntegers(text);
   return cv::FileStorage(text, cv::FileStorage::READ | cv::FileStorage::MEMORY);

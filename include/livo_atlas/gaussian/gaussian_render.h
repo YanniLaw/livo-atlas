@@ -1,12 +1,11 @@
 #ifndef LIVO_ATLAS_GAUSSIAN_GAUSSIAN_RENDER_H_
 #define LIVO_ATLAS_GAUSSIAN_GAUSSIAN_RENDER_H_
 
+#include <Eigen/Core>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <Eigen/Core>
 
 #include "livo_atlas/gaussian/gaussian_map.h"
 #include "livo_atlas/gaussian/gaussian_render_policy.h"
@@ -26,7 +25,7 @@ struct GaussianRenderBlock {
 
 struct GaussianRenderRequest {
   std::string session_id;
-  std::uint64_t job_id = 0;  // Assigned only when admitted to the mailbox.
+  std::uint64_t job_id = 0;      // Assigned only when admitted to the mailbox.
   std::uint64_t generation = 0;  // Fence for the resident model, not a reset.
   std::uint64_t map_sequence = 0;
   std::uint64_t pose_version = 0;
@@ -116,6 +115,14 @@ bool IsCurrentGaussianRender(const GaussianRenderRequest& request,
                              const PoseSnapshot& poses);
 
 void ValidateGaussianRenderRequest(const GaussianRenderRequest& request);
+
+// Shared source/pose checks. Preview adds its retained-camera requirement.
+void ValidateGaussianSourceRequest(const GaussianRenderRequest& request);
+
+std::optional<GaussianRenderRequest> SelectGaussianEvaluation(
+    const GaussianMapSnapshot& map, const PoseSnapshot& poses,
+    std::uint64_t generation, const GaussianCamera& camera,
+    GaussianRenderPolicy policy, std::string* reason);
 
 // Bounded, single-line encoding of the complete accepted request header.
 std::string GaussianRenderSourceIdentity(const GaussianRenderRequest& request);

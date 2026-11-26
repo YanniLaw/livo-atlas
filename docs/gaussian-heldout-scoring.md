@@ -2,7 +2,7 @@
 
 本阶段使用在线过程中已经训练并封口的 Gaussian 权重，对冻结的留出相机评分。
 不重新训练模型，也不改变优化器、参数或训练 RNG。它是最终快照的历史回看，
-还不是在线封口评分任务，更不是图像到达时的预测结果。
+在线封口触发的任务见[在线留出评估](gaussian-online-evaluation.md)；两者都不是图像到达时的预测结果。
 
 [训练隔离](gaussian-holdout-isolation.md) ·
 [总体设计](superpowers/specs/2026-11-26-online-heldout-evaluation-design.md) ·

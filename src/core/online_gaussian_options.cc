@@ -19,6 +19,15 @@ bool ContainsPath(const fs::path& parent, const fs::path& path) {
 }  // namespace
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options) {
+  if (options.online_evaluation_enabled &&
+      (!options.evaluation_enabled || !options.joint_render_enabled))
+    throw std::invalid_argument(
+        "Online evaluation requires holdout isolation and joint render engine");
+  if (options.evaluation_max_output_mib < 1 ||
+      options.evaluation_max_output_mib > 4096 ||
+      options.evaluation_min_free_disk_mib < 0 ||
+      options.evaluation_min_free_disk_mib > 1048576)
+    throw std::invalid_argument("Invalid evaluation disk budget");
   if (options.evaluation_enabled &&
       (!options.enabled || !options.persist_submaps ||
        options.evaluation_split_file.empty()))

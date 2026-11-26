@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "gaussian/evaluation_protocol.h"
 #include "gaussian/render_metadata_protocol.h"
 #include "gaussian/render_protocol.h"
 #include "mapping/pose_math.h"
@@ -112,9 +113,9 @@ void WritePose(cv::FileStorage& json, const char* name,
   json << name << "[";
   for (int row = 0; row < 4; ++row)
     for (int column = 0; column < 4; ++column)
-      json << (row == 3 ? (column == 3 ? 1.0 : 0.0)
-                        : column == 3 ? pose.translation[row]
-                                      : pose.rotation(row, column));
+      json << (row == 3      ? (column == 3 ? 1.0 : 0.0)
+               : column == 3 ? pose.translation[row]
+                             : pose.rotation(row, column));
   json << "]";
 }
 
@@ -199,10 +200,9 @@ std::vector<std::uint8_t> EncodeGaussianPrimaryPoses(
   for (const auto& pose : target.submap_from_body) {
     for (int row = 0; row < 4; ++row) {
       for (int column = 0; column < 4; ++column) {
-        const double value = row == 3
-                                 ? (column == 3 ? 1.0 : 0.0)
-                                 : column == 3 ? pose.translation[row]
-                                               : pose.rotation(row, column);
+        const double value = row == 3      ? (column == 3 ? 1.0 : 0.0)
+                             : column == 3 ? pose.translation[row]
+                                           : pose.rotation(row, column);
         std::uint64_t bits = 0;
         std::memcpy(&bits, &value, sizeof(bits));
         for (int byte = 0; byte < 8; ++byte)
@@ -284,20 +284,29 @@ GaussianTarget DecodeGaussianTarget(const cv::FileNode& header,
 void ValidateGaussianSubmapMessage(const cv::FileNode& root,
                                    const std::vector<std::uint8_t>& body) {
   const auto kind = String(root, "type");
+  if (kind == "heldout_evaluate" || kind == "heldout_evaluation_ok" ||
+      kind == "heldout_evaluation_error") {
+    ValidateGaussianEvaluationMessage(root, body);
+    return;
+  }
   if (kind == "joint_render" || kind == "joint_render_ok" ||
       kind == "joint_render_error") {
     ValidateGaussianRenderMessage(root, body);
     return;
   }
-  bool holdout = false;
+  bool holdout = false, evaluation = false;
   if (root["capabilities"].type() != cv::FileNode::NONE) {
     const auto capabilities = root["capabilities"];
     std::vector<std::string> names;
     for (const auto& value : capabilities)
       names.push_back(static_cast<std::string>(value));
-    holdout = !names.empty() && names.back() == "holdout_split_v1";
     auto render = names;
+    evaluation = !render.empty() && render.back() == "heldout_evaluation_v1";
+    if (evaluation) render.pop_back();
+    holdout = !render.empty() && render.back() == "holdout_split_v1";
     if (holdout) render.pop_back();
+    Require(!evaluation || (holdout && !render.empty()),
+            "Evaluation requires holdout and render capabilities");
     Require((kind == "hello" || kind == "hello_ok") && capabilities.isSeq() &&
                 !names.empty() &&
                 ((holdout && render.empty()) ||
@@ -309,6 +318,14 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
       Require(Hex(String(root, "split_id"), 64),
               "Invalid Gaussian split digest");
   }
+  if (evaluation) {
+    const auto limits = root["evaluation_limits"];
+    Keys(limits, {"max_output_bytes", "min_free_disk_bytes"});
+    Require(Id(limits, "max_output_bytes") >= 1024 * 1024 &&
+                Id(limits, "max_output_bytes") <= 4096ull * 1024 * 1024 &&
+                Id(limits, "min_free_disk_bytes") <= (1ull << 40),
+            "Invalid evaluation resource limits");
+  }
   Require(Hex(String(root, "session_id"), 32), "Invalid session ID");
   auto required = Base();
   if (kind != "hello" && kind != "hello_ok" && kind != "error")
@@ -318,6 +335,7 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
     required = Base(false);
     required.insert("state_directory");
     if (holdout) required.insert("split_id");
+    if (evaluation) required.insert("evaluation_limits");
     Keys(root, required, {"capabilities"});
     const auto name = String(root, "state_directory");
     const std::filesystem::path path(name);
@@ -337,6 +355,7 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
     required.insert({"mode", "state_schema", "python", "torch", "gsplat",
                      "cuda", "device", "gpu_free_bytes", "gpu_total_bytes"});
     if (holdout) required.insert("split_id");
+    if (evaluation) required.insert("evaluation_limits");
     Keys(root, required, {"capabilities"});
     Require(String(root, "mode") == "persistent_submaps" &&
                 Integer(root, "state_schema", 1, 2) == (holdout ? 2 : 1),
@@ -416,10 +435,9 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
     Require(
         operation == "view" || operation == "reuse" || operation == "rebuild",
         "Invalid operation");
-    const int steps =
-        operation == "reuse"
-            ? 0
-            : operation == "view" ? 20 : static_cast<int>(20 * count);
+    const int steps = operation == "reuse"  ? 0
+                      : operation == "view" ? 20
+                                            : static_cast<int>(20 * count);
     (void)Integer(root, "steps", steps, steps);
     (void)Integer(root, "supervised_depth_pixels", 0, steps * 1000000);
     Require(Number(root["rgb_l1"]) >= 0 && Number(root["depth_l1_m"]) >= 0,
@@ -446,9 +464,8 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
              reuse ? "content_job_id" : "job_id")};
       const auto metadata = DecodeGaussianRenderMetadata(node, content, frames);
       Require(metadata.camera.width == static_cast<int>(root["width"]) &&
-                  metadata.camera.height == static_cast<int>(root["height"])
-                  && metadata.camera.capture_time ==
-                      Number(root["capture_time"]),
+                  metadata.camera.height == static_cast<int>(root["height"]) &&
+                  metadata.camera.capture_time == Number(root["capture_time"]),
               "Spatial query differs from candidate preview");
     }
     return;
@@ -496,7 +513,8 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
     }
   } else if (kind == "map_committed" || kind == "map_committed_ok") {
     required.insert({"map_sequence", "asset_ids"});
-    Keys(root, required);
+    Keys(root, required,
+         kind == "map_committed" ? Fields{"evaluation_bindings"} : Fields{});
     Require(Id(root, "map_sequence") > 0, "Map sequence must be nonzero");
     const auto ids = root["asset_ids"];
     Require(ids.isSeq() && ids.size() <= 32, "Too many map references");
@@ -506,6 +524,26 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
       Require(value > previous,
               "Map references must be nonzero, ordered and unique");
       previous = value;
+    }
+    if (!root["evaluation_bindings"].empty()) {
+      const auto bindings = root["evaluation_bindings"];
+      Require(bindings.isSeq() && bindings.size() <= 32,
+              "Invalid evaluation map bindings");
+      std::uint64_t previous_id = 0;
+      std::size_t count = 0;
+      bool first = true;
+      for (const auto& binding : bindings) {
+        Keys(binding, {"submap_id", "primary_count"});
+        const auto id = Id(binding, "submap_id");
+        Require(id < 512 && (first || id > previous_id),
+                "Unordered evaluation bindings");
+        first = false;
+        previous_id = id;
+        count += Integer(binding, "primary_count", 1, 512);
+      }
+      Require(count <= 512 && body.size() == 128 * count,
+              "Invalid evaluation binding body");
+      return;
     }
   } else if (kind == "prune" || kind == "prune_ok") {
     required.insert({"map_sequence", "asset_id"});

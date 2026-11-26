@@ -55,7 +55,8 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
       command.kind != CommandKind::kSave &&
       command.kind != CommandKind::kSaveRender &&
       command.kind != CommandKind::kWriteMap &&
-      command.kind != CommandKind::kStatus) {
+      command.kind != CommandKind::kStatus &&
+      command.kind != CommandKind::kEvaluationStatus) {
     if (next_job_ == std::numeric_limits<std::uint64_t>::max())
       throw std::overflow_error("Gaussian job ID overflow");
     command.job_id = next_job_++;
@@ -81,6 +82,22 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
       command.kind == CommandKind::kActivate &&
       command.operation == GaussianOperation::kRebuild)
     ++finalization_result_->repair_attempts;
+  if (command.kind == CommandKind::kEvaluate) {
+    auto& request = *command.evaluation;
+    request.sources.job_id = command.job_id;
+    auto& state = *std::find_if(
+        evaluation_status_.begin(), evaluation_status_.end(),
+        [&](const auto& item) {
+          return item.query.camera.keyframe_id == request.camera.keyframe_id;
+        });
+    state.status = "in_flight";
+    state.job_id = command.job_id;
+    state.map_sequence = request.sources.map_sequence;
+    ++evaluation_sequence_;
+    evaluation_content_attempts_ = 0;
+    render_attempts_ = 0;
+    evaluation_turn_ = false;
+  }
   if (command.kind == CommandKind::kRender) {
     command.render_request->job_id = command.job_id;
     ++render_stats_.submitted;
@@ -89,6 +106,8 @@ bool OnlineGaussianMapper::QueueSubmapCommand(Command command) {
     render_pending_ = false;
     render_attempts_ = 0;
     render_dispatched_at_ = Clock::now();
+    evaluation_content_attempts_ = 0;
+    evaluation_turn_ = true;
   }
   if (render_pending_ && command.map &&
       (command.kind == CommandKind::kWriteMap ||
@@ -110,6 +129,11 @@ void OnlineGaussianMapper::EndSubmapWork(bool retry) {
   if (submap_work_ && options_.joint_render_enabled) {
     render_attempts_ = std::min(2, render_attempts_ + 1);
     render_sync_attempted_ = false;
+  }
+  if (submap_work_ && options_.online_evaluation_enabled) {
+    evaluation_content_attempts_ =
+        std::min(2, evaluation_content_attempts_ + 1);
+    evaluation_sync_attempted_ = false;
   }
   submap_work_.reset();
   foreground_started_ = false;
@@ -158,7 +182,9 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     QueueSubmapCommand(std::move(command));
     return;
   }
+  if (!submap_work_ && evaluation_turn_ && DispatchEvaluation(map)) return;
   if (!submap_work_ && DispatchRender(map)) return;
+  if (!submap_work_ && !evaluation_turn_ && DispatchEvaluation(map)) return;
   const bool quiescing = finalization_phase_ == FinalizationPhase::kQuiescing;
   const bool repairing = finalization_phase_ == FinalizationPhase::kRepairing;
   if ((finishing_ || quiescing) && !busy_) EndSubmapWork(false);
@@ -243,6 +269,17 @@ void OnlineGaussianMapper::DispatchSubmaps() {
     command = {};
     command.kind = CommandKind::kWriteMap;
     command.map = std::make_shared<GaussianMapSnapshot>(map);
+    QueueSubmapCommand(std::move(command));
+    return;
+  }
+  if (options_.online_evaluation_enabled &&
+      evaluation_sequence_ > evaluation_saved_sequence_) {
+    command = {};
+    command.kind = CommandKind::kEvaluationStatus;
+    command.state_sequence = evaluation_sequence_;
+    command.evaluation_status =
+        std::make_shared<const std::vector<GaussianEvaluationStatus>>(
+            evaluation_status_);
     QueueSubmapCommand(std::move(command));
     return;
   }
@@ -432,6 +469,11 @@ void OnlineGaussianMapper::HandleSubmapReply(Reply reply) {
         ++stats_.resource_limited;
       EndSubmapWork(false);
       break;
+    case ReplyKind::kEvaluated:
+    case ReplyKind::kEvaluationError:
+    case ReplyKind::kEvaluationStatus:
+      HandleEvaluationReply(reply);
+      break;
     case ReplyKind::kRendered:
     case ReplyKind::kRenderError:
     case ReplyKind::kRenderSaved:
@@ -449,8 +491,9 @@ void OnlineGaussianMapper::HandleSubmapReply(Reply reply) {
 bool OnlineGaussianMapper::SubmapsDrained() const {
   if (!connected_ || busy_ || awaiting_decision_ || submap_work_ ||
       map_to_ack_ || prune_asset_ || unsaved_ || unsaved_render_ ||
-      checkpoint_needs_map_ ||
-      state_sequence_ != saved_status_sequence_)
+      checkpoint_needs_map_ || state_sequence_ != saved_status_sequence_ ||
+      (options_.online_evaluation_enabled &&
+       evaluation_sequence_ != evaluation_saved_sequence_))
     return false;
   const auto map = map_index_.Snapshot();
   return map.map_sequence == acknowledged_map_ &&

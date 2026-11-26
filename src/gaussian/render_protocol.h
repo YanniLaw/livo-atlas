@@ -10,12 +10,19 @@ namespace livo_atlas {
 
 GaussianMessage EncodeGaussianRenderRequest(
     const GaussianRenderRequest& request);
+void WriteGaussianSourceHeader(cv::FileStorage& out,
+                               const GaussianRenderRequest& request,
+                               const std::string& kind);
+std::vector<std::uint8_t> EncodeGaussianSourceBody(
+    const GaussianRenderRequest& request);
+GaussianRenderRequest DecodeGaussianSources(
+    const cv::FileNode& header, const std::vector<std::uint8_t>& body);
 GaussianRenderRequest DecodeGaussianRenderRequest(
     const GaussianMessage& message);
-GaussianRender DecodeGaussianRenderReply(
-    const GaussianMessage& message, const GaussianRenderRequest& request);
-std::string DecodeGaussianRenderError(
-    const GaussianMessage& message, const GaussianRenderRequest& request);
+GaussianRender DecodeGaussianRenderReply(const GaussianMessage& message,
+                                         const GaussianRenderRequest& request);
+std::string DecodeGaussianRenderError(const GaussianMessage& message,
+                                      const GaussianRenderRequest& request);
 void ValidateGaussianRenderMessage(const cv::FileNode& header,
                                    const std::vector<std::uint8_t>& body);
 

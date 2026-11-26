@@ -44,9 +44,9 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   if (config.executor_threads < 2) {
     throw std::invalid_argument("ros.executor_threads must be at least 2");
   }
-  config.system.num_background_threads = reader.Integer(
-      "pose_graph.num_background_threads",
-      config.system.num_background_threads);
+  config.system.num_background_threads =
+      reader.Integer("pose_graph.num_background_threads",
+                     config.system.num_background_threads);
   const bool loop_enabled = reader.Boolean("loop_closure.enabled", false);
   const bool graph_enabled = reader.Boolean("pose_graph.enabled", loop_enabled);
   if (graph_enabled && !loop_enabled) {
@@ -80,8 +80,8 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.Boolean("gaussian.joint_render_enabled", false);
   auto& gaussian_output = config.gaussian_output;
   gaussian_output.enabled = reader.Boolean("gaussian.publish_preview", false);
-  gaussian_output.optical_frame = reader.String(
-      "gaussian.preview_frame_id", gaussian_output.optical_frame);
+  gaussian_output.optical_frame =
+      reader.String("gaussian.preview_frame_id", gaussian_output.optical_frame);
   if (gaussian_output.enabled &&
       (!gaussian.enabled || !gaussian.persist_submaps ||
        !gaussian.joint_render_enabled))
@@ -113,6 +113,16 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
       reader.Boolean("gaussian.evaluation.enabled", false);
   gaussian.evaluation_split_file =
       reader.String("gaussian.evaluation.split_file", "");
+  gaussian.online_evaluation_enabled =
+      reader.Boolean("gaussian.evaluation.online_enabled", false);
+  gaussian.evaluation_max_output_mib =
+      reader.Integer("gaussian.evaluation.max_output_mib", 256);
+  gaussian.evaluation_min_free_disk_mib =
+      reader.Integer("gaussian.evaluation.min_free_disk_mib", 1024);
+  if (gaussian.online_evaluation_enabled &&
+      (!gaussian.evaluation_enabled || !gaussian.joint_render_enabled))
+    throw std::invalid_argument(
+        "Online evaluation requires isolation and joint render engine");
   if (gaussian.evaluation_enabled &&
       (!gaussian.enabled || !gaussian.persist_submaps ||
        gaussian.evaluation_split_file.empty()))
@@ -125,8 +135,8 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
         "gaussian.connect_timeout_ms", gaussian.connect_timeout.count()));
     gaussian.transfer_timeout = std::chrono::milliseconds(reader.Integer(
         "gaussian.transfer_timeout_ms", gaussian.transfer_timeout.count()));
-    gaussian.job_timeout = std::chrono::milliseconds(
-        reader.Integer("gaussian.job_timeout_ms", gaussian.job_timeout.count()));
+    gaussian.job_timeout = std::chrono::milliseconds(reader.Integer(
+        "gaussian.job_timeout_ms", gaussian.job_timeout.count()));
     gaussian.shutdown_timeout = std::chrono::milliseconds(
         reader.Integer("gaussian.shutdown_timeout_ms", 3000));
     gaussian.finalize_timeout = std::chrono::milliseconds(

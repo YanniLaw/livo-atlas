@@ -2,7 +2,8 @@
 
 状态：第一阶段训练划分和来源隔离已实现，见[验证与复现](../../gaussian-holdout-isolation.md)。
 第二阶段已实现[独立查询、固定指标与最终快照只读评分](../../gaussian-heldout-scoring.md)。
-在线留出请求协议、封口触发与公平调度仍待接入；现有结果是最终快照成绩。
+第三阶段接入[在线留出协议、封口触发和公平调度](../../gaussian-online-evaluation.md)，结果按
+`online_snapshot` / `final_snapshot` 分开记录。
 目标是在当前单 GPU worker 的在线训练过程中，对从未进入高斯训练的相机图像评分，
 同时保留实时前端、异步后端、现有预览和正常退出语义。
 

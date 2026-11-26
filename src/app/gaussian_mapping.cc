@@ -31,31 +31,27 @@ void ReportJointRender(const GaussianRender& r) {
   const std::string_view source_identity(identity);
   // Keep each fragment below glog's per-message limit.
   constexpr std::size_t kIdentityChunkSize = 16 * 1024;
-  LOG(INFO) << std::fixed << std::setprecision(9)
-            << "livo_atlas gaussian joint accepted: session=" << q.session_id
-            << " job=" << q.job_id << " map_sequence=" << q.map_sequence
-            << " pose_version=" << q.pose_version
-            << " frame_count=" << q.frame_count
-            << " optimized_frame_count=" << q.optimized_frame_count
-            << " generation=" << q.generation
-            << " query=" << q.query_keyframe_id
-            << " owner=" << q.query_submap_id << " blocks=" << q.blocks.size()
-            << " changed_pixels=" << r.changed_pixels
-            << " accepted_at_steady_seconds=" << r.accepted_at_steady_seconds
-            << " latency_seconds=" << r.latency_seconds
-            << " worker_seconds=" << r.worker_seconds << " policy="
-            << (q.policy == GaussianRenderPolicy::kSpatial
-                    ? "spatial"
-                    : "temporal")
-            << " selected_first=" << q.blocks.front().target.group.primary.id
-            << " selected_last=" << q.blocks.back().target.group.primary.id
-            << " candidate_count=" << q.candidate_count
-            << " candidate_pixels=" << q.candidate_pixels
-            << " projection_uncertain=" << q.projection_uncertain
-            << " selection_seconds=" << q.selection_seconds
-            << " source_identity_size=" << source_identity.size()
-            << " source_identity="
-            << source_identity.substr(0, kIdentityChunkSize);
+  LOG(INFO)
+      << std::fixed << std::setprecision(9)
+      << "livo_atlas gaussian joint accepted: session=" << q.session_id
+      << " job=" << q.job_id << " map_sequence=" << q.map_sequence
+      << " pose_version=" << q.pose_version << " frame_count=" << q.frame_count
+      << " optimized_frame_count=" << q.optimized_frame_count
+      << " generation=" << q.generation << " query=" << q.query_keyframe_id
+      << " owner=" << q.query_submap_id << " blocks=" << q.blocks.size()
+      << " changed_pixels=" << r.changed_pixels
+      << " accepted_at_steady_seconds=" << r.accepted_at_steady_seconds
+      << " latency_seconds=" << r.latency_seconds
+      << " worker_seconds=" << r.worker_seconds << " policy="
+      << (q.policy == GaussianRenderPolicy::kSpatial ? "spatial" : "temporal")
+      << " selected_first=" << q.blocks.front().target.group.primary.id
+      << " selected_last=" << q.blocks.back().target.group.primary.id
+      << " candidate_count=" << q.candidate_count
+      << " candidate_pixels=" << q.candidate_pixels
+      << " projection_uncertain=" << q.projection_uncertain
+      << " selection_seconds=" << q.selection_seconds
+      << " source_identity_size=" << source_identity.size()
+      << " source_identity=" << source_identity.substr(0, kIdentityChunkSize);
   for (std::size_t offset = kIdentityChunkSize; offset < source_identity.size();
        offset += kIdentityChunkSize) {
     LOG(INFO) << "livo_atlas gaussian joint source: job=" << q.job_id
@@ -177,9 +173,9 @@ void GaussianMapping::FinishPublication() {
   LOG(INFO) << std::fixed << std::setprecision(9)
             << "livo_atlas gaussian publication: observed=" << s.observed
             << " submitted=" << s.submitted << " coalesced=" << s.coalesced
-            << " published=" << s.published
-            << " unavailable=" << s.unavailable << " failed=" << s.failed
-            << " pending=" << s.pending << " in_flight=" << s.in_flight
+            << " published=" << s.published << " unavailable=" << s.unavailable
+            << " failed=" << s.failed << " pending=" << s.pending
+            << " in_flight=" << s.in_flight
             << " peak_pending=" << s.peak_pending
             << " peak_in_flight=" << s.peak_in_flight
             << " last_revision=" << s.last_revision
@@ -195,21 +191,38 @@ bool GaussianMapping::Finish(const OnlineGaussianOptions& options) {
 
   bool succeeded = true;
   if (options.finalize_on_shutdown) {
-    const auto finalization =
-        mapper_->Finalize(options.finalize_timeout);
+    const auto finalization = mapper_->Finalize(options.finalize_timeout);
     ReportFinalization(finalization);
     succeeded = finalization.status == GaussianFinalizationStatus::kSucceeded &&
                 finalization.report_persisted;
   } else {
     mapper_->Finish();
   }
+  if (options.online_evaluation_enabled) {
+    std::size_t scored = 0, failed = 0, cancelled = 0, skipped = 0;
+    for (const auto& query : mapper_->GetEvaluationStatus()) {
+      if (query.status == "succeeded")
+        ++scored;
+      else if (query.status == "failed")
+        ++failed;
+      else if (query.status == "cancelled")
+        ++cancelled;
+      else if (query.status == "skipped")
+        ++skipped;
+      else
+        succeeded = false;
+    }
+    LOG(INFO) << "livo_atlas gaussian evaluation: succeeded=" << scored
+              << " failed=" << failed << " cancelled=" << cancelled
+              << " skipped=" << skipped;
+    succeeded = succeeded && failed == 0;
+  }
   if (options.joint_render_enabled) {
     const auto r = mapper_->GetRenderStats();
     LOG(INFO) << std::fixed << std::setprecision(9)
               << "livo_atlas gaussian joint: submitted=" << r.submitted
               << " accepted=" << r.accepted
-              << " dual_accepted=" << r.dual_accepted
-              << " stale=" << r.stale
+              << " dual_accepted=" << r.dual_accepted << " stale=" << r.stale
               << " coalesced=" << r.coalesced << " skipped=" << r.skipped
               << " failed=" << r.failed << " saved=" << r.saved
               << " peak_pending=" << r.peak_pending
@@ -224,6 +237,8 @@ bool GaussianMapping::Finish(const OnlineGaussianOptions& options) {
     }
   }
   const auto s = mapper_->GetStats();
+  if (options.online_evaluation_enabled && (s.failed || s.incomplete_shutdown))
+    succeeded = false;
   LOG(INFO) << std::setprecision(9)
             << "livo_atlas gaussian: observed=" << s.observed
             << " submitted=" << s.submitted << " coalesced=" << s.coalesced
@@ -252,14 +267,13 @@ bool GaussianMapping::Finish(const OnlineGaussianOptions& options) {
             << " gt_5_le_10=" << s.latency_buckets[6]
             << " gt_10=" << s.latency_buckets[7];
   if (options.persist_submaps) {
-    LOG(INFO) << "livo_atlas gaussian submaps: checkpoints="
-              << s.checkpoints
+    LOG(INFO) << "livo_atlas gaussian submaps: checkpoints=" << s.checkpoints
               << " loads=" << s.loads << " rebinds=" << s.rebinds
               << " rebuilds=" << s.rebuilds << " prunes=" << s.prunes
-              << " map_sequence=" << s.map_sequence
-              << " indexed=" << s.indexed << " missing=" << s.missing
-              << " needs_rebuild=" << s.needs_rebuild
-              << " dirty=" << s.dirty << " asset_bytes=" << s.asset_bytes
+              << " map_sequence=" << s.map_sequence << " indexed=" << s.indexed
+              << " missing=" << s.missing
+              << " needs_rebuild=" << s.needs_rebuild << " dirty=" << s.dirty
+              << " asset_bytes=" << s.asset_bytes
               << " incomplete=" << s.incomplete_shutdown
               << " effective_training=" << s.effective_training;
   }
@@ -272,15 +286,13 @@ bool GaussianMapping::Finish(const OnlineGaussianOptions& options) {
         if (!entry.content) continue;
         const auto& content = *entry.content;
         LOG(WARNING) << "livo_atlas gaussian confirmation: session="
-                     << content.session_id
-                     << " submap=" << content.submap_id
+                     << content.session_id << " submap=" << content.submap_id
                      << " source_generation=" << content.source_generation
                      << " content_job_id=" << content.content_job_id
                      << " binding_job_id=" << entry.binding_job_id
                      << " asset_id="
                      << (entry.asset ? entry.asset->asset_id : 0)
-                     << " volatile=" << entry.dirty
-                     << " catalog_pending="
+                     << " volatile=" << entry.dirty << " catalog_pending="
                      << (map->map_sequence > s.map_sequence);
       }
     }

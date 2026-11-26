@@ -10,6 +10,8 @@
 namespace livo_atlas {
 
 class KeyframeStore;
+struct Calibration;
+struct Keyframe;
 
 // Owns a fixed committed prefix and its location, never the writer or index.
 // The caller keeps the committed files unchanged and available while reading.
@@ -23,6 +25,9 @@ class KeyframeReadView {
   double ReadTimestamp(std::uint64_t id) const;
   PointCloud::ConstPtr ReadBodyCloud(std::uint64_t id,
                                      std::uint64_t max_points) const;
+  // Reads only this committed frame, without scanning an appending dataset.
+  Keyframe Read(std::uint64_t id, const Calibration& calibration,
+                std::uint64_t max_points, std::uint64_t max_pixels) const;
 
  private:
   friend class KeyframeStore;

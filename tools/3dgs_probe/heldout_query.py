@@ -83,8 +83,7 @@ def load_evaluation_snapshot(directory, keyframes):
     return snapshot
 
 
-def prepare_query(snapshot, view):
-    verify_evaluation_snapshot(snapshot)
+def canonical_query(split, view):
     query = dict(view)
     # Hashing and scoring use the same owned canonical values. A caller's f8
     # label must not pass an f4 digest yet change the reported error afterward.
@@ -97,10 +96,17 @@ def prepare_query(snapshot, view):
         query[name] = mask.astype(bool, copy=True)
     if 'camera_from_body' not in query:
         query['camera_from_body'] = query['camera_from_parent'] @ _project(query['parent_from_body'])
-    key = snapshot.split.check_query(query)
-    frame = snapshot.split.frames[key]
+    key = split.check_query(query)
+    frame = split.frames[key]
     query['K'] = np.asarray(frame['intrinsics'], dtype='f8').reshape(3, 3).copy()
     query['camera_from_body'] = np.asarray(frame['camera_from_body'], dtype='f8').reshape(4, 4).copy()
+    return query
+
+
+def prepare_query(snapshot, view):
+    verify_evaluation_snapshot(snapshot)
+    query = canonical_query(snapshot.split, view)
+    key = query['keyframe_id']
     owner = int(snapshot.split.frames[key]['submap_id'])
     query['camera_from_parent'] = query['camera_from_body'] @ np.linalg.inv(snapshot.poses[key])
     return query, owner, query['camera_from_parent']

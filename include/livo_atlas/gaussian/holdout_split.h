@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "livo_atlas/gaussian/gaussian_evaluation.h"
 #include "livo_atlas/mapping/keyframe.h"
 
 namespace livo_atlas {
@@ -23,6 +24,10 @@ class GaussianHoldoutSplit {
 
   const std::string& payload() const { return payload_; }
 
+  const std::vector<GaussianEvaluationQuery>& queries() const {
+    return queries_;
+  }
+
  private:
   struct Observation {
     std::uint64_t calibration_id = 0, submap_id = 0;
@@ -33,6 +38,7 @@ class GaussianHoldoutSplit {
   std::string split_id_;
   std::string payload_;
   std::vector<Observation> observations_;
+  std::vector<GaussianEvaluationQuery> queries_;
 };
 
 }  // namespace livo_atlas

@@ -1,13 +1,14 @@
-#include "livo_atlas/gaussian/online_gaussian_mapper.h"
-
 #include <algorithm>
 #include <stdexcept>
 
-#include "gaussian/render_validation.h"
+#include "gaussian/evaluation_protocol.h"
 #include "gaussian/mapper_io.h"
 #include "gaussian/render_metadata_protocol.h"
 #include "gaussian/render_protocol.h"
+#include "gaussian/render_validation.h"
 #include "gaussian/submap_protocol.h"
+#include "livo_atlas/frontend/calibration.h"
+#include "livo_atlas/gaussian/online_gaussian_mapper.h"
 #include "livo_atlas/io/gaussian_map_writer.h"
 #include "livo_atlas/io/reconstruction_view.h"
 #include "mapping/pose_math.h"
@@ -53,6 +54,48 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
     int fd, const Command& command) {
   Reply reply;
   reply.command = command;
+  if (command.kind == CommandKind::kEvaluationStatus) {
+    WriteEvaluationStatus(*command.evaluation_status);
+    reply.kind = ReplyKind::kEvaluationStatus;
+    return reply;
+  }
+  if (command.kind == CommandKind::kEvaluate) {
+    GaussianMessage message;
+    try {
+      const auto& request = *command.evaluation;
+      Calibration calibration;
+      calibration.camera = camera_;
+      auto frame = command.keyframes->Read(request.camera.keyframe_id,
+                                           calibration, 100000, 1000000);
+      evaluation_split_->ValidateFrame(frame, request.sources.query_submap_id);
+      const auto view = MakeReconstructionView(
+          camera_, frame, *command.source.poses, {1000000, 100000});
+      const auto camera_from_body =
+          pose_math::Compose(pose_math::ProjectPose(*frame.camera_from_odom),
+                             pose_math::ProjectPose(frame.odom_from_body));
+      message = EncodeGaussianEvaluation(request, view, camera_from_body);
+    } catch (const std::exception& error) {
+      reply.kind = ReplyKind::kEvaluationError;
+      reply.evaluation_error_code = "source";
+      reply.detail = std::string(error.what()).substr(0, 1024);
+      return reply;
+    }
+    WriteGaussianMessage(fd, message, options_.transfer_timeout);
+    const auto response = ReadGaussianMessage(fd, options_.job_timeout);
+    reply.detail = CheckGaussianEvaluationReply(response, *command.evaluation);
+    cv::FileStorage receipt(response.header_json,
+                            cv::FileStorage::READ | cv::FileStorage::MEMORY);
+    const bool succeeded =
+        static_cast<std::string>(receipt["type"]) == "heldout_evaluation_ok";
+    reply.kind =
+        succeeded ? ReplyKind::kEvaluated : ReplyKind::kEvaluationError;
+    if (!succeeded)
+      reply.evaluation_error_code = static_cast<std::string>(receipt["code"]);
+    if (succeeded)
+      reply.evaluation_report_sha256 =
+          static_cast<std::string>(receipt["report_sha256"]);
+    return reply;
+  }
   if (command.kind == CommandKind::kRender) {
     const auto& request = *command.render_request;
     WriteGaussianMessage(fd, EncodeGaussianRenderRequest(request),
@@ -78,6 +121,14 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
   }
   const auto started = Clock::now();
   GaussianMessage request;
+  if (command.kind == CommandKind::kMapCommitted &&
+      options_.online_evaluation_enabled) {
+    for (const auto& entry : command.map->entries) {
+      if (!entry.content) continue;
+      const auto poses = EncodeGaussianPrimaryPoses(entry.binding);
+      request.body.insert(request.body.end(), poses.begin(), poses.end());
+    }
+  }
   std::string type, response_type;
   switch (command.kind) {
     case CommandKind::kActivate:
@@ -147,13 +198,13 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
     camera.calibration_id = view->calibration_id;
     camera.width = view->image_bgr.cols;
     camera.height = view->image_bgr.rows;
-    camera.K << view->camera.fx, 0, view->camera.cx,
-                0, view->camera.fy, view->camera.cy, 0, 0, 1;
+    camera.K << view->camera.fx, 0, view->camera.cx, 0, view->camera.fy,
+        view->camera.cy, 0, 0, 1;
     camera.capture_time = view->image_timestamp;
     // Measure C_B independently of the proposed target's canonical body pose.
-    camera.camera_from_body = pose_math::Compose(
-        pose_math::ProjectPose(*frame.camera_from_odom),
-        pose_math::ProjectPose(frame.odom_from_body));
+    camera.camera_from_body =
+        pose_math::Compose(pose_math::ProjectPose(*frame.camera_from_odom),
+                           pose_math::ProjectPose(frame.odom_from_body));
     request.body = ViewBody(*view);
     const auto primary = EncodeGaussianPrimaryPoses(command.target);
     request.body.insert(request.body.end(), primary.begin(), primary.end());
@@ -164,9 +215,9 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
                       command.kind == CommandKind::kCheckpoint;
   const auto generation =
       scoped ? command.target.generation : command.generation;
-  const auto version =
-      command.map ? command.map->pose_version
-                  : scoped ? command.target.pose_version : command.pose_version;
+  const auto version = command.map ? command.map->pose_version
+                       : scoped    ? command.target.pose_version
+                                   : command.pose_version;
   request.header_json = Json([&](auto& out) {
     Base(out, type, session_id_, 2);
     Id(out, "job_id", command.job_id);
@@ -216,6 +267,17 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
           << "[";
       for (const auto id : command.asset_ids) out << std::to_string(id);
       out << "]";
+      if (options_.online_evaluation_enabled) {
+        out << "evaluation_bindings" << "[";
+        for (const auto& entry : command.map->entries) {
+          if (!entry.content) continue;
+          out << "{";
+          Id(out, "submap_id", entry.group.primary.id);
+          out << "primary_count"
+              << static_cast<int>(entry.binding.submap_from_body.size()) << "}";
+        }
+        out << "]";
+      }
     } else if (command.kind == CommandKind::kPrune) {
       Id(out, "map_sequence", command.state_sequence);
       Id(out, "asset_id", command.asset_id);
@@ -265,10 +327,11 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
     if (spatial != !json["render_metadata"].empty())
       throw std::runtime_error("Gaussian candidate spatial metadata mismatch");
     if (spatial) {
-      const auto content = command.operation == GaussianOperation::kReuse
-          ? *command.content
-          : GaussianContentId{session_id_, command.target.group.primary.id,
-                              command.target.generation, command.job_id};
+      const auto content =
+          command.operation == GaussianOperation::kReuse
+              ? *command.content
+              : GaussianContentId{session_id_, command.target.group.primary.id,
+                                  command.target.generation, command.job_id};
       const auto metadata = DecodeGaussianRenderMetadata(
           json["render_metadata"], content, preview->frame_ids);
       if (command.operation == GaussianOperation::kReuse &&
@@ -278,8 +341,7 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
         throw std::runtime_error("Gaussian candidate replaced the sent camera");
       if (command.operation == GaussianOperation::kRebuild &&
           command.render_metadata &&
-          !SameRenderCamera(metadata.camera,
-                            command.render_metadata->camera))
+          !SameRenderCamera(metadata.camera, command.render_metadata->camera))
         throw std::runtime_error("Gaussian rebuild changed retained camera");
       reply.command.render_metadata = metadata;
     }

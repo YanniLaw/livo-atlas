@@ -14,6 +14,10 @@ def nonempty_path(value):
 def add_gaussian_arguments(parser):
     parser.add_argument('--gaussian-evaluation-split', type=nonempty_path,
                         help='Frozen pre-training manifest; requires persistent Gaussian submaps')
+    parser.add_argument('--gaussian-online-evaluation', action='store_true',
+                        help='Score sealed heldout queries with the existing serialized worker')
+    parser.add_argument('--gaussian-evaluation-max-output-mib', type=int, default=256)
+    parser.add_argument('--gaussian-evaluation-min-free-disk-mib', type=int, default=1024)
     parser.add_argument('--gaussian-socket', type=nonempty_path,
                         help='Socket of an already started online Gaussian worker')
     parser.add_argument('--gaussian-output', type=nonempty_path,
@@ -36,6 +40,13 @@ def add_gaussian_arguments(parser):
 
 
 def validate_gaussian_arguments(args, parser, working_dataset):
+    if args.gaussian_online_evaluation and (not args.gaussian_evaluation_split or
+                                            not args.gaussian_joint_render):
+        parser.error('--gaussian-online-evaluation requires --gaussian-evaluation-split and --gaussian-joint-render')
+    if not 1 <= args.gaussian_evaluation_max_output_mib <= 4096:
+        parser.error('--gaussian-evaluation-max-output-mib must be in 1..4096')
+    if not 0 <= args.gaussian_evaluation_min_free_disk_mib <= 2**20:
+        parser.error('--gaussian-evaluation-min-free-disk-mib must be in 0..1048576')
     if args.gaussian_evaluation_split and not args.gaussian_persist_submaps:
         parser.error('--gaussian-evaluation-split requires --gaussian-persist-submaps')
     if args.gaussian_evaluation_split and not args.gaussian_evaluation_split.is_file():
@@ -102,4 +113,8 @@ def gaussian_parameters(args):
     if args.gaussian_evaluation_split:
         parameters['gaussian.evaluation.enabled'] = True
         parameters['gaussian.evaluation.split_file'] = str(args.gaussian_evaluation_split.resolve())
+    if args.gaussian_online_evaluation:
+        parameters['gaussian.evaluation.online_enabled'] = True
+        parameters['gaussian.evaluation.max_output_mib'] = args.gaussian_evaluation_max_output_mib
+        parameters['gaussian.evaluation.min_free_disk_mib'] = args.gaussian_evaluation_min_free_disk_mib
     return parameters

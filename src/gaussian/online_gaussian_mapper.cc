@@ -24,8 +24,8 @@
 #include "gaussian/mapper_io.h"
 #include "gaussian/wire_protocol.h"
 #include "livo_atlas/core/livo_system.h"
-#include "livo_atlas/io/reconstruction_view.h"
 #include "livo_atlas/io/gaussian_render_writer.h"
+#include "livo_atlas/io/reconstruction_view.h"
 #include "mapping/pose_math.h"
 
 namespace livo_atlas {
@@ -83,6 +83,14 @@ OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
   if (options_.evaluation_enabled)
     evaluation_split_ =
         GaussianHoldoutSplit::Read(options_.evaluation_split_file);
+  if (options_.online_evaluation_enabled) {
+    for (const auto& query : evaluation_split_->queries()) {
+      GaussianEvaluationStatus state;
+      state.query = query;
+      evaluation_status_.push_back(std::move(state));
+    }
+    evaluation_sequence_ = 1;
+  }
   const auto camera_error = ValidateCameraConfig(camera_);
   if (!camera_error.empty()) throw std::invalid_argument(camera_error);
   OnlineSubmapDelta initial;
@@ -120,6 +128,7 @@ void OnlineGaussianMapper::Fail(const std::string& message) noexcept {
   } catch (...) {
     // The frontend must continue even if allocating the diagnostic fails.
   }
+  StopEvaluation();
   submap_work_.reset();
   candidate_command_.reset();
   pending_.reset();
@@ -210,8 +219,8 @@ void OnlineGaussianMapper::ObserveUpdate(
         keyframe ? (train ? keyframe : nullptr) : latest_keyframe_;
     if ((keyframe || reset) && source && submap_) {
       if (pending_) ++stats_.coalesced;
-      pending_ = Source{source, poses, *submap_, generation_, 0, Clock::now(),
-                        next};
+      pending_ =
+          Source{source, poses, *submap_, generation_, 0, Clock::now(), next};
       stats_.pending = stats_.peak_pending = 1;
     }
     if (options_.persist_submaps && ready_ &&
@@ -225,6 +234,7 @@ void OnlineGaussianMapper::ObserveUpdate(
     stats_.pose_version = next.version;
     ++state_sequence_;
     RefreshRenderDemand();
+    RefreshEvaluationDemand();
   } catch (const std::exception& error) {
     Fail(error.what());
   } catch (...) {
@@ -327,6 +337,9 @@ void OnlineGaussianMapper::HandleReply(Reply reply) {
     case ReplyKind::kRendered:
     case ReplyKind::kRenderError:
     case ReplyKind::kRenderSaved:
+    case ReplyKind::kEvaluated:
+    case ReplyKind::kEvaluationError:
+    case ReplyKind::kEvaluationStatus:
       throw std::runtime_error("Unexpected persistent Gaussian reply");
     case ReplyKind::kError:
       Fail(reply.detail);
@@ -456,6 +469,7 @@ OnlineGaussianMapper::GetMapSnapshot() const {
 void OnlineGaussianMapper::Finish() noexcept {
   if (finished_) return;
   StopRendering();
+  StopEvaluation();
   if (options_.persist_submaps) {
     finishing_ = true;
     pending_.reset();
@@ -489,6 +503,39 @@ void OnlineGaussianMapper::Finish() noexcept {
   render_stats_.pending_storage = 0;
   if (options_.enabled && options_.persist_submaps && !stop_acknowledged_)
     stats_.incomplete_shutdown = true;
+  if (options_.online_evaluation_enabled) {
+    // A definitive receipt can win the race with the last try-lock/deadline.
+    // The worker is joined, so consume it without dispatching another command.
+    if (reply_ && (reply_->kind == ReplyKind::kEvaluated ||
+                   reply_->kind == ReplyKind::kEvaluationError)) {
+      try {
+        HandleEvaluationReply(*reply_);
+      } catch (const std::exception& error) {
+        ++stats_.failed;
+        stats_.error = error.what();
+        stats_.incomplete_shutdown = true;
+      }
+    }
+    for (auto& state : evaluation_status_) {
+      if (state.status == "in_flight") {
+        state.status = "failed";
+        state.reason = "shutdown_unacknowledged";
+        state.error_code = "shutdown";
+      }
+    }
+    // Frontend and worker are stopped. Only this bounded terminal journal is
+    // flushed here; no image, inference or training I/O enters the owner loop.
+    try {
+      WriteEvaluationStatus(
+          evaluation_status_,
+          stats_.failed || stats_.incomplete_shutdown
+              ? (stats_.error.empty() ? "incomplete_shutdown" : stats_.error)
+              : "");
+    } catch (const std::exception& error) {
+      stats_.error += std::string(" Evaluation status: ") + error.what();
+      stats_.incomplete_shutdown = true;
+    }
+  }
   // After the join no background task or mailbox still owns a live job.
   command_.reset();
   reply_.reset();
@@ -577,10 +624,22 @@ void OnlineGaussianMapper::Run() noexcept {
              if (options_.joint_render_enabled) out << "joint_render_v1";
              if (spatial) out << "joint_render_spatial_v1";
              if (evaluation_split_) out << "holdout_split_v1";
+             if (options_.online_evaluation_enabled)
+               out << "heldout_evaluation_v1";
              out << "]";
            }
            if (evaluation_split_)
              out << "split_id" << evaluation_split_->split_id();
+           if (options_.online_evaluation_enabled) {
+             out << "evaluation_limits" << "{";
+             Id(out, "max_output_bytes",
+                std::uint64_t(options_.evaluation_max_output_mib) * 1024 *
+                    1024);
+             Id(out, "min_free_disk_bytes",
+                std::uint64_t(options_.evaluation_min_free_disk_mib) * 1024 *
+                    1024);
+             out << "}";
+           }
            if (options_.persist_submaps)
              out << "state_directory"
                  << (fs::canonical(options_.output_directory) / "states")
@@ -602,6 +661,8 @@ void OnlineGaussianMapper::Run() noexcept {
       if (options_.joint_render_enabled) expected.push_back("joint_render_v1");
       if (spatial) expected.push_back("joint_render_spatial_v1");
       if (evaluation_split_) expected.push_back("holdout_split_v1");
+      if (options_.online_evaluation_enabled)
+        expected.push_back("heldout_evaluation_v1");
       const auto capabilities = greeting["capabilities"];
       std::vector<std::string> actual;
       for (const auto& value : capabilities)
@@ -614,6 +675,14 @@ void OnlineGaussianMapper::Run() noexcept {
         for (const auto& name : actual) detail += " " + name;
         throw std::runtime_error(detail);
       }
+      if (options_.online_evaluation_enabled &&
+          (ReadId(greeting["evaluation_limits"]["max_output_bytes"]) !=
+               std::uint64_t(options_.evaluation_max_output_mib) * 1024 *
+                   1024 ||
+           ReadId(greeting["evaluation_limits"]["min_free_disk_bytes"]) !=
+               std::uint64_t(options_.evaluation_min_free_disk_mib) * 1024 *
+                   1024))
+        throw std::runtime_error("Evaluation resource negotiation mismatch");
       if (evaluation_split_ && static_cast<std::string>(greeting["split_id"]) !=
                                    evaluation_split_->split_id())
         throw std::runtime_error("Gaussian worker split identity mismatch");
@@ -643,17 +712,17 @@ void OnlineGaussianMapper::Run() noexcept {
             written_renders_.pop_front();
           }
           WriteGaussianRender(options_.output_directory, *command.render);
-          written_renders_.push_back("joint-render-" +
-              std::to_string(command.render->request.job_id));
+          written_renders_.push_back(
+              "joint-render-" + std::to_string(command.render->request.job_id));
           reply.kind = ReplyKind::kRenderSaved;
         } catch (const std::exception& error) {
           reply.kind = ReplyKind::kRenderError;
-          reply.detail = std::string("Joint preview write failed: ") +
-                         error.what();
+          reply.detail =
+              std::string("Joint preview write failed: ") + error.what();
         }
       } else if (options_.persist_submaps &&
                  command.kind != CommandKind::kSave &&
-          command.kind != CommandKind::kStatus) {
+                 command.kind != CommandKind::kStatus) {
         reply = RunSubmapCommand(fd, command);
       } else if (command.kind == CommandKind::kReset) {
         GaussianMessage message;
@@ -828,11 +897,10 @@ void OnlineGaussianMapper::Run() noexcept {
           PreviewIdentity(out, preview);
           if (options_.persist_submaps)
             out << "operation"
-                << (preview.operation == GaussianOperation::kView
-                        ? "view"
-                        : preview.operation == GaussianOperation::kReuse
-                              ? "reuse"
-                              : "rebuild");
+                << (preview.operation == GaussianOperation::kView ? "view"
+                    : preview.operation == GaussianOperation::kReuse
+                        ? "reuse"
+                        : "rebuild");
           Id(out, "membership_revision", preview.membership_revision);
           Id(out, "frame_count", preview.frame_count);
           Id(out, "optimized_frame_count", preview.optimized_frame_count);

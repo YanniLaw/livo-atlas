@@ -1,5 +1,4 @@
 #include "livo_atlas/io/keyframe_read_view.h"
-#include "livo_atlas/io/keyframe_store.h"
 
 #include <gtest/gtest.h>
 
@@ -14,6 +13,7 @@
 
 #include "core/fixtures.h"
 #include "livo_atlas/core/livo_system.h"
+#include "livo_atlas/io/keyframe_store.h"
 #include "mapping/keyframe_fixtures.h"
 
 namespace livo_atlas {
@@ -91,6 +91,33 @@ TEST_F(KeyframeReadViewTest, ReadsWithoutIndexScanOrImage) {
   EXPECT_DOUBLE_EQ(view.ReadRawBodyPose(0).rotation(0, 0), 1.000045);
   EXPECT_EQ(view.ReadBodyCloud(0, 1)->size(), 1u);
   EXPECT_THROW(view.ReadBodyCloud(1, 1), std::out_of_range);
+}
+
+TEST_F(KeyframeReadViewTest,
+       FullFrameReadRejectsOversizedMetadataBeforeParsing) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0));
+  const auto view = writer.CaptureReadView();
+  std::ofstream out(directory_ / "frames/0/frame.yml", std::ios::app);
+  for (int i = 0; i < 10000; ++i) out << "# harmless padding\n";
+  out.close();
+  EXPECT_THROW(view.Read(0, calibration_, 100000, 1000000),
+               std::runtime_error);
+}
+
+TEST_F(KeyframeReadViewTest, FullFrameReadUsesOnlyTheCommittedPrefix) {
+  KeyframeStore writer(directory_, calibration_);
+  writer.Append(Frame(0));
+  const auto view = writer.CaptureReadView();
+  fs::create_directories(directory_ / "frames/.pending-1");
+  std::ofstream(directory_ / "frames/.pending-1/frame.yml") << "incomplete";
+  auto frame = view.Read(0, calibration_, 100000, 1000000);
+  EXPECT_EQ(frame.id, 0u);
+  EXPECT_DOUBLE_EQ(frame.timestamp, 100.25);
+  EXPECT_FALSE(frame.image.empty());
+  EXPECT_EQ(frame.cloud->size(), Frame(0).cloud->size());
+  EXPECT_THROW(view.Read(1, calibration_, 100000, 1000000), std::out_of_range);
+  EXPECT_THROW(view.Read(0, calibration_, 100000, 1), std::invalid_argument);
 }
 
 TEST_F(KeyframeReadViewTest, SharesPcdBoundsAndRawNumbers) {

@@ -64,6 +64,20 @@ TEST_F(HoldoutSplitTest, ValidatesEveryFrameBeforeChoosingTrainingRole) {
   EXPECT_EQ(split.split_id(), std::string(64, 'a'));
 }
 
+TEST_F(HoldoutSplitTest,
+       CompactManifestBeyondOpenCvLineLimitKeepsOriginalBytes) {
+  std::ifstream input(path_);
+  std::string payload((std::istreambuf_iterator<char>(input)), {});
+  payload.pop_back();
+  payload += ",\"padding\":[";
+  for (int i = 0; i < 25000; ++i) payload += i ? ",0" : "0";
+  payload += "]}";
+  std::ofstream(path_) << payload;
+  const auto split = GaussianHoldoutSplit::Read(path_);
+  EXPECT_EQ(split.payload(), payload);
+  EXPECT_EQ(split.split_id(), std::string(64, 'a'));
+}
+
 TEST_F(HoldoutSplitTest, AdmissionRejectsHeldoutEvenIfItReachesTheMailbox) {
   const auto split = GaussianHoldoutSplit::Read(path_);
   EXPECT_NO_THROW(split.ValidateTraining(Frame(0), 0));

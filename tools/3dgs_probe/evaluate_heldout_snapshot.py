@@ -52,7 +52,7 @@ def load_settings(path):
     gaussian = document['gaussian']
     evaluation = gaussian.get('evaluation', {})
     _require(isinstance(evaluation, dict) and evaluation.keys() <= {
-        'enabled', 'split_file', 'max_output_mib', 'min_free_disk_mib'}, 'Unknown evaluation settings')
+        'enabled', 'online_enabled', 'split_file', 'max_output_mib', 'min_free_disk_mib'}, 'Unknown evaluation settings')
     _require(type(evaluation.get('enabled', False)) is bool, 'Invalid evaluation enabled setting')
     policy = gaussian.get('joint_render_policy', 'temporal')
     _require(policy == 'temporal', 'Final scoring currently requires temporal; spatial selection awaits online integration')

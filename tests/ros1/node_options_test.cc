@@ -374,7 +374,15 @@ TEST_F(Ros1ParametersTest, HoldoutSplitUsesSharedYamlParameters) {
   node_->setParam("keyframes/enabled", true);
   node_->setParam("submaps/enabled", true);
   node_->setParam("submaps/mode", "online");
+  node_->setParam("gaussian/evaluation/online_enabled", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/joint_render_enabled", true);
+  node_->setParam("gaussian/evaluation/max_output_mib", 128);
+  node_->setParam("gaussian/evaluation/min_free_disk_mib", 64);
   const auto config = ReadNodeOptions(*node_).livo.gaussian;
+  EXPECT_TRUE(config.online_evaluation_enabled);
+  EXPECT_EQ(config.evaluation_max_output_mib, 128);
+  EXPECT_EQ(config.evaluation_min_free_disk_mib, 64);
   EXPECT_TRUE(config.evaluation_enabled);
   EXPECT_EQ(config.evaluation_split_file, "/tmp/frozen-split.json");
   EXPECT_FALSE(std::filesystem::exists(directory_));

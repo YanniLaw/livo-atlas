@@ -121,6 +121,7 @@ def main():
     parser.add_argument('--expect-timeout', action='store_true')
     parser.add_argument('--repeat-signal', action='store_true')
     parser.add_argument('--shutdown-hook', type=Path)
+    parser.add_argument('--reject-evaluation', action='store_true')
     args = parser.parse_args()
     if args.output:
         output = args.output.resolve()
@@ -141,6 +142,16 @@ def main():
                    'gaussian.finalize_timeout_ms': 100 if args.expect_timeout else 3000,
                    'gaussian.shutdown_timeout_ms': 100 if args.expect_timeout else 3000,
                    'gaussian.output_directory': str(output / 'gaussian')})
+    if args.reject_evaluation:
+        sys.path.insert(0,str(REPO/'tests/3dgs_probe'))
+        from test_holdout_split import sample_manifest
+        from holdout_split import canonical_json
+        split = output/'frozen-split.json'
+        split.write_bytes(canonical_json(sample_manifest(3)))
+        params.update({'gaussian.evaluation.enabled': True,
+                       'gaussian.evaluation.online_enabled': True,
+                       'gaussian.evaluation.split_file': str(split),
+                       'gaussian.finalize_on_shutdown': False})
     env = dict(os.environ, ROS_LOCALHOST_ONLY='1', GLOG_logtostderr='1',
                ROS_HOME=str(output / 'ros-home'), ROS_LOG_DIR=str(output / 'ros-logs'))
     entered, released = output / 'shutdown-entered', output / 'shutdown-released'
@@ -218,6 +229,12 @@ def main():
                 poll()
                 if process.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError('No initial preview from the actual node')
+            if args.reject_evaluation:
+                # Let the deliberate capability refusal reach owner Poll before
+                # requesting a normal, non-finalizing shutdown.
+                until = time.monotonic()+.2
+                while time.monotonic()<until:
+                    poll()
             began = time.monotonic()
             process.send_signal(getattr(signal, args.signal))
             repeated = False
@@ -239,7 +256,8 @@ def main():
             while time.monotonic() < deadline:
                 poll()
             stopped = [sample for sample in samples if sample['status'] == 6]
-            finalization = json.loads((output / 'gaussian/finalization.json').read_text())
+            finalization = (json.loads((output / 'gaussian/finalization.json').read_text())
+                            if not args.reject_evaluation else None)
             report = dict(directory=str(output), returncode=process.poll(),
                           elapsed_seconds=time.monotonic() - began,
                           stopped=stopped, samples=samples, repeated=repeated,
@@ -247,6 +265,14 @@ def main():
                           peer_events=list(peer.events),
                           finalization=finalization, signal=args.signal)
             (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
+            if args.reject_evaluation:
+                journal = json.loads((output/'gaussian/evaluations/online-status.json').read_text())
+                assert report['returncode']==1,report
+                assert journal['status']=='failed' and journal['session_error'],journal
+                assert all(row['status']=='failed' for row in journal['queries']),journal
+                assert stopped and len(stopped)==1,report
+                print(json.dumps(report),flush=True)
+                return
             validate_result(report, expect_timeout=args.expect_timeout,
                             repeat_signal=args.repeat_signal,
                             shutdown_hook=args.shutdown_hook is not None)

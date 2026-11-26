@@ -31,6 +31,30 @@ class BaselineRunnerTest(unittest.TestCase):
                 self.assertTrue(params['gaussian.evaluation.enabled'])
                 self.assertEqual(params['gaussian.evaluation.split_file'], str(split))
 
+    def test_online_evaluation_requires_split_and_render_and_forwards_budget(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                split = root/'split.json'
+                split.write_text('{}')
+                entry = (['--workspace', str(root/'ws')] if module is run_baseline
+                         else ['--executable', str(root/'node')])
+                flags = entry + ['--bag', str(root/'bag'), '--output', str(root/'out'),
+                    '--submap-mode', 'online', '--loop-closure',
+                    '--gaussian-socket', str(root/'s'), '--gaussian-output', str(root/'g'),
+                    '--gaussian-persist-submaps', '--gaussian-online-evaluation']
+                with self.assertRaises(SystemExit):
+                    module.parse_arguments(flags)
+                with self.assertRaises(SystemExit):
+                    module.parse_arguments(flags+['--gaussian-evaluation-split',str(split)])
+                args = module.parse_arguments(flags+['--gaussian-evaluation-split',str(split),
+                    '--gaussian-joint-render', '--gaussian-evaluation-max-output-mib','128',
+                    '--gaussian-evaluation-min-free-disk-mib','64'])
+                params = module.gaussian_parameters(args)
+                self.assertTrue(params['gaussian.evaluation.online_enabled'])
+                self.assertEqual(params['gaussian.evaluation.max_output_mib'],128)
+                self.assertEqual(params['gaussian.evaluation.min_free_disk_mib'],64)
+
     def test_fixed_rate_boundary_excludes_a_live_publishers_teardown(self):
         launch_before = time.monotonic()
         publisher = subprocess.Popen([sys.executable, '-c',

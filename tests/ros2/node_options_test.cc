@@ -132,7 +132,8 @@ TEST(Ros2ParametersTest, RejectsBadStartupBeforeCreatingOutput) {
            {"sensor_buffer.max_imu_samples", -1},
            {"sensor_buffer.max_images", 0},
            {"sensor_buffer.max_span_s", 0.0},
-           {"sensor_buffer.max_span_s", std::numeric_limits<double>::infinity()},
+           {"sensor_buffer.max_span_s",
+            std::numeric_limits<double>::infinity()},
            {"keyframes.translation_threshold", -.1},
            {"keyframes.rotation_threshold_deg", -1.},
            {"keyframes.time_threshold", -1.},
@@ -240,7 +241,8 @@ TEST(Ros2ParametersTest, ReadsLoopOptionsAndChecksRequiredOnlineStorage) {
       EXPECT_EQ(config.system.max_pending_keyframes, 4u);
       if (config.system.loop_closure) {
         EXPECT_TRUE(config.system.loop_closure->pose_graph_enabled);
-        EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m, 12.5);
+        EXPECT_DOUBLE_EQ(config.system.loop_closure->search.search_radius_m,
+                         12.5);
         EXPECT_EQ(config.system.loop_closure->max_pending_keyframes, 4u);
       }
       EXPECT_FALSE(config.system.geometry.enabled);
@@ -566,10 +568,22 @@ TEST(Ros2ParametersTest, HoldoutSplitUsesSharedYamlParameters) {
   params.emplace_back("keyframes.enabled", true);
   params.emplace_back("submaps.enabled", true);
   params.emplace_back("submaps.mode", "online");
+  params.emplace_back("gaussian.evaluation.online_enabled", true);
+  {
+    rclcpp::Node missing("holdout_requires_render",
+                         rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(missing), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.joint_render_enabled", true);
+  params.emplace_back("gaussian.evaluation.max_output_mib", 128);
+  params.emplace_back("gaussian.evaluation.min_free_disk_mib", 64);
   rclcpp::Node node("holdout_shared",
                     rclcpp::NodeOptions().parameter_overrides(params));
   const auto config = ReadNodeOptions(node).livo.gaussian;
   EXPECT_TRUE(config.evaluation_enabled);
+  EXPECT_TRUE(config.online_evaluation_enabled);
+  EXPECT_EQ(config.evaluation_max_output_mib, 128);
+  EXPECT_EQ(config.evaluation_min_free_disk_mib, 64);
   EXPECT_EQ(config.evaluation_split_file, "/tmp/frozen-split.json");
   EXPECT_FALSE(std::filesystem::exists(directory));
 }

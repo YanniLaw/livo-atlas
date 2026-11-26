@@ -250,6 +250,48 @@ void ValidatePoses(const std::vector<KeyframePose>& poses,
     if (!error.empty()) throw std::invalid_argument(error);
   }
 }
+Keyframe ReadFrame(const fs::path& path, std::uint64_t id,
+                   const Calibration& calibration, std::uint64_t max_points,
+                   std::uint64_t max_pixels, std::uint64_t max_point_step) {
+  ValidateCalibration(calibration);
+  const auto& camera = calibration.camera;
+  const auto pixels = static_cast<std::uint64_t>(camera.width * camera.scale) *
+                      static_cast<std::uint64_t>(camera.height * camera.scale);
+  if (!max_points || !max_pixels || pixels > max_pixels)
+    throw std::invalid_argument("Keyframe read exceeds configured limits");
+  try {
+    auto yaml = ReadYaml(path / "frame.yml", 64 * 1024);
+    if (!yaml.isOpened())
+      Fail(path / "frame.yml", "Cannot read frame metadata");
+    Keyframe frame;
+    frame.id = Id(yaml["id"]);
+    frame.calibration_id = Id(yaml["calibration_id"]);
+    if (frame.id != id || frame.calibration_id != 0)
+      Fail(path, "Frame identifier mismatch");
+    frame.timestamp = Number(yaml["timestamp"]);
+    frame.cloud_timestamp = Number(yaml["cloud_timestamp"]);
+    frame.inverse_exposure_time = Number(yaml["inverse_exposure_time"]);
+    frame.odom_from_body = ReadTransform(yaml["odom_from_body"]);
+    const int has_image = Integer(yaml["has_image"]);
+    if (has_image != 0 && has_image != 1) Fail(path, "Invalid image flag");
+    if (has_image) {
+      frame.image_timestamp = Number(yaml["image_timestamp"]);
+      frame.camera_from_odom = ReadTransform(yaml["camera_from_odom"]);
+      CheckPngHeader(path / "image.png", calibration.camera);
+      frame.image =
+          cv::imread((path / "image.png").string(), cv::IMREAD_UNCHANGED);
+    }
+    const auto points = Id(yaml["cloud_points"]);
+    if (points > max_points) Fail(path, "Point cloud exceeds configured limit");
+    frame.cloud = ReadCloud(path / "cloud.pcd", points, max_point_step);
+    ValidateKeyframe(frame);
+    ValidateImage(frame, calibration);
+    return frame;
+  } catch (const std::exception& error) {
+    Fail(path, error.what());
+  }
+}
+
 }  // namespace
 
 KeyframeReadView::KeyframeReadView(fs::path directory,
@@ -294,7 +336,7 @@ PointCloud::ConstPtr KeyframeReadView::ReadBodyCloud(
   if (!max_points) throw std::invalid_argument("Point limit must be positive");
   const auto path = FrameDirectory(id);
   try {
-    auto yaml = ReadYaml(path / "frame.yml");
+    auto yaml = ReadYaml(path / "frame.yml", 64 * 1024);
     if (!yaml.isOpened() || Id(yaml["id"]) != id ||
         Id(yaml["calibration_id"]) != 0) {
       Fail(path, "Frame identifier mismatch");
@@ -440,40 +482,17 @@ PointCloud::ConstPtr KeyframeStore::ReadBodyCloud(
 }
 
 Keyframe KeyframeStore::Read(std::uint64_t id) const {
-  if (id >= ids_.size())
-    throw std::out_of_range(directory_.string() +
-                            ": Unknown keyframe identifier");
-  const auto path = directory_ / "frames" / std::to_string(id);
-  try {
-    auto yaml = ReadYaml(path / "frame.yml");
-    if (!yaml.isOpened())
-      Fail(path / "frame.yml", "Cannot read frame metadata");
-    Keyframe frame;
-    frame.id = Id(yaml["id"]);
-    frame.calibration_id = Id(yaml["calibration_id"]);
-    if (frame.id != id || frame.calibration_id != 0)
-      Fail(path, "Frame identifier mismatch");
-    frame.timestamp = Number(yaml["timestamp"]);
-    frame.cloud_timestamp = Number(yaml["cloud_timestamp"]);
-    frame.inverse_exposure_time = Number(yaml["inverse_exposure_time"]);
-    frame.odom_from_body = ReadTransform(yaml["odom_from_body"]);
-    const int has_image = Integer(yaml["has_image"]);
-    if (has_image != 0 && has_image != 1) Fail(path, "Invalid image flag");
-    if (has_image) {
-      frame.image_timestamp = Number(yaml["image_timestamp"]);
-      frame.camera_from_odom = ReadTransform(yaml["camera_from_odom"]);
-      CheckPngHeader(path / "image.png", calibration_.camera);
-      frame.image =
-          cv::imread((path / "image.png").string(), cv::IMREAD_UNCHANGED);
-    }
-    const auto points = Id(yaml["cloud_points"]);
-    frame.cloud = ReadCloud(path / "cloud.pcd", points);
-    ValidateKeyframe(frame);
-    ValidateImage(frame, calibration_);
-    return frame;
-  } catch (const std::exception& error) {
-    Fail(path, error.what());
-  }
+  const auto limit = std::numeric_limits<std::uint64_t>::max();
+  return ReadFrame(CaptureReadView().FrameDirectory(id), id, calibration_,
+                   limit, limit, limit);
+}
+
+Keyframe KeyframeReadView::Read(std::uint64_t id,
+                                const Calibration& calibration,
+                                std::uint64_t max_points,
+                                std::uint64_t max_pixels) const {
+  return ReadFrame(FrameDirectory(id), id, calibration, max_points, max_pixels,
+                   64);
 }
 
 void KeyframeStore::WritePoses(std::uint64_t version,

@@ -21,7 +21,8 @@ std::uint64_t ParseId(const std::string& text);
 std::string String(const cv::FileNode& node);
 std::uint64_t Id(const cv::FileNode& node);
 int Integer(const cv::FileNode& node);
-cv::FileStorage ReadYaml(const std::filesystem::path& path);
+cv::FileStorage ReadYaml(const std::filesystem::path& path,
+                         std::size_t max_bytes = 0);
 double Number(const cv::FileNode& node);
 void Sequence(const cv::FileNode& node, std::size_t size);
 void WriteTransform(cv::FileStorage& output, const std::string& name,

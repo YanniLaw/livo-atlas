@@ -23,10 +23,20 @@ using gaussian_mapper_io::Id;
 using gaussian_mapper_io::Json;
 using gaussian_mapper_io::Transform;
 
-const Fields kRoot = {
-    "schema", "type", "session_id", "job_id", "generation", "pose_version",
-    "map_sequence", "frame_count", "optimized_frame_count", "parent_frame",
-    "query_keyframe_id", "query_submap_id", "neighbor_reason", "blocks"};
+const Fields kRoot = {"schema",
+                      "type",
+                      "session_id",
+                      "job_id",
+                      "generation",
+                      "pose_version",
+                      "map_sequence",
+                      "frame_count",
+                      "optimized_frame_count",
+                      "parent_frame",
+                      "query_keyframe_id",
+                      "query_submap_id",
+                      "neighbor_reason",
+                      "blocks"};
 
 Fields RootFields(const cv::FileNode& root) {
   auto fields = kRoot;
@@ -59,7 +69,8 @@ std::uint64_t Uint(const cv::FileNode& node) {
       std::from_chars(text.data(), text.data() + text.size(), value);
   Require(!text.empty() && parsed.ec == std::errc{} &&
               parsed.ptr == text.data() + text.size() &&
-              text == std::to_string(value), "Invalid render uint64");
+              text == std::to_string(value),
+          "Invalid render uint64");
   return value;
 }
 
@@ -116,7 +127,7 @@ RigidTransform BodyPose(const std::vector<std::uint8_t>& body,
 
 void AppendPose(const RigidTransform& pose, std::vector<std::uint8_t>* body) {
   for (int i = 0; i < 16; ++i) {
-    const double value = i / 4 == 3 ? (i == 15 ? 1 : 0)
+    const double value = i / 4 == 3   ? (i == 15 ? 1 : 0)
                          : i % 4 == 3 ? pose.translation[i / 4]
                                       : pose.rotation(i / 4, i % 4);
     std::uint64_t bits;
@@ -132,7 +143,8 @@ void Content(cv::FileStorage& out, const GaussianContentId& content) {
   Id(out, "content_job_id", content.content_job_id);
 }
 
-GaussianRenderRequest Header(const cv::FileNode& root) {
+GaussianRenderRequest Header(const cv::FileNode& root,
+                             bool independent = false) {
   GaussianRenderRequest result;
   const bool spatial = root["policy"].type() != cv::FileNode::NONE;
   if (spatial) {
@@ -140,7 +152,7 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
     result.policy = GaussianRenderPolicy::kSpatial;
     const auto selection = root["selection"];
     Keys(selection, {"candidate_count", "candidate_pixels",
-                      "projection_uncertain", "selection_seconds"});
+                     "projection_uncertain", "selection_seconds"});
     result.candidate_count = Count(selection["candidate_count"], 0, 31);
     result.candidate_pixels = Count(selection["candidate_pixels"], 0, 1000000);
     result.projection_uncertain =
@@ -150,7 +162,8 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
   result.session_id = Text(root["session_id"]);
   Require(result.session_id.size() == 32 &&
               result.session_id.find_first_not_of("0123456789abcdef") ==
-                  std::string::npos, "Invalid render session");
+                  std::string::npos,
+          "Invalid render session");
   Require(Count(root["schema"], 2, 2) == 2, "Invalid render schema");
   result.job_id = Uint(root["job_id"]);
   result.generation = Uint(root["generation"]);
@@ -167,8 +180,7 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
               result.optimized_frame_count <= result.frame_count &&
               bool(result.pose_version) == bool(result.optimized_frame_count),
           "Invalid render frontier");
-  Require(Text(root["parent_frame"]) ==
-              (result.pose_version ? "map" : "odom"),
+  Require(Text(root["parent_frame"]) == (result.pose_version ? "map" : "odom"),
           "Invalid render parent frame");
   result.parent_frame =
       result.pose_version ? PoseFrame::kMap : PoseFrame::kOdom;
@@ -185,10 +197,9 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
     Keys(row, fields);
     const auto target = row["target"];
     Keys(target, {"generation", "submap_id", "pose_version",
-                  "membership_revision", "frame_count",
-                  "optimized_frame_count", "anchor_keyframe_id",
-                  "primary_count", "submap_state", "parent_frame",
-                  "parent_from_submap"});
+                  "membership_revision", "frame_count", "optimized_frame_count",
+                  "anchor_keyframe_id", "primary_count", "submap_state",
+                  "parent_frame", "parent_from_submap"});
     GaussianRenderBlock block;
     auto& t = block.target;
     t.session_id = result.session_id;
@@ -199,15 +210,15 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
     const int count = Count(target["primary_count"], 1, 512);
     const auto anchor = t.group.primary.anchor_keyframe_id;
     const auto state = Text(target["submap_state"]);
-    Require(t.generation && t.generation <= result.generation &&
-                anchor < result.frame_count &&
-                static_cast<std::uint64_t>(count) <=
-                    result.frame_count - anchor &&
-                (state == "active" || state == "sealed") &&
-                t.group.membership_revision == count + (state == "sealed"),
-            "Invalid render membership");
+    Require(
+        t.generation && t.generation <= result.generation &&
+            anchor < result.frame_count &&
+            static_cast<std::uint64_t>(count) <= result.frame_count - anchor &&
+            (state == "active" || state == "sealed") &&
+            t.group.membership_revision == count + (state == "sealed"),
+        "Invalid render membership");
     t.group.state = state == "sealed" ? OnlineSubmapState::kSealed
-                                       : OnlineSubmapState::kActive;
+                                      : OnlineSubmapState::kActive;
     t.pose_version = Uint(target["pose_version"]);
     t.frame_count = Uint(target["frame_count"]);
     t.optimized_frame_count = Uint(target["optimized_frame_count"]);
@@ -226,8 +237,7 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
                      Uint(content["source_generation"]),
                      Uint(content["content_job_id"])};
     Require(block.content.submap_id == t.group.primary.id &&
-                block.content.source_generation &&
-                block.content.content_job_id,
+                block.content.source_generation && block.content.content_job_id,
             "Invalid render content");
     block.resident = resident;
     residents += resident;
@@ -242,9 +252,9 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
                   Uint(asset["content_job_id"]) == block.content.content_job_id,
               "Render asset content mismatch");
       block.asset = GaussianAssetReference{
-          Uint(asset["asset_id"]), block.content,
+          Uint(asset["asset_id"]),        block.content,
           Text(asset["manifest_sha256"]), Uint(asset["manifest_bytes"]),
-          Uint(asset["gaussian_bytes"]), Uint(asset["observation_bytes"])};
+          Uint(asset["gaussian_bytes"]),  Uint(asset["observation_bytes"])};
       ValidateGaussianAssetReference(*block.asset);
     }
     const auto frames = row["frame_ids"];
@@ -257,39 +267,40 @@ GaussianRenderRequest Header(const cv::FileNode& root) {
               "Invalid retained render frame order");
       block.frame_ids.push_back(id);
     }
-    block.gaussian_count = Count(
-        row["gaussian_count"], static_cast<int>(frames.size()),
-        1000 * static_cast<int>(frames.size()));
+    block.gaussian_count =
+        Count(row["gaussian_count"], static_cast<int>(frames.size()),
+              1000 * static_cast<int>(frames.size()));
     if (spatial)
       block.render_metadata = DecodeGaussianRenderMetadata(
           row["render_metadata"], block.content, block.frame_ids);
-    Require(result.blocks.empty() ||
-                t.group.primary.id >
-                    result.blocks.back().target.group.primary.id,
-            "Duplicate or unordered render blocks");
+    Require(
+        result.blocks.empty() ||
+            t.group.primary.id > result.blocks.back().target.group.primary.id,
+        "Duplicate or unordered render blocks");
     result.blocks.push_back(std::move(block));
   }
   Require(residents <= 1 && result.blocks.back().target.group.primary.id ==
-                                result.query_submap_id &&
-              result.blocks.back().frame_ids.back() ==
-                  result.query_keyframe_id,
-          "Query is not the last retained owner camera");
+                                result.query_submap_id,
+          "Query owner differs from captured source");
+  if (!independent)
+    Require(result.blocks.back().frame_ids.back() == result.query_keyframe_id,
+            "Query is not the last retained owner camera");
   if (result.blocks.size() == 2) {
-    Require(result.query_submap_id > 0 && result.neighbor_reason.empty() &&
-                result.blocks[0].target.group.primary.id <
-                    result.query_submap_id &&
-                (spatial || result.blocks[0].target.group.primary.id ==
-                    result.query_submap_id - 1), "Invalid render neighbor");
+    Require(
+        result.query_submap_id > 0 && result.neighbor_reason.empty() &&
+            result.blocks[0].target.group.primary.id < result.query_submap_id &&
+            (spatial || result.blocks[0].target.group.primary.id ==
+                            result.query_submap_id - 1),
+        "Invalid render neighbor");
   }
   ValidateRenderSelection(result);
   return result;
 }
 
-GaussianRenderRequest Request(const cv::FileNode& root,
+GaussianRenderRequest Sources(const cv::FileNode& root,
                               const std::vector<std::uint8_t>& body) {
   Keys(root, RootFields(root));
-  Require(Text(root["type"]) == "joint_render", "Expected render request");
-  auto request = Header(root);
+  auto request = Header(root, true);
   std::size_t bytes = 128;
   for (const auto& block : request.blocks)
     bytes += 128 * block.target.group.primary.keyframe_ids.size();
@@ -302,6 +313,14 @@ GaussianRenderRequest Request(const cv::FileNode& root,
          ++i, offset += 128)
       block.target.submap_from_body.push_back(BodyPose(body, offset));
   }
+  ValidateGaussianSourceRequest(request);
+  return request;
+}
+
+GaussianRenderRequest Request(const cv::FileNode& root,
+                              const std::vector<std::uint8_t>& body) {
+  Require(Text(root["type"]) == "joint_render", "Expected render request");
+  auto request = Sources(root, body);
   ValidateGaussianRenderRequest(request);
   return request;
 }
@@ -329,8 +348,8 @@ GaussianRenderMetrics Metrics(const cv::FileNode& node, int pixels) {
               Count(node["rgb_perfect"], 0, 1) == (image > 0 && mse == 0),
           "Inconsistent render metric validity");
   result.rgb_perfect = image > 0 && mse == 0;
-  const auto optional = [&](const char* key, bool valid)
-      -> std::optional<double> {
+  const auto optional = [&](const char* key,
+                            bool valid) -> std::optional<double> {
     const double value = Number(node[key]);
     Require(valid || value == 0, "Invalid render metric needs finite zero");
     if (valid) return value;
@@ -376,65 +395,81 @@ void Echo(const cv::FileNode& root, const GaussianRenderRequest& request) {
 
 }  // namespace
 
+void WriteGaussianSourceHeader(cv::FileStorage& out,
+                               const GaussianRenderRequest& request,
+                               const std::string& kind) {
+  Base(out, kind, request.session_id, 2);
+  Id(out, "job_id", request.job_id);
+  Id(out, "generation", request.generation);
+  Id(out, "map_sequence", request.map_sequence);
+  Id(out, "pose_version", request.pose_version);
+  Id(out, "frame_count", request.frame_count);
+  Id(out, "optimized_frame_count", request.optimized_frame_count);
+  Id(out, "query_keyframe_id", request.query_keyframe_id);
+  Id(out, "query_submap_id", request.query_submap_id);
+  if (request.policy == GaussianRenderPolicy::kSpatial)
+    out << "policy" << "spatial" << "selection" << "{"
+        << "candidate_count" << static_cast<int>(request.candidate_count)
+        << "candidate_pixels" << static_cast<int>(request.candidate_pixels)
+        << "projection_uncertain"
+        << static_cast<int>(request.projection_uncertain) << "selection_seconds"
+        << request.selection_seconds << "}";
+  out << "parent_frame"
+      << (request.parent_frame == PoseFrame::kMap ? "map" : "odom")
+      << "neighbor_reason" << request.neighbor_reason << "blocks" << "[";
+  for (const auto& block : request.blocks) {
+    out << "{" << "target" << "{";
+    WriteGaussianTargetHeader(out, block.target);
+    out << "}" << "content" << "{";
+    Content(out, block.content);
+    out << "}" << "resident" << static_cast<int>(block.resident) << "frame_ids"
+        << "[";
+    for (const auto id : block.frame_ids) out << std::to_string(id);
+    out << "]" << "gaussian_count" << block.gaussian_count;
+    if (block.asset) {
+      const auto& asset = *block.asset;
+      out << "asset" << "{";
+      Content(out, asset.content);
+      Id(out, "asset_id", asset.asset_id);
+      out << "manifest_sha256" << asset.manifest_sha256;
+      Id(out, "manifest_bytes", asset.manifest_bytes);
+      Id(out, "gaussian_bytes", asset.gaussian_bytes);
+      Id(out, "observation_bytes", asset.observation_bytes);
+      out << "}";
+    }
+    if (block.render_metadata) {
+      out << "render_metadata";
+      WriteGaussianRenderMetadata(out, *block.render_metadata);
+    }
+    out << "}";
+  }
+  out << "]";
+}
+
+std::vector<std::uint8_t> EncodeGaussianSourceBody(
+    const GaussianRenderRequest& request) {
+  std::vector<std::uint8_t> body;
+  AppendPose(request.parent_from_body, &body);
+  for (const auto& block : request.blocks) {
+    const auto primary = EncodeGaussianPrimaryPoses(block.target);
+    body.insert(body.end(), primary.begin(), primary.end());
+  }
+  return body;
+}
+
+GaussianRenderRequest DecodeGaussianSources(
+    const cv::FileNode& header, const std::vector<std::uint8_t>& body) {
+  return Sources(header, body);
+}
+
 GaussianMessage EncodeGaussianRenderRequest(
     const GaussianRenderRequest& request) {
   ValidateGaussianRenderRequest(request);
   Require(request.job_id > 0, "Render mailbox job ID is required");
-  GaussianMessage message;
-  message.header_json = Json([&](auto& out) {
-    Base(out, "joint_render", request.session_id, 2);
-    Id(out, "job_id", request.job_id);
-    Id(out, "generation", request.generation);
-    Id(out, "map_sequence", request.map_sequence);
-    Id(out, "pose_version", request.pose_version);
-    Id(out, "frame_count", request.frame_count);
-    Id(out, "optimized_frame_count", request.optimized_frame_count);
-    Id(out, "query_keyframe_id", request.query_keyframe_id);
-    Id(out, "query_submap_id", request.query_submap_id);
-    if (request.policy == GaussianRenderPolicy::kSpatial)
-      out << "policy" << "spatial" << "selection" << "{"
-          << "candidate_count" << static_cast<int>(request.candidate_count)
-          << "candidate_pixels" << static_cast<int>(request.candidate_pixels)
-          << "projection_uncertain"
-          << static_cast<int>(request.projection_uncertain)
-          << "selection_seconds" << request.selection_seconds << "}";
-    out << "parent_frame"
-        << (request.parent_frame == PoseFrame::kMap ? "map" : "odom")
-        << "neighbor_reason" << request.neighbor_reason << "blocks" << "[";
-    for (const auto& block : request.blocks) {
-      out << "{" << "target" << "{";
-      WriteGaussianTargetHeader(out, block.target);
-      out << "}" << "content" << "{";
-      Content(out, block.content);
-      out << "}" << "resident" << static_cast<int>(block.resident)
-          << "frame_ids" << "[";
-      for (const auto id : block.frame_ids) out << std::to_string(id);
-      out << "]" << "gaussian_count" << block.gaussian_count;
-      if (block.asset) {
-        const auto& asset = *block.asset;
-        out << "asset" << "{";
-        Content(out, asset.content);
-        Id(out, "asset_id", asset.asset_id);
-        out << "manifest_sha256" << asset.manifest_sha256;
-        Id(out, "manifest_bytes", asset.manifest_bytes);
-        Id(out, "gaussian_bytes", asset.gaussian_bytes);
-        Id(out, "observation_bytes", asset.observation_bytes);
-        out << "}";
-      }
-      if (block.render_metadata) {
-        out << "render_metadata";
-        WriteGaussianRenderMetadata(out, *block.render_metadata);
-      }
-      out << "}";
-    }
-    out << "]";
-  });
-  AppendPose(request.parent_from_body, &message.body);
-  for (const auto& block : request.blocks) {
-    const auto primary = EncodeGaussianPrimaryPoses(block.target);
-    message.body.insert(message.body.end(), primary.begin(), primary.end());
-  }
-  return message;
+  return {Json([&](auto& out) {
+            WriteGaussianSourceHeader(out, request, "joint_render");
+          }),
+          EncodeGaussianSourceBody(request)};
 }
 
 GaussianRenderRequest DecodeGaussianRenderRequest(
@@ -471,27 +506,45 @@ void ValidateGaussianRenderMessage(const cv::FileNode& root,
     fields.insert({"code", "error"});
     Keys(root, fields);
     (void)Header(root);
-    Require(Text(root["code"]) == "oom" &&
-                !Text(root["error"]).empty() &&
+    Require(Text(root["code"]) == "oom" && !Text(root["error"]).empty() &&
                 Text(root["error"]).size() <= 4096 && body.empty(),
             "Invalid render error");
     return;
   }
   Require(kind == "joint_render_ok", "Unexpected render message");
-  fields.insert({"training_view", "width", "height", "calibration_id", "fx",
-                 "fy", "cx", "cy", "parent_from_body", "camera_from_body",
-                 "camera_from_parent", "image_timestamp", "state_timestamp",
-                 "cloud_timestamp", "inverse_exposure_time", "single",
-                 "joint", "changed_pixels", "single_gaussian_count",
-                 "gaussian_count", "worker_seconds", "gpu_allocated_bytes",
-                 "gpu_reserved_bytes", "gpu_peak_allocated_bytes",
-                 "gpu_peak_reserved_bytes", "worker_peak_rss_bytes"});
+  fields.insert({"training_view",
+                 "width",
+                 "height",
+                 "calibration_id",
+                 "fx",
+                 "fy",
+                 "cx",
+                 "cy",
+                 "parent_from_body",
+                 "camera_from_body",
+                 "camera_from_parent",
+                 "image_timestamp",
+                 "state_timestamp",
+                 "cloud_timestamp",
+                 "inverse_exposure_time",
+                 "single",
+                 "joint",
+                 "changed_pixels",
+                 "single_gaussian_count",
+                 "gaussian_count",
+                 "worker_seconds",
+                 "gpu_allocated_bytes",
+                 "gpu_reserved_bytes",
+                 "gpu_peak_allocated_bytes",
+                 "gpu_peak_reserved_bytes",
+                 "worker_peak_rss_bytes"});
   Keys(root, fields);
   const auto request = Header(root);
   const int width = Count(root["width"], 1, 1000000);
   const int height = Count(root["height"], 1, 1000000);
   Require(static_cast<std::int64_t>(width) * height <= 1000000 &&
-              body.size() == 3u * width * height, "Incorrect render RGB size");
+              body.size() == 3u * width * height,
+          "Incorrect render RGB size");
   (void)Count(root["training_view"], 1, 1);
   Require(Uint(root["calibration_id"]) == 0 && Number(root["fx"]) > 0 &&
               Number(root["fy"]) > 0 && Number(root["worker_seconds"]) >= 0,
@@ -499,10 +552,12 @@ void ValidateGaussianRenderMessage(const cv::FileNode& root,
   for (const auto* key : {"cx", "cy", "image_timestamp", "state_timestamp",
                           "cloud_timestamp", "inverse_exposure_time"})
     (void)Number(root[key]);
-  Require(pose_math::Equal(Pose(root["camera_from_parent"]),
-              pose_math::Compose(Pose(root["camera_from_body"]),
-                  pose_math::Inverse(Pose(root["parent_from_body"])))),
-          "Incorrect render camera composition");
+  Require(
+      pose_math::Equal(Pose(root["camera_from_parent"]),
+                       pose_math::Compose(
+                           Pose(root["camera_from_body"]),
+                           pose_math::Inverse(Pose(root["parent_from_body"])))),
+      "Incorrect render camera composition");
   (void)Metrics(root["single"], width * height);
   (void)Metrics(root["joint"], width * height);
   (void)Count(root["changed_pixels"], 0, width * height);
@@ -511,28 +566,28 @@ void ValidateGaussianRenderMessage(const cv::FileNode& root,
   (void)Count(root["gaussian_count"], total, total);
   const int single = request.blocks.back().gaussian_count;
   (void)Count(root["single_gaussian_count"], single, single);
-  for (const auto* key : {"gpu_allocated_bytes", "gpu_reserved_bytes",
-                          "gpu_peak_allocated_bytes", "gpu_peak_reserved_bytes",
-                          "worker_peak_rss_bytes"})
+  for (const auto* key :
+       {"gpu_allocated_bytes", "gpu_reserved_bytes", "gpu_peak_allocated_bytes",
+        "gpu_peak_reserved_bytes", "worker_peak_rss_bytes"})
     (void)Uint(root[key]);
 }
 
-GaussianRender DecodeGaussianRenderReply(
-    const GaussianMessage& message, const GaussianRenderRequest& request) {
+GaussianRender DecodeGaussianRenderReply(const GaussianMessage& message,
+                                         const GaussianRenderRequest& request) {
   (void)EncodeGaussianMessage(message);
-  const auto json = gaussian_mapper_io::Parse(
-      message, "joint_render_ok", request.session_id, 2);
+  const auto json = gaussian_mapper_io::Parse(message, "joint_render_ok",
+                                              request.session_id, 2);
   Echo(json.root(), request);
-  Require(SameRenderPose(Pose(json["parent_from_body"]),
-                           request.parent_from_body),
-          "Query pose echo mismatch");
+  Require(
+      SameRenderPose(Pose(json["parent_from_body"]), request.parent_from_body),
+      "Query pose echo mismatch");
   GaussianRender result;
   result.request = request;
   result.rgb = message.body;
   result.width = json["width"];
   result.height = json["height"];
-  result.K << Number(json["fx"]), 0, Number(json["cx"]),
-              0, Number(json["fy"]), Number(json["cy"]), 0, 0, 1;
+  result.K << Number(json["fx"]), 0, Number(json["cx"]), 0, Number(json["fy"]),
+      Number(json["cy"]), 0, 0, 1;
   result.camera_from_body = Pose(json["camera_from_body"]);
   result.camera_from_parent = Pose(json["camera_from_parent"]);
   result.capture_time = Number(json["image_timestamp"]);
@@ -552,11 +607,11 @@ GaussianRender DecodeGaussianRenderReply(
   return result;
 }
 
-std::string DecodeGaussianRenderError(
-    const GaussianMessage& message, const GaussianRenderRequest& request) {
+std::string DecodeGaussianRenderError(const GaussianMessage& message,
+                                      const GaussianRenderRequest& request) {
   (void)EncodeGaussianMessage(message);
-  const auto json = gaussian_mapper_io::Parse(
-      message, "joint_render_error", request.session_id, 2);
+  const auto json = gaussian_mapper_io::Parse(message, "joint_render_error",
+                                              request.session_id, 2);
   Echo(json.root(), request);
   return Text(json["error"]);
 }

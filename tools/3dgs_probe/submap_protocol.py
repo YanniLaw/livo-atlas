@@ -90,20 +90,39 @@ def _frame_ids(header):
 
 
 def validate_message(header, body):
+    if header.get('type') in ('heldout_evaluate', 'heldout_evaluation_ok', 'heldout_evaluation_error'):
+        from evaluation_protocol import validate_evaluation_message
+        return validate_evaluation_message(header, body)
     from holdout_split import CAPABILITY, MAX_SPLIT_BYTES
 
     if header.get('type') in ('joint_render', 'joint_render_ok', 'joint_render_error'):
         from joint_render_protocol import validate_render_message
         return validate_render_message(header, body)
+    from evaluation_protocol import CAPABILITY as EVALUATION
+    names = header.get('capabilities', [])
+    if not isinstance(names, list):
+        raise ValueError('Gaussian capabilities must be a list')
+    evaluation = EVALUATION in names
+    capabilities = names[:-1] if evaluation and names[-1] == EVALUATION else names
     if 'capabilities' in header:
-        if (header.get('type') not in ('hello', 'hello_ok') or
-                header['capabilities'] not in (['joint_render_v1'],
-                    ['joint_render_v1', 'joint_render_spatial_v1'], [CAPABILITY],
-                    ['joint_render_v1', CAPABILITY],
-                    ['joint_render_v1', 'joint_render_spatial_v1', CAPABILITY])):
-            raise ValueError('Invalid requested render capabilities')
-    holdout = CAPABILITY in header.get('capabilities', [])
+        if (header.get('type') not in ('hello', 'hello_ok') or capabilities not in (
+                ['joint_render_v1'], ['joint_render_v1', 'joint_render_spatial_v1'], [CAPABILITY],
+                ['joint_render_v1', CAPABILITY], ['joint_render_v1', 'joint_render_spatial_v1', CAPABILITY]) or
+                (evaluation and (names[-1] != EVALUATION or CAPABILITY not in capabilities or
+                                 'joint_render_v1' not in capabilities))):
+            raise ValueError('Invalid requested Gaussian capabilities')
+    holdout = CAPABILITY in capabilities
     split_fields = {'split_id'} if holdout else set()
+    if evaluation:
+        split_fields.add('evaluation_limits')
+        limits = header.get('evaluation_limits')
+        if not isinstance(limits, dict):
+            raise ValueError('Evaluation limits must be explicit')
+        _fields(limits, {'max_output_bytes', 'min_free_disk_bytes'})
+        maximum = _unsigned(limits['max_output_bytes'], 'evaluation output budget')
+        reserve = _unsigned(limits['min_free_disk_bytes'], 'evaluation disk reserve')
+        if not 1024*1024 <= maximum <= 4096*1024*1024 or reserve > 2**40:
+            raise ValueError('Invalid evaluation resource limits')
     if holdout and (not isinstance(header.get('split_id'), str) or
                     not re.fullmatch(r'[0-9a-f]{64}', header['split_id'])):
         raise ValueError('Invalid Gaussian split digest')
@@ -261,7 +280,8 @@ def validate_message(header, body):
                 if not 1 <= _unsigned(header[name], name) <= limit:
                     raise ValueError("Asset file exceeds budget")
     elif kind in ("map_committed", "map_committed_ok"):
-        _fields(header, base | {"map_sequence", "asset_ids"})
+        _fields(header, base | {"map_sequence", "asset_ids"},
+                {'evaluation_bindings'} if kind == 'map_committed' else set())
         if not _unsigned(header["map_sequence"], "map sequence"):
             raise ValueError("Map sequence must be nonzero")
         ids = header["asset_ids"]
@@ -270,6 +290,18 @@ def validate_message(header, body):
         parsed = [_unsigned(value, "asset ID") for value in ids]
         if parsed != sorted(set(parsed)) or (parsed and parsed[0] == 0):
             raise ValueError("Asset references must be nonzero, ordered and unique")
+        if 'evaluation_bindings' in header:
+            bindings = header['evaluation_bindings']
+            if not isinstance(bindings,list) or len(bindings)>32:
+                raise ValueError('Invalid evaluation map bindings')
+            ids, count = [], 0
+            for binding in bindings:
+                _fields(binding,{'submap_id','primary_count'})
+                ids.append(_unsigned(binding['submap_id'],'evaluation group'))
+                count += _integer(binding['primary_count'],'primary count',1,512)
+            if ids != sorted(set(ids)) or any(key>=512 for key in ids) or count>512 or len(body)!=128*count:
+                raise ValueError('Invalid evaluation binding body')
+            return
     elif kind in ("prune", "prune_ok"):
         _fields(header, base | {"map_sequence", "asset_id"})
         if not _unsigned(header["map_sequence"], "map sequence") or not _unsigned(header["asset_id"], "asset ID"):

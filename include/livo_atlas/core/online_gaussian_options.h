@@ -26,6 +26,9 @@ struct OnlineGaussianOptions {
   GaussianRenderPolicy joint_render_policy = GaussianRenderPolicy::kTemporal;
   bool evaluation_enabled = false;
   std::filesystem::path evaluation_split_file;
+  bool online_evaluation_enabled = false;
+  int evaluation_max_output_mib = 256;
+  int evaluation_min_free_disk_mib = 1024;
 };
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options);
