@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import torch
 
-from evaluate_gaussian_sampling import admit_training_view, frozen_groups
+from evaluate_gaussian_sampling import admit_training_view
 from evaluate_gaussian_submaps import camera_from_final_parent, prepare_group
 from evaluate_heldout_snapshot import initialize_cuda, load_settings
 from gaussian_map import _require
@@ -71,9 +71,13 @@ def seed_features(view, pixels, history):
         intrinsic = other['K']
         u = intrinsic[0, 0]*xyz[:, 0]/safe_z + intrinsic[0, 2]
         v = intrinsic[1, 1]*xyz[:, 1]/safe_z + intrinsic[1, 2]
+        # The exposed K subtracts .5 from native pixel-corner coordinates.
+        # Match the depth preparer's positive-coordinate truncation, including
+        # the half-pixel border footprint and ties.
+        u, v = u+.5, v+.5
         ids = np.flatnonzero(positive & np.isfinite(u) & np.isfinite(v)
-                            & (u >= 0) & (u <= width-1) & (v >= 0) & (v <= height-1))
-        xx, yy = np.rint(u[ids]).astype('i8'), np.rint(v[ids]).astype('i8')
+                            & (u >= 0) & (u < width) & (v >= 0) & (v < height))
+        xx, yy = np.floor(u[ids]).astype('i8'), np.floor(v[ids]).astype('i8')
         good = other['image_mask'][yy, xx].astype(bool)
         result['visible_views'][ids[good]] += 1
         good &= other['depth_mask'][yy, xx].astype(bool)
@@ -215,17 +219,25 @@ def run(args):
     if settings.split_file:
         with _open_file(Path(settings.split_file), MAX_SPLIT_BYTES) as stream:
             _require(HoldoutSplit(stream.read()).split_id == snapshot.split.split_id, 'Configured split differs')
-    groups = frozen_groups(snapshot)
-    _require(type(args.submap_id) is int and 0 <= args.submap_id < len(groups), 'Unknown submap')
-    group = groups[args.submap_id]
+    entries = snapshot.document['entries']
+    _require(type(args.submap_id) is int and 0 <= args.submap_id < len(entries), 'Unknown submap')
+    entry = entries[args.submap_id]
+    frames = [(key, frame) for key, frame in snapshot.split.frames.items()
+              if int(frame['submap_id']) == args.submap_id]
+    group = dict(submap_id=args.submap_id, anchor_id=int(entry['anchor_keyframe_id']),
+                 frame_count=len(snapshot.poses),
+                 train_ids=[key for key, frame in frames if frame['role']=='train'],
+                 held_out_ids=[key for key, frame in frames if frame['role']=='heldout'])
     validate_target(group, args.tracked_id)
+    reference_held = next(key for key, frame in snapshot.split.frames.items() if frame['role']=='heldout')
+    prepared = dict(group, held_out_ids=group['held_out_ids'] or [reference_held])
     preparer = args.prepare_executable.resolve(strict=True)
     preparer_hash = file_sha(preparer)
     maximum = min(_MAX_OUTPUT_BYTES, settings.max_output_bytes)
     _require(maximum >= 2*1024**2, 'Diagnostic output budget requires at least 2 MiB')
     reserve = max(settings.min_free_disk_bytes, 1024**3)
-    scratch = sum(f['width']*f['height']*32+128*1024 for f in snapshot.split.frames.values()
-                  if int(f['submap_id']) == args.submap_id)
+    scratch = sum(snapshot.split.frames[key]['width']*snapshot.split.frames[key]['height']*32+128*1024
+                  for key in prepared['train_ids']+prepared['held_out_ids'])
     _require(shutil.disk_usage(output.parent).free >= scratch+maximum+reserve,
              'Insufficient diagnostic disk reserve')
     output.mkdir(mode=0o700)
@@ -233,8 +245,6 @@ def run(args):
         _exclusive_write(output/'config.yaml', raw_config)
         config = load_worker_config(output/'config.yaml')
         _require(config.options == settings.worker, 'Archived training options differ')
-        reference_held = next(key for key, frame in snapshot.split.frames.items() if frame['role']=='heldout')
-        prepared = dict(group, held_out_ids=group['held_out_ids'] or [reference_held])
         with TemporaryDirectory(prefix='.prepare-', dir=output) as temporary:
             views = prepare_group(preparer, snapshot.keyframes, Path(temporary)/'bundle', prepared,
                                   snapshot.split.source['camera_sha256'])
@@ -264,6 +274,7 @@ def run(args):
         for name in ('means','log_scales','color_logits','opacity_logits'):
             arrays[name] = np.stack([row[name] for _, row in model.stages])
         _require(sum(value.nbytes for value in arrays.values()) < maximum-1024**2, 'Trace exceeds budget')
+        _require(shutil.disk_usage(output).free >= maximum+reserve, 'Insufficient diagnostic trace reserve')
         np.savez_compressed(output/'trace.npz', **arrays)
         _require((output/'trace.npz').stat().st_size < maximum-1024**2, 'Trace exceeds disk budget')
         report = dict(schema=1, kind='livo_atlas.gaussian_seed_diagnostic', status='succeeded',
@@ -282,7 +293,12 @@ def run(args):
         payload = _json_bytes(report, 1024**2)
         _require((output/'trace.npz').stat().st_size+len(raw_config)+len(payload) <= maximum,
                  'Diagnostic output budget exceeded')
-        _exclusive_write(output/'report.json', payload)
+        _require(shutil.disk_usage(output).free >= len(payload)+65536+reserve,
+                 'Insufficient diagnostic report reserve')
+        pending_report = output/'.report.json.pending'
+        _exclusive_write(pending_report, payload)
+        _require(shutil.disk_usage(output).free >= reserve, 'Insufficient reserve after report write')
+        pending_report.replace(output/'report.json')
         return report
     except BaseException as error:
         if not (output/'report.json').exists():

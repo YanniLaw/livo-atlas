@@ -18,6 +18,28 @@ from online_model import OnlineGaussianModel, checked_cuda_device
 from test_online_model import make_view
 from worker_config import DEFAULT_WORKER_OPTIONS
 from heldout_fixtures import make_heldout_snapshot
+from heldout_query import load_evaluation_snapshot
+import diagnose_gaussian_seeds as diagnostic
+
+
+def cli_fixture(test, blocks=2):
+    temporary = tempfile.TemporaryDirectory()
+    test.addCleanup(temporary.cleanup)
+    root = Path(temporary.name)
+    directory, keyframes, split, views = make_heldout_snapshot(root, blocks=blocks)
+    config = root / 'config.yaml'
+    config.write_text(yaml.safe_dump(dict(gaussian=dict(worker=dict(seed_policy='coverage',
+        coverage_sampling='replace', coverage_uncovered_ratio=.25),
+        evaluation=dict(max_output_mib=64, min_free_disk_mib=1024)))))
+    args = argparse.Namespace(map_directory=directory, keyframes=keyframes,
+        prepare_executable=Path(os.environ['LIVO_PREPARE_BIN']), config=config,
+        submap_id=0, tracked_id=0, random_seed=0, output=root/'out')
+
+    def prepared(executable, source, output, group, source_hash):
+        return {key: dict(views[key], split='train' if key in group['train_ids'] else 'validation')
+                for key in group['train_ids'] + group['held_out_ids']}
+
+    return args, prepared
 
 
 class SeedFeaturesTest(unittest.TestCase):
@@ -51,6 +73,55 @@ class SeedFeaturesTest(unittest.TestCase):
         summary = cohort_summary(actual, np.array([True]), np.array([True]))
         self.assertEqual(summary['uniform_kept']['depth_support_ratio'], .5)
         self.assertEqual(summary['uniform_kept']['photometric_l1'], .25)
+
+    def test_native_pixel_footprint_accepts_rotated_borders_and_half_pixel_ties(self):
+        view = self.view()
+        angle = .37
+        view['camera_from_parent'] = np.array([
+            [np.cos(angle), 0, np.sin(angle), 1.7], [0, 1, 0, -1.3],
+            [-np.sin(angle), 0, np.cos(angle), .8], [0, 0, 0, 1]])
+        view['K'] = np.array([[381., 0, 2], [0, 379, 1], [0, 0, 1]])
+        result = seed_features(view, np.arange(15), [copy.deepcopy(view)])
+        np.testing.assert_array_equal(result['depth_support'], np.ones(15))
+        view = self.view()
+        for offset, expected in ((1., 1), (-4.8, 1), (-5.2, 0)):
+            history = copy.deepcopy(view)
+            history['camera_from_parent'][0, 3] += offset
+            if offset == 1.:
+                history['depth_mask'][:] = False
+                history['depth_mask'][1, 3] = True
+            with self.subTest(offset=offset):
+                result = seed_features(view, np.array([7]), [history])
+                self.assertEqual(result['depth_support'][0], expected)
+
+    def test_unrelated_heldout_only_group_does_not_block_selected_group(self):
+        args, prepared = cli_fixture(self, blocks=5)
+        snapshot = load_evaluation_snapshot(args.map_directory, args.keyframes)
+        first, last = copy.deepcopy(snapshot.document['entries'][0]), copy.deepcopy(snapshot.document['entries'][-1])
+        first.update(primary_count=9)
+        last.update(submap_id='1', anchor_keyframe_id='9', primary_count=1)
+        snapshot.document['entries'] = [first, last]
+        for key, frame in snapshot.split.frames.items():
+            frame['submap_id'] = '0' if key < 9 else '1'
+        args.tracked_id = 8
+        with mock.patch('diagnose_gaussian_seeds.load_evaluation_snapshot', return_value=snapshot), \
+                mock.patch('diagnose_gaussian_seeds.prepare_group', side_effect=prepared), \
+                mock.patch('diagnose_gaussian_seeds.initialize_cuda', side_effect=RuntimeError('selected group admitted')):
+            with self.assertRaisesRegex(RuntimeError, 'selected group admitted'):
+                run(args)
+
+    def test_preparation_budget_includes_borrowed_heldout_frame(self):
+        args, _ = cli_fixture(self, blocks=2)
+        snapshot = load_evaluation_snapshot(args.map_directory, args.keyframes)
+        snapshot.split.frames[1].update(width=1000, height=1000)
+        args.submap_id, args.tracked_id = 1, 3
+        free = 1024**3 + 66*1024**2
+        with mock.patch('diagnose_gaussian_seeds.load_evaluation_snapshot', return_value=snapshot), \
+                mock.patch('diagnose_gaussian_seeds.shutil.disk_usage', return_value=mock.Mock(free=free)), \
+                mock.patch('diagnose_gaussian_seeds.prepare_group', side_effect=AssertionError('insufficient preparation reserve')):
+            with self.assertRaisesRegex(ValueError, 'reserve'):
+                run(args)
+        self.assertFalse(args.output.exists())
 
     def test_missing_depth_and_masked_gradient_are_not_zero_evidence(self):
         view = self.view()
@@ -174,6 +245,38 @@ class SeedTraceCudaTest(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, 'budget'):
             run(args)
         self.assertFalse(args.output.exists())
+
+
+    def test_partial_report_write_never_publishes_success_path(self):
+        args, prepared = cli_fixture(self)
+        write = diagnostic._exclusive_write
+
+        def partial(path, payload):
+            if 'report.json' in path.name:
+                write(path, payload[:len(payload)//2])
+                raise OSError('controlled report flush')
+            return write(path, payload)
+
+        with mock.patch('diagnose_gaussian_seeds.prepare_group', side_effect=prepared), \
+                mock.patch('diagnose_gaussian_seeds._exclusive_write', side_effect=partial):
+            with self.assertRaises(OSError):
+                run(args)
+        self.assertFalse((args.output/'report.json').exists())
+        self.assertTrue((args.output/'failure.json').exists())
+
+    def test_disk_reserve_is_rechecked_before_trace_and_report(self):
+        args, prepared = cli_fixture(self)
+        base = args.output
+        for drops_at in (1, 2, 3):
+            with self.subTest(drops_at=drops_at):
+                args.output = base.with_name('disk-'+str(drops_at))
+                low = 1024**3 + (1024 if drops_at < 3 else -1024)
+                values = [mock.Mock(free=8*1024**3)]*drops_at + [mock.Mock(free=low)]*4
+                with mock.patch('diagnose_gaussian_seeds.prepare_group', side_effect=prepared), \
+                        mock.patch('diagnose_gaussian_seeds.shutil.disk_usage', side_effect=values):
+                    with self.assertRaisesRegex(ValueError, 'reserve'):
+                        run(args)
+                self.assertFalse((args.output/'report.json').exists())
 
 
 if __name__ == '__main__':
