@@ -1,6 +1,6 @@
 # Gaussian Coverage Ratio Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 从共享 YAML 控制空洞种子预留比例，并完成 0/25/50% 固定预算敏感性验证。
 
@@ -31,10 +31,10 @@
 
 **Interfaces:** WorkerOptions.coverage_uncovered_ratio: float=.5; initialize_gaussians(..., uncovered_ratio=.5); _reserved_seed_count(..., uncovered_ratio=.5).
 
-- [ ] Add failing tests for config validation/defaults, 0/.25/.5/1 exact seed arrays, zero-prepass CUDA behavior and nonzero quota propagation.
-- [ ] Observe RED, implement minimal parameter propagation and comments.
-- [ ] Run focused tests and full Python/CUDA suite plus worker config suite; expected all pass.
-- [ ] Commit and ledger completion.
+- [x] Add failing tests for config validation/defaults, 0/.25/.5/1 exact seed arrays, zero-prepass CUDA behavior and nonzero quota propagation.
+- [x] Observe RED, implement minimal parameter propagation and comments.
+- [x] Run focused tests and full Python/CUDA suite plus worker config suite; expected all pass.
+- [x] Commit and ledger completion.
 
 ### Task 2: Controlled ratio comparison
 
@@ -42,10 +42,10 @@
 
 **Interfaces:** compare(..., allow_coverage_ratio_change=False); new archived config.yaml binds report config_sha256; explicit mode normalizes only coverage_uncovered_ratio.
 
-- [ ] Add failing tests for strict default rejection, allowed ratio-only change, other-config/optimizer/tampered config rejection, zero and fractional seed evidence.
-- [ ] Observe RED, implement archived config verification and ratio-aware legacy seed checks.
-- [ ] Run focused and full Python/CUDA suite plus worker config suite; expected all pass.
-- [ ] Commit and ledger completion.
+- [x] Add failing tests for strict default rejection, allowed ratio-only change, other-config/optimizer/tampered config rejection, zero and fractional seed evidence.
+- [x] Observe RED, implement archived config verification and ratio-aware legacy seed checks.
+- [x] Run focused and full Python/CUDA suite plus worker config suite; expected all pass.
+- [x] Commit and ledger completion.
 
 ### Task 3: Six-run sensitivity experiment
 
@@ -53,7 +53,7 @@
 
 **Interfaces:** run existing evaluator for coverage ratios0/.25/.5 seeds0/1; compare each nonzero against matching seed zero with explicit flag; independently audit all six.
 
-- [ ] Execute six sequential runs; expected150calls/3000steps/21queries/19joint each, shared inputs/poses/selection/capacity.
-- [ ] Recompute all metrics and six-way common depth, inspect worst-view maps; expected all proof checks pass.
-- [ ] Record observed tradeoffs, resource scope and unchanged defaults; run final suites and git diff --check.
+- [x] Execute six sequential runs; expected150calls/3000steps/21queries/19joint each, shared inputs/poses/selection/capacity.
+- [x] Recompute all metrics and six-way common depth, inspect worst-view maps; expected all proof checks pass.
+- [x] Record observed tradeoffs, resource scope and unchanged defaults; run final suites and git diff --check.
 - [ ] Commit docs, obtain one fresh read-only final review, fix Important/Critical findings via RED→GREEN and green full suite.

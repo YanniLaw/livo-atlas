@@ -14,7 +14,9 @@
 [最终快照评分](gaussian-heldout-scoring.md)支持与在线共用C++空间选块内核；
 完整Noetic配对验证见[空间留出对照](spatial-heldout-comparison.md)。
 随后完成[固定预算采样与空洞诊断](controlled-gaussian-sampling.md)：每次150次训练/3000步，
-覆盖收益保留，但单块SSIM与共同深度L1存在取舍；下一项研究空洞种子预留比例，默认仍为uniform。
+覆盖收益保留，但单块SSIM与共同深度L1存在取舍。随后完成
+[预留比例参数化与六次敏感性验证](gaussian-coverage-ratio.md)：25%提供联合质量折中，
+单块SSIM仍有损失；下一项研究保持uniform位置的定额替换，默认仍为uniform。
 同环境精确回归与跨环境数值对照继续分开解释；3DGS、长距离数据、ARM 实机等方向保留如下。
 
 C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
