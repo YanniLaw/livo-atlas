@@ -68,10 +68,12 @@ def _headers(model, target, refresh_cameras=False):
     model.generation = int(target["generation"])
 
 
-def _capture_context(model, target):
+def _capture_context(model, target, split=None):
     context = copy.deepcopy(target)
     context['source_cameras'] = [dict(keyframe_id=str(view['keyframe_id']),
         camera_from_body=view['camera_from_body'].ravel().tolist()) for view in model.views]
+    if split is not None:
+        context['holdout'] = split.proof(model.training_lineage)
     return context
 
 
@@ -79,7 +81,7 @@ class GaussianSubmapWorker:
     """One serialized session; owner decisions are separate from durable references."""
 
     def __init__(self, session_id, state_directory, model, software, *, joint_render_enabled=False,
-                 spatial_render_enabled=False, seed_policy=DEFAULT_SEED_POLICY):
+                 spatial_render_enabled=False, seed_policy=DEFAULT_SEED_POLICY, split=None):
         if seed_policy not in SEED_POLICIES:
             raise ValueError("Unknown Gaussian seed policy")
         if spatial_render_enabled and not joint_render_enabled:
@@ -93,6 +95,9 @@ class GaussianSubmapWorker:
         if model.parameters is not None or model.candidate_pending or model.views:
             raise ValueError("A fresh GPU model is required")
         path.mkdir(mode=0o700)
+        if split is not None:
+            with (path.parent / 'split.json').open('xb') as output:
+                output.write(split.payload)
         self.session_id = session_id
         self.directory = path
         self.device = model.device
@@ -102,6 +107,7 @@ class GaussianSubmapWorker:
         self.joint_render_enabled = joint_render_enabled
         self.spatial_render_enabled = spatial_render_enabled
         self._seed_policy = seed_policy
+        self._split = split
         self.confirmed_state = None
         self.confirmed_metadata = None
         self.confirmed_binding = None
@@ -141,6 +147,8 @@ class GaussianSubmapWorker:
         torch.cuda.synchronize(self.device)
 
     def _restore_confirmation(self):
+        if self._split is not None and self.confirmed_state is not None:
+            self._split.check_state(self.confirmed_state)
         self._release_model()
         if self.confirmed_state is None:
             self.model = OnlineGaussianModel(self.device, options=self._model_options)
@@ -190,7 +198,7 @@ class GaussianSubmapWorker:
                 state = self.pending['state']
                 content = dict(session_id=self.session_id, **self.pending['content'])
             else:
-                state = self.model.capture_candidate_state(_capture_context(self.model, target))
+                state = self.model.capture_candidate_state(_capture_context(self.model, target, self._split))
                 self.pending['state'] = state
                 content = dict(session_id=self.session_id, submap_id=request['submap_id'],
                                source_generation=request['generation'], content_job_id=request['job_id'])
@@ -211,6 +219,8 @@ class GaussianSubmapWorker:
 
     def _activate(self, request, body):
         target = decode_target(request, body)
+        if self._split is not None:
+            self._split.check_target(target)
         self._track_target(target, True)
         submap = target["submap_id"]
         if submap not in self._known_submaps and len(self._known_submaps) >= 32:
@@ -230,6 +240,9 @@ class GaussianSubmapWorker:
             self.checkpoint_id = None
             return self._reply("activated", request), b""
         state, content, checkpoint = self._source(request)
+        if self._split is not None:
+            # Check before releasing the resident model or rebuilding seeds.
+            self._split.check_state(state)
         if (state.metadata["anchor_keyframe_id"] != target["anchor_keyframe_id"] or
                 not set(_body_poses(state.metadata)) <= _body_poses(target).keys()):
             raise ValueError("Target does not cover the complete source primary membership")
@@ -261,6 +274,9 @@ class GaussianSubmapWorker:
             self.model = OnlineGaussianModel(self.device, options=self._model_options)
             self.model.reset(int(target["generation"]))
             poses = _body_poses(target)
+            if self._split is not None:
+                self.model.training_lineage = [int(item['keyframe_id'])
+                                               for item in state.metadata['holdout']['lineage']]
             totals = {"supervised_depth_pixels": 0, "nonzero_gradient": False, "parameter_updated": False}
             for index, saved in enumerate(state.views):
                 view = dict(saved)
@@ -281,6 +297,14 @@ class GaussianSubmapWorker:
 
     def _view(self, request, body):
         target = decode_target(request, body, 9 * request["width"] * request["height"])
+        view = decode_view(request, body)
+        if self._split is not None:
+            self._split.check_target(target)
+            self._split.check_view(view)
+            for retained in self.model.views:
+                self._split.check_view(retained)
+            if self.model.training_lineage:
+                self._split.check_proof(self._split.proof(self.model.training_lineage))
         if self.current_target is None or any(target[key] != self.current_target[key]
                                               for key in ("submap_id", "generation", "pose_version")):
             raise ValueError("View target has not been activated")
@@ -288,7 +312,7 @@ class GaussianSubmapWorker:
         if self.confirmed_state is not None and not _compatible(self.confirmed_state, target):
             raise ValueError("A changed primary member requires activation/rebuild first")
         _headers(self.model, target, refresh_cameras=True)
-        preview, metrics = self.model.train_candidate(decode_view(request, body), seed_policy=self._seed_policy)
+        preview, metrics = self.model.train_candidate(view, seed_policy=self._seed_policy)
         self.pending = {"request": dict(request), "target": target, "operation": "view"}
         self.current_target = target
         return self._candidate(request, target, "view", preview, metrics)
@@ -307,7 +331,9 @@ class GaussianSubmapWorker:
             else:
                 self.model.decide(True)
                 state = (pending['state'] if self.spatial_render_enabled else
-                         self.model.capture_state(_capture_context(self.model, pending['target'])))
+                         self.model.capture_state(_capture_context(self.model, pending['target'], self._split)))
+                if self._split is not None:
+                    self._split.check_state(state)
                 self.confirmed_state = state
                 self.content = {"submap_id": request["submap_id"], "source_generation": request["generation"],
                                 "content_job_id": request["job_id"]}

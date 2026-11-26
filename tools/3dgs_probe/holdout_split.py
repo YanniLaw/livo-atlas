@@ -44,6 +44,13 @@ def _array(value):
     return np.asarray(value)
 
 
+def _calibration(value, count, decimals):
+    result = np.round(_array(value).reshape(count), decimals)
+    # Canonical JSON distinguishes -0.0 from +0.0, although the camera does not.
+    result[result == 0] = 0.0
+    return result.tolist()
+
+
 def observation_record(view, submap_id, role):
     rgb = _array(view['rgb'])
     if rgb.ndim != 3 or rgb.shape[2] != 3 or not np.isfinite(rgb).all():
@@ -58,8 +65,8 @@ def observation_record(view, submap_id, role):
         result[name] = float(view[name])
         if not math.isfinite(result[name]):
             raise ValueError('Nonfinite observation time')
-    result['intrinsics'] = np.round(_array(view['K']).reshape(9), 10).tolist()
-    result['camera_from_body'] = np.round(_array(view['camera_from_body']).reshape(16), 8).tolist()
+    result['intrinsics'] = _calibration(view['K'], 9, 10)
+    result['camera_from_body'] = _calibration(view['camera_from_body'], 16, 8)
     result['rgb_sha256'] = _sha(np.rint(rgb * 255).astype('u1').tobytes())
     result['rgb_float_sha256'] = _sha(rgb.astype('<f4').tobytes())
     for field, dtype in (('depth_m', '<f4'), ('image_mask', 'u1'), ('depth_mask', 'u1')):
@@ -190,10 +197,13 @@ class HoldoutSplit:
         return key
 
     def check_target(self, target):
-        for entry in target['primary']:
-            frame = self.frames.get(int(entry['keyframe_id']))
-            if frame is None or frame['submap_id'] != target['submap_id']:
-                raise ValueError('Gaussian target differs from frozen primary membership')
+        frontier = _id(target['frame_count'])
+        expected = [str(key) for key, frame in self.frames.items()
+                    if key < frontier and frame['submap_id'] == target['submap_id']]
+        actual = [entry['keyframe_id'] for entry in target['primary']]
+        if (not 0 < frontier <= len(self.frames) or not expected or actual != expected or
+                target['anchor_keyframe_id'] != expected[0]):
+            raise ValueError('Gaussian target differs from frozen primary membership')
 
     def proof(self, ids):
         lineage = []

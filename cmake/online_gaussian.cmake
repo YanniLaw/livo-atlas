@@ -9,6 +9,7 @@ livo_atlas_library(online_gaussian src/gaussian/wire_protocol.cc
   src/gaussian/render_validation.cc
   src/gaussian/render_metadata.cc
   src/gaussian/render_metadata_protocol.cc
+  src/gaussian/holdout_split.cc
   src/gaussian/gaussian_projection.cc
   src/gaussian/finalization.cc src/gaussian/gaussian_render.cc)
 target_include_directories(livo_atlas_online_gaussian PRIVATE ${PROJECT_SOURCE_DIR}/src)

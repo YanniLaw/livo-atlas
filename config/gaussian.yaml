@@ -1,4 +1,8 @@
 gaussian:
+  # Stage 1: freeze training isolation; heldout scoring is a later stage.
+  evaluation:
+    enabled: false
+    split_file: ""
   enabled: false
   persist_submaps: false
   # Use one absolute path for the ROS node and Python worker.

@@ -24,6 +24,8 @@ struct OnlineGaussianOptions {
   std::chrono::milliseconds joint_render_interval{1000};
   std::chrono::milliseconds joint_render_timeout{5000};
   GaussianRenderPolicy joint_render_policy = GaussianRenderPolicy::kTemporal;
+  bool evaluation_enabled = false;
+  std::filesystem::path evaluation_split_file;
 };
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options);

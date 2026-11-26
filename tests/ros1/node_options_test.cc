@@ -360,6 +360,26 @@ TEST_F(Ros1ParametersTest, GaussianPublicationUsesStrictSharedSchema) {
   EXPECT_FALSE(std::filesystem::exists(directory_));
 }
 
+TEST_F(Ros1ParametersTest, HoldoutSplitUsesSharedYamlParameters) {
+  EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.evaluation_enabled);
+  node_->setParam("gaussian/evaluation/enabled", 1);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::exception);
+  node_->setParam("gaussian/evaluation/enabled", true);
+  EXPECT_THROW(ReadNodeOptions(*node_), std::invalid_argument);
+  node_->setParam("gaussian/enabled", true);
+  node_->setParam("gaussian/persist_submaps", true);
+  node_->setParam("gaussian/socket_path", "/tmp/holdout.sock");
+  node_->setParam("gaussian/output_directory", "/tmp/holdout-output");
+  node_->setParam("gaussian/evaluation/split_file", "/tmp/frozen-split.json");
+  node_->setParam("keyframes/enabled", true);
+  node_->setParam("submaps/enabled", true);
+  node_->setParam("submaps/mode", "online");
+  const auto config = ReadNodeOptions(*node_).livo.gaussian;
+  EXPECT_TRUE(config.evaluation_enabled);
+  EXPECT_EQ(config.evaluation_split_file, "/tmp/frozen-split.json");
+  EXPECT_FALSE(std::filesystem::exists(directory_));
+}
+
 TEST_F(Ros1ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
   EXPECT_FALSE(ReadNodeOptions(*node_).livo.gaussian.joint_render_enabled);
   node_->setParam("gaussian/joint_render_enabled", 1);

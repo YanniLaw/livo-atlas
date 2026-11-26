@@ -17,6 +17,9 @@
 这里保存的是每块最近至多 10 个视图的稀疏工作集。Gaussian 不向前端或后端反馈定位测量，
 在线联合渲染读取已确认的最多两块；densification、跨块联合训练和整套 SLAM session 恢复属于后续工作。
 
+可选的[留出数据隔离](gaussian-holdout-isolation.md)先冻结划分，再禁止 heldout 参与
+训练、重建和状态恢复，并保存完整训练 lineage。当前仅实现隔离，没有在线留出评分。
+
 ## 环境与构建
 
 先按[核心构建](core-build.md)准备编译依赖，再按[离线 Gaussian 实验](p6-03b-gpu-probe.md)

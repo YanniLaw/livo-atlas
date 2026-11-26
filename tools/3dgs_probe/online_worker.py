@@ -53,7 +53,7 @@ def _read_when_ready(sock, transfer_timeout):
 
 def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout,
                    joint_render_enabled=False, spatial_render_enabled=False, *,
-                   seed_policy=DEFAULT_SEED_POLICY):
+                   seed_policy=DEFAULT_SEED_POLICY, split=None):
     from gaussian_state import CommitUncertainError
     from submap_worker import GaussianCapacityError, GaussianSubmapWorker
 
@@ -63,12 +63,17 @@ def _serve_submaps(sock, session, directory, model, metadata, transfer_timeout,
         actor = GaussianSubmapWorker(session, Path(directory), model, metadata,
                                      joint_render_enabled=joint_render_enabled,
                                      spatial_render_enabled=spatial_render_enabled,
-                                     seed_policy=seed_policy)
+                                     seed_policy=seed_policy, split=split)
         capabilities = dict(capabilities=["joint_render_v1"]) if joint_render_enabled else {}
         if spatial_render_enabled:
             capabilities['capabilities'].append('joint_render_spatial_v1')
+        if split is not None:
+            from holdout_split import CAPABILITY
+
+            capabilities.setdefault('capabilities', []).append(CAPABILITY)
+            capabilities['split_id'] = split.split_id
         write_message(sock, dict(_base("hello_ok", session, 2), **actor.software, **capabilities,
-                                 mode="persistent_submaps", state_schema=1), b"", transfer_timeout)
+                                 mode="persistent_submaps", state_schema=2 if split is not None else 1), b"", transfer_timeout)
         while True:
             request, body = _read_when_ready(sock, transfer_timeout)
             reply, output = actor.handle(request, body)
@@ -108,11 +113,18 @@ def serve_connection(sock, model_factory=create_model,
     session = None
     schema = 1
     try:
-        hello, _ = read_message(sock, transfer_timeout)
+        hello, hello_body = read_message(sock, transfer_timeout)
         if hello["type"] != "hello":
             raise ValueError("Expected hello")
         session = hello["session_id"]
         schema = hello["schema"]
+        split = None
+        from holdout_split import CAPABILITY, HoldoutSplit
+
+        if CAPABILITY in hello.get('capabilities', []):
+            split = HoldoutSplit(hello_body)
+            if split.split_id != hello['split_id']:
+                raise ValueError('Hello split_id differs from the frozen manifest')
         if seed_policy not in SEED_POLICIES:
             raise ValueError("Unknown Gaussian seed policy")
         if schema == 1 and seed_policy == "coverage":
@@ -128,9 +140,9 @@ def serve_connection(sock, model_factory=create_model,
             return False
         if schema == 2:
             return _serve_submaps(sock, session, hello["state_directory"], model, metadata,
-                                  transfer_timeout, bool(hello.get("capabilities")),
+                                  transfer_timeout, 'joint_render_v1' in hello.get('capabilities', []),
                                   'joint_render_spatial_v1' in hello.get('capabilities', []),
-                                  seed_policy=seed_policy)
+                                  seed_policy=seed_policy, split=split)
         write_message(sock, dict(_base("hello_ok", session), **metadata), b"",
                       transfer_timeout)
         current = None

@@ -109,6 +109,15 @@ LivoConfig LoadLivoConfig(ParameterReader& reader) {
   if (gaussian.persist_submaps && !gaussian.enabled)
     throw std::invalid_argument(
         "Gaussian persistence requires gaussian.enabled");
+  gaussian.evaluation_enabled =
+      reader.Boolean("gaussian.evaluation.enabled", false);
+  gaussian.evaluation_split_file =
+      reader.String("gaussian.evaluation.split_file", "");
+  if (gaussian.evaluation_enabled &&
+      (!gaussian.enabled || !gaussian.persist_submaps ||
+       gaussian.evaluation_split_file.empty()))
+    throw std::invalid_argument(
+        "Gaussian evaluation requires persistence and a frozen split file");
   if (gaussian.enabled) {
     gaussian.socket_path = reader.String("gaussian.socket_path", "");
     gaussian.output_directory = reader.String("gaussian.output_directory", "");

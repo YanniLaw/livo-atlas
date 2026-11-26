@@ -19,6 +19,11 @@ bool ContainsPath(const fs::path& parent, const fs::path& path) {
 }  // namespace
 
 void ValidateOnlineGaussianOptions(const OnlineGaussianOptions& options) {
+  if (options.evaluation_enabled &&
+      (!options.enabled || !options.persist_submaps ||
+       options.evaluation_split_file.empty()))
+    throw std::invalid_argument(
+        "Gaussian evaluation requires persistence and a frozen split file");
   if (options.joint_render_policy != GaussianRenderPolicy::kTemporal &&
       options.joint_render_policy != GaussianRenderPolicy::kSpatial)
     throw std::invalid_argument("Unknown Gaussian joint render policy");

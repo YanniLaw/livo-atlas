@@ -33,6 +33,16 @@ def sample_manifest(count=12):
 
 
 class HoldoutSplitTest(unittest.TestCase):
+    def test_prepared_extrinsics_project_accepted_rounded_body_rotation(self):
+        from prepare_holdout_split import prepare_observation
+
+        view = sample_view(0)
+        view['parent_from_body'] = np.diag([1.0000002, 1, 1, 1])
+        view['camera_from_parent'] = np.eye(4)
+        actual = prepare_observation(view, '0')
+        expected = observation_record(sample_view(0), '0', 'train')
+        self.assertEqual(actual, expected)
+
     def test_canonical_identity_and_predeclared_queries(self):
         manifest = sample_manifest()
         split = HoldoutSplit(canonical_json(manifest))
@@ -98,6 +108,25 @@ class HoldoutSplitTest(unittest.TestCase):
         view['rgb'].flat[0] += 0.00001
         with self.assertRaises(ValueError):
             split.check_view(view)
+
+    def test_signed_zero_calibration_has_the_same_identity(self):
+        split = HoldoutSplit(canonical_json(sample_manifest()))
+        view = sample_view(0)
+        view['camera_from_body'][0, 1] = -0.0
+        view['K'][0, 1] = -0.0
+        self.assertEqual(split.check_view(view), 0)
+
+    def test_target_requires_exact_frozen_membership_at_its_frontier(self):
+        from online_protocol import decode_target
+        from submap_fixtures import target_fixture
+
+        split = HoldoutSplit(canonical_json(sample_manifest()))
+        split.check_target(decode_target(*target_fixture(count=4)))
+        for first, count, frontier in ((2, 2, 4), (0, 1, 12), (0, 12, 99)):
+            header, body = target_fixture(first=first, count=count)
+            header['frame_count'] = str(frontier)
+            with self.subTest(first=first, count=count, frontier=frontier), self.assertRaises(ValueError):
+                split.check_target(decode_target(header, body))
         view = dict(sample_view(0), submap_id='1')
         with self.assertRaises(ValueError):
             split.check_view(view)

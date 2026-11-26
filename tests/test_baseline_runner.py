@@ -12,6 +12,25 @@ from tools import mapping_log, run_baseline, run_ros2_baseline
 
 
 class BaselineRunnerTest(unittest.TestCase):
+    def test_holdout_split_is_explicit_and_shared_by_both_ros_runners(self):
+        for module in (run_baseline, run_ros2_baseline):
+            with tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                split = root / 'split.json'
+                split.write_text('{}')
+                entry = (['--workspace', str(root / 'ws')] if module is run_baseline
+                         else ['--executable', str(root / 'node')])
+                flags = entry + ['--bag', str(root / 'bag'), '--output', str(root / 'output'),
+                    '--submap-mode', 'online', '--loop-closure',
+                    '--gaussian-socket', str(root / 's'), '--gaussian-output', str(root / 'g'),
+                    '--gaussian-evaluation-split', str(split)]
+                with self.assertRaises(SystemExit):
+                    module.parse_arguments(flags)
+                args = module.parse_arguments(flags + ['--gaussian-persist-submaps'])
+                params = module.gaussian_parameters(args)
+                self.assertTrue(params['gaussian.evaluation.enabled'])
+                self.assertEqual(params['gaussian.evaluation.split_file'], str(split))
+
     def test_fixed_rate_boundary_excludes_a_live_publishers_teardown(self):
         launch_before = time.monotonic()
         publisher = subprocess.Popen([sys.executable, '-c',

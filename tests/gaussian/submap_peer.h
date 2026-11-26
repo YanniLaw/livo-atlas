@@ -70,6 +70,7 @@ class SubmapPeer {
   std::atomic<bool> hold_render{false}, oom_render{false},
       no_render_capability{false};
   std::atomic<bool> no_spatial_capability{false}, omit_spatial_metadata{false};
+  std::atomic<bool> unsolicited_holdout{false};
   std::atomic<bool> alter_reuse_metadata{false};
   std::atomic<bool> alter_candidate_focal{false}, alter_candidate_time{false},
       alter_candidate_extrinsic{false}, alter_rebuild_camera{false};
@@ -121,20 +122,35 @@ class SubmapPeer {
               (input["submap_id"].empty() ? "" : Text(input["submap_id"])));
         }
         if (kind == "hello") {
-          spatial = input["capabilities"].size() == 2 &&
-                    !no_spatial_capability;
-          if (!input["capabilities"].empty() && !no_render_capability) {
-            out << "capabilities" << "[" << "joint_render_v1";
+          bool joint = false, holdout = false;
+          spatial = false;
+          for (const auto& capability : input["capabilities"]) {
+            const auto name = Text(capability);
+            joint |= name == "joint_render_v1";
+            spatial |= name == "joint_render_spatial_v1";
+            holdout |= name == "holdout_split_v1";
+          }
+          spatial &= !no_spatial_capability;
+          holdout |= unsolicited_holdout;
+          if ((!input["capabilities"].empty() || holdout) &&
+              !no_render_capability) {
+            out << "capabilities" << "[";
+            if (joint) out << "joint_render_v1";
             if (spatial) out << "joint_render_spatial_v1";
+            if (holdout) out << "holdout_split_v1";
             out << "]";
           }
+          if (holdout)
+            out << "split_id"
+                << (unsolicited_holdout ? std::string(64, 'a')
+                                        : Text(input["split_id"]));
           states = Text(input["state_directory"]);
           fs::create_directory(states);
           out << "type"
               << "hello_ok"
               << "mode"
               << "persistent_submaps"
-              << "state_schema" << 1;
+              << "state_schema" << (holdout ? 2 : 1);
           for (const auto* key :
                {"python", "torch", "gsplat", "cuda", "device"})
             out << key << "controlled";

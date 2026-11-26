@@ -94,8 +94,9 @@ def _pose(value):
 
 
 def _metadata(data):
-    _keys(data, _METADATA, _HASHES)
-    if (type(data["schema"]) is not int or data["schema"] != 1 or
+    version = data.get('schema') if isinstance(data, dict) else None
+    _keys(data, _METADATA | ({'holdout'} if type(version) is int and version == 2 else set()), _HASHES)
+    if (type(data["schema"]) is not int or data["schema"] not in (1, 2) or
             data["kind"] != "livo_atlas.gaussian_state" or
             data["representation"] != "gsplat-sh0-window-v1" or
             data["optimizer"] != "reset_on_restore" or
@@ -123,6 +124,27 @@ def _metadata(data):
         if offset == 0 and not np.allclose(pose, np.eye(4), atol=1e-8, rtol=0):
             raise ValueError("The anchor body must define the local origin")
         body_poses[key] = pose
+    if version == 2:
+        from holdout_split import canonical_json
+
+        proof = data['holdout']
+        _keys(proof, {'split_id', 'lineage', 'lineage_sha256'})
+        for name in ('split_id', 'lineage_sha256'):
+            if not isinstance(proof[name], str) or not re.fullmatch(r'[0-9a-f]{64}', proof[name]):
+                raise ValueError('Invalid holdout provenance digest')
+        lineage = proof['lineage']
+        if not isinstance(lineage, list) or not 1 <= len(lineage) <= 512:
+            raise ValueError('Invalid complete training lineage')
+        keys = []
+        for item in lineage:
+            _keys(item, {'keyframe_id', 'observation_sha256'})
+            keys.append(_unsigned(item['keyframe_id']))
+            if (keys[-1] not in body_poses or not isinstance(item['observation_sha256'], str) or
+                    not re.fullmatch(r'[0-9a-f]{64}', item['observation_sha256'])):
+                raise ValueError('Training lineage exceeds its primary membership')
+        if (keys != sorted(set(keys)) or
+                hashlib.sha256(canonical_json(lineage)).hexdigest() != proof['lineage_sha256']):
+            raise ValueError('Training lineage digest mismatch')
     if (data["submap_state"] not in ("active", "sealed") or
             ids["membership_revision"] != len(primary) + (data["submap_state"] == "sealed")):
         raise ValueError("Membership revision disagrees with submap state")
@@ -209,6 +231,10 @@ def _describe(state):
     counts = dict(zip(*np.unique(state.origin_ids, return_counts=True)))
     if set(counts) != set(keys) or any(count > 1000 for count in counts.values()):
         raise ValueError("Gaussian origins disagree with retained views")
+    if state.metadata['schema'] == 2:
+        lineage = {int(item['keyframe_id']) for item in state.metadata['holdout']['lineage']}
+        if not set(keys) <= lineage:
+            raise ValueError('Retained views are absent from the complete training lineage')
     if not np.allclose(np.linalg.norm(state.parameters["quats"], axis=1), 1, atol=1e-5, rtol=0):
         raise ValueError("Gaussian quaternions must be normalized")
     scales = state.parameters["log_scales"]
@@ -390,7 +416,8 @@ def read_state(path: Path) -> GaussianState:
     with _open_file(path / "manifest.json", _LIMITS["manifest.json"]) as stream:
         manifest = json.loads(stream.read(), object_pairs_hook=_unique_object,
                               parse_constant=_reject_constant)
-    _keys(manifest, _METADATA | {"files", "views", "gaussian_count"}, _HASHES)
+    version_fields = {'holdout'} if type(manifest.get('schema')) is int and manifest['schema'] == 2 else set()
+    _keys(manifest, _METADATA | {"files", "views", "gaussian_count"} | version_fields, _HASHES)
     metadata = {key: value for key, value in manifest.items()
                 if key not in ("files", "views", "gaussian_count")}
     body_poses = _metadata(metadata)

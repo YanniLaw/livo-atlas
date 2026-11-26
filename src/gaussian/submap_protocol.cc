@@ -289,16 +289,25 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
     ValidateGaussianRenderMessage(root, body);
     return;
   }
+  bool holdout = false;
   if (root["capabilities"].type() != cv::FileNode::NONE) {
     const auto capabilities = root["capabilities"];
-    Require((kind == "hello" || kind == "hello_ok") &&
-                capabilities.isSeq() &&
-                (capabilities.size() == 1 || capabilities.size() == 2) &&
-                static_cast<std::string>(capabilities[0]) == "joint_render_v1"
-                && (capabilities.size() == 1 ||
-                    static_cast<std::string>(capabilities[1]) ==
-                        "joint_render_spatial_v1"),
-            "Invalid render capabilities");
+    std::vector<std::string> names;
+    for (const auto& value : capabilities)
+      names.push_back(static_cast<std::string>(value));
+    holdout = !names.empty() && names.back() == "holdout_split_v1";
+    auto render = names;
+    if (holdout) render.pop_back();
+    Require((kind == "hello" || kind == "hello_ok") && capabilities.isSeq() &&
+                !names.empty() &&
+                ((holdout && render.empty()) ||
+                 render == std::vector<std::string>{"joint_render_v1"} ||
+                 render == std::vector<std::string>{"joint_render_v1",
+                                                    "joint_render_spatial_v1"}),
+            "Invalid Gaussian capabilities");
+    if (holdout)
+      Require(Hex(String(root, "split_id"), 64),
+              "Invalid Gaussian split digest");
   }
   Require(Hex(String(root, "session_id"), 32), "Invalid session ID");
   auto required = Base();
@@ -308,6 +317,7 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
   if (kind == "hello") {
     required = Base(false);
     required.insert("state_directory");
+    if (holdout) required.insert("split_id");
     Keys(root, required, {"capabilities"});
     const auto name = String(root, "state_directory");
     const std::filesystem::path path(name);
@@ -317,13 +327,19 @@ void ValidateGaussianSubmapMessage(const cv::FileNode& root,
                 std::none_of(path.begin(), path.end(),
                              [](const auto& part) { return part == ".."; }),
             "Expected a normalized absolute states directory");
+    if (holdout) {
+      Require(!body.empty() && body.size() <= 1024 * 1024,
+              "Split exceeds the hello body budget");
+      return;
+    }
   } else if (kind == "hello_ok") {
     required = Base(false);
     required.insert({"mode", "state_schema", "python", "torch", "gsplat",
                      "cuda", "device", "gpu_free_bytes", "gpu_total_bytes"});
+    if (holdout) required.insert("split_id");
     Keys(root, required, {"capabilities"});
     Require(String(root, "mode") == "persistent_submaps" &&
-                Integer(root, "state_schema", 1, 1) == 1,
+                Integer(root, "state_schema", 1, 2) == (holdout ? 2 : 1),
             "Worker lacks persistent submap support");
     for (const auto* name : {"python", "torch", "gsplat", "cuda", "device"}) {
       const auto value = String(root, name);

@@ -20,6 +20,7 @@
 #include "livo_atlas/gaussian/gaussian_map_index.h"
 #include "livo_atlas/gaussian/gaussian_render.h"
 #include "livo_atlas/gaussian/gaussian_render_snapshot.h"
+#include "livo_atlas/gaussian/holdout_split.h"
 
 namespace livo_atlas {
 
@@ -203,6 +204,7 @@ class OnlineGaussianMapper {
   LivoSystem& system_;
   const CameraConfig camera_;
   const OnlineGaussianOptions options_;
+  std::optional<GaussianHoldoutSplit> evaluation_split_;
   const std::string session_id_;
   std::optional<OnlineSubmap> submap_;
   std::shared_ptr<const Keyframe> latest_keyframe_;

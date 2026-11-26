@@ -12,6 +12,8 @@ def nonempty_path(value):
 
 
 def add_gaussian_arguments(parser):
+    parser.add_argument('--gaussian-evaluation-split', type=nonempty_path,
+                        help='Frozen pre-training manifest; requires persistent Gaussian submaps')
     parser.add_argument('--gaussian-socket', type=nonempty_path,
                         help='Socket of an already started online Gaussian worker')
     parser.add_argument('--gaussian-output', type=nonempty_path,
@@ -34,6 +36,10 @@ def add_gaussian_arguments(parser):
 
 
 def validate_gaussian_arguments(args, parser, working_dataset):
+    if args.gaussian_evaluation_split and not args.gaussian_persist_submaps:
+        parser.error('--gaussian-evaluation-split requires --gaussian-persist-submaps')
+    if args.gaussian_evaluation_split and not args.gaussian_evaluation_split.is_file():
+        parser.error('--gaussian-evaluation-split must name an existing manifest')
     if args.gaussian_publish_preview and not args.gaussian_joint_render:
         parser.error('--gaussian-publish-preview requires --gaussian-joint-render')
     frame = args.gaussian_preview_frame_id
@@ -93,4 +99,7 @@ def gaussian_parameters(args):
     if args.gaussian_finalize_on_shutdown:
         parameters['gaussian.finalize_on_shutdown'] = True
         parameters['gaussian.finalize_timeout_ms'] = args.gaussian_finalize_timeout_ms
+    if args.gaussian_evaluation_split:
+        parameters['gaussian.evaluation.enabled'] = True
+        parameters['gaussian.evaluation.split_file'] = str(args.gaussian_evaluation_split.resolve())
     return parameters

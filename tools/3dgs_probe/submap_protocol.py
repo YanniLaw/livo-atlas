@@ -90,14 +90,23 @@ def _frame_ids(header):
 
 
 def validate_message(header, body):
+    from holdout_split import CAPABILITY, MAX_SPLIT_BYTES
+
     if header.get('type') in ('joint_render', 'joint_render_ok', 'joint_render_error'):
         from joint_render_protocol import validate_render_message
         return validate_render_message(header, body)
     if 'capabilities' in header:
         if (header.get('type') not in ('hello', 'hello_ok') or
                 header['capabilities'] not in (['joint_render_v1'],
-                    ['joint_render_v1', 'joint_render_spatial_v1'])):
+                    ['joint_render_v1', 'joint_render_spatial_v1'], [CAPABILITY],
+                    ['joint_render_v1', CAPABILITY],
+                    ['joint_render_v1', 'joint_render_spatial_v1', CAPABILITY])):
             raise ValueError('Invalid requested render capabilities')
+    holdout = CAPABILITY in header.get('capabilities', [])
+    split_fields = {'split_id'} if holdout else set()
+    if holdout and (not isinstance(header.get('split_id'), str) or
+                    not re.fullmatch(r'[0-9a-f]{64}', header['split_id'])):
+        raise ValueError('Invalid Gaussian split digest')
     session = header.get("session_id")
     if not isinstance(session, str) or not _SESSION.fullmatch(session):
         raise ValueError("Invalid session ID")
@@ -109,16 +118,20 @@ def validate_message(header, body):
         for name in _JOB_FIELDS:
             _unsigned(header.get(name), name)
     if kind == "hello":
-        _fields(header, _BASE_FIELDS | {"state_directory"}, {"capabilities"})
+        _fields(header, _BASE_FIELDS | {"state_directory"} | split_fields, {"capabilities"})
         path = header["state_directory"]
         if (not isinstance(path, str) or "\0" in path or not path.startswith("/") or
                 str(PurePosixPath(path)) != path or PurePosixPath(path).name != "states" or
                 ".." in PurePosixPath(path).parts):
             raise ValueError("Expected a normalized absolute states directory")
+        if holdout:
+            if not 0 < len(body) <= MAX_SPLIT_BYTES:
+                raise ValueError('Split exceeds the hello body budget')
+            return
     elif kind == "hello_ok":
         _fields(header, _BASE_FIELDS | {"mode", "state_schema", "python", "torch", "gsplat",
-                                       "cuda", "device", "gpu_free_bytes", "gpu_total_bytes"}, {"capabilities"})
-        if header["mode"] != "persistent_submaps" or type(header["state_schema"]) is not int or header["state_schema"] != 1:
+                                       "cuda", "device", "gpu_free_bytes", "gpu_total_bytes"} | split_fields, {"capabilities"})
+        if header["mode"] != "persistent_submaps" or type(header["state_schema"]) is not int or header["state_schema"] != (2 if holdout else 1):
             raise ValueError("Worker does not support persistent submaps")
         for name in ("python", "torch", "gsplat", "cuda", "device"):
             if not isinstance(header[name], str) or not 1 <= len(header[name]) <= 128:

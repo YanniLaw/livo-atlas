@@ -61,6 +61,7 @@ class OnlineGaussianModel:
         self.options = options
         self.generation = None
         self.views = []
+        self.training_lineage = []
         self.parameters = None
         self.origin_ids = None
         self.optimizer = None
@@ -75,6 +76,7 @@ class OnlineGaussianModel:
             raise ValueError("Invalid model generation")
         self.generation = generation
         self.views = []
+        self.training_lineage = []
         self.parameters = None
         self.origin_ids = None
         self.optimizer = None
@@ -97,7 +99,7 @@ class OnlineGaussianModel:
             raise ValueError("Capture context cannot override generated metadata")
         metadata = copy.deepcopy({key: value for key, value in context.items()
                                   if key != "source_cameras"})
-        metadata.update(schema=1, kind="livo_atlas.gaussian_state",
+        metadata.update(schema=2 if 'holdout' in context else 1, kind="livo_atlas.gaussian_state",
                         representation="gsplat-sh0-window-v1", optimizer="reset_on_restore",
                         software={"python": sys.version.split()[0], "numpy": np.__version__,
                                   "torch": str(torch.__version__), "cuda": torch.version.cuda or "unknown",
@@ -153,6 +155,8 @@ class OnlineGaussianModel:
         model = cls(device, options=options)
         metadata = state.metadata
         model.generation = int(metadata["generation"])
+        model.training_lineage = [int(item['keyframe_id']) for item in
+                                  metadata.get('holdout', {}).get('lineage', [])]
         model.parameters = {}
         for name, value in state.parameters.items():
             tensor = torch.as_tensor(value.copy(), dtype=torch.float32, device=model.device)
@@ -310,6 +314,9 @@ class OnlineGaussianModel:
                     not math.isfinite(metrics["depth_l1_m"])):
                 raise RuntimeError("Evaluation metric is nonfinite")
             self.candidate_pending = True
+            # Window eviction removes observations/Gaussians, but cannot undo
+            # their past gradients. Keep every seed and actual loss source.
+            self.training_lineage = sorted(set(self.training_lineage) | set(schedule) | {frame_id})
             return preview, metrics
         except Exception:
             self.reset(self.generation)

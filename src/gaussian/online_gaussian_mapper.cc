@@ -80,6 +80,9 @@ OnlineGaussianMapper::OnlineGaussianMapper(LivoSystem& system,
       map_index_(session_id_) {
   ValidateOnlineGaussianOptions(options_);
   if (!options_.enabled) return;
+  if (options_.evaluation_enabled)
+    evaluation_split_ =
+        GaussianHoldoutSplit::Read(options_.evaluation_split_file);
   const auto camera_error = ValidateCameraConfig(camera_);
   if (!camera_error.empty()) throw std::invalid_argument(camera_error);
   OnlineSubmapDelta initial;
@@ -198,7 +201,13 @@ void OnlineGaussianMapper::ObserveUpdate(
       ++stats_.observed;
       if (!options_.persist_submaps) latest_keyframe_ = keyframe;
     }
-    const auto& source = keyframe ? keyframe : latest_keyframe_;
+    if (keyframe && !submap_)
+      throw std::invalid_argument("Gaussian keyframe lacks primary membership");
+    const bool train =
+        !keyframe || !evaluation_split_ ||
+        evaluation_split_->ValidateFrame(*keyframe, submap_->primary.id);
+    const auto source =
+        keyframe ? (train ? keyframe : nullptr) : latest_keyframe_;
     if ((keyframe || reset) && source && submap_) {
       if (pending_) ++stats_.coalesced;
       pending_ = Source{source, poses, *submap_, generation_, 0, Clock::now(),
@@ -563,17 +572,24 @@ void OnlineGaussianMapper::Run() noexcept {
         fd,
         {Json([&](auto& out) {
            Base(out, "hello", session_id_, options_.persist_submaps ? 2 : 1);
-           if (options_.joint_render_enabled) {
-             out << "capabilities" << "[" << "joint_render_v1";
+           if (options_.joint_render_enabled || evaluation_split_) {
+             out << "capabilities" << "[";
+             if (options_.joint_render_enabled) out << "joint_render_v1";
              if (spatial) out << "joint_render_spatial_v1";
+             if (evaluation_split_) out << "holdout_split_v1";
              out << "]";
            }
+           if (evaluation_split_)
+             out << "split_id" << evaluation_split_->split_id();
            if (options_.persist_submaps)
              out << "state_directory"
                  << (fs::canonical(options_.output_directory) / "states")
                         .string();
          }),
-         {}},
+         evaluation_split_
+             ? std::vector<std::uint8_t>(evaluation_split_->payload().begin(),
+                                         evaluation_split_->payload().end())
+             : std::vector<std::uint8_t>{}},
         options_.transfer_timeout);
     const auto hello = ReadGaussianMessage(fd, options_.connect_timeout);
     const auto greeting =
@@ -581,17 +597,27 @@ void OnlineGaussianMapper::Run() noexcept {
     if (static_cast<int>(greeting["schema"]) !=
         (options_.persist_submaps ? 2 : 1))
       throw std::runtime_error("Gaussian worker protocol mode mismatch");
-    if (options_.joint_render_enabled &&
-        (!greeting["capabilities"].isSeq() ||
-         greeting["capabilities"].size() < 1 ||
-         static_cast<std::string>(greeting["capabilities"][0]) !=
-             "joint_render_v1"))
-      throw std::runtime_error("Worker lacks joint_render_v1 capability");
-    if (options_.joint_render_enabled &&
-        greeting["capabilities"].size() != (spatial ? 2u : 1u))
-      throw std::runtime_error(spatial
-          ? "Worker lacks joint_render_spatial_v1 capability"
-          : "Unexpected Gaussian render capability");
+    if (options_.persist_submaps) {
+      std::vector<std::string> expected;
+      if (options_.joint_render_enabled) expected.push_back("joint_render_v1");
+      if (spatial) expected.push_back("joint_render_spatial_v1");
+      if (evaluation_split_) expected.push_back("holdout_split_v1");
+      const auto capabilities = greeting["capabilities"];
+      std::vector<std::string> actual;
+      for (const auto& value : capabilities)
+        actual.push_back(static_cast<std::string>(value));
+      if (actual != expected || static_cast<int>(greeting["state_schema"]) !=
+                                    (evaluation_split_ ? 2 : 1)) {
+        std::string detail = "Gaussian worker capability mismatch; expected:";
+        for (const auto& name : expected) detail += " " + name;
+        detail += "; received:";
+        for (const auto& name : actual) detail += " " + name;
+        throw std::runtime_error(detail);
+      }
+      if (evaluation_split_ && static_cast<std::string>(greeting["split_id"]) !=
+                                   evaluation_split_->split_id())
+        throw std::runtime_error("Gaussian worker split identity mismatch");
+    }
     post({ReplyKind::kConnected});
 
     while (!stopping_) {

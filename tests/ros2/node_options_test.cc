@@ -538,6 +538,42 @@ TEST(Ros2ParametersTest, GaussianPublicationUsesStrictSharedSchema) {
   EXPECT_FALSE(std::filesystem::exists(directory));
 }
 
+TEST(Ros2ParametersTest, HoldoutSplitUsesSharedYamlParameters) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("holdout-schema-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto params = test::Parameters(directory.string());
+  params.emplace_back("gaussian.evaluation.enabled", 1);
+  {
+    rclcpp::Node node("holdout_type",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::exception);
+  }
+  params.back() = rclcpp::Parameter("gaussian.evaluation.enabled", true);
+  {
+    rclcpp::Node node("holdout_requires_persistence",
+                      rclcpp::NodeOptions().parameter_overrides(params));
+    EXPECT_THROW(ReadNodeOptions(node), std::invalid_argument);
+  }
+  params.emplace_back("gaussian.enabled", true);
+  params.emplace_back("gaussian.persist_submaps", true);
+  params.emplace_back("gaussian.socket_path", "/tmp/holdout.sock");
+  params.emplace_back("gaussian.output_directory", "/tmp/holdout-output");
+  params.emplace_back("gaussian.evaluation.split_file",
+                      "/tmp/frozen-split.json");
+  params.emplace_back("keyframes.enabled", true);
+  params.emplace_back("submaps.enabled", true);
+  params.emplace_back("submaps.mode", "online");
+  rclcpp::Node node("holdout_shared",
+                    rclcpp::NodeOptions().parameter_overrides(params));
+  const auto config = ReadNodeOptions(node).livo.gaussian;
+  EXPECT_TRUE(config.evaluation_enabled);
+  EXPECT_EQ(config.evaluation_split_file, "/tmp/frozen-split.json");
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
 TEST(Ros2ParametersTest, GaussianJointRenderUsesStrictSharedSchema) {
   const auto directory =
       std::filesystem::temp_directory_path() /

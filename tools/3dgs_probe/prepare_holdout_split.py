@@ -8,7 +8,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 
 from bundle import load_bundle
-from gaussian_map import _yaml
+from gaussian_map import _project, _yaml
 from holdout_split import build_manifest, canonical_json, observation_record
 
 
@@ -20,6 +20,15 @@ def file_sha(path):
         for block in iter(lambda: source.read(1024 * 1024), b''):
             digest.update(block)
     return digest.hexdigest()
+
+
+def prepare_observation(view, submap_id):
+    # Match the native reconstruction/online path, which projects accepted
+    # rounded rotations onto SO(3) before composing an independent C_B.
+    view = dict(view)
+    view['camera_from_body'] = view['camera_from_parent'] @ _project(view['parent_from_body'])
+    return observation_record(view, submap_id,
+                              'heldout' if view['keyframe_id'] % 8 == 1 else 'train')
 
 
 def prepare(dataset, preparer, input_file, frontend_profile, frame_count, output):
@@ -56,9 +65,7 @@ def prepare(dataset, preparer, input_file, frontend_profile, frame_count, output
                 key = view['keyframe_id']
                 if key < begin:
                     continue
-                view['camera_from_body'] = view['camera_from_parent'] @ view['parent_from_body']
-                frames.append(observation_record(view, membership[key],
-                                                'heldout' if key % 8 == 1 else 'train'))
+                frames.append(prepare_observation(view, membership[key]))
                 directory = dataset / 'frames' / str(key)
                 assets.append(dict(keyframe_id=str(key), image_sha256=file_sha(directory / 'image.png'),
                                    cloud_sha256=file_sha(directory / 'cloud.pcd'),

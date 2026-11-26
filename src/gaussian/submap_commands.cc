@@ -113,20 +113,31 @@ OnlineGaussianMapper::Reply OnlineGaussianMapper::RunSubmapCommand(
   std::optional<GaussianCamera> sent_camera;
   if (command.kind == CommandKind::kView) {
     const auto& frame = *command.source.keyframe;
+    if (evaluation_split_)
+      evaluation_split_->ValidateTraining(frame,
+                                          command.target.group.primary.id);
     reply.kind = ReplyKind::kSkipped;
     if (frame.image.empty() || !frame.image_timestamp ||
         !frame.camera_from_odom) {
+      if (evaluation_split_)
+        throw std::invalid_argument("Frozen Gaussian observation has no image");
       reply.detail = "no_image";
       return reply;
     }
     if (!frame.cloud || frame.cloud->size() > 100000 ||
         frame.image.total() > 1000000) {
+      if (evaluation_split_)
+        throw std::invalid_argument(
+            "Frozen Gaussian observation exceeds input bounds");
       reply.detail = "limit";
       return reply;
     }
     view = MakeReconstructionView(camera_, frame, *command.source.poses,
                                   {1000000, 100000});
     if (!view->valid_depth_pixels) {
+      if (evaluation_split_)
+        throw std::invalid_argument(
+            "Frozen Gaussian observation has no usable depth");
       reply.detail = "no_depth";
       return reply;
     }

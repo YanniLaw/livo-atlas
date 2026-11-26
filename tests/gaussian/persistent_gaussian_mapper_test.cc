@@ -98,10 +98,38 @@ class PersistentGaussianMapperTest : public testing::Test {
     if (image) frame->image = cv::Mat(6, 8, CV_8UC3, cv::Scalar(10, 20, 30));
     PointCloud::Ptr cloud(new PointCloud);
     Point point{};
-    point.z = 4;
+    point.z = no_depth_ ? -4 : 4;
     cloud->push_back(point);
+    if (oversized_cloud_) cloud->resize(100001);
     frame->cloud = cloud;
     return frame;
+  }
+
+  void EnableHoldout() {
+    mapper_.reset();
+    peer_.reset();
+    fs::remove_all(options_.output_directory);
+    options_.evaluation_enabled = true;
+    options_.evaluation_split_file = root_ / "split.json";
+    {
+      std::ofstream out(options_.evaluation_split_file);
+      out << R"({"schema":1,"kind":"livo_atlas.gaussian_split","split_id":")"
+          << std::string(64, 'a') << R"(","source":{},"frames":[)";
+      for (int id = 0; id < 3; ++id) {
+        if (id) out << ',';
+        out << "{\"keyframe_id\":\"" << id
+            << "\",\"calibration_id\":\"0\",\"submap_id\":\"0\",\"role\":\""
+            << (id == 1 ? "heldout" : "train")
+            << "\",\"state_timestamp\":" << 100 + id
+            << ",\"cloud_timestamp\":" << 100 + id
+            << ",\"image_timestamp\":" << 100 + id << '}';
+      }
+      out << "]}";
+    }
+    peer_ = std::make_unique<SubmapPeer>(options_.socket_path);
+    mapper_ = std::make_unique<OnlineGaussianMapper>(
+        *system_, CameraConfig{"Pinhole", 8, 6, 1, 4, 4, 3.5, 2.5, {}},
+        options_);
   }
 
   void Append(bool new_group = false, bool image = true) {
@@ -177,6 +205,7 @@ class PersistentGaussianMapperTest : public testing::Test {
   std::vector<OnlineSubmap> groups_;
   std::uint64_t accepted_ = 0;
   bool rounded_camera_ = false;
+  bool no_depth_ = false, oversized_cloud_ = false;
 };
 
 TEST_F(PersistentGaussianMapperTest,
@@ -185,6 +214,63 @@ TEST_F(PersistentGaussianMapperTest,
   Append();
   ASSERT_TRUE(Wait([&] { return mapper_->GetStats().accepted == 1; }));
   EXPECT_EQ(mapper_->GetStats().failed, 0u);
+}
+
+TEST_F(PersistentGaussianMapperTest,
+       HeldoutArrivalPreservesPendingTrainingAndCompletePrimaryMembership) {
+  EnableHoldout();
+  Append();
+  Append();  // Heldout ID 1 must not replace the still-pending training ID 0.
+  Confirm();
+  EXPECT_EQ(mapper_->GetLatestPreview()->frame_ids,
+            (std::vector<std::uint64_t>{0}));
+  Append();
+  Confirm();
+  EXPECT_EQ(mapper_->GetLatestPreview()->frame_ids,
+            (std::vector<std::uint64_t>{0, 2}));
+  EXPECT_EQ(Entry(0).group.primary.keyframe_ids,
+            (std::vector<std::uint64_t>{0, 1, 2}));
+  EXPECT_EQ(peer_->views, 2);
+  mapper_->Finish();
+  EXPECT_EQ(mapper_->GetStats().failed, 0u);
+}
+
+TEST_F(PersistentGaussianMapperTest, EvaluationFailsClosedOnUnverifiableImage) {
+  EnableHoldout();
+  Append(false, false);
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
+  EXPECT_EQ(mapper_->GetStats().skipped_no_image, 0u);
+  EXPECT_EQ(peer_->views, 0);
+}
+
+TEST_F(PersistentGaussianMapperTest, EvaluationFailsClosedOnUnverifiableDepth) {
+  EnableHoldout();
+  no_depth_ = true;
+  Append();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
+  EXPECT_EQ(mapper_->GetStats().skipped_no_depth, 0u);
+  EXPECT_EQ(peer_->views, 0);
+}
+
+TEST_F(PersistentGaussianMapperTest, EvaluationFailsClosedOnUnverifiableCloud) {
+  EnableHoldout();
+  oversized_cloud_ = true;
+  Append();
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
+  EXPECT_EQ(mapper_->GetStats().resource_limited, 0u);
+  EXPECT_EQ(peer_->views, 0);
+}
+
+TEST_F(PersistentGaussianMapperTest, RejectsUnsolicitedEvaluationUpgrade) {
+  mapper_.reset();
+  peer_.reset();
+  fs::remove_all(options_.output_directory);
+  peer_ = std::make_unique<SubmapPeer>(options_.socket_path);
+  peer_->unsolicited_holdout = true;
+  mapper_ = std::make_unique<OnlineGaussianMapper>(
+      *system_, CameraConfig{"Pinhole", 8, 6, 1, 4, 4, 3.5, 2.5, {}}, options_);
+  ASSERT_TRUE(Wait([&] { return mapper_->GetStats().failed == 1; }));
+  EXPECT_EQ(peer_->views, 0);
 }
 
 TEST_F(PersistentGaussianMapperTest,
