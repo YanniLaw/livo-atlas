@@ -48,6 +48,21 @@ def invalidated():
 
 
 class GaussianPublicationRecordTest(unittest.TestCase):
+    def test_normalizes_middleware_camera_scalars_to_owned_json_numbers(self):
+        # ROS2 fixed arrays contain NumPy scalars. A float subclass exercises
+        # the same non-builtin scalar boundary without a NumPy test dependency.
+        class MiddlewareFloat(float):
+            pass
+
+        source = message()
+        source.k = [MiddlewareFloat(value) for value in source.k]
+        record = gaussian_render_record(source, lambda stamp: stamp)
+        self.assertTrue(all(type(value) is float for value in record['k']))
+        self.assertEqual(record['k'], [4., 0., 3.5, 0., 4., 2.5, 0., 0., 1.])
+        json.dumps(record, allow_nan=False)
+        source.k[2] = 99.
+        self.assertEqual(record['k'][2], 3.5)
+
     def test_records_own_pixels_metadata_and_full_uint64_values(self):
         source = message()
         value = gaussian_render_record(source, lambda stamp: stamp)

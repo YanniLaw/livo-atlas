@@ -124,7 +124,7 @@ def gaussian_render_record(message, stamp_ns):
     result.update({key: getattr(message, key) for key in
         ('producer_id', 'session_id', 'reason', 'parent_frame', 'policy', 'neighbor_reason')})
     result.update(frame_id=message.header.frame_id, stamp_ns=int(stamp_ns(message.header.stamp)),
-        capture_time=float(message.capture_time), k=list(message.k),
+        capture_time=float(message.capture_time), k=[float(value) for value in message.k],
         projection_uncertain=bool(message.projection_uncertain), sources=[],
         received_at_steady_seconds=time.monotonic())
     _require(len(message.sources) <= 2, 'Too many Gaussian sources')
