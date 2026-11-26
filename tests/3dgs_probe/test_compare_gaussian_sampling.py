@@ -433,6 +433,70 @@ class SamplingComparisonTest(unittest.TestCase):
             self.configure_ratio(root, .25)
             self.configure_sampling(root, 'replace')
 
+    def archive_config(self, root, config):
+        import hashlib
+        import yaml
+        raw = yaml.safe_dump(config).encode()
+        (root / 'config.yaml').write_bytes(raw)
+        path = root / 'report.json'
+        report = json.loads(path.read_text())
+        report['config_sha256'] = hashlib.sha256(raw).hexdigest()
+        path.write_text(json.dumps(report))
+
+    def test_freeze_accepts_aliased_defaults_with_only_worker_override(self):
+        import yaml
+        self.freeze_pair()
+        self.configure_learning_rates(self.baseline, means=.0005)
+        self.configure_learning_rates(self.candidate, means=0.)
+        for root in (self.baseline, self.candidate):
+            config = yaml.safe_load((root / 'config.yaml').read_text())
+            config['default_rates'] = {'means': .0005}
+            if root == self.baseline:
+                config['gaussian']['worker']['learning_rates'] = config['default_rates']
+            self.archive_config(root, config)
+        result = compare(self.baseline, self.candidate, self.root / 'aliased-defaults',
+                         frozen_parameter='means')
+        self.assertEqual(result['status'], 'succeeded')
+
+    def test_freeze_rejects_rate_change_aliased_into_another_section(self):
+        import yaml
+        self.freeze_pair()
+        self.configure_learning_rates(self.baseline, means=.0005)
+        self.configure_learning_rates(self.candidate, means=0.)
+        for root in (self.baseline, self.candidate):
+            config = yaml.safe_load((root / 'config.yaml').read_text())
+            config['other_rates'] = config['gaussian']['worker']['learning_rates']
+            self.archive_config(root, config)
+        with self.assertRaisesRegex(ValueError, 'config'):
+            compare(self.baseline, self.candidate, self.root / 'aliased-other',
+                    frozen_parameter='means')
+
+    def test_freeze_rejects_mapping_key_type_changes(self):
+        import yaml
+        self.freeze_pair()
+        self.configure_learning_rates(self.candidate, means=0.)
+        for index, (old, new) in enumerate(((1, '1'), (False, 'false'), (None, 'null'))):
+            for root, key in ((self.baseline, old), (self.candidate, new)):
+                config = yaml.safe_load((root / 'config.yaml').read_text())
+                config['sensor_profiles'] = {key: 'camera'}
+                self.archive_config(root, config)
+            with self.subTest(key=old), self.assertRaisesRegex(ValueError, 'config'):
+                compare(self.baseline, self.candidate, self.root / f'key-type-{index}',
+                        frozen_parameter='means')
+
+    def test_freeze_rejects_unrelated_sampling_default_spelling_change(self):
+        import yaml
+        self.freeze_pair()
+        for root in (self.baseline, self.candidate):
+            self.configure_sampling(root, 'resample')
+        self.configure_learning_rates(self.candidate, means=0.)
+        config = yaml.safe_load((self.baseline / 'config.yaml').read_text())
+        del config['gaussian']['worker']['coverage_sampling']
+        self.archive_config(self.baseline, config)
+        with self.assertRaisesRegex(ValueError, 'config'):
+            compare(self.baseline, self.candidate, self.root / 'sampling-default',
+                    frozen_parameter='means')
+
     def test_frozen_parameter_comparison_accepts_only_selected_zero_rate(self):
         self.freeze_pair()
         for parameter in ('means', 'log_scales'):

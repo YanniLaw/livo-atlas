@@ -239,9 +239,16 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
         configurations = [verify_configuration(root, report) for root, report in ((baseline, a), (candidate, b))]
         # Nested learning-rate removal must not mutate the loaded reports.
         options = [copy.deepcopy(normalized_training_options(report)) for report in (a, b)]
-        for document, values in zip(configurations, options):
-            document['gaussian'].setdefault('worker', {}).setdefault('coverage_sampling', 'resample')
-            values.setdefault('coverage_sampling', 'resample')
+        for index, document in enumerate(configurations):
+            # Detach the edited path so YAML aliases elsewhere remain controls.
+            document = dict(document)
+            document['gaussian'] = dict(document['gaussian'])
+            worker = dict(document['gaussian'].get('worker', {}))
+            document['gaussian']['worker'] = worker
+            configurations[index] = document
+            if frozen_parameter is None:
+                worker.setdefault('coverage_sampling', 'resample')
+                options[index].setdefault('coverage_sampling', 'resample')
         if frozen_parameter is not None:
             learning_rates = dict(parameter=frozen_parameter,
                 baseline=options[0]['learning_rates'][frozen_parameter],
@@ -263,12 +270,17 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
             varied_key = 'coverage_uncovered_ratio'
         for document, values in zip(configurations, options):
             if frozen_parameter is not None:
-                document['gaussian']['worker'].setdefault('learning_rates', {}).pop(frozen_parameter, None)
+                worker = document['gaussian']['worker']
+                worker['learning_rates'] = dict(worker.get('learning_rates', {}))
+                worker['learning_rates'].pop(frozen_parameter, None)
                 values['learning_rates'].pop(frozen_parameter)
             else:
                 document['gaussian'].get('worker', {}).pop(varied_key, None)
                 values.pop(varied_key)
-        _require(canonical_json(configurations[0]) == canonical_json(configurations[1])
+        # Native equality distinguishes YAML key types that JSON stringifies;
+        # canonical JSON also distinguishes numeric and boolean value types.
+        _require(configurations[0] == configurations[1]
+                 and canonical_json(configurations[0]) == canonical_json(configurations[1])
                  and canonical_json(options[0]) == canonical_json(options[1]),
                  'Other config or training options differ in controlled comparison')
         controls = tuple(key for key in _CONTROLS if key not in ('config_sha256', 'training_options'))
