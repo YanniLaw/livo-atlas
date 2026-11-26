@@ -1,9 +1,11 @@
+#include <chrono>
 #include <exception>
 #include <functional>
 #include <iomanip>
 #include <memory>
 #include <utility>
 
+#include "app/shutdown_signal.h"
 #include "gaussian_mapping.h"
 #include "livo_atlas/common/logging.h"
 #include "livo_atlas/core/geometry_map_output.h"
@@ -29,15 +31,15 @@ namespace ros_integration = livo_atlas::ros2;
 
 int main(int argc, char** argv) {
   livo_atlas::InitializeLogging(argv[0]);
-#if LIVO_ATLAS_ROS_VERSION == 1
-  ros::init(argc, argv, "laserMapping");
-  auto node = std::make_shared<ros::NodeHandle>();
-#else
-  rclcpp::init(argc, argv);
-#endif
   int result = 0;
   try {
-#if LIVO_ATLAS_ROS_VERSION == 2
+    livo_atlas::app::ShutdownSignal shutdown_signal;
+#if LIVO_ATLAS_ROS_VERSION == 1
+    ros::init(argc, argv, "laserMapping", ros::init_options::NoSigintHandler);
+    auto node = std::make_shared<ros::NodeHandle>();
+#else
+    rclcpp::init(argc, argv, rclcpp::InitOptions(),
+                 rclcpp::SignalHandlerOptions::None);
     auto node = std::make_shared<rclcpp::Node>("laserMapping");
 #endif
     const auto parameters = ros_integration::ReadNodeOptions(*node);
@@ -95,7 +97,7 @@ int main(int argc, char** argv) {
       ros::AsyncSpinner spinner(parameters.livo.executor_threads);
       spinner.start();
       ros::WallRate rate(5000);
-      while (ros::ok()) {
+      while (ros::ok() && !shutdown_signal.requested()) {
         if (ros_node.ProcessNext() != livo_atlas::SyncStatus::kReady) {
           rate.sleep();
         }
@@ -105,7 +107,14 @@ int main(int argc, char** argv) {
       rclcpp::executors::MultiThreadedExecutor executor(
           rclcpp::ExecutorOptions(), parameters.livo.executor_threads);
       executor.add_node(node);
+      // Cancellation stops and joins callbacks without invalidating the ROS
+      // context. A wall timer keeps this responsive when /clock is paused.
+      auto stop_timer = node->create_wall_timer(
+          std::chrono::milliseconds(5), [&] {
+            if (shutdown_signal.requested()) executor.cancel();
+          });
       executor.spin();
+      stop_timer->cancel();
 #endif
       ros_node.RethrowCallbackFailure();
       // Withdraw preview output before terminal backend work can block.
@@ -191,7 +200,9 @@ int main(int argc, char** argv) {
     LOG(ERROR) << "LIVO initialization or processing failed: unknown exception";
     result = 1;
   }
-#if LIVO_ATLAS_ROS_VERSION == 2
+#if LIVO_ATLAS_ROS_VERSION == 1
+  ros::shutdown();
+#else
   rclcpp::shutdown();
 #endif
   return result;

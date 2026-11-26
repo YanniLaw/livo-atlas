@@ -1,4 +1,6 @@
-add_executable(fastlivo_mapping src/app/livo_main.cc src/app/gaussian_mapping.cc)
+add_executable(fastlivo_mapping src/app/livo_main.cc src/app/gaussian_mapping.cc
+  src/app/shutdown_signal.cc)
+target_include_directories(fastlivo_mapping PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_definitions(fastlivo_mapping PRIVATE
   LIVO_ATLAS_ROS_VERSION=${LIVO_ATLAS_ROS_VERSION}
   LIVO_ATLAS_HAS_LINUX_GAUSSIAN_BRIDGE=$<TARGET_EXISTS:livo_atlas_online_gaussian>)
