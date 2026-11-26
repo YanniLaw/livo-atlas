@@ -60,6 +60,25 @@ class TimingAnalysisTest(unittest.TestCase):
                 timing_analysis.analyze_lines([
                     'livo_atlas timing stage=work seconds=.1', line])
 
+    def test_boolean_configuration_requires_a_complete_token(self):
+        for token in ['trueish', 'falsehood', 'true!', 'false=0']:
+            with self.subTest(token=token), self.assertRaises(ValueError):
+                timing_analysis.analyze_lines([
+                    'livo_atlas timing stage=work seconds=.1',
+                    'frontend.openmp_threads=2 openmp_available=' + token])
+
+    def test_boolean_configuration_accepts_log_delimiters(self):
+        for token, expected in [('true', True), ('false', False)]:
+            for suffix in ['', '\n', ' next=value', ', using one thread']:
+                with self.subTest(token=token, suffix=suffix):
+                    result = timing_analysis.analyze_lines([
+                        'livo_atlas timing stage=work seconds=.1',
+                        'frontend.openmp_threads=2 openmp_available=' +
+                        token + suffix])
+                    self.assertEqual(result['thread_configuration']['frontend'],
+                                     [dict(openmp_threads=2,
+                                           openmp_available=expected)])
+
 
 class RegressionToolsTest(unittest.TestCase):
     def setUp(self):
@@ -141,6 +160,11 @@ class RegressionToolsTest(unittest.TestCase):
                      '"schema_version=99\\n")\n')
         text += 'add_custom_target(broken ALL COMMAND ${CMAKE_COMMAND} -E false)\n'
         source.write_text(text)
+        # Fast fixture writes can share the generated Makefile's timestamp.
+        # Give this synthetic edit a distinct time so CMake must regenerate.
+        stamp = max(source.stat().st_mtime_ns,
+                    (build / 'CMakeCache.txt').stat().st_mtime_ns) + 2_000_000_000
+        os.utime(source, ns=(stamp, stamp))
         output = self.root / 'result'
         output.mkdir()
         with mock.patch.dict(os.environ,

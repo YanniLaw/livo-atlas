@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <opencv2/core.hpp>
@@ -52,6 +53,52 @@ extern "C" int rename(const char* from, const char* to) noexcept {
 }
 
 namespace livo_atlas {
+
+// Hold the real mailbox at the owner dispatch boundary. This reproduces a
+// worker briefly owning the mutex without depending on thread scheduling.
+class OnlineGaussianMapperTestPeer {
+ public:
+  static bool PollWithMailboxContention(OnlineGaussianMapper& mapper,
+                                        bool synchronized) {
+    std::optional<OnlineGaussianMapper::Reply> reply;
+    {
+      std::lock_guard<std::mutex> lock(mapper.mutex_);
+      if (mapper.reply_) {
+        reply = std::move(mapper.reply_);
+        mapper.reply_.reset();
+      }
+    }
+    if (reply) {
+      mapper.condition_.notify_one();
+      mapper.HandleReply(std::move(*reply));
+    }
+    const bool boundary =
+        !mapper.busy_ && !mapper.submap_work_ && !mapper.unsaved_ &&
+        mapper.render_pending_ && mapper.render_attempts_ == 2 &&
+        ((mapper.acknowledged_map_ == mapper.map_index_.sequence()) ==
+         synchronized);
+    if (!boundary) {
+      mapper.Poll();
+      return false;
+    }
+    std::promise<void> locked;
+    std::promise<void> release;
+    auto released = release.get_future();
+    std::thread holder([&] {
+      std::lock_guard<std::mutex> lock(mapper.mutex_);
+      locked.set_value();
+      released.wait();
+    });
+    locked.get_future().wait();
+    mapper.Poll();
+    release.set_value();
+    holder.join();
+    EXPECT_FALSE(mapper.submap_work_.has_value())
+        << "Mailbox contention reserved content during the render turn";
+    return true;
+  }
+};
+
 namespace {
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
@@ -177,6 +224,35 @@ class OnlineGaussianRenderTest : public testing::Test {
   void Confirm() {
     ASSERT_TRUE(Wait([&] { return mapper_->GetStats().accepted > accepted_; }));
     accepted_ = mapper_->GetStats().accepted;
+  }
+
+  void CheckRenderTurnWithMailboxContention(bool synchronized) {
+    peer_->hold_commit = true;
+    peer_->hold_render = true;
+    Append();
+    ASSERT_TRUE(Wait([&] { return peer_->decisions == 1; }));
+    Append();
+    peer_->hold_commit = false;
+    Confirm();
+    peer_->hold_commit = true;
+    ASSERT_TRUE(Wait([&] { return peer_->decisions == 2; }));
+    Append();
+    peer_->hold_commit = false;
+
+    bool contended = false;
+    const auto deadline = std::chrono::steady_clock::now() + 8s;
+    while (!contended && std::chrono::steady_clock::now() < deadline) {
+      contended = OnlineGaussianMapperTestPeer::PollWithMailboxContention(
+          *mapper_, synchronized);
+      if (!contended) std::this_thread::sleep_for(1ms);
+    }
+    ASSERT_TRUE(contended);
+    ASSERT_TRUE(Wait([&] { return peer_->renders == 1; }));
+    EXPECT_EQ(peer_->views, 2) << testing::PrintToString(peer_->Events());
+    peer_->hold_render = false;
+    ASSERT_TRUE(Wait([&] { return peer_->views == 3; }));
+    ASSERT_TRUE(Wait([&] { return mapper_->GetStats().accepted == 3; }));
+    EXPECT_EQ(mapper_->GetStats().failed, 0u);
   }
 
   void RestartWithShortShutdown() {
@@ -622,11 +698,19 @@ TEST_F(OnlineGaussianRenderTest, TwoContentAttemptsYieldOnceThenTrainAgain) {
   peer_->hold_commit = false;
   Confirm();
   ASSERT_TRUE(Wait([&] { return peer_->renders == 1; }));
-  EXPECT_EQ(peer_->views, 2);
+  EXPECT_EQ(peer_->views, 2) << testing::PrintToString(peer_->Events());
   peer_->hold_render = false;
   ASSERT_TRUE(Wait([&] { return peer_->views == 3; }));
   Confirm();
   EXPECT_EQ(mapper_->GetStats().failed, 0u);
+}
+
+TEST_F(OnlineGaussianRenderTest, MailboxContentionPreservesRenderSyncTurn) {
+  CheckRenderTurnWithMailboxContention(false);
+}
+
+TEST_F(OnlineGaussianRenderTest, MailboxContentionPreservesRenderDispatchTurn) {
+  CheckRenderTurnWithMailboxContention(true);
 }
 
 TEST_F(OnlineGaussianRenderTest, ChangingMapAcknowledgementsCannotStarveViews) {

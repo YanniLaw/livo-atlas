@@ -10,7 +10,7 @@ FRONTEND = re.compile(
 CACHE_FIELDS = {'submap', 'pose_version', 'reader_reset', 'built',
                 'cloud_reads', 'evictions', 'resident_submaps'}
 FRONTEND_CONFIG = re.compile(
-    r'frontend\.openmp_threads=(\S+) openmp_available=(true|false)')
+    r'frontend\.openmp_threads=(\S+) openmp_available=(true|false)(?=$|[\s,])')
 POSE_GRAPH_CONFIG = re.compile(r'pose_graph\.num_background_threads=(\S+)')
 
 

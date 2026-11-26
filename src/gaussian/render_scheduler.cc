@@ -77,15 +77,19 @@ bool OnlineGaussianMapper::DispatchRender(const GaussianMapSnapshot& map) {
     }
     command.kind = CommandKind::kWriteMap;
     command.map = std::make_shared<GaussianMapSnapshot>(map);
-    if (!QueueSubmapCommand(std::move(command))) return false;
-    render_sync_attempted_ = true;
+    // A busy mailbox delays admission; it does not yield this render turn to
+    // content. Only an admitted synchronization can spend the opportunity.
+    if (QueueSubmapCommand(std::move(command))) render_sync_attempted_ = true;
     return true;
   }
   command.kind = CommandKind::kRender;
   command.render_request = std::move(request);
-  if (!QueueSubmapCommand(std::move(command))) return false;
-  SetRenderWait("rendering", map.map_sequence);
-  render_sync_attempted_ = false;
+  if (QueueSubmapCommand(std::move(command))) {
+    SetRenderWait("rendering", map.map_sequence);
+    render_sync_attempted_ = false;
+  }
+  // Retain priority across transient mailbox contention. Reserving content
+  // here would hide the next render boundary until that content finishes.
   return true;
 }
 

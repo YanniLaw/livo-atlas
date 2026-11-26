@@ -94,6 +94,8 @@ class OnlineGaussianMapper {
   std::shared_ptr<const GaussianMapSnapshot> GetMapSnapshot() const;
 
  private:
+  friend class OnlineGaussianMapperTestPeer;
+
   using Clock = std::chrono::steady_clock;
 
   struct Source {
@@ -179,6 +181,7 @@ class OnlineGaussianMapper {
   bool QueueSubmapCommand(Command command);
   void EndSubmapWork(bool retry);
   void RefreshRenderDemand();
+  // True reserves this dispatch turn, including a retry after mailbox contention.
   bool DispatchRender(const GaussianMapSnapshot& map);
   void HandleRenderReply(Reply reply);
   void StopRendering();
