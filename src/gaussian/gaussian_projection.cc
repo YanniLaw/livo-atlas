@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
 #include "gaussian/projection_envelope.h"
 #include "gaussian/render_validation.h"
+#include "mapping/pose_math.h"
 
 namespace livo_atlas {
 namespace {
@@ -23,17 +25,16 @@ GaussianEnvelope Uncertain(const GaussianCamera& camera) {
 double Radius(double focal, double center, int size, double z, double scale) {
   // gsplat1.5.3 clamps the pinhole Jacobian outside its padded image plane.
   // The largest 3D axis scale bounds every rotated covariance eigenvalue.
-  const double limit = std::max(
-      std::abs((size - center) / focal + .15 * size / focal),
-      std::abs(center / focal + .15 * size / focal));
+  const double limit =
+      std::max(std::abs((size - center) / focal + .15 * size / focal),
+               std::abs(center / focal + .15 * size / focal));
   const double sigma = scale * (focal / z);
   return std::ceil(3.33 * std::hypot(sigma, sigma * limit, std::sqrt(.3))) + 2;
 }
 
-bool UnstableProjection(const Eigen::Vector3d& low,
-                        const Eigen::Vector3d& high,
-                        const GaussianCamera& camera, double scale,
-                        double ru, double rv) {
+bool UnstableProjection(const Eigen::Vector3d& low, const Eigen::Vector3d& high,
+                        const GaussianCamera& camera, double scale, double ru,
+                        double rv) {
   constexpr double kFloatSafe = std::numeric_limits<float>::max() / 64.;
   const double covariance_safe = std::sqrt(kFloatSafe) / 64.;
   const double radius_safe = std::numeric_limits<int>::max() / 4.;
@@ -43,20 +44,19 @@ bool UnstableProjection(const Eigen::Vector3d& low,
     const double focal = camera.K(axis, axis);
     const double center = camera.K(axis, 2) + .5;
     const double size = axis == 0 ? camera.width : camera.height;
-    const double limit = std::max(std::abs((size - center) / focal) +
-                                     .15 * size / focal,
-                                 std::abs(center / focal) + .15 * size / focal);
-    const double position = std::max(std::abs(low[axis]),
-                                     std::abs(high[axis]));
+    const double limit =
+        std::max(std::abs((size - center) / focal) + .15 * size / focal,
+                 std::abs(center / focal) + .15 * size / focal);
+    const double position = std::max(std::abs(low[axis]), std::abs(high[axis]));
     const double jacobian = focal / low.z();
     const double tx = high.z() * limit;
     const double sigma = scale * jacobian;
     const double variance = sigma * sigma * (1 + limit * limit) + .3;
     // Pinned gsplat uses float products before division, J*cov*J^T,
     // a quadratic determinant, and finally int32 footprint radii.
-    for (const double value : {limit, tx, jacobian, focal * tx,
-             focal * tx / (low.z() * low.z()), focal * position,
-             focal * position / low.z() + std::abs(center)})
+    for (const double value :
+         {limit, tx, jacobian, focal * tx, focal * tx / (low.z() * low.z()),
+          focal * position, focal * position / low.z() + std::abs(center)})
       if (!std::isfinite(value) || value > kFloatSafe) return true;
     if (!std::isfinite(variance) || variance > covariance_safe) return true;
   }
@@ -90,17 +90,29 @@ std::uint64_t UnionArea(const std::vector<GaussianEnvelope>& rectangles) {
 
 double Distance(const std::vector<GaussianExtent>& extents,
                 const RigidTransform& camera_from_submap) {
-  const Eigen::Vector3d center = -camera_from_submap.rotation.transpose() *
-                               camera_from_submap.translation;
+  const Eigen::Vector3d center =
+      -camera_from_submap.rotation.transpose() * camera_from_submap.translation;
   double distance = std::numeric_limits<double>::max();
   if (!center.allFinite()) return distance;
   for (const auto& extent : extents) {
-    const Eigen::Vector3d delta = center -
-        center.cwiseMax(extent.min).cwiseMin(extent.max);
+    const Eigen::Vector3d delta =
+        center - center.cwiseMax(extent.min).cwiseMin(extent.max);
     const double value = std::hypot(delta.x(), delta.y(), delta.z());
     if (std::isfinite(value)) distance = std::min(distance, value);
   }
   return distance;
+}
+
+double CoordinateBound(const RigidTransform& query,
+                       const RigidTransform& parent,
+                       const RigidTransform& camera) {
+  long double sum = 0;
+  for (const auto* pose : {&query, &parent, &camera})
+    for (int i = 0; i < 3; ++i)
+      sum += std::abs(static_cast<long double>(pose->translation[i]));
+  return sum > std::numeric_limits<double>::max()
+             ? std::numeric_limits<double>::infinity()
+             : static_cast<double>(sum);
 }
 
 }  // namespace
@@ -115,16 +127,15 @@ GaussianEnvelope ProjectGaussianEnvelope(
       fx < std::numeric_limits<float>::min() ||
       fy < std::numeric_limits<float>::min())
     return Uncertain(camera);
-  Eigen::Vector3d low = Eigen::Vector3d::Constant(
-      std::numeric_limits<double>::infinity());
+  Eigen::Vector3d low =
+      Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity());
   Eigen::Vector3d high = -low;
   for (int i = 0; i < 8; ++i) {
-    const Eigen::Vector3d corner{
-        i & 1 ? extent.max.x() : extent.min.x(),
-        i & 2 ? extent.max.y() : extent.min.y(),
-        i & 4 ? extent.max.z() : extent.min.z()};
-    const Eigen::Vector3d point = camera_from_submap.rotation * corner +
-                                 camera_from_submap.translation;
+    const Eigen::Vector3d corner{i & 1 ? extent.max.x() : extent.min.x(),
+                                 i & 2 ? extent.max.y() : extent.min.y(),
+                                 i & 4 ? extent.max.z() : extent.min.z()};
+    const Eigen::Vector3d point =
+        camera_from_submap.rotation * corner + camera_from_submap.translation;
     if (!point.allFinite()) return Uncertain(camera);
     low = low.cwiseMin(point);
     high = high.cwiseMax(point);
@@ -167,8 +178,8 @@ GaussianEnvelope ProjectGaussianEnvelope(
   max_u += ru;
   min_v -= rv;
   max_v += rv;
-  if (!std::isfinite(min_u) || !std::isfinite(max_u) ||
-      !std::isfinite(min_v) || !std::isfinite(max_v))
+  if (!std::isfinite(min_u) || !std::isfinite(max_u) || !std::isfinite(min_v) ||
+      !std::isfinite(max_v))
     return Uncertain(camera);
   // Clamp in floating point before integer conversion; large valid bounds
   // must never overflow an int and accidentally become an empty rectangle.
@@ -205,6 +216,48 @@ GaussianProjection ProjectGaussianExtents(
       rectangles.push_back(rectangle);
   }
   result.candidate_pixels = UnionArea(rectangles);
+  return result;
+}
+
+GaussianSpatialSelection SelectGaussianSpatialNeighbor(
+    const std::vector<GaussianSpatialCandidate>& candidates,
+    const GaussianCamera& camera, const RigidTransform& parent_from_body,
+    std::uint64_t owner) {
+  ValidateRenderCamera(camera);
+  Require(candidates.size() <= 32 && owner < 512,
+          "Spatial candidate budget exceeded");
+  const auto camera_from_parent = pose_math::Compose(
+      camera.camera_from_body, pose_math::Inverse(parent_from_body));
+  GaussianSpatialSelection result;
+  std::set<std::uint64_t> seen;
+  for (const auto& candidate : candidates) {
+    const auto id = candidate.submap_id;
+    Require(id < 512 && seen.insert(id).second,
+            "Invalid spatial candidate identity");
+    if (id >= owner) continue;
+    const auto transform =
+        pose_math::Compose(camera_from_parent, candidate.parent_from_submap);
+    GaussianProjection projection;
+    if (!transform.rotation.allFinite() || !transform.translation.allFinite())
+      projection = {static_cast<std::uint64_t>(camera.width) * camera.height,
+                    std::numeric_limits<double>::max(), true};
+    else
+      projection = ProjectGaussianExtents(
+          candidate.extents, camera, transform,
+          CoordinateBound(parent_from_body, candidate.parent_from_submap,
+                          camera.camera_from_body));
+    if (!projection.candidate_pixels) continue;
+    ++result.candidate_count;
+    const auto& best = result.projection;
+    if (!result.submap_id ||
+        projection.candidate_pixels > best.candidate_pixels ||
+        (projection.candidate_pixels == best.candidate_pixels &&
+         (projection.distance < best.distance ||
+          (projection.distance == best.distance && id < *result.submap_id)))) {
+      result.submap_id = id;
+      result.projection = projection;
+    }
+  }
   return result;
 }
 

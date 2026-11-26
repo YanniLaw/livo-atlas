@@ -21,3 +21,11 @@ install(TARGETS livo_atlas_online_gaussian EXPORT livo_atlasTargets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+add_executable(livo_atlas_select_gaussian_neighbor tools/select_gaussian_neighbor.cc)
+target_include_directories(livo_atlas_select_gaussian_neighbor PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(livo_atlas_select_gaussian_neighbor PRIVATE livo_atlas::online_gaussian)
+set_target_properties(livo_atlas_select_gaussian_neighbor PROPERTIES
+  INSTALL_RPATH_USE_LINK_PATH TRUE
+  INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+install(TARGETS livo_atlas_select_gaussian_neighbor RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

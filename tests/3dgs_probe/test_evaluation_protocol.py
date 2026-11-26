@@ -74,7 +74,7 @@ class EvaluationProtocolTest(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('LIVO_WIRE_PEER'), 'C++ wire peer is not configured')
     def test_spatial_query_requires_each_owner_dimension_in_both_decoders(self):
-        for width,height,accepted in ((8,6,True),(4,12,False),(4,6,False)):
+        for width,height,accepted in ((8,6,True),(4,12,False),(4,6,False),(8,7,False)):
             header, body = evaluation_fixture(spatial=True)
             offset = 128*(1+sum(b['target']['primary_count'] for b in header['sources']['blocks']))
             header['query'].update(width=width,height=height)

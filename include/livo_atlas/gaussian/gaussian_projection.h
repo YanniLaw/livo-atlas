@@ -11,6 +11,25 @@ struct GaussianProjection {
   bool uncertain = false;
 };
 
+struct GaussianSpatialCandidate {
+  std::uint64_t submap_id = 0;
+  std::vector<GaussianExtent> extents;
+  RigidTransform parent_from_submap;
+};
+
+struct GaussianSpatialSelection {
+  std::optional<std::uint64_t> submap_id;
+  GaussianProjection projection;
+  std::uint64_t candidate_count = 0;
+};
+
+// Callers validate source identity/currentness. This shared geometry-only
+// ranking retains earlier groups and orders by area, distance, then ID.
+GaussianSpatialSelection SelectGaussianSpatialNeighbor(
+    const std::vector<GaussianSpatialCandidate>& candidates,
+    const GaussianCamera& camera, const RigidTransform& parent_from_body,
+    std::uint64_t owner);
+
 // Conservative candidate area, not visible/occlusion-tested image coverage.
 // coordinate_abs_upper bounds the L1 sum of query/block parent and C_B
 // translations; an overflowed positive infinity keeps the full canvas.

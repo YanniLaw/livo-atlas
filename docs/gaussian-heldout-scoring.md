@@ -55,9 +55,23 @@ gaussian:
 不要求为评分再次启动在线功能。`split_file` 非空时还须与归档划分一致。
 GPU 设备与显存预算继续读取 `gaussian.worker`。
 
-首版工具逐查询使用所属块，并在存在时加入前一个可用块，记录为 temporal。请求
-spatial 会明确失败，不能自动换策略。独立查询原语已支持显式选定的一至两块，包括
-非相邻块；下一阶段在线调度将复用已有 C++ spatial 选择器。
+`gaussian.joint_render_policy`选择temporal或spatial。temporal与在线保持一致：仅加入
+直接前一组，缺少该模型时保留单块，不跨组跳选。spatial从已证明的最终参数用既有
+CPU元数据提取器重建extents，调用在线共用的C++投影/排序内核；可选非相邻的历史组，
+只考虑owner之前的组。无可见候选明确记录单块及原因，不静默改策略。
+
+spatial需构建并安装`livo_atlas_select_gaussian_neighbor`，显式补充：
+
+```text
+--selector-executable /absolute/sdk/bin/livo_atlas_select_gaussian_neighbor
+```
+
+未给出时默认查找准备器同目录，但文档中的probe构建与SDK可能在不同目录，应显式指定。
+请求/回执分别限制512KiB/64KiB；子进程执行期间用硬文件大小限制约束输出，且有超时。
+报告保存工具本体、解析到的工程动态库SHA和组合runtime身份，查询前后及发布前复查。
+工具启动环境冻结；重建动态库、更换解析路径或工具变化会使结果失败，不能沿用旧身份。
+空间评分按最多两块预留输出，完整Retail_Street建议显式配置1024MiB或更高预算。
+详见[完整配对验证](spatial-heldout-comparison.md)。
 
 ## 身份、指标与产物
 

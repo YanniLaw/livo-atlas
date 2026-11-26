@@ -136,60 +136,28 @@ void ValidateSpatialEntries(const GaussianMapSnapshot& map) {
   }
 }
 
-double CoordinateBound(const RigidTransform& query,
-                       const RigidTransform& parent,
-                       const RigidTransform& camera) {
-  long double sum = 0;
-  for (const auto* pose : {&query, &parent, &camera})
-    for (int i = 0; i < 3; ++i)
-      sum += std::abs(static_cast<long double>(pose->translation[i]));
-  return sum > std::numeric_limits<double>::max()
-             ? std::numeric_limits<double>::infinity()
-             : static_cast<double>(sum);
-}
-
 void SelectSpatialNeighbor(const GaussianMapSnapshot& map,
                            const PoseSnapshot& poses,
                            const GaussianCamera& camera,
                            GaussianRenderRequest* request) {
-  const auto camera_from_parent = pose_math::Compose(
-      camera.camera_from_body, pose_math::Inverse(request->parent_from_body));
-  const GaussianSubmapEntry* best = nullptr;
-  GaussianProjection best_projection;
+  std::vector<GaussianSpatialCandidate> candidates;
   for (const auto& entry : map.entries) {
-    if (!entry.content || entry.group.primary.id == request->query_submap_id)
+    if (!entry.content || entry.group.primary.id >= request->query_submap_id ||
+        !entry.render_metadata || !Usable(entry, poses))
       continue;
-    if (entry.group.primary.id > request->query_submap_id) continue;
-    if (!entry.render_metadata || !Usable(entry, poses)) continue;
     ValidateBinding(entry, poses);
-    const auto transform = pose_math::Compose(camera_from_parent,
-                                              entry.binding.parent_from_submap);
-    GaussianProjection projection;
-    if (!transform.rotation.allFinite() || !transform.translation.allFinite())
-      projection = {static_cast<std::uint64_t>(camera.width) * camera.height,
-                    std::numeric_limits<double>::max(), true};
-    else
-      projection = ProjectGaussianExtents(
-          entry.render_metadata->extents, camera, transform,
-          CoordinateBound(request->parent_from_body,
-                          entry.binding.parent_from_submap,
-                          camera.camera_from_body));
-    if (!projection.candidate_pixels) continue;
-    ++request->candidate_count;
-    if (!best ||
-        projection.candidate_pixels > best_projection.candidate_pixels ||
-        (projection.candidate_pixels == best_projection.candidate_pixels &&
-         (projection.distance < best_projection.distance ||
-          (projection.distance == best_projection.distance &&
-           entry.group.primary.id < best->group.primary.id)))) {
-      best = &entry;
-      best_projection = projection;
-    }
+    candidates.push_back({entry.group.primary.id,
+                          entry.render_metadata->extents,
+                          entry.binding.parent_from_submap});
   }
-  if (best) {
-    request->blocks.push_back(MakeBlock(*best, poses, request->policy));
-    request->candidate_pixels = best_projection.candidate_pixels;
-    request->projection_uncertain = best_projection.uncertain;
+  const auto selection = SelectGaussianSpatialNeighbor(
+      candidates, camera, request->parent_from_body, request->query_submap_id);
+  request->candidate_count = selection.candidate_count;
+  if (selection.submap_id) {
+    request->blocks.push_back(MakeBlock(map.entries.at(*selection.submap_id),
+                                        poses, request->policy));
+    request->candidate_pixels = selection.projection.candidate_pixels;
+    request->projection_uncertain = selection.projection.uncertain;
   } else {
     request->neighbor_reason = "no_spatial_candidate";
   }

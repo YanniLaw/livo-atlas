@@ -9,9 +9,10 @@
 [真实 GPU 与双 ROS 全链路验证](gpu-slam-validation.md)，并修复 Humble 预览接收工具的
 数值类型转换问题。[双 ROS 正常退出](graceful-shutdown-validation.md)已完成 STOPPED
 接收、暂停仿真时钟、启动取消及末段重复信号验证。
-重复信号与超时报告的直接断言也已补齐。下一阶段的
-[在线留出画质评估草案](superpowers/specs/2026-11-26-online-heldout-evaluation-design.md)
-已整理训练前划分、无泄漏证明、快照查询、指标与资源验收，尚未实现。
+重复信号与超时报告的直接断言也已补齐。[在线留出评估](gaussian-online-evaluation.md)
+已实现训练前冻结、完整训练历史隔离、独立查询、封口调度、固定指标及资源验收。
+[最终快照评分](gaussian-heldout-scoring.md)支持与在线共用C++空间选块内核；
+完整Noetic配对验证见[空间留出对照](spatial-heldout-comparison.md)。
 同环境精确回归与跨环境数值对照继续分开解释；3DGS、长距离数据、ARM 实机等方向保留如下。
 
 C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
@@ -21,7 +22,7 @@ C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在�
 
 | 方向 | 交付和验收 |
 | --- | --- |
-| 在线留出画质与指定相机渲染 | [设计草案](superpowers/specs/2026-11-26-online-heldout-evaluation-design.md)：训练前冻结 manifest，普通训练、重建及恢复均禁止使用留出数据；对在线封口快照与最终模型评分，按同源查询对比 `uniform`/`coverage`。首轮沿用 Retail_Street |
+| 在线留出画质与指定相机渲染 | 基础链路已实现，见[完整对照](spatial-heldout-comparison.md)。[设计](superpowers/specs/2026-11-26-online-heldout-evaluation-design.md)：训练前冻结 manifest，普通训练、重建及恢复均禁止使用留出数据；对在线封口快照与最终模型评分，按同源查询对比 `uniform`/`coverage`。首轮沿用 Retail_Street |
 | 自由视角浏览与高斯地图导出 | 用已确认快照和指定相机驱动查看。导出训练后高斯参数，并用实际查看器验证子地图位姿、尺度、颜色和不透明度。现有 COLMAP 导出继续提供重建观测 |
 | 画质和几何一致性 | 从留出视角定位空洞、重影和跨块接缝。测得有效密度不足时，试验定额内增密与裁剪，同时核对共同深度误差、显存和训练延迟 |
 | 跨场景与真值复验 | 有合适数据时补测不同光照、动态物体及重访。使用有真值的路线评估轨迹误差、回环误检和留出视角画质 |

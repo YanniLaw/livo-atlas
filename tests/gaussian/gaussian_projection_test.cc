@@ -1,10 +1,10 @@
 #include "livo_atlas/gaussian/gaussian_projection.h"
 
+#include <gtest/gtest.h>
+
 #include <cmath>
 #include <limits>
 #include <stdexcept>
-
-#include <gtest/gtest.h>
 
 namespace livo_atlas {
 namespace {
@@ -42,8 +42,8 @@ TEST(GaussianProjection, OriginalPixelCentersAreConvertedExactlyOnce) {
   auto shifted = Camera();
   shifted.K(0, 2) -= .5;
   shifted.K(1, 2) -= .5;
-  EXPECT_EQ(ProjectGaussianExtents({Point()}, shifted, {}, 0)
-                .candidate_pixels, 169u);
+  EXPECT_EQ(ProjectGaussianExtents({Point()}, shifted, {}, 0).candidate_pixels,
+            169u);
 }
 
 TEST(GaussianProjection, OverlappingOriginsUseRectangleUnion) {
@@ -57,11 +57,14 @@ TEST(GaussianProjection, OverlappingOriginsUseRectangleUnion) {
 
 TEST(GaussianProjection, CenterDepthClippingKeepsCrossingNearPlane) {
   EXPECT_EQ(ProjectGaussianExtents({Point(0, 0, -4)}, Camera(), {}, 0)
-                .candidate_pixels, 0u);
+                .candidate_pixels,
+            0u);
   EXPECT_EQ(ProjectGaussianExtents({Point(0, 0, .005)}, Camera(), {}, 0)
-                .candidate_pixels, 0u);
+                .candidate_pixels,
+            0u);
   EXPECT_EQ(ProjectGaussianExtents({Point(0, 0, 1e11)}, Camera(), {}, 0)
-                .candidate_pixels, 0u);
+                .candidate_pixels,
+            0u);
   auto crossing = Point();
   crossing.min = {-1, -1, -1};
   crossing.max = {1, 1, 2};
@@ -69,30 +72,33 @@ TEST(GaussianProjection, CenterDepthClippingKeepsCrossingNearPlane) {
   EXPECT_EQ(result.candidate_pixels, 8000u);
   EXPECT_FALSE(result.uncertain);
   crossing.max = {1, 1, 1};
-  EXPECT_EQ(ProjectGaussianExtents({crossing}, Camera(), {}, 0)
-                .candidate_pixels, 8000u);
+  EXPECT_EQ(
+      ProjectGaussianExtents({crossing}, Camera(), {}, 0).candidate_pixels,
+      8000u);
 }
 
 TEST(GaussianProjection, PixelEdgesIncludeFootprintsBeyondTheCenter) {
-  EXPECT_GT(ProjectGaussianExtents({Point(2)}, Camera(), {}, 0)
-                .candidate_pixels, 0u);
-  EXPECT_EQ(ProjectGaussianExtents({Point(2.4)}, Camera(), {}, 0)
-                .candidate_pixels, 0u);
-  EXPECT_EQ(ProjectGaussianExtents({Point(-2.4)}, Camera(), {}, 0)
-                .candidate_pixels, 0u);
+  EXPECT_GT(
+      ProjectGaussianExtents({Point(2)}, Camera(), {}, 0).candidate_pixels, 0u);
+  EXPECT_EQ(
+      ProjectGaussianExtents({Point(2.4)}, Camera(), {}, 0).candidate_pixels,
+      0u);
+  EXPECT_EQ(
+      ProjectGaussianExtents({Point(-2.4)}, Camera(), {}, 0).candidate_pixels,
+      0u);
 }
 
 TEST(GaussianProjection, RotationAndMaximumAxisScaleRemainConservative) {
   RigidTransform rotated;
   rotated.rotation << 0, -1, 0, 1, 0, 0, 0, 0, 1;
-  const auto result =
-      ProjectGaussianExtents({Point(1)}, Camera(), rotated, 0);
+  const auto result = ProjectGaussianExtents({Point(1)}, Camera(), rotated, 0);
   EXPECT_EQ(result.candidate_pixels, 196u);
   EXPECT_DOUBLE_EQ(result.distance, std::sqrt(17));
   auto large = Point();
   large.max_scale = .2;
-  EXPECT_GT(ProjectGaussianExtents({large}, Camera(), rotated, 0)
-                .candidate_pixels, result.candidate_pixels);
+  EXPECT_GT(
+      ProjectGaussianExtents({large}, Camera(), rotated, 0).candidate_pixels,
+      result.candidate_pixels);
 }
 
 TEST(GaussianProjection, NumericUncertaintyKeepsTheWholeCanvas) {
@@ -105,7 +111,7 @@ TEST(GaussianProjection, NumericUncertaintyKeepsTheWholeCanvas) {
   EXPECT_TRUE(result.uncertain);
   EXPECT_EQ(result.candidate_pixels, 8000u);
   result = ProjectGaussianExtents({Point()}, Camera(), {},
-                                   std::numeric_limits<double>::infinity());
+                                  std::numeric_limits<double>::infinity());
   EXPECT_TRUE(result.uncertain);
   EXPECT_EQ(result.candidate_pixels, 8000u);
 }
@@ -134,6 +140,22 @@ TEST(GaussianProjection, MalformedInputsFailBeforeProjection) {
                                       Camera(), {}, 0),
                std::invalid_argument);
   EXPECT_THROW(ProjectGaussianExtents({Point()}, Camera(), {}, -1),
+               std::invalid_argument);
+}
+
+TEST(GaussianProjection, SharedSelectionUsesAreaDistanceIdAndHistoricalOwner) {
+  std::vector<GaussianSpatialCandidate> candidates{
+      {1, {Point()}, {}}, {0, {Point()}, {}}, {3, {Point(0, 0, 2)}, {}}};
+  const auto selection =
+      SelectGaussianSpatialNeighbor(candidates, Camera(), {}, 2);
+  ASSERT_TRUE(selection.submap_id);
+  EXPECT_EQ(*selection.submap_id, 0u);
+  EXPECT_EQ(selection.candidate_count, 2u);
+  EXPECT_GT(selection.projection.candidate_pixels, 0u);
+  EXPECT_FALSE(
+      SelectGaussianSpatialNeighbor(candidates, Camera(), {}, 0).submap_id);
+  candidates.resize(33);
+  EXPECT_THROW(SelectGaussianSpatialNeighbor(candidates, Camera(), {}, 2),
                std::invalid_argument);
 }
 

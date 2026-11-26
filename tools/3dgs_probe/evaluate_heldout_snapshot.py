@@ -23,6 +23,7 @@ from gaussian_state import _open_file
 from heldout_query import (load_evaluation_snapshot, render_query,
                            verify_evaluation_snapshot)
 from holdout_split import MAX_SPLIT_BYTES
+from heldout_selection import EvaluationSelector
 from joint_renderer import infer_blocks
 from prepare_holdout_split import file_sha
 from render_gaussian_map import _exclusive_write, _json_bytes, _new_output, _png, _sources_report
@@ -40,6 +41,7 @@ class EvaluationSettings:
     split_file: str
     worker: object
     config_sha256: str
+    policy: str
 
 
 def load_settings(path):
@@ -55,7 +57,7 @@ def load_settings(path):
         'enabled', 'online_enabled', 'split_file', 'max_output_mib', 'min_free_disk_mib'}, 'Unknown evaluation settings')
     _require(type(evaluation.get('enabled', False)) is bool, 'Invalid evaluation enabled setting')
     policy = gaussian.get('joint_render_policy', 'temporal')
-    _require(policy == 'temporal', 'Final scoring currently requires temporal; spatial selection awaits online integration')
+    _require(policy in ('temporal','spatial'), 'Unknown final scoring selection policy')
     maximum, reserve = evaluation.get('max_output_mib', 256), evaluation.get('min_free_disk_mib', 1024)
     _require(type(maximum) is int and 1 <= maximum <= 4096 and
              type(reserve) is int and 0 <= reserve <= 2**20, 'Invalid evaluation disk budget')
@@ -64,7 +66,7 @@ def load_settings(path):
     worker = load_worker_config(path).options
     digest = hashlib.sha256(raw).hexdigest()
     _require(file_sha(path) == digest, 'Evaluation config changed during loading')
-    return EvaluationSettings(maximum*_MIB, reserve*_MIB, split_file, worker, digest)
+    return EvaluationSettings(maximum*_MIB, reserve*_MIB, split_file, worker, digest, policy)
 
 
 def initialize_cuda(options):
@@ -99,11 +101,11 @@ def _selection(snapshot, owner):
     rows = snapshot.document['entries']
     if 'asset' not in rows[owner]:
         return []
-    previous = [int(row['submap_id']) for row in rows[:owner] if 'asset' in row]
-    return [previous[-1], owner] if previous else [owner]
+    previous = owner-1
+    return [previous,owner] if previous>=0 and 'asset' in rows[previous] else [owner]
 
 
-def _estimate(snapshot):
+def _estimate(snapshot, policy="temporal"):
     size = _REPORT_BYTES + len(snapshot.split.payload) + 256 * 1024
     scratch = 0
     for frame in snapshot.split.frames.values():
@@ -113,7 +115,7 @@ def _estimate(snapshot):
         if not selected:
             continue
         pixels = frame['width'] * frame['height']
-        variants = len(selected)
+        variants = 2 if policy=="spatial" else len(selected)
         # Float reference RGB/z + masks; each render RGB/alpha/z; RGB PNG
         # worst case plus per-member ZIP/PNG overhead. No JPEG quantization.
         size += pixels * (18 + 20*variants + 3*(1+variants)) + 64 * 1024
@@ -171,20 +173,22 @@ def _preflight(args):
                      'Configured split differs from the archived online split')
     executable = args.prepare_executable.resolve(strict=True)
     preparer_digest = file_sha(executable)
-    predicted, scratch = _estimate(snapshot)
+    selector = EvaluationSelector(snapshot,settings.policy,
+        getattr(args,'selector_executable',None) or executable.with_name('livo_atlas_select_gaussian_neighbor'))
+    predicted, scratch = _estimate(snapshot,settings.policy)
     _require(predicted <= settings.max_output_bytes, 'Evaluation output budget is insufficient for all queries')
     _require(shutil.disk_usage(output.parent).free >= predicted + scratch + settings.min_free_disk_bytes,
              'Evaluation free disk reserve is insufficient')
     queries = [dict(keyframe_id=key, owner_submap_id=int(frame['submap_id']), phase='final_snapshot', status='pending')
                for key, frame in snapshot.split.frames.items() if frame['query']]
-    return output, settings, snapshot, executable, preparer_digest, predicted, scratch, queries
+    return output, settings, snapshot, executable, preparer_digest, predicted, scratch, queries, selector
 
 
 def run(args, *, renderer=infer_blocks):
     started = time.perf_counter()
     try:
-        output, settings, snapshot, executable, preparer_digest, predicted, scratch, queries = _preflight(args)
-    except Exception as error:
+        output, settings, snapshot, executable, preparer_digest, predicted, scratch, queries, selector = _preflight(args)
+    except (Exception, KeyboardInterrupt) as error:
         # A verified archived plan remains enumerable even when states, disk
         # capacity or the preparer fail. The CLI emits this bounded ledger on
         # stderr without creating an output directory or initializing CUDA.
@@ -194,10 +198,14 @@ def run(args, *, renderer=infer_blocks):
                 split = HoldoutSplit(stream.read())
         except (ValueError, OSError, TypeError):
             raise error
+        if isinstance(error,KeyboardInterrupt):
+            error.report=EvaluationPreflightError(error,split).report
+            raise
         raise EvaluationPreflightError(error, split) from error
     report = dict(schema=1, kind='livo_atlas.gaussian_snapshot_evaluation', phase='final_snapshot',
                   status='running', split_id=snapshot.split.split_id, training_performed=False,
-                  selection_policy='temporal', query_semantics='retrospective_final_online_weights',
+                  selection_policy=settings.policy, selector_sha256=selector.sha256,
+                  selector_runtime_sha256=selector.runtime_sha256, selector_libraries=selector.libraries, query_semantics='retrospective_final_online_weights',
                   sources=_sources_report(snapshot), queries=queries, summary=None,
                   verified_source_files=len(snapshot.source_digests),
                   unselected_heldout_ids=[key for key, frame in snapshot.split.frames.items()
@@ -213,7 +221,9 @@ def run(args, *, renderer=infer_blocks):
         _exclusive_write(output / 'split.json', snapshot.split.payload)
         scorable = []
         for row in queries:
-            if not _selection(snapshot, row['owner_submap_id']):
+            selection=selector.select(snapshot.split.frames[row['keyframe_id']])
+            row.update(selection)
+            if not selection['selected_ids']:
                 row.update(status='skipped', reason='missing_model')
             else:
                 scorable.append(row)
@@ -227,7 +237,7 @@ def run(args, *, renderer=infer_blocks):
                 prepared = prepare_group_queries(snapshot, owner, executable, Path(temporary) / 'bundle')
                 for row in [item for item in scorable if item['owner_submap_id'] == owner]:
                     _require(row['keyframe_id'] in prepared, 'A frozen heldout query was not prepared')
-                    value = render_query(snapshot, prepared[row['keyframe_id']], _selection(snapshot, owner),
+                    value = render_query(snapshot, prepared[row['keyframe_id']], row['selected_ids'],
                                          device, renderer=renderer)
                     row.update(value['report'])
                     report['artifacts'].update(_save_samples(output, value))
@@ -240,6 +250,7 @@ def run(args, *, renderer=infer_blocks):
         verify_evaluation_snapshot(snapshot)
         _require(file_sha(args.config) == settings.config_sha256 and file_sha(executable) == preparer_digest,
                  'Evaluation config or preparer changed during scoring')
+        selector.verify()
         successful = [row for row in queries if row['status'] == 'succeeded']
         paired = [row for row in successful if row['joint'] is not None]
         report.update(status='completed_with_skips' if len(successful) != len(queries) else 'succeeded',
@@ -258,6 +269,7 @@ def run(args, *, renderer=infer_blocks):
         verify_evaluation_snapshot(snapshot)
         _require(shutil.disk_usage(output).free >= settings.min_free_disk_bytes,
                  'Evaluation free disk reserve fell below its publication budget')
+        selector.verify()
         (output / 'report.pending.json').rename(output / 'report.json')
         return report
     except (Exception, KeyboardInterrupt) as error:
@@ -290,6 +302,7 @@ def main(argv=None):
     parser.add_argument('--keyframes', type=Path, required=True)
     parser.add_argument('--prepare-executable', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--selector-executable',type=Path,help='Native spatial selector; defaults to preparer sibling')
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args(argv)
     try:

@@ -1,5 +1,8 @@
 import argparse
+import io
+from contextlib import redirect_stderr
 import json
+import os
 from pathlib import Path
 import tempfile
 import shutil
@@ -64,7 +67,7 @@ class SnapshotScoringTest(unittest.TestCase):
                 cuda.assert_not_called()
                 self.assertFalse(self.args.output.exists())
         self.config.write_text(yaml.safe_dump(dict(gaussian=dict(joint_render_policy='spatial'))))
-        with self.assertRaisesRegex(ValueError, 'spatial'):
+        with self.assertRaisesRegex(ValueError, 'select_gaussian_neighbor'):
             tool.run(self.args)
         self.assertFalse(self.args.output.exists())
 
@@ -206,6 +209,52 @@ class SnapshotScoringTest(unittest.TestCase):
         self.assertEqual(report['queries'][0]['status'], 'failed')
         self.assertIsNone(report['summary'])
 
+
+    @unittest.skipUnless(os.environ.get('LIVO_SELECTOR_BIN'),'Native selector not configured')
+    def test_spatial_configuration_records_the_native_selection(self):
+        self.config.write_text(yaml.safe_dump(dict(gaussian=dict(joint_render_policy='spatial',
+            evaluation=dict(max_output_mib=16,min_free_disk_mib=0)))))
+        self.args.selector_executable=Path(os.environ['LIVO_SELECTOR_BIN'])
+        report=self.execute()
+        self.assertEqual(report['selection_policy'],'spatial')
+        self.assertEqual(len(report['selector_sha256']),64)
+        self.assertEqual(report['queries'][0]['selected_ids'],[0])
+        self.assertEqual(report['queries'][0]['neighbor_reason'],'no_spatial_candidate')
+        self.assertEqual(report['queries'][0]['selection']['candidate_count'],0)
+
+    @unittest.skipUnless(os.environ.get('LIVO_SELECTOR_BIN'),'Native selector not configured')
+    def test_changing_helper_during_inference_invalidates_all_scores(self):
+        self.config.write_text(yaml.safe_dump(dict(gaussian=dict(joint_render_policy='spatial',
+            evaluation=dict(max_output_mib=16,min_free_disk_mib=0)))))
+        helper=self.root/'native-selector'
+        shutil.copy2(os.environ['LIVO_SELECTOR_BIN'],helper)
+        self.args.selector_executable=helper
+        def changed(*args):
+            with helper.open('ab') as stream:stream.write(b'changed')
+            return self.render(*args)
+        with self.assertRaisesRegex(ValueError,'changed'):
+            self.execute(renderer=changed)
+        report=json.loads((self.args.output/'report.json').read_text())
+        self.assertEqual(report['status'],'failed')
+        self.assertEqual(report['counts']['succeeded'],0)
+        self.assertFalse(report['results_valid'])
+
+
+    def test_interrupted_selection_preflight_retains_the_verified_query_plan(self):
+        with mock.patch.object(tool,'EvaluationSelector',side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                self.execute()
+        report=caught.exception.report
+        self.assertTrue(report['plan_verified'])
+        self.assertEqual([q['keyframe_id'] for q in report['queries']],[1])
+        self.assertEqual(report['stage'],'preflight')
+        self.assertFalse(self.args.output.exists())
+        stderr=io.StringIO()
+        with mock.patch.object(tool,'EvaluationSelector',side_effect=KeyboardInterrupt),redirect_stderr(stderr):
+            code=tool.main(['--map-directory',str(self.directory),'--keyframes',str(self.keyframes),
+                '--prepare-executable',str(self.preparer),'--output',str(self.args.output),'--config',str(self.config)])
+        self.assertEqual(code,130)
+        self.assertEqual([q['keyframe_id'] for q in json.loads(stderr.getvalue())['queries']],[1])
 
 if __name__ == '__main__':
     unittest.main()

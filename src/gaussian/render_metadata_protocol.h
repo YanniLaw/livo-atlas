@@ -7,6 +7,8 @@
 
 namespace livo_atlas {
 
+GaussianCamera DecodeGaussianCamera(const cv::FileNode& node);
+
 void WriteGaussianRenderMetadata(cv::FileStorage& out,
                                  const GaussianRenderMetadata& metadata);
 GaussianRenderMetadata DecodeGaussianRenderMetadata(
