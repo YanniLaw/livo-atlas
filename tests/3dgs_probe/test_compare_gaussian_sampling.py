@@ -292,6 +292,7 @@ class SamplingComparisonTest(unittest.TestCase):
             del report['config_file']
             del report['training_options']['coverage_uncovered_ratio']
             report['training_options'].pop('coverage_sampling', None)
+            report['training_options'].pop('seed_distribution', None)
             path.write_text(json.dumps(report))
             (root / 'config.yaml').unlink()
         result = compare(self.baseline, self.candidate, self.root / 'legacy')
@@ -700,6 +701,99 @@ class SamplingComparisonTest(unittest.TestCase):
                         reduced_learning_rate='means')
 
 
+
+    def configure_distribution(self, root, value, *, implicit=False):
+        import yaml
+        path = root/'report.json'
+        report = json.loads(path.read_text())
+        document = yaml.safe_load((root/'config.yaml').read_text())
+        if implicit:
+            report['training_options'].pop('seed_distribution', None)
+            document['gaussian']['worker'].pop('seed_distribution', None)
+        else:
+            report['training_options']['seed_distribution'] = value
+            document['gaussian']['worker']['seed_distribution'] = value
+        self.archive_config(root, document)
+        updated = json.loads(path.read_text())
+        updated['training_options'] = report['training_options']
+        path.write_text(json.dumps(updated))
+
+    def distribution_pair(self, policy='coverage', implicit=False):
+        self.configure_ratio(self.baseline, .25)
+        self.configure_ratio(self.candidate, .25)
+        self.configure_sampling(self.baseline, 'replace')
+        self.configure_sampling(self.candidate, 'replace')
+        self.configure_distribution(self.baseline, 'flat', implicit=implicit)
+        self.configure_distribution(self.candidate, 'stratified')
+        if policy == 'uniform':
+            for root in (self.baseline, self.candidate):
+                path = root/'report.json'
+                report = json.loads(path.read_text())
+                report['seed_policy'] = 'uniform'
+                for group in report['submaps']:
+                    for operation in group['training']: operation.pop('seed_selection', None)
+                path.write_text(json.dumps(report))
+
+    def test_distribution_comparison_accepts_only_same_policy_flat_to_stratified(self):
+        for policy, implicit in (('uniform', False), ('coverage', True)):
+            self.distribution_pair(policy, implicit)
+            report = compare(self.baseline, self.candidate, self.root/f'distribution-{policy}',
+                             allow_seed_distribution_change=True)
+            self.assertEqual(report['comparison_scope'], 'seed_distribution')
+            self.assertEqual(report['seed_distributions'], dict(baseline='flat', candidate='stratified'))
+            self.assertEqual(report['training_calls'], 10)
+
+    def test_distribution_mode_rejects_other_knobs_types_aliases_and_missing_archives(self):
+        import yaml
+        for case in ('ratio', 'rate', 'policy', 'type', 'alias', 'archive', 'lying-legacy'):
+            self.distribution_pair()
+            if case == 'ratio':
+                self.configure_ratio(self.candidate, .5)
+                self.configure_sampling(self.candidate, 'replace')
+                self.configure_distribution(self.candidate, 'stratified')
+            if case == 'rate': self.configure_learning_rates(self.candidate, means=.00025)
+            if case == 'policy':
+                path = self.candidate/'report.json'
+                report = json.loads(path.read_text())
+                report['seed_policy'] = 'uniform'
+                path.write_text(json.dumps(report))
+            if case in ('type', 'alias'):
+                for root in (self.baseline, self.candidate):
+                    document = yaml.safe_load((root/'config.yaml').read_text())
+                    if case == 'type': document['extra'] = True if root == self.baseline else 1
+                    else: document['worker_alias'] = document['gaussian']['worker']
+                    self.archive_config(root, document)
+            if case == 'archive': (self.candidate/'config.yaml').unlink()
+            if case == 'lying-legacy':
+                path = self.candidate/'report.json'
+                report = json.loads(path.read_text())
+                report['training_options'].pop('seed_distribution')
+                path.write_text(json.dumps(report))
+            with self.subTest(case=case), self.assertRaises(FileNotFoundError if case == 'archive' else ValueError):
+                compare(self.baseline, self.candidate, self.root/f'reject-distribution-{case}', allow_seed_distribution_change=True)
+
+    def test_distribution_change_is_not_allowed_by_existing_modes_or_conflicting_flags(self):
+        self.distribution_pair()
+        for index, mode in enumerate(({}, dict(allow_coverage_ratio_change=True),
+                dict(allow_coverage_sampling_change=True), dict(frozen_parameter='means'))):
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root/f'old-distribution-mode-{index}', **mode)
+        for index, mode in enumerate((dict(allow_coverage_ratio_change=True), dict(allow_coverage_sampling_change=True),
+                                     dict(frozen_parameter='means'), dict(reduced_learning_rate='means'))):
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root/f'conflict-distribution-{index}',
+                        allow_seed_distribution_change=True, **mode)
+
+    def test_distribution_cli_flag_and_direction_are_checked(self):
+        import compare_gaussian_sampling as comparison
+        self.distribution_pair()
+        self.assertEqual(comparison.main(['--baseline', str(self.baseline), '--candidate', str(self.candidate),
+            '--output', str(self.root/'distribution-cli'), '--allow-seed-distribution-change']), 0)
+        for index, (old, new) in enumerate((('flat', 'flat'), ('stratified', 'flat'), ('stratified', 'stratified'))):
+            self.configure_distribution(self.baseline, old)
+            self.configure_distribution(self.candidate, new)
+            with self.subTest(old=old, new=new), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, self.root/f'distribution-direction-{index}', allow_seed_distribution_change=True)
 
 if __name__ == '__main__':
     unittest.main()

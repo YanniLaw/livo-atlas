@@ -92,7 +92,8 @@ def _requires_configuration(root, report):
     options = report.get('training_options', {})
     path = root / 'config.yaml'
     return ('config_file' in report or
-            (isinstance(options, dict) and ('coverage_uncovered_ratio' in options or 'coverage_sampling' in options)) or
+            (isinstance(options, dict) and any(key in options for key in
+                ('coverage_uncovered_ratio', 'coverage_sampling', 'seed_distribution'))) or
             path.exists() or path.is_symlink())
 
 
@@ -237,14 +238,14 @@ def _diagnostic(path, baseline, candidate, mode, labels=('uniform', 'coverage'))
 
 def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
              allow_coverage_sampling_change=False, frozen_parameter=None,
-             reduced_learning_rate=None):
+             reduced_learning_rate=None, allow_seed_distribution_change=False):
     _require(frozen_parameter is None or
              (isinstance(frozen_parameter, str) and frozen_parameter in ('means', 'log_scales')),
              'Frozen parameter must be means or log_scales')
     _require(reduced_learning_rate is None or
              (isinstance(reduced_learning_rate, str) and reduced_learning_rate in ('means', 'log_scales')),
              'Reduced learning rate must be means or log_scales')
-    _require(sum((bool(allow_coverage_ratio_change), bool(allow_coverage_sampling_change),
+    _require(sum((bool(allow_coverage_ratio_change), bool(allow_coverage_sampling_change), bool(allow_seed_distribution_change),
                   frozen_parameter is not None, reduced_learning_rate is not None)) <= 1,
              'Only one setting may vary in a controlled comparison')
     parameter = frozen_parameter if frozen_parameter is not None else reduced_learning_rate
@@ -256,7 +257,7 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
     a, split, a_digest = _load(baseline)
     b, other, b_digest = _load(candidate)
     controls = _CONTROLS
-    if allow_coverage_ratio_change or allow_coverage_sampling_change or parameter is not None:
+    if allow_coverage_ratio_change or allow_coverage_sampling_change or allow_seed_distribution_change or parameter is not None:
         configurations = [verify_configuration(root, report) for root, report in ((baseline, a), (candidate, b))]
         # Nested learning-rate removal must not mutate the loaded reports.
         options = [copy.deepcopy(normalized_training_options(report)) for report in (a, b)]
@@ -270,6 +271,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
             if parameter is None:
                 worker.setdefault('coverage_sampling', 'resample')
                 options[index].setdefault('coverage_sampling', 'resample')
+            if allow_seed_distribution_change:
+                worker.setdefault('seed_distribution', 'flat')
         if parameter is not None:
             learning_rates = dict(parameter=parameter,
                 baseline=options[0]['learning_rates'][parameter],
@@ -282,6 +285,12 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
             else:
                 _require(0 < learning_rates['candidate'] < learning_rates['baseline'],
                          'Reduced learning rate must remain positive and decrease')
+        elif allow_seed_distribution_change:
+            distributions = dict(zip(('baseline', 'candidate'), (values['seed_distribution'] for values in options)))
+            _require(a['seed_policy'] == b['seed_policy'] and a['seed_policy'] in ('uniform', 'coverage') and
+                     distributions == {'baseline': 'flat', 'candidate': 'stratified'},
+                     'Distribution comparison requires the same policy, flat then stratified')
+            varied_key = 'seed_distribution'
         elif allow_coverage_sampling_change:
             samplings = dict(zip(('baseline', 'candidate'), (values['coverage_sampling'] for values in options)))
             _require(a['seed_policy'] == b['seed_policy'] == 'coverage'
@@ -342,7 +351,9 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
         split_id=split.split_id, random_seed=a['random_seed'], baseline_report_sha256=a_digest,
         candidate_report_sha256=b_digest, training_calls=a['training_calls'], training_steps=a['training_steps'],
         final_gaussian_counts=counts, queries=rows, diagnostics=[])
-    if allow_coverage_ratio_change:
+    if allow_seed_distribution_change:
+        report.update(comparison_scope='seed_distribution', seed_distributions=distributions)
+    elif allow_coverage_ratio_change:
         report.update(comparison_scope='coverage_uncovered_ratio', coverage_uncovered_ratios=ratios)
     elif allow_coverage_sampling_change:
         report.update(comparison_scope='coverage_sampling', coverage_sampling=samplings)
@@ -365,6 +376,8 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
         labels = ('baseline', frozen_parameter+' fixed')
     elif reduced_learning_rate is not None:
         labels = tuple(f'{parameter} lr {learning_rates[side]:g}' for side in ('baseline', 'candidate'))
+    elif allow_seed_distribution_change:
+        labels = ('flat', 'stratified')
     elif allow_coverage_sampling_change:
         labels = ('resample', 'replace')
     elif allow_coverage_ratio_change:
@@ -403,6 +416,7 @@ def main(argv=None):
     variation = parser.add_mutually_exclusive_group()
     variation.add_argument('--allow-coverage-ratio-change', action='store_true')
     variation.add_argument('--allow-coverage-sampling-change', action='store_true')
+    variation.add_argument('--allow-seed-distribution-change', action='store_true')
     variation.add_argument('--frozen-parameter', choices=('means', 'log_scales'),
                            help='Verify that only this learning rate changes from positive to zero')
     variation.add_argument('--reduced-learning-rate', choices=('means', 'log_scales'),
@@ -412,6 +426,7 @@ def main(argv=None):
         compare(args.baseline, args.candidate, args.output,
                 allow_coverage_ratio_change=args.allow_coverage_ratio_change,
                 allow_coverage_sampling_change=args.allow_coverage_sampling_change,
+                allow_seed_distribution_change=args.allow_seed_distribution_change,
                 frozen_parameter=args.frozen_parameter, reduced_learning_rate=args.reduced_learning_rate)
     except Exception as error:
         print(f'{type(error).__name__}: {error}', file=sys.stderr)
