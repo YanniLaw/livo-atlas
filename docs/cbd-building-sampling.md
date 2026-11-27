@@ -140,3 +140,6 @@ run_frontend.sh、run_validation.py、audit_study.py、summarize_study.py、comp
 跨电脑复用原始bag和相同构建/依赖环境，替换绝对路径后运行；首次输出必须使用新目录。
 
 输入没有轨迹真值，本轮不能给出ATE/RPE结论；即使两个场景结果一致，也不等同于广泛泛化或在线延迟保证。
+
+后续使用同一 CBD 冻结划分完成了 flat 与分层补点的在线整包配对。
+[Noetic 整包对照与 Retail 深度诊断](cbd-noetic-stratified-additions.md)
