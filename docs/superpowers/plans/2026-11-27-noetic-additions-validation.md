@@ -28,9 +28,9 @@ for two/four runs. No modifications to product algorithms or historical data. Ru
 **Files:** local validation/noetic-additions-20261127/run_study.py, protocol.json and logs.
 **Interfaces:** current tools/run_baseline.py, existing worker-measure.py, evaluate_heldout_snapshot.py.
 
-- [ ] Freeze build inputs, bag, split, typed worker config, launch flags, historic timing bands and code digests.
-- [ ] Replay flat then additions, checking runtime evidence and the repeat decision. If triggered, run additions then flat.
-- [ ] Score each admitted final model through the existing evaluation entry. Match the frozen frame set
+- [x] Freeze build inputs, bag, split, typed worker config, launch flags, historic timing bands and code digests.
+- [x] Replay flat then additions, checking runtime evidence and the repeat decision. If triggered, run additions then flat.
+- [x] Score each admitted final model through the existing evaluation entry. Match the frozen frame set
       and persist child exit and hash receipts.
 
 ### Task 2: Audit and document
@@ -38,6 +38,6 @@ for two/four runs. No modifications to product algorithms or historical data. Ru
 **Files:** local audit_results.py, results and verification evidence, docs/noetic-stratified-additions.md,
 docs/stratified-additions.md and docs/engineering-roadmap.md.
 
-- [ ] Recheck independent payload hashes, timing samples, frontiers, loop evidence and split discipline.
-- [ ] Compare on the shared masks and derive pooled error statistics and coverage turnover.
-- [ ] Record all repeats separately, describe the tradeoffs and reproducible entry points, verify evidence and commit locally.
+- [x] Recheck independent payload hashes, timing samples, frontiers, loop evidence and split discipline.
+- [x] Compare on the shared masks and derive pooled error statistics and coverage turnover.
+- [x] Record all repeats separately, describe the tradeoffs and reproducible entry points, verify evidence and commit locally.
