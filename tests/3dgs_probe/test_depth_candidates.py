@@ -224,3 +224,86 @@ class CandidateCliTest(unittest.TestCase):
                 with self.assertRaises(ValueError): diagnostic.run(args)
                 self.assertFalse((args.output/'report.json').exists())
                 self.assertTrue((args.output/'failure.json').exists())
+
+
+class ReviewGuardTest(unittest.TestCase):
+    fixture = CandidateCliTest.fixture
+
+    def test_receipt_cannot_bind_a_different_report_than_the_parsed_bytes(self):
+        import json
+        from unittest import mock
+        args, prepared = self.fixture()
+        read = diagnostic._read_report
+
+        def swapped(path):
+            result = read(path)
+            if path == args.diagnostic_directory/'report.json':
+                changed = json.loads(path.read_text())
+                changed['random_seed'] = 99
+                path.write_text(json.dumps(changed))
+            return result
+
+        with mock.patch.object(diagnostic, '_read_report', side_effect=swapped), \
+                mock.patch.object(diagnostic, 'prepare_group', side_effect=prepared):
+            with self.assertRaisesRegex(ValueError, 'input changed'):
+                diagnostic.run(args)
+        self.assertFalse((args.output/'report.json').exists())
+
+    def test_settings_budget_must_match_the_captured_config_hash(self):
+        import yaml
+        from unittest import mock
+        args, prepared = self.fixture()
+        load = diagnostic.load_settings
+        original = (args.diagnostic_directory/'config.yaml').read_bytes()
+
+        def changed(path):
+            document = yaml.safe_load(original)
+            document['gaussian']['evaluation']['min_free_disk_mib'] = 2048
+            path.write_text(yaml.safe_dump(document))
+            result = load(path)
+            path.write_bytes(original)
+            return result
+
+        with mock.patch.object(diagnostic, 'load_settings', side_effect=changed), \
+                mock.patch.object(diagnostic, 'prepare_group', side_effect=prepared):
+            with self.assertRaisesRegex(ValueError, 'settings differ'):
+                diagnostic.run(args)
+        self.assertFalse(args.output.exists())
+
+    def test_pending_change_during_final_snapshot_verification_is_rejected(self):
+        from unittest import mock
+        args, prepared = self.fixture()
+        verify = diagnostic.EvaluationSelector.verify
+
+        def changed(selector):
+            verify(selector)
+            pending = args.output/'.report.pending.json'
+            if pending.exists():
+                value = pending.read_bytes()
+                pending.write_bytes(b'x'+value[1:])
+
+        with mock.patch.object(diagnostic, 'prepare_group', side_effect=prepared), \
+                mock.patch.object(diagnostic.EvaluationSelector, 'verify', changed):
+            with self.assertRaisesRegex(ValueError, 'Pending candidate report changed'):
+                diagnostic.run(args)
+        self.assertFalse((args.output/'report.json').exists())
+
+    def test_two_block_combination_cannot_hide_neighbor_subset_violation(self):
+        query = dict(image_mask=np.ones((1, 1), bool), depth_mask=np.ones((1, 1), bool),
+                     depth_m=np.full((1, 1), 2.))
+        empty = lambda: {r: {f: np.zeros((1, 1), dtype='i4') for f in diagnostic.FIELDS} for r in diagnostic.RADII}
+        owner = {c: empty() for c in diagnostic.COHORTS}
+        neighbor = copy.deepcopy(owner)
+        for r in diagnostic.RADII:
+            for f in ('any', 'consistent'):
+                owner['input_all'][r][f][:] = 1
+                owner['input_retained'][r][f][:] = 1
+                neighbor['all_initial'][r][f][:] = 1
+                neighbor['retained_initial'][r][f][:] = 1
+        # Each aggregate subset passes; only checking each block detects this.
+        combined = {c: {r: {f: owner[c][r][f]+neighbor[c][r][f] for f in diagnostic.FIELDS}
+                             for r in diagnostic.RADII} for c in diagnostic.COHORTS}
+        diagnostic.candidate_summary(query, np.zeros((1, 1)), combined)
+        with self.assertRaisesRegex(ValueError, 'subset'):
+            diagnostic.summarize_blocks({0: neighbor, 1: owner}, dict(single=[1], joint=[0, 1]),
+                                       query, dict(single=np.zeros((1, 1)), joint=np.zeros((1, 1))))

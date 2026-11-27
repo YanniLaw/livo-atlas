@@ -2,6 +2,7 @@
 
 import argparse
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -71,6 +72,14 @@ def accumulate(points, camera, k, query):
     return result
 
 
+def _check_subsets(support):
+    for parent, child in CONTRASTS.values():
+        for radius in RADII:
+            a, b = support[parent][radius], support[child][radius]
+            _require(all(np.all(a[key] >= b[key]) for key in FIELDS),
+                     f'{child} is not a subset of {parent}; check input lineage or projection rounding')
+
+
 def candidate_summary(query, alpha, support):
     image, labels, _ = _query_masks(query)
     alpha = np.asarray(alpha)
@@ -95,21 +104,35 @@ def candidate_summary(query, alpha, support):
             _require(sum(classes.values()) == n(known), 'Candidate hole classes do not partition')
             result['support'][cohort][str(radius)] = dict(holes_near_centers=n(holes & (maps['any'] > 0)),
                 image_pixels_near_centers=n(image & (maps['any'] > 0)), labelled_holes=classes)
+    _check_subsets(support)
     for name, (parent, child) in CONTRASTS.items():
         result['contrasts'][name] = {}
         for radius in RADII:
             a, b = support[parent][radius], support[child][radius]
-            _require(all(np.all(a[key] >= b[key]) for key in FIELDS),
-                     f'{child} is not a subset of {parent}; check input lineage or projection rounding')
             result['contrasts'][name][str(radius)] = dict(
                 holes_losing_neighbors=n(holes & (a['any'] > 0) & (b['any'] == 0)),
                 known_holes_losing_consistent_neighbors=n(known & (a['consistent'] > 0) & (b['consistent'] == 0)))
     return result
 
 
+def summarize_blocks(blocks, modes, query, alphas):
+    # An owner hit must never hide a neighbor's rounding/lineage violation.
+    for support in blocks.values():
+        _check_subsets(support)
+    image, _, _ = _query_masks(query)
+    summaries = {}
+    for mode, selected in modes.items():
+        combined = {cohort: {r: {field: sum((blocks[key][cohort][r][field] for key in selected),
+            start=np.zeros(image.shape, dtype='i4')) for field in FIELDS} for r in RADII} for cohort in COHORTS}
+        summaries[mode] = candidate_summary(query, alphas[mode], combined)
+    return summaries
+
+
 def _read_report(path):
     with _open_file(path, 2*1024**2) as stream:
-        return json.loads(stream.read(), object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+        raw = stream.read()
+    receipt = dict(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+    return json.loads(raw, object_pairs_hook=_unique_object, parse_constant=_reject_constant), receipt
 
 
 def _receipt(path):
@@ -127,8 +150,7 @@ def run(args):
     output = _new_output(args.map_directory, args.keyframes, args.output)
     _require(not output.resolve().is_relative_to(root) and not root.is_relative_to(output.resolve()),
              'Input diagnostic and output must be separate')
-    report = _read_report(root/'report.json')
-    report_receipt = _receipt(root/'report.json')
+    report, report_receipt = _read_report(root/'report.json')
     _require(report['schema'] == 1 and report['kind'] == 'livo_atlas.gaussian_coverage_diagnostic' and
              report['status'] == 'succeeded' and report['selection_policy'] == 'spatial' and
              report['seed_policy'] == 'coverage', 'Requires a successful native spatial coverage diagnostic')
@@ -136,7 +158,8 @@ def run(args):
     _require(report['sources'] == _sources_report(snapshot) and report['source_sha256'] == snapshot.source_digests and
              report['split_id'] == snapshot.split.split_id, 'Diagnostic source binding differs')
     settings = load_settings(root/'config.yaml')
-    _require(settings.policy == 'spatial' and report['training_options'] == asdict(settings.worker),
+    _require(settings.config_sha256 == report['config_sha256'] and settings.policy == 'spatial' and
+             report['training_options'] == asdict(settings.worker),
              'Diagnostic training settings differ')
     keyframe = report['keyframe_id']
     _require(type(keyframe) is int and keyframe in snapshot.split.frames, 'Invalid diagnostic query')
@@ -268,11 +291,7 @@ def run(args):
             evidence_rows.append(dict(submap_id=key, frames=point_counts, candidates=sum(row['candidates'] for row in point_counts),
                 retained_candidates=sum(row['candidates'] for row in point_counts if row['retained']), sampled=len(sampled), retained_sampled=int(keep.sum()),
                 seed_reconstruction_max_abs_m=float(np.max(np.abs(captured-sampled)))))
-        summaries = {}
-        for mode, selected in modes.items():
-            combined = {cohort: {r: {field: sum((blocks[key][cohort][r][field] for key in selected),
-                start=np.zeros(image.shape, dtype='i4')) for field in FIELDS} for r in RADII} for cohort in COHORTS}
-            summaries[mode] = candidate_summary(query, arrays[mode+'_trained_alpha'], combined)
+        summaries = summarize_blocks(blocks, modes, query, {mode: arrays[mode+'_trained_alpha'] for mode in modes})
         _require(sum(v.nbytes for v in saved.values())+2*1024**2 <= maximum, 'Candidate raw output budget exceeded')
         _require(shutil.disk_usage(output).free >= maximum+reserve, 'Insufficient candidate output reserve')
         np.savez_compressed(output/'counts.npz', **saved)
@@ -290,11 +309,11 @@ def run(args):
         _require(shutil.disk_usage(output).free >= len(payload)+65536+reserve, 'Insufficient candidate report reserve')
         pending = output/'.report.pending.json'
         _exclusive_write(pending, payload)
-        with _open_file(pending, len(payload)) as stream:
-            _require(stream.read() == payload, 'Pending candidate report changed')
         verify_inputs()
         _require(_receipt(output/'counts.npz') == artifacts['counts.npz'], 'Candidate artifact changed')
         _require(shutil.disk_usage(output).free >= reserve, 'Insufficient candidate reserve after report write')
+        with _open_file(pending, len(payload)) as stream:
+            _require(stream.read() == payload, 'Pending candidate report changed')
         pending.replace(output/'report.json')
         return result
     except BaseException as error:
