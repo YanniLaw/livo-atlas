@@ -2,9 +2,12 @@
 
 > **For agentic workers:** Use superpowers:executing-plans for inline execution.
 
-**Goal:** 只改变反馈替换时补入点的分布，并验证两个场景的覆盖与纹理取舍。  
-**Architecture:** 在现有采样器增加一个 YAML 取值，复用分层函数、受控比较和共同区域度量。  
-**Tech Stack:** Python、NumPy、现有 CUDA worker 与原生留出准备工具。  
+**Goal:** 只改变反馈替换时补入点的分布，并验证两个场景的覆盖与纹理取舍。
+
+**Architecture:** 在现有采样器增加一个 YAML 取值，复用分层函数、受控比较和共同区域度量。
+
+**Tech Stack:** Python、NumPy、现有 CUDA worker 与原生留出准备工具。
+
 **Spec:** docs/superpowers/specs/2026-11-27-stratified-additions-design.md
 
 ## Global Constraints
