@@ -47,6 +47,7 @@ docs/stratified-additions.md、docs/engineering-roadmap.md、docs/common-coverag
 
 - [ ] 锁定八份对照收据、实验配置、工具和比较口径。串行运行四次评分并保存 primary flat 对照报告。预期 4 次成功、470 调用/9400 步，输出范围内。
 - [ ] 从 float 样本重查新报告和比较控制，按查询生成六组固定交集重算纹理及深度。输出分种子统计与误差，核对四类覆盖周转可重构全图。
+- [ ] 若达到预定进入条件，用 Retail 相同的 10 秒前缀做 flat 与 stratified_additions 的 Noetic 短段回放。验证 worker 使用 coverage/replace、有实际替换并持久封口。
 - [ ] 记录两模式的结果、预定回放条件是否满足、资源与复现命令。验证最终证据后本地提交。
 
 ## Final Review

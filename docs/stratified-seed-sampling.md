@@ -175,7 +175,7 @@ python tools/3dgs_probe/compare_gaussian_sampling.py \
   --allow-seed-distribution-change --output /data/distribution-comparison
 ```
 
-新比较开关与比例、覆盖方式、学习率比较互斥，只允许同策略flat→stratified，其他输入、YAML
+比较开关与比例、覆盖方式、学习率比较互斥。本研究使用同策略 flat→stratified 对照，其他输入、YAML
 值及类型、别名路径、配置/样本收据和调度均须一致。保留既有输出完整性、磁盘及发布检查。
 所有输出用新目录；其他场景和种子替换相应路径/配置，不能复用Retail的split给CBD。
 
