@@ -11,7 +11,7 @@ from evaluate_gaussian_sampling import normalized_training_options, verify_confi
 from gaussian_map import _require
 from gaussian_state import _open_file, _reject_constant, _unique_object
 from heldout_query import load_evaluation_snapshot, verify_evaluation_snapshot
-from joint_renderer import _real_directory
+from joint_renderer import _real_directory, _stamp
 from render_gaussian_map import _sources_report
 
 
@@ -80,7 +80,11 @@ def _protocol(study, receipts):
     _require(isinstance(scenes, dict) and 1 <= len(scenes) <= 2 and all(
         isinstance(name, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,31}', name) for name in scenes),
         'Invalid study scene set')
-    for setting in scenes.values():
+    _require(set(protocol['selection_plans']) == set(scenes) and isinstance(protocol['software'], dict)
+             and protocol['software'], 'Missing frozen plans or software')
+    for scene, setting in scenes.items():
+        _require(isinstance(protocol['selection_plans'][scene], list)
+                 and len(protocol['selection_plans'][scene]) == setting['queries'], 'Frozen selection plan differs from query count')
         _require(type(setting['queries']) is int and 1 <= setting['queries'] <= 32
                  and type(setting['calls']) is int and setting['calls'] > 0, 'Study exceeds query/training bounds')
     return protocol
@@ -159,6 +163,8 @@ def load_study_inputs(study, coverage, candidates):
     _require(evidence['status'] == 'succeeded', 'Incomplete source study')
     documents = {name: read_json(study/(name+'.json'), receipts, evidence[name.replace('-', '_')+'_sha256'])
                  for name in ('protocol', 'implementation', 'audit', 'static-audit', 'comparison-audit', 'summary', 'review-verification')}
+    for name in ('audit', 'static-audit', 'comparison-audit', 'review-verification'):
+        _require(documents[name].get('status') == 'succeeded', 'Incomplete source audit: '+name)
     audit = documents['audit']
     completed = read_json(study/'resume-complete.json', receipts)
     _require(audit['status'] == completed['status'] == 'succeeded' and documents['protocol'] == protocol,
@@ -168,6 +174,8 @@ def load_study_inputs(study, coverage, candidates):
                  'Study audit binding differs')
     names = {f'{scene}-{condition}-{seed}' for scene in protocol['scenes'] for condition in CONDITIONS for seed in (0, 1)}
     calls = 8*sum(setting['calls'] for setting in protocol['scenes'].values())
+    _require(type(protocol['expected_calls']) is int and protocol['expected_calls'] == calls
+             and type(protocol['expected_steps']) is int and protocol['expected_steps'] == 20*calls, 'Frozen training budget differs')
     _require(set(audit['receipts']) == set(completed['runs']) == names and evidence['successful_runs'] == len(names)
              and evidence['successful_training_calls'] == audit['calls'] == calls
              and evidence['successful_training_steps'] == audit['steps'] == 20*calls, 'Study budget/count differs')
@@ -203,7 +211,11 @@ def load_study_inputs(study, coverage, candidates):
                 config = protocol['configs'][scene+'-'+control['distribution']]
                 _require(normalized_training_options(report) == config['options'] and report['config_sha256'] == config['sha256'],
                          'Run configuration differs from protocol')
-                _check_training(report['groups'], report, report)
+                _require(_same_configuration(report['selection_plan'], protocol['selection_plans'][scene])
+                         and _same_configuration(report['software'], protocol['software'])
+                         and report['selection_policy'] == 'spatial'
+                         and report['selection_semantics'] == 'frozen_reference_online_models',
+                         'Run selection plan or software differs from protocol')
                 for relative, item in report['artifacts'].items():
                     capture_file(_path(root, relative), receipts, expected=item)
                 for filename, key in (('config.yaml', 'config_sha256'), ('poses.f64le', 'final_poses_sha256')):
@@ -214,6 +226,7 @@ def load_study_inputs(study, coverage, candidates):
         controls = tuple(key for key in _CONTROLS if key not in ('random_seed', 'config_sha256', 'training_options'))
         for run in (run for run in inputs['runs'].values() if run['scene'] == scene):
             report = run['report']
+            _check_training(report['groups'], anchor, report)
             _require(all(report[key] == anchor[key] for key in controls), 'Uncontrolled scene comparison')
             options = normalized_training_options(report)
             options.pop('seed_distribution')
@@ -225,7 +238,18 @@ def load_study_inputs(study, coverage, candidates):
         flat['gaussian']['worker'].pop('seed_distribution', None)
         stratified['gaussian']['worker'].pop('seed_distribution', None)
         _require(_same_configuration(flat, stratified), 'Other YAML controls differ')
+    inputs['stamps'] = {name: _stamp(Path(name)) for name in receipts}
+    for snapshot in inputs['snapshots'].values():
+        inputs['stamps'].update(snapshot.fingerprint['stamps'])
+    verify_input_stamps(inputs)
     return inputs
+
+
+def verify_input_stamps(inputs, outputs=None):
+    """Fast identity pass after long hashing; not a filesystem transaction."""
+    for stamps in (inputs['stamps'], outputs or {}):
+        for name, expected in stamps.items():
+            _require(_stamp(Path(name)) == expected, 'Study file identity changed: '+name)
 
 
 def verify_inputs(inputs):
@@ -233,3 +257,5 @@ def verify_inputs(inputs):
         verify_evaluation_snapshot(snapshot)
     for name, receipt in inputs['receipts'].items():
         capture_file(Path(name), {}, max(receipt['bytes'], 1), expected=receipt)
+    if 'stamps' in inputs:
+        verify_input_stamps(inputs)

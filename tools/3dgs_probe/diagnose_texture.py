@@ -10,9 +10,10 @@ import numpy as np
 
 from compare_gaussian_sampling import _rendered, _samples
 from gaussian_map import _require
-from joint_renderer import _ALPHA_THRESHOLD
+from joint_renderer import _ALPHA_THRESHOLD, _stamp
 from render_gaussian_map import _exclusive_write, _json_bytes, _new_output
-from study_verification import CONDITIONS, capture_file, load_study_inputs, verify_inputs
+from study_verification import (capture_file, load_study_inputs, read_json, verify_input_stamps,
+                                verify_inputs)
 from texture_metrics import (COHORTS, GRADIENT_THRESHOLD, aggregate_partitions, aggregate_stats,
                              coverage_partition, gradient_masks, texture_metrics)
 
@@ -47,7 +48,11 @@ def _analyze(inputs):
             for name, run in runs.items():
                 row = run['report']['queries'][index]
                 _require(row['keyframe_id'] == key, 'Query order differs')
+                path = run['root']/f'views/{key}/samples.npz'
+                expected = inputs['stamps'][str(path)]
+                _require(_stamp(path) == expected, 'Sample identity changed before decode')
                 samples[name] = _samples(run['root'], run['report'], row, run['split'].frames[key])
+                _require(_stamp(path) == expected, 'Sample identity changed during decode')
             first = next(iter(samples.values()))
             reference, image = first['reference_rgb'], first['image_mask'].astype(bool)
             gradients = gradient_masks(reference, image)
@@ -100,11 +105,26 @@ def diagnose(study, coverage, candidates, output):
     output = _new_output(roots[0], roots[1], output)
     _new_output(roots[2], roots[2], output)
     _require(shutil.disk_usage(output.parent).free >= RESERVE_BYTES+MAX_OUTPUT, 'Insufficient diagnostic disk reserve')
-    inputs = load_study_inputs(*roots)
-    for snapshot in inputs['snapshots'].values():
-        _new_output(snapshot.directory, snapshot.keyframes, output)
+    # Read only enough metadata to protect declared reference trees before creating output.
+    try:
+        preliminary = read_json(roots[0]/'protocol.json', {})
+        references = [Path(setting['sources'][key]).resolve() for setting in preliminary['scenes'].values()
+                      for key in ('map_directory', 'keyframes')]
+    except Exception as error:
+        output.mkdir()
+        _exclusive_write(output/'failure.json', _json_bytes(dict(status='failed', error=str(error)), 64*1024))
+        raise
+    resolved = output.resolve()
+    for reference in references:
+        _require(not resolved.is_relative_to(reference) and not reference.is_relative_to(resolved),
+                 'Input and output directories must be separate')
     output.mkdir()
     try:
+        inputs = load_study_inputs(*roots)
+        for snapshot in inputs['snapshots'].values():
+            for reference in (snapshot.directory, snapshot.keyframes):
+                _require(not resolved.is_relative_to(reference) and not reference.is_relative_to(resolved),
+                         'Input and output directories must be separate')
         metrics = _analyze(inputs)
         raw = _json_bytes(metrics, MAX_OUTPUT)
         _exclusive_write(output/'metrics.json', raw)
@@ -124,6 +144,7 @@ def diagnose(study, coverage, candidates, output):
         pending = _json_bytes(report, MAX_OUTPUT-len(raw))
         _exclusive_write(output/'report.pending', pending)
         pending_receipt = dict(bytes=len(pending), sha256=hashlib.sha256(pending).hexdigest())
+        output_stamps = {str(path): _stamp(path) for path in (output/'metrics.json', output/'report.pending')}
         # Repeat after the long verification too: a late source change cannot publish success.
         verify_inputs(inputs)
         capture_file(output/'metrics.json', {}, MAX_OUTPUT, expected=metric_receipt)
@@ -131,6 +152,7 @@ def diagnose(study, coverage, candidates, output):
         _check_output(output)
         capture_file(output/'metrics.json', {}, MAX_OUTPUT, expected=metric_receipt)
         capture_file(output/'report.pending', {}, MAX_OUTPUT, expected=pending_receipt)
+        verify_input_stamps(inputs, output_stamps)
         (output/'report.pending').rename(output/'report.json')
         return report
     except Exception as error:

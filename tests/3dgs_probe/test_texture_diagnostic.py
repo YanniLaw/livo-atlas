@@ -45,7 +45,9 @@ def make_study(base):
                    split_id=snapshot.split.split_id, sources=sources, source_sha256=snapshot.source_digests,
                    final_poses_sha256=hashlib.sha256(np.asarray(snapshot.poses, '<f8').tobytes()).hexdigest(),
                    preparer_sha256=old['preparer_sha256'], selector_runtime_sha256=old['selector_runtime_sha256'])
-    protocol = dict(conditions=conditions, seeds=[0, 1], scenes={'Test': setting}, configs={})
+    protocol = dict(conditions=conditions, seeds=[0, 1], scenes={'Test': setting}, configs={},
+                    selection_plans={'Test': old['selection_plan']}, software=old['software'],
+                    expected_calls=80, expected_steps=1600)
     runs = {}
     for condition, values in conditions.items():
         for seed in (0, 1):
@@ -128,6 +130,101 @@ class TextureDiagnosticTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
         self.roots = make_study(self.base)
+
+    def test_late_source_changes_after_second_full_scan_are_rejected(self):
+        import diagnose_texture
+        for target in ('split', 'snapshot'):
+            output = self.base/('late-'+target)
+            path = (self.roots[0]/'Test-flat-uniform-0/split.json' if target == 'split' else
+                    self.base/'reference/keyframes/frames/0/image.png')
+            raw = path.read_bytes()
+            original = diagnose_texture.verify_inputs
+            calls = []
+            def mutate(inputs):
+                original(inputs)
+                calls.append(True)
+                if len(calls) == 2:
+                    path.write_bytes(raw+b' ')
+            with mock.patch('diagnose_texture.verify_inputs', side_effect=mutate):
+                with self.subTest(target=target), self.assertRaises(ValueError):
+                    diagnose(*self.roots, output)
+            self.assertFalse((output/'report.json').exists())
+            self.assertTrue((output/'failure.json').exists())
+            path.write_bytes(raw)
+
+    def test_sample_replacement_during_decode_is_rejected_even_with_identical_bytes(self):
+        import diagnose_texture
+        original = diagnose_texture._samples
+        changed = []
+        def replace_sample(root, report, row, frame):
+            values = original(root, report, row, frame)
+            if not changed:
+                path = root/f"views/{row['keyframe_id']}/samples.npz"
+                replacement = path.with_suffix('.replacement')
+                replacement.write_bytes(path.read_bytes())
+                replacement.replace(path)
+                changed.append(True)
+            return values
+        output = self.base/'sample-replaced'
+        with mock.patch('diagnose_texture._samples', side_effect=replace_sample):
+            with self.assertRaises(ValueError):
+                diagnose(*self.roots, output)
+        self.assertFalse((output/'report.json').exists())
+
+    def test_load_failure_records_failure_in_safe_output(self):
+        path = self.roots[0]/'Test-flat-uniform-0/split.json'
+        path.write_bytes(path.read_bytes()+b' ')
+        output = self.base/'failed-input'
+        with self.assertRaises(ValueError):
+            diagnose(*self.roots, output)
+        self.assertTrue((output/'failure.json').exists())
+        self.assertFalse((output/'report.json').exists())
+        with self.assertRaises(ValueError):
+            diagnose(*self.roots, self.base/'reference/map/unsafe-output')
+        self.assertFalse((self.base/'reference/map/unsafe-output').exists())
+
+    def test_internally_contradictory_rebound_receipts_are_rejected(self):
+        study = self.roots[0]
+        files = [study/name for name in ('protocol.json', 'comparison-audit.json', 'review-verification.json',
+                 'audit.json', 'resume-complete.json', 'final-evidence.json', 'Test-stratified-uniform-1/report.json')]
+        originals = {path: path.read_bytes() for path in files}
+        for target in ('selection', 'software', 'failed_audit', 'failed_review', 'seed_counts', 'submap_transform'):
+            protocol = json.loads((study/'protocol.json').read_text())
+            audit = json.loads((study/'audit.json').read_text())
+            completed = json.loads((study/'resume-complete.json').read_text())
+            evidence = json.loads((study/'final-evidence.json').read_text())
+            if target in ('selection', 'software'):
+                if target == 'selection':
+                    protocol['selection_plans']['Test'] = []
+                else:
+                    protocol['software'] = {'torch': 'different version'}
+                audit['protocol_sha256'] = evidence['protocol_sha256'] = write_json(study/'protocol.json', protocol)
+            elif target in ('failed_audit', 'failed_review'):
+                name = 'comparison-audit' if target == 'failed_audit' else 'review-verification'
+                doc = json.loads((study/(name+'.json')).read_text());doc['status'] = 'failed'
+                digest = write_json(study/(name+'.json'), doc)
+                evidence[name.replace('-', '_')+'_sha256'] = digest
+                if name == 'review-verification':
+                    audit['review_verification_sha256'] = digest
+            else:
+                name = 'Test-stratified-uniform-1'
+                report = json.loads((study/name/'report.json').read_text())
+                for group in report['submaps']:
+                    if target == 'seed_counts':
+                        for operation in group['training']:
+                            operation['gaussian_count'] *= 2
+                        group['gaussian_origins'] = {k: 2*v for k, v in group['gaussian_origins'].items()}
+                    else:
+                        group['parent_from_submap'][0][3] += 1
+                digest = write_json(study/name/'report.json', report)
+                audit['receipts'][name]['report_sha256'] = completed['runs'][name]['report_sha256'] = digest
+                write_json(study/'resume-complete.json', completed)
+            evidence['audit_sha256'] = write_json(study/'audit.json', audit)
+            write_json(study/'final-evidence.json', evidence)
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                load_study_inputs(*self.roots)
+            for path, raw in originals.items():
+                path.write_bytes(raw)
 
     def test_valid_archive_and_late_split_change(self):
         inputs = load_study_inputs(*self.roots)
