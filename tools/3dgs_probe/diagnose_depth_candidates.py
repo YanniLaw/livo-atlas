@@ -16,7 +16,7 @@ from bundle import _pose
 from gaussian_coverage import FIELDS, RADII, _query_masks, projected_support
 from gaussian_map import _require
 from gaussian_state import _open_file, _reject_constant, _unique_object
-from evaluate_gaussian_sampling import admit_training_view
+from evaluate_gaussian_sampling import admit_training_view, normalized_training_options
 from evaluate_gaussian_submaps import camera_from_final_parent, prepare_group
 from evaluate_heldout_snapshot import load_settings
 from heldout_query import canonical_query, load_evaluation_snapshot
@@ -159,7 +159,7 @@ def run(args):
              report['split_id'] == snapshot.split.split_id, 'Diagnostic source binding differs')
     settings = load_settings(root/'config.yaml')
     _require(settings.config_sha256 == report['config_sha256'] and settings.policy == 'spatial' and
-             report['training_options'] == asdict(settings.worker),
+             normalized_training_options(report) == asdict(settings.worker),
              'Diagnostic training settings differ')
     keyframe = report['keyframe_id']
     _require(type(keyframe) is int and keyframe in snapshot.split.frames, 'Invalid diagnostic query')
@@ -262,7 +262,7 @@ def run(args):
                 _require(packed.dtype == np.dtype('u1') and packed.ndim == 1 and
                          len(packed) in (0, (mask.size+7)//8), 'Diagnostic prepass shape differs')
                 uncovered = np.unpackbits(packed, bitorder='little')[:mask.size].reshape(mask.shape).astype(bool) if len(packed) else None
-                pixels = _seed_pixels(mask, 1000, uncovered, settings.worker.coverage_uncovered_ratio, settings.worker.coverage_sampling)
+                pixels = _seed_pixels(mask, 1000, uncovered, settings.worker.coverage_uncovered_ratio, settings.worker.coverage_sampling, settings.worker.seed_distribution)
                 index = np.searchsorted(np.flatnonzero(mask), pixels)
                 selected_means.append(points[index])
                 origins.append(np.full(len(pixels), frame_id, dtype='i8'))

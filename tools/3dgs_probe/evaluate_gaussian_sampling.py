@@ -90,6 +90,7 @@ def normalized_training_options(report):
     """Supply only the known historical method default, preserving other types."""
     options = dict(report['training_options'])
     options.setdefault('coverage_sampling', 'resample')
+    options.setdefault('seed_distribution', 'flat')
     return options
 
 

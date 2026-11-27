@@ -163,9 +163,11 @@ class TraceModel(OnlineGaussianModel):
         tracked = view['keyframe_id'] == self.tracked_id
         if tracked:
             mask = _depth_candidates(view)
-            uniform = _evenly_spaced(np.flatnonzero(mask), min(int(mask.sum()), _MAX_PER_VIEW))
+            uniform = _seed_pixels(mask, _MAX_PER_VIEW, None, self.options.coverage_uncovered_ratio,
+                                   self.options.coverage_sampling, self.options.seed_distribution)
             selected = _seed_pixels(mask, _MAX_PER_VIEW, self.uncovered,
-                                   self.options.coverage_uncovered_ratio, self.options.coverage_sampling)
+                                   self.options.coverage_uncovered_ratio, self.options.coverage_sampling,
+                                   self.options.seed_distribution)
             self.selected_pixels = selected.copy()
             self.pixels = np.union1d(uniform, selected)
             self.uniform, self.selected = np.isin(self.pixels, uniform), np.isin(self.pixels, selected)

@@ -30,6 +30,7 @@ class WorkerOptions:
     learning_rates: LearningRates = LearningRates()
     coverage_uncovered_ratio: float = 0.5
     coverage_sampling: str = 'resample'
+    seed_distribution: str = 'flat'
 
 
 DEFAULT_WORKER_OPTIONS = WorkerOptions()
@@ -75,6 +76,12 @@ def validate_coverage_sampling(value):
     return value
 
 
+def validate_seed_distribution(value):
+    if not isinstance(value, str) or value not in ('flat', 'stratified'):
+        raise ValueError('gaussian.worker.seed_distribution must be flat or stratified')
+    return value
+
+
 def load_worker_config(path):
     try:
         import yaml
@@ -117,6 +124,7 @@ def load_worker_config(path):
     uncovered_ratio = validate_coverage_uncovered_ratio(
         worker.get('coverage_uncovered_ratio', defaults.coverage_uncovered_ratio))
     sampling = validate_coverage_sampling(worker.get('coverage_sampling', defaults.coverage_sampling))
+    distribution = validate_seed_distribution(worker.get('seed_distribution', defaults.seed_distribution))
     rate_name = f"{name}.learning_rates"
     rates = _mapping(worker.get("learning_rates", {}), rate_name)
     rate_keys = [field.name for field in fields(LearningRates)]
@@ -133,5 +141,6 @@ def load_worker_config(path):
             depth_loss_weight=depth_weight, learning_rates=learning_rates,
             coverage_uncovered_ratio=uncovered_ratio,
             coverage_sampling=sampling,
+            seed_distribution=distribution,
         ),
     )

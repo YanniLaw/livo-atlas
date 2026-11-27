@@ -30,6 +30,7 @@ gaussian:
   # Python worker settings. Device indices are relative to CUDA_VISIBLE_DEVICES.
   worker:
     seed_policy: uniform  # coverage requires persistent submaps
+    seed_distribution: flat  # stratified balances point quotas across image cells
     # Maximum fraction of the seed budget reserved for uncovered depth pixels.
     # Only affects coverage; 0 uses uniform initialization without a prepass.
     coverage_uncovered_ratio: 0.5

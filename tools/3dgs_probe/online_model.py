@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from gaussian_state import GaussianState, _metadata, _pose, _unsigned, validate_state
-from train import (_ALPHA_THRESHOLD, _depth_candidates, _evenly_spaced, _render_view,
+from train import (_ALPHA_THRESHOLD, _depth_candidates, _seed_pixels, _render_view,
                    _replacement_seed_count, _reserved_seed_count,
                    create_parameters, initialize_gaussians, masked_losses)
 from worker_config import DEFAULT_SEED_POLICY, DEFAULT_WORKER_OPTIONS, SEED_POLICIES
@@ -240,7 +240,8 @@ class OnlineGaussianModel:
         holes = int(uncovered.sum())
         evidence['uncovered_candidates'] = holes
         if self.options.coverage_sampling == 'replace':
-            uniform = _evenly_spaced(np.flatnonzero(candidates), min(count, _MAX_PER_VIEW))
+            uniform = _seed_pixels(candidates, _MAX_PER_VIEW, None, self.options.coverage_uncovered_ratio,
+                                   self.options.coverage_sampling, self.options.seed_distribution)
             uniform_holes = int(uncovered.ravel()[uniform].sum())
             evidence.update(uniform_uncovered=uniform_holes,
                 replaced_seeds=_replacement_seed_count(count, holes, uniform_holes,
@@ -268,7 +269,8 @@ class OnlineGaussianModel:
         # Initialization validates that depth exists before the model mutates.
         initial = initialize_gaussians([view], _MAX_PER_VIEW, uncovered_mask=uncovered,
                                       uncovered_ratio=self.options.coverage_uncovered_ratio,
-                                      coverage_sampling=self.options.coverage_sampling)
+                                      coverage_sampling=self.options.coverage_sampling,
+                                      seed_distribution=self.options.seed_distribution)
         try:
             self._append(view, initial)
             before = {name: value.detach().clone()
