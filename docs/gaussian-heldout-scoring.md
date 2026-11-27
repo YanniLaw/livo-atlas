@@ -88,6 +88,9 @@ manifest 的规范值，再与最终位姿组合。这样同一身份不会因�
 | 图像覆盖 | `alpha >= .05`，分母为全部参考有效图像像素 |
 | 深度 L1 / RMSE | 相机 z、单位米；在有效 LiDAR 标签与覆盖交集上计分，另报参考数、使用数和覆盖率 |
 
+封口后还可以从已有浮点评分复算相邻点云的支持度，以及共同覆盖区域的逐视角深度统计。
+[离线多帧深度支持评分](gaussian-depth-support.md)
+
 SSIM 依据[作者的单尺度定义](https://ece.uwaterloo.ca/~z70wang/research/ssim/)，本项目明确
 选择 RGB 均值和完整掩码窗口；并与 [scikit-image 的官方参数说明](https://scikit-image.org/docs/stable/api/skimage.metrics.html#skimage.metrics.structural_similarity)
 对应实现核对。它不是作者默认灰度/缩放流程的成绩。完美 RGB 的 PSNR 写 null 并置

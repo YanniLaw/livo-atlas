@@ -41,7 +41,7 @@ def remove_models(directory, submaps):
     path.write_text(json.dumps(report))
 
 
-def make_heldout_snapshot(root, blocks=3):
+def make_heldout_snapshot(root, blocks=3, *, write_source=None):
     directory, keyframes = make_snapshot(root, blocks=blocks)
     dataset = keyframes / 'online_submaps/dataset.yml'
     dataset.write_text('fixture: true\n')
@@ -54,12 +54,15 @@ def make_heldout_snapshot(root, blocks=3):
             for field in ('state_timestamp', 'cloud_timestamp', 'image_timestamp'):
                 view[field] += int(row['anchor_keyframe_id'])
             view['rgb'][:] = (key + 1) / 255
+            source = keyframes / 'frames' / str(key)
+            (source / 'image.png').write_bytes(('image' + str(key)).encode())
+            if write_source is None:
+                (source / 'cloud.pcd').write_bytes(('cloud' + str(key)).encode())
+            else:
+                write_source(source, view)
             views[key] = copy.deepcopy(view)
             frames.append(observation_record(view, row['submap_id'],
                                              'heldout' if key % 8 == 1 else 'train'))
-            source = keyframes / 'frames' / str(key)
-            (source / 'image.png').write_bytes(('image' + str(key)).encode())
-            (source / 'cloud.pcd').write_bytes(('cloud' + str(key)).encode())
             assets.append(dict(keyframe_id=str(key), image_sha256=hashlib.sha256(
                 (source / 'image.png').read_bytes()).hexdigest(), cloud_sha256=hashlib.sha256(
                 (source / 'cloud.pcd').read_bytes()).hexdigest(), record_sha256=hashlib.sha256(
