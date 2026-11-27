@@ -52,4 +52,4 @@ static support uses previous captured masks without training, real study uses na
 - [x] Freeze protocol and source/tool/runtime/software receipts before scoring; static support study on two queries; sequential 16 full-prefix runs, expected1880calls37600steps, disk within budget.
 - [x] Compare each distribution pair and same-distribution uniform→coverage; independently audit all assets/configs/training lineage/quotas and recompute float metrics, eight-way depth intersection and coverage retention per scene.
 - [x] Document positive/negative effects, radius/feedback/depth limits, resources/reproduction; commit/task-done audit.
-- [ ] One fresh final read-only whole-change review; Important fixed once RED→GREEN/full suite, relevant evidence revalidated; archive own scratch and keep current branch.
+- [x] One fresh final read-only whole-change review; Important fixed once RED→GREEN/full suite, relevant evidence revalidated; archive own scratch and keep current branch.

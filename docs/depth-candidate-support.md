@@ -113,6 +113,6 @@ CPU分析，report.json和counts.npz与原结果逐字节一致，反投影及�
 [设计](superpowers/specs/2026-11-27-depth-candidate-support-design.md) ·
 [实施计划](superpowers/plans/2026-11-27-depth-candidate-support.md)
 
-后续已完成[固定1000点预算的二维分层采样对照](stratified-seed-sampling.md)：435项回归、
-16次训练及独立审计通过。窗口/训练调度/学习率固定，分层提高覆盖/PSNR，但SSIM与原有覆盖
+后续已完成[固定1000点预算的二维分层采样对照](stratified-seed-sampling.md)：16次训练及独立
+审计通过，审查修正后438项回归通过。窗口/训练调度/学习率固定，分层提高覆盖/PSNR，但SSIM与原有覆盖
 保留有代价。下一项先诊断共同覆盖区域的RGB/纹理误差，暂不扩大点预算或窗口。
