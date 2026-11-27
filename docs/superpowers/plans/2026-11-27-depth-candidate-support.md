@@ -27,9 +27,9 @@
 candidate_summary(query,alpha,support)->fixed-denominator statistics;
 CLI --diagnostic-directory --map-directory --keyframes --prepare-executable --selector-executable --output.
 
-- [ ] RED tests: nonidentity backprojection/masks, >64000 points, hand-counted sampling/retention/unknown partitions and invalid subset rejection.
-- [ ] Implement bounded CPU functions and CLI; integration fixture using existing source/selector formats, no training; tests for input mutation, budget and late artifact/report mutation preventing success.
-- [ ] Focused tests and full Python/CUDA suite expected all pass/no skips; commit; task-done focused tests.
+- [x] RED tests: nonidentity backprojection/masks, >64000 points, hand-counted sampling/retention/unknown partitions and invalid subset rejection.
+- [x] Implement bounded CPU functions and CLI; integration fixture using existing source/selector formats, no training; tests for input mutation, budget and late artifact/report mutation preventing success.
+- [x] Focused tests and full Python/CUDA suite expected all pass/no skips; commit; task-done focused tests.
 
 ### Task 2: Four frozen analyses, audit and documentation
 
@@ -37,7 +37,7 @@ CLI --diagnostic-directory --map-directory --keyframes --prepare-executable --se
 local validation/depth-candidate-support-20261127.
 **Interfaces:** Task1 CLI, counts.npz, report.json and immutable previous four reports.
 
-- [ ] Freeze protocol then run four sequential CPU analyses; expect original query/selection and zero new training/rendering.
-- [ ] Independently reprepare sources, backproject candidates and recompute with bincount; verify all support maps, subset comparisons, statistics, receipts/budgets. Expected four passes.
-- [ ] Document counts/denominators/radius sensitivity and scoped conclusions; commit; task-done independent audit.
-- [ ] One fresh read-only final whole-change review; Important fixes once RED→GREEN/full suite; archive own ledger, preserve current branch/local commits.
+- [x] Freeze protocol then run four sequential CPU analyses; expect original query/selection and zero new training/rendering.
+- [x] Independently reprepare sources, backproject candidates and recompute with bincount; verify all support maps, subset comparisons, statistics, receipts/budgets. Expected four passes.
+- [x] Document counts/denominators/radius sensitivity and scoped conclusions; commit; task-done independent audit.
+- [x] One fresh read-only final whole-change review; Important fixes once RED→GREEN/full suite; archive own ledger, preserve current branch/local commits.
