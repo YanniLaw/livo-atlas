@@ -11,14 +11,16 @@ regression while preserving observed coverage and image quality in view 65.
 
 ## Task 1 — Freeze and render
 
-- [ ] Bind the old ray archive, score reports, sealed blocks, and camera controls. Freeze indices
+- [x] Bind the old ray archive, score reports, sealed blocks, and camera controls. Freeze indices
   and the opacity multiplier before generating the new results.
-- [ ] Reproduce both original renders and apply the opacity-only intervention. Save modified
+- [x] Reproduce both original renders and apply the opacity-only intervention. Save modified
   samples, coverage information, and the original and modified view 73 ray traces.
 
 ## Task 2 — Verify and record
 
-- [ ] Recompute per-view RGB, coverage, depth errors and exact ray contributions. Compare on
+- [x] Recompute per-view RGB, coverage, depth errors and exact ray contributions. Compare on
   the frozen targets and audit any lost coverage.
-- [ ] Repeat the renders and CPU comparisons, verify input and result receipts, and document
+- [x] Repeat the renders and CPU comparisons, verify input and result receipts, and document
   the measured behavior and experimental scope. Commit the report locally.
+
+[Results and reproduction](../../cbd-opacity-ablation.md)
