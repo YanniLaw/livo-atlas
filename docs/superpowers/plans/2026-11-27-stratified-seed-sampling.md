@@ -29,9 +29,9 @@ config/gaussian.yaml; tests/3dgs_probe/test_stratified_sampling.py.
 **Interfaces:** stratified_pixels(pixels,count,shape); WorkerOptions.seed_distribution='flat';
 _seed_pixels(...,seed_distribution='flat'); initialize_gaussians(...,seed_distribution='flat').
 
-- [ ] RED hand-calculated grid/quotas, skinny/sparse/saturation/invalid cases, flat equivalence and replacement positions; YAML valid/invalid/historical defaults.
-- [ ] Implement minimal NumPy allocator and parameter; same base distribution in coverage evidence/initializer/replay; normalize missing historical flat only.
-- [ ] Real CUDA zero-rate insertion/eviction, actual centers and prepass evidence; focused and full Python/CUDA expected no failures/skips; commit/task-done focused tests.
+- [x] RED hand-calculated grid/quotas, skinny/sparse/saturation/invalid cases, flat equivalence and replacement positions; YAML valid/invalid/historical defaults.
+- [x] Implement minimal NumPy allocator and parameter; same base distribution in coverage evidence/initializer/replay; normalize missing historical flat only.
+- [x] Real CUDA zero-rate insertion/eviction, actual centers and prepass evidence; focused and full Python/CUDA expected no failures/skips; commit/task-done focused tests.
 
 ### Task 2: Controlled distribution comparisons
 
@@ -39,8 +39,8 @@ _seed_pixels(...,seed_distribution='flat'); initialize_gaussians(...,seed_distri
 **Interfaces:** compare(...,allow_seed_distribution_change=False); mutually exclusive CLI flag;
 comparison_scope='seed_distribution', seed_distributions={baseline:'flat',candidate:'stratified'}.
 
-- [ ] RED accepted distribution-only pairs for uniform/coverage, implicit flat, conflicting flags, other knobs/types/aliases, legacy/default/ratio modes rejecting true changes.
-- [ ] Implement typed normalized controls and labeled diagnostics without weakening existing guards; focused/full suite expected all pass/no skips; commit/task-done focused.
+- [x] RED accepted distribution-only pairs for uniform/coverage, implicit flat, conflicting flags, other knobs/types/aliases, legacy/default/ratio modes rejecting true changes.
+- [x] Implement typed normalized controls and labeled diagnostics without weakening existing guards; focused/full suite expected all pass/no skips; commit/task-done focused.
 
 ### Task 3: Frozen static support and sixteen-run study
 
@@ -49,7 +49,7 @@ local validation/stratified-seed-sampling-20261127.
 **Interfaces:** existing evaluate_gaussian_sampling and compare CLI, frozen source/pose/config/selection receipts;
 static support uses previous captured masks without training, real study uses natural per-condition feedback.
 
-- [ ] Freeze protocol and source/tool/runtime/software receipts before scoring; static support study on two queries; sequential 16 full-prefix runs, expected1880calls37600steps, disk within budget.
-- [ ] Compare each distribution pair and same-distribution uniform→coverage; independently audit all assets/configs/training lineage/quotas and recompute float metrics, eight-way depth intersection and coverage retention per scene.
-- [ ] Document positive/negative effects, radius/feedback/depth limits, resources/reproduction; commit/task-done audit.
+- [x] Freeze protocol and source/tool/runtime/software receipts before scoring; static support study on two queries; sequential 16 full-prefix runs, expected1880calls37600steps, disk within budget.
+- [x] Compare each distribution pair and same-distribution uniform→coverage; independently audit all assets/configs/training lineage/quotas and recompute float metrics, eight-way depth intersection and coverage retention per scene.
+- [x] Document positive/negative effects, radius/feedback/depth limits, resources/reproduction; commit/task-done audit.
 - [ ] One fresh final read-only whole-change review; Important fixed once RED→GREEN/full suite, relevant evidence revalidated; archive own scratch and keep current branch.
