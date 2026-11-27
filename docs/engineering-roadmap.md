@@ -44,6 +44,9 @@ Retail 的[两对 Noetic 整包回放](noetic-stratified-additions.md)均完成�
 随后完成 [Retail 深度定位与 CBD 在线整包复验](cbd-noetic-stratified-additions.md)。
 Retail 65 号视角的互换试验定位到所属子地图 4 的模型。CBD 联合覆盖增加 0.15 个百分点，
 共同弱梯度 SSIM 增加 0.00866，共同深度 RMSE 降低 10.04 mm，封口相差约 0.04 秒。
+随后完成 [Retail 遮挡区域深度诊断](retail-depth-visibility.md)。25、65 号多帧支持的高误差
+像素上，分层补点的近层权重增加，且加权中位数使误差增大。后续用独立视角和多帧支持度
+评估近层几何与权重。
 同环境精确回归与跨环境数值对照继续分开解释；3DGS、长距离数据、ARM 实机等方向保留如下。
 
 C4c 对照基准为 `2318335`。该阶段已用 Noetic 跑通几何回环、在线高斯训练和封口的配对回放。
