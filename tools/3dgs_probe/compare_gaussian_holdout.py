@@ -99,6 +99,10 @@ def _check_seed_selection(operation, policy, has_history, seeds, *, uncovered_ra
         _require(seconds is None and holes is None and quota == 0, message)
 
 
+def _valid_frame_ids(values):
+    return isinstance(values, list) and all(type(key) is int and 0 <= key < _MAX_FRAMES for key in values)
+
+
 def _check_training(groups, baseline, candidate):
     old_groups, new_groups = baseline['submaps'], candidate['submaps']
     _require(len(groups) == len(old_groups) == len(new_groups) and len(groups) > 0,
@@ -108,6 +112,10 @@ def _check_training(groups, baseline, candidate):
         keys = group['train_ids']
         submap_id = group['submap_id']
         _require(type(submap_id) is int and submap_id >= 0 and submap_id not in counts and
+                 type(group['anchor_id']) is int and 0 <= group['anchor_id'] < _MAX_FRAMES and
+                 _valid_frame_ids(keys) and keys and keys == sorted(set(keys)) and
+                 _valid_frame_ids(group['held_out_ids']) and
+                 all(type(row['submap_id']) is int and type(row['anchor_id']) is int for row in (old, new)) and
                  submap_id == old['submap_id'] == new['submap_id'] and
                  group['anchor_id'] == old['anchor_id'] == new['anchor_id'] and
                  old['parent_from_submap'] == new['parent_from_submap'] and
@@ -118,23 +126,33 @@ def _check_training(groups, baseline, candidate):
             retained = keys[max(0, index + 1 - 10):index + 1]
             older = retained[:-1] or [key]
             schedule = [key] * 10 + [older[step % len(older)] for step in range(10)]
-            _require(a['keyframe_id'] == key and a['frame_ids'] == retained and a['steps'] == 20 and
-                     a['training_frame_ids'] == schedule and
-                     all(a[name] == b[name] for name in _TRAINING_FIELDS),
-                     f'Keyframe {key} has a different training schedule or Gaussian count')
+            for operation in (a, b):
+                _require(type(operation['keyframe_id']) is int and operation['keyframe_id'] == key and
+                         _valid_frame_ids(operation['frame_ids']) and operation['frame_ids'] == retained and
+                         type(operation['steps']) is int and operation['steps'] == 20 and
+                         _valid_frame_ids(operation['training_frame_ids']) and operation['training_frame_ids'] == schedule and
+                         type(operation['gaussian_count']) is int and operation['gaussian_count'] > 0,
+                         f'Keyframe {key} has an invalid typed training receipt')
             older_count = sum(previous_counts[frame] for frame in retained[:-1])
             seed_count = a['gaussian_count'] - older_count
             _require(type(seed_count) is int and 1 <= seed_count <= _SEED_LIMIT,
                      f'Keyframe {key} exceeds the Gaussian training budget')
             for operation, report in ((a, baseline), (b, candidate)):
+                run_seed_count = operation['gaussian_count'] - older_count
+                _require(1 <= run_seed_count <= _SEED_LIMIT and run_seed_count == seed_count,
+                         f'Keyframe {key} has a different Gaussian seed count')
                 ratio = report.get('training_options', {}).get('coverage_uncovered_ratio', .5)
-                _check_seed_selection(operation, report['seed_policy'], index > 0, seed_count,
+                _check_seed_selection(operation, report['seed_policy'], index > 0, run_seed_count,
                                       uncovered_ratio=ratio,
                                       coverage_sampling=report.get('training_options', {}).get('coverage_sampling', 'resample'))
             previous_counts[key] = seed_count
         retained = keys[-10:]
         origins = {str(key): previous_counts[key] for key in retained}
-        _require(old['retained_frame_ids'] == new['retained_frame_ids'] == retained and
+        _require(all(_valid_frame_ids(row['retained_frame_ids']) and
+                     isinstance(row['gaussian_origins'], dict) and
+                     all(type(count) is int and count > 0 for count in row['gaussian_origins'].values())
+                     for row in (old, new)) and
+                 old['retained_frame_ids'] == new['retained_frame_ids'] == retained and
                  old['gaussian_origins'] == new['gaussian_origins'] == origins,
                  f'Submap {submap_id} has different retained training origins')
         counts[submap_id] = sum(origins.values())

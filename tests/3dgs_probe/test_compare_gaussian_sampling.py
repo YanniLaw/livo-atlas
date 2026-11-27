@@ -795,5 +795,54 @@ class SamplingComparisonTest(unittest.TestCase):
             with self.subTest(old=old, new=new), self.assertRaises(ValueError):
                 compare(self.baseline, self.candidate, self.root/f'distribution-direction-{index}', allow_seed_distribution_change=True)
 
+    def test_distribution_rejects_unrelated_sampling_default_spelling_change(self):
+        import yaml
+        for omitted in (self.baseline, self.candidate):
+            self.distribution_pair()
+            for root in (self.baseline, self.candidate): self.configure_sampling(root, 'resample')
+            config = yaml.safe_load((omitted/'config.yaml').read_text())
+            config['gaussian']['worker'].pop('coverage_sampling')
+            self.archive_config(omitted, config)
+            output = self.root/('unrelated-default-'+omitted.name)
+            with self.subTest(omitted=omitted.name):
+                with self.assertRaisesRegex(ValueError, 'Other config'):
+                    compare(self.baseline, self.candidate, output, allow_seed_distribution_change=True)
+                self.assertFalse((output/'report.json').exists())
+
+    def test_distribution_rejects_untyped_training_receipts_on_either_side(self):
+        changes = dict(keyframe_id=False, frame_ids=[False], training_frame_ids=[False]*20,
+                       steps=20., gaussian_count=True, retained_frame_ids=[False],
+                       gaussian_origins={'0': True}, submap_id=False, anchor_id=False)
+        for side in ('baseline', 'candidate'):
+            for field, value in changes.items():
+                self.distribution_pair()
+                root = getattr(self, side)
+                path = root/'report.json'
+                report = json.loads(path.read_text())
+                group = report['submaps'][0]
+                target = group if field in ('retained_frame_ids', 'gaussian_origins', 'submap_id', 'anchor_id') else group['training'][0]
+                target[field] = value
+                path.write_text(json.dumps(report))
+                output = self.root/f'typed-{side}-{field}'
+                with self.subTest(side=side, field=field):
+                    with self.assertRaises(ValueError):
+                        compare(self.baseline, self.candidate, output, allow_seed_distribution_change=True)
+                    self.assertFalse((output/'report.json').exists())
+
+    def test_distribution_rejects_identical_untyped_frozen_group_ids(self):
+        for field, value in dict(anchor_id=False, train_ids=[False], held_out_ids=[True]).items():
+            self.distribution_pair()
+            for root in (self.baseline, self.candidate):
+                path = root/'report.json'
+                report = json.loads(path.read_text())
+                report['groups'][0][field] = value
+                path.write_text(json.dumps(report))
+            output = self.root/f'typed-group-{field}'
+            with self.subTest(field=field):
+                with self.assertRaises(ValueError):
+                    compare(self.baseline, self.candidate, output, allow_seed_distribution_change=True)
+                self.assertFalse((output/'report.json').exists())
+
+
 if __name__ == '__main__':
     unittest.main()

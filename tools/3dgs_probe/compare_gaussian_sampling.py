@@ -268,7 +268,7 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
             worker = dict(document['gaussian'].get('worker', {}))
             document['gaussian']['worker'] = worker
             configurations[index] = document
-            if parameter is None:
+            if allow_coverage_ratio_change or allow_coverage_sampling_change:
                 worker.setdefault('coverage_sampling', 'resample')
                 options[index].setdefault('coverage_sampling', 'resample')
             if allow_seed_distribution_change:
