@@ -113,6 +113,7 @@ CPU分析，report.json和counts.npz与原结果逐字节一致，反投影及�
 [设计](superpowers/specs/2026-11-27-depth-candidate-support-design.md) ·
 [实施计划](superpowers/plans/2026-11-27-depth-candidate-support.md)
 
-下一项建议：先做**固定1000点预算的二维分层采样对照**，保持窗口/训练调度/学习率不变，
+下一项已开始：[固定1000点预算的二维分层采样对照](stratified-seed-sampling.md)，
+实现与435项回归已通过，完整实验当前4/16、等待显存恢复；保持窗口/训练调度/学习率不变，
 只用训练视角分层选点，对照当前扁平像素均匀采样与coverage替换；先核对采样空间支持，再做
 双场景同种子前缀训练，验收SSIM/RGB、共同深度、覆盖和资源。是否扩大预算或窗口留待该干预结果。
