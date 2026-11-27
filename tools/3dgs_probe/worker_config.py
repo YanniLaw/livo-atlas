@@ -76,9 +76,11 @@ def validate_coverage_sampling(value):
     return value
 
 
-def validate_seed_distribution(value):
-    if not isinstance(value, str) or value not in ('flat', 'stratified'):
-        raise ValueError('gaussian.worker.seed_distribution must be flat or stratified')
+def validate_seed_distribution(value, *, coverage_sampling='resample'):
+    if not isinstance(value, str) or value not in ('flat', 'stratified', 'stratified_additions'):
+        raise ValueError('gaussian.worker.seed_distribution must be flat, stratified or stratified_additions')
+    if value == 'stratified_additions' and coverage_sampling != 'replace':
+        raise ValueError('stratified_additions requires gaussian.worker.coverage_sampling: replace')
     return value
 
 
@@ -124,7 +126,8 @@ def load_worker_config(path):
     uncovered_ratio = validate_coverage_uncovered_ratio(
         worker.get('coverage_uncovered_ratio', defaults.coverage_uncovered_ratio))
     sampling = validate_coverage_sampling(worker.get('coverage_sampling', defaults.coverage_sampling))
-    distribution = validate_seed_distribution(worker.get('seed_distribution', defaults.seed_distribution))
+    distribution = validate_seed_distribution(worker.get('seed_distribution', defaults.seed_distribution),
+                                              coverage_sampling=sampling)
     rate_name = f"{name}.learning_rates"
     rates = _mapping(worker.get("learning_rates", {}), rate_name)
     rate_keys = [field.name for field in fields(LearningRates)]

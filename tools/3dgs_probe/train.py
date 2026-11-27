@@ -65,10 +65,11 @@ def _replacement_seed_count(candidates, uncovered, uniform_uncovered, limit, rat
 
 
 def _seed_pixels(mask, limit, uncovered_mask, uncovered_ratio, coverage_sampling, seed_distribution='flat'):
-    distribution = validate_seed_distribution(seed_distribution)
+    distribution = validate_seed_distribution(seed_distribution, coverage_sampling=coverage_sampling)
+
     def sample(pixels, size):
-        return (_evenly_spaced(pixels, size) if distribution == 'flat' else
-                stratified_pixels(pixels, size, mask.shape))
+        return (stratified_pixels(pixels, size, mask.shape) if distribution == 'stratified' else
+                _evenly_spaced(pixels, size))
 
     valid = np.flatnonzero(mask)
     count = min(valid.size, limit)
@@ -86,7 +87,9 @@ def _seed_pixels(mask, limit, uncovered_mask, uncovered_ratio, coverage_sampling
             # not a guarantee that removing these seeds cannot hurt texture.
             removed = sample(covered, quota)
             kept = np.setdiff1d(uniform, removed, assume_unique=True)
-            return np.sort(np.concatenate((kept, sample(additions, quota))))
+            added = (stratified_pixels(additions, quota, mask.shape) if distribution == 'stratified_additions' else
+                     sample(additions, quota))
+            return np.sort(np.concatenate((kept, added)))
         quota = _reserved_seed_count(valid.size, holes.size, limit, uncovered_ratio)
         if quota:
             reserved = sample(holes, quota)
@@ -102,7 +105,7 @@ def initialize_gaussians(train_views, max_per_view, *, uncovered_mask=None, unco
         raise ValueError("max_per_view must be a positive integer")
     uncovered_ratio = validate_coverage_uncovered_ratio(uncovered_ratio)
     coverage_sampling = validate_coverage_sampling(coverage_sampling)
-    seed_distribution = validate_seed_distribution(seed_distribution)
+    seed_distribution = validate_seed_distribution(seed_distribution, coverage_sampling=coverage_sampling)
     order = _training_ids(train_views)
     if uncovered_mask is not None and len(order) != 1:
         raise ValueError("uncovered_mask requires exactly one training view")

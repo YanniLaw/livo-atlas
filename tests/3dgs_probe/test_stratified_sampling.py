@@ -59,6 +59,30 @@ class StratifiedSamplingTest(unittest.TestCase):
                     self.assertEqual(len(selected), 4)
                     self.assertEqual(len(np.unique(selected)), 4)
 
+    def test_only_additions_are_stratified(self):
+        mask = np.ones((4, 4), bool)
+        holes = np.zeros_like(mask)
+        holes[0] = True
+        np.testing.assert_array_equal(_seed_pixels(mask, 4, holes, .5, 'replace'), [0, 1, 2, 12])
+        selected = _seed_pixels(mask, 4, holes, .5, 'replace', 'stratified_additions')
+        np.testing.assert_array_equal(selected, [0, 1, 3, 12])
+        for limit, uncovered, ratio in ((4, None, .5), (4, holes, 0.), (4, mask, .5), (16, holes, .5)):
+            with self.subTest(limit=limit, ratio=ratio, uncovered=uncovered):
+                selected = _seed_pixels(mask, limit, uncovered, ratio, 'replace', 'stratified_additions')
+                np.testing.assert_array_equal(selected, _seed_pixels(mask, limit, None, ratio, 'replace'))
+        with self.assertRaisesRegex(ValueError, 'requires.*replace'):
+            _seed_pixels(mask, 4, holes, .5, 'resample', 'stratified_additions')
+
+    def test_stratified_additions_config_requires_replace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'config.yaml'
+            path.write_text('gaussian:\n  worker:\n    seed_distribution: stratified_additions\n')
+            with self.assertRaisesRegex(ValueError, 'requires.*replace'):
+                load_worker_config(path)
+            with path.open('a') as stream:
+                stream.write('    coverage_sampling: replace\n')
+            self.assertEqual(load_worker_config(path).options.seed_distribution, 'stratified_additions')
+
     def test_yaml_defaults_and_invalid_distributions(self):
         self.assertEqual(load_worker_config(DEFAULT_CONFIG).options.seed_distribution, 'flat')
         with tempfile.TemporaryDirectory() as temporary:

@@ -287,9 +287,12 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
                          'Reduced learning rate must remain positive and decrease')
         elif allow_seed_distribution_change:
             distributions = dict(zip(('baseline', 'candidate'), (values['seed_distribution'] for values in options)))
-            _require(a['seed_policy'] == b['seed_policy'] and a['seed_policy'] in ('uniform', 'coverage') and
-                     distributions == {'baseline': 'flat', 'candidate': 'stratified'},
-                     'Distribution comparison requires the same policy, flat then stratified')
+            same_policy = a['seed_policy'] == b['seed_policy'] and a['seed_policy'] in ('uniform', 'coverage')
+            additions = (distributions['candidate'] == 'stratified_additions' and a['seed_policy'] == 'coverage'
+                         and all(values['coverage_sampling'] == 'replace' for values in options))
+            _require(same_policy and distributions['baseline'] == 'flat'
+                     and (distributions['candidate'] == 'stratified' or additions),
+                     'Expected flat to stratified with the same policy, or flat to stratified_additions with coverage/replace')
             varied_key = 'seed_distribution'
         elif allow_coverage_sampling_change:
             samplings = dict(zip(('baseline', 'candidate'), (values['coverage_sampling'] for values in options)))
@@ -377,7 +380,7 @@ def compare(baseline, candidate, output, *, allow_coverage_ratio_change=False,
     elif reduced_learning_rate is not None:
         labels = tuple(f'{parameter} lr {learning_rates[side]:g}' for side in ('baseline', 'candidate'))
     elif allow_seed_distribution_change:
-        labels = ('flat', 'stratified')
+        labels = (distributions['baseline'], distributions['candidate'])
     elif allow_coverage_sampling_change:
         labels = ('resample', 'replace')
     elif allow_coverage_ratio_change:

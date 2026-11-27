@@ -743,6 +743,21 @@ class SamplingComparisonTest(unittest.TestCase):
             self.assertEqual(report['seed_distributions'], dict(baseline='flat', candidate='stratified'))
             self.assertEqual(report['training_calls'], 10)
 
+    def test_additions_comparison_requires_flat_coverage_and_replace(self):
+        self.distribution_pair()
+        self.configure_distribution(self.candidate, 'stratified_additions')
+        report = compare(self.baseline, self.candidate, self.root / 'coverage-additions',
+                         allow_seed_distribution_change=True)
+        self.assertEqual(report['seed_distributions'], dict(baseline='flat', candidate='stratified_additions'))
+        for policy, original in (('uniform', 'flat'), ('coverage', 'stratified')):
+            self.distribution_pair(policy)
+            self.configure_distribution(self.baseline, original)
+            self.configure_distribution(self.candidate, 'stratified_additions')
+            output = self.root / f'bad-additions-{policy}'
+            with self.subTest(policy=policy), self.assertRaises(ValueError):
+                compare(self.baseline, self.candidate, output, allow_seed_distribution_change=True)
+            self.assertFalse(output.exists())
+
     def test_distribution_mode_rejects_other_knobs_types_aliases_and_missing_archives(self):
         import yaml
         for case in ('ratio', 'rate', 'policy', 'type', 'alias', 'archive', 'lying-legacy'):
